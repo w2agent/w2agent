@@ -1,5 +1,7 @@
 # w2agent Check Reference
 
+47 checks across 6 categories + platform-specific checks.
+
 ## Bot Accessibility (20%)
 
 | Check | ID | What it measures |
@@ -69,3 +71,41 @@
 | Mobile viewport | `mobile-viewport` | Viewport meta tag |
 | UTF-8 charset | `charset-utf8` | UTF-8 declared |
 | No JS dependency | `no-js-dependency` | Content accessible without JS |
+
+---
+
+## Platform-Specific Checks
+
+These checks run automatically when a platform is detected.
+
+### WordPress (4 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| REST API Accessible | `wp-rest-api-accessible` | Is `/wp-json/wp/v2/` reachable? |
+| Security Plugin Bot Blocking | `wp-security-blocking-bots` | Wordfence/Sucuri/iThemes blocking AI bots? |
+| Robots.txt AI Bot Rules | `wp-robots-default-blocking` | Does WP robots.txt block AI crawlers? |
+| Page Builder Markup | `wp-page-builder-soup` | Elementor/Divi/WPBakery div-heavy markup hurting parsability? |
+
+### Next.js (3 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| .well-known Serving | `nextjs-well-known-served` | Does Next.js serve `.well-known/` correctly? |
+| Static Generation | `nextjs-static-generation` | Are pages statically generated (fast for AI crawlers)? |
+| Metadata API | `nextjs-metadata-api` | Is `generateMetadata` used for consistent SEO? |
+
+### Shopify (3 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| Robots.txt Customizable | `shopify-robots-editable` | Does the store use `robots.txt.liquid` (Shopify 2.0+)? |
+| Product Schema | `shopify-product-schema` | Do product pages have Product JSON-LD with price/availability? |
+| Theme App Blocks | `shopify-theme-app-blocks` | Does the theme support Online Store 2.0 app blocks? |
+
+### Docusaurus (2 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| Sidebar Coverage | `docusaurus-sidebar-coverage` | Does sidebar cover all docs? |
+| Versioned Docs | `docusaurus-versioned-docs` | Are versioned docs discoverable? |

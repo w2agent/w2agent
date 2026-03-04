@@ -173,7 +173,7 @@ Agents use 5 discovery mechanisms: search APIs, .well-known endpoints, MCP regis
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 10.1 | **CLI tool** | `w2agent init`, `w2agent generate`, `w2agent serve`, `w2agent audit` | ✅ audit + generate shipped |
+| 10.1 | **CLI tool** | `w2agent init`, `w2agent generate`, `w2agent serve`, `w2agent audit`, `w2agent integrate` | ✅ audit + generate + integrate shipped |
 | 10.2 | **Config file** | `w2agent.config.yaml` — define site type, modules, credentials, customization |
 | 10.3 | **Plugin system** | Extensible architecture for custom site types, output formats, integrations |
 | 10.4 | **CI/CD integration** | GitHub Actions / GitLab CI to regenerate agent assets on deploy |
@@ -269,11 +269,11 @@ Each module pre-configures the right mix of features for a specific site type.
 
 | Platform | Delivery | Notes |
 |----------|----------|-------|
-| **Any website** | CLI tool | Universal. Crawls URL, generates assets. |
-| **WordPress** | Plugin | Hook into template_redirect for content negotiation. WooCommerce extension for UCP/ACP. |
-| **Shopify** | App | Audit/optimization + content-side features. Bridge for non-Plus merchants. |
-| **Next.js** | npm package + middleware | Edge-compatible content negotiation + build plugin for static generation. |
-| **Docusaurus/VitePress/Astro** | Build plugin | Build-time generation. Needs proxy for content negotiation. |
+| **Any website** | CLI tool | Universal. Crawls URL, generates assets. | ✅ Shipped |
+| **WordPress** | Plugin | Dynamic llms.txt from WP database, admin page, robots.txt filter, auto-detection. | ✅ Shipped |
+| **Next.js** | Route handlers + middleware | ISR route handlers, content negotiation middleware, build script for CI/CD. | ✅ Shipped |
+| **Shopify** | Liquid snippets | Liquid head snippet with Product JSON-LD, robots.txt.liquid, auto-detection. | ✅ Shipped |
+| **Docusaurus** | Build plugin | Build-time llms.txt generation from docs directory, auto-detection. | ✅ Shipped |
 | **Webflow** | App or proxy | Content negotiation at same URLs, structured data injection. |
 | **Universal proxy** | Reverse proxy | Caddy/Nginx plugin or standalone binary. Any origin. Self-hostable. |
 | **CDN edge** | Worker/middleware | Cloudflare Worker or Vercel Edge. Zero infrastructure. |
@@ -300,11 +300,11 @@ Each module pre-configures the right mix of features for a specific site type.
 9. MCP server generation from site content/API
 10. Chat with website (embeddable RAG widget)
 11. SKILL.md generation
-12. A2A Agent Card at `/.well-known/agent-card.json`
-13. Content negotiation middleware (serve markdown to AI user-agents)
-14. FAQ extraction + FAQPage schema
-15. Platform adapters: WordPress plugin, Next.js middleware, Docusaurus plugin
-16. `<link rel="alternate" type="text/markdown">` auto-discovery
+12. A2A Agent Card at `/.well-known/agent-card.json` ✅ Shipped
+13. Content negotiation middleware (serve markdown to AI user-agents) ✅ Shipped (Next.js adapter)
+14. FAQ extraction + FAQPage schema ✅ Shipped
+15. Platform adapters: WordPress plugin, Next.js middleware, Docusaurus plugin, Shopify snippets ✅ Shipped
+16. `<link rel="alternate" type="text/markdown">` auto-discovery ✅ Shipped (all adapters)
 
 ### V2 — "Monetization + Commerce + Scale"
 

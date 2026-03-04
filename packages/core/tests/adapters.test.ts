@@ -1,0 +1,473 @@
+import { describe, it, expect } from "vitest";
+import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
+import type { GenerateContext, GeneratedFile } from "../src/generate/types.js";
+import { detectPlatform, getAdapter, allAdapters } from "../src/adapters/registry.js";
+import { wordpressAdapter } from "../src/adapters/wordpress/index.js";
+import { nextjsAdapter } from "../src/adapters/nextjs/index.js";
+import { shopifyAdapter } from "../src/adapters/shopify/index.js";
+import { docusaurusAdapter } from "../src/adapters/docusaurus/index.js";
+
+// Ensure adapters are registered
+import "../src/adapters/index.js";
+
+function makePage(html: string, url = "https://example.com", headers: Record<string, string> = {}): FetchedPage {
+  return { url, status: 200, html, headers: { "content-type": "text/html", ...headers }, responseTime: 100 };
+}
+
+const baseMeta: SiteMetadata = {
+  baseUrl: "https://example.com",
+  wellKnown: {},
+};
+
+function makeCtx(pages: FetchedPage[] = [], baseUrl = "https://example.com"): GenerateContext {
+  return { pages: [], rawPages: pages, metadata: baseMeta, baseUrl };
+}
+
+function makeCoreFiles(): GeneratedFile[] {
+  return [
+    { filename: "llms.txt", content: "# Example\n\n> A test site\n", size: 25 },
+    { filename: "llms-full.txt", content: "# Full content\n", size: 16 },
+    { filename: "robots.txt", content: "User-agent: *\nAllow: /\n", size: 23 },
+    { filename: "agent-card.json", content: '{"name":"Example"}', size: 18 },
+  ];
+}
+
+// ─── Registry ───────────────────────────────────────────────────
+
+describe("adapter registry", () => {
+  it("has all 4 adapters registered", () => {
+    expect(allAdapters()).toHaveLength(4);
+  });
+
+  it("can retrieve each adapter by ID", () => {
+    expect(getAdapter("wordpress")).toBe(wordpressAdapter);
+    expect(getAdapter("nextjs")).toBe(nextjsAdapter);
+    expect(getAdapter("shopify")).toBe(shopifyAdapter);
+    expect(getAdapter("docusaurus")).toBe(docusaurusAdapter);
+  });
+
+  it("returns undefined for unknown platform", () => {
+    expect(getAdapter("rails" as any)).toBeUndefined();
+  });
+});
+
+// ─── WordPress Detection ────────────────────────────────────────
+
+describe("WordPress detection", () => {
+  it("detects via generator meta tag (confidence 1.0)", () => {
+    const page = makePage('<html><head><meta name="generator" content="WordPress 6.4.2"></head><body></body></html>');
+    const result = wordpressAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("wordpress");
+    expect(result!.confidence).toBe(1.0);
+    expect(result!.version).toBe("6.4.2");
+  });
+
+  it("detects via wp-content paths (confidence 0.95)", () => {
+    const page = makePage('<html><body><link rel="stylesheet" href="/wp-content/themes/test/style.css"></body></html>');
+    const result = wordpressAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via wp-json link (confidence 0.85)", () => {
+    const page = makePage('<html><head></head><body></body></html>', "https://example.com", {
+      link: '<https://example.com/wp-json/>; rel="https://api.w.org/"',
+    });
+    const result = wordpressAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.85);
+  });
+
+  it("returns null for non-WordPress site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = wordpressAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── Next.js Detection ──────────────────────────────────────────
+
+describe("Next.js detection", () => {
+  it("detects via __NEXT_DATA__ (confidence 1.0)", () => {
+    const page = makePage('<html><body><script id="__NEXT_DATA__" type="application/json">{"props":{}}</script></body></html>');
+    const result = nextjsAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("nextjs");
+    expect(result!.confidence).toBe(1.0);
+  });
+
+  it("detects via _next/static assets (confidence 0.95)", () => {
+    const page = makePage('<html><head><link rel="preload" href="/_next/static/chunks/main.js"></head><body></body></html>');
+    const result = nextjsAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via x-powered-by header (confidence 0.95)", () => {
+    const page = makePage("<html><body></body></html>", "https://example.com", {
+      "x-powered-by": "Next.js",
+    });
+    const result = nextjsAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("returns null for non-Next.js site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = nextjsAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── Shopify Detection ──────────────────────────────────────────
+
+describe("Shopify detection", () => {
+  it("detects via cdn.shopify.com (confidence 0.95)", () => {
+    const page = makePage('<html><body><img src="https://cdn.shopify.com/s/files/1/image.jpg"></body></html>');
+    const result = shopifyAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("shopify");
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via Shopify headers (confidence 0.95)", () => {
+    const page = makePage("<html><body></body></html>", "https://example.com", {
+      "x-shopify-stage": "production",
+    });
+    const result = shopifyAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via myshopify.com domain (confidence 0.9)", () => {
+    const page = makePage("<html><body></body></html>", "https://mystore.myshopify.com");
+    const result = shopifyAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.9);
+  });
+
+  it("returns null for non-Shopify site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = shopifyAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── Docusaurus Detection ───────────────────────────────────────
+
+describe("Docusaurus detection", () => {
+  it("detects via generator meta tag (confidence 1.0)", () => {
+    const page = makePage('<html><head><meta name="generator" content="Docusaurus v3.1.0"></head><body></body></html>');
+    const result = docusaurusAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("docusaurus");
+    expect(result!.confidence).toBe(1.0);
+    expect(result!.version).toBe("3.1.0");
+  });
+
+  it("detects via html class (confidence 0.95)", () => {
+    const page = makePage('<html class="docusaurus-something" lang="en"><body></body></html>');
+    const result = docusaurusAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via docusaurus DOM elements (confidence 0.9)", () => {
+    const page = makePage('<html><body><div class="docusaurus-content">Docs</div></body></html>');
+    const result = docusaurusAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.9);
+  });
+
+  it("returns null for non-Docusaurus site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = docusaurusAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── detectPlatform (registry-level) ────────────────────────────
+
+describe("detectPlatform", () => {
+  it("returns null for generic site", () => {
+    const page = makePage("<html><body>Hello world</body></html>");
+    const result = detectPlatform([page], baseMeta);
+    expect(result).toBeNull();
+  });
+
+  it("returns highest confidence when multiple signals present", () => {
+    const page = makePage(
+      '<html><head><meta name="generator" content="WordPress 6.5"></head>' +
+      '<body><script id="__NEXT_DATA__">{}</script></body></html>',
+    );
+    const result = detectPlatform([page], baseMeta);
+    expect(result).not.toBeNull();
+    // Both WordPress and Next.js are 1.0 confidence — either is acceptable
+    expect(["wordpress", "nextjs"]).toContain(result!.platform);
+    expect(result!.confidence).toBe(1.0);
+  });
+
+  it("picks WordPress for typical WP page", () => {
+    const page = makePage(
+      '<html><head><meta name="generator" content="WordPress 6.4"></head>' +
+      '<body><link rel="stylesheet" href="/wp-content/themes/astra/style.css"></body></html>',
+    );
+    const result = detectPlatform([page], baseMeta);
+    expect(result!.platform).toBe("wordpress");
+  });
+});
+
+// ─── WordPress Checks ───────────────────────────────────────────
+
+describe("WordPress checks", () => {
+  it("has 4 checks", () => {
+    expect(wordpressAdapter.checks).toHaveLength(4);
+  });
+
+  it("all checks return valid results", async () => {
+    const page = makePage('<html><head><meta name="generator" content="WordPress 6.4"></head><body></body></html>');
+    for (const check of wordpressAdapter.checks) {
+      const result = await check.run([page], baseMeta);
+      expect(result.id).toBe(check.id);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+      expect(result.maxScore).toBe(100);
+      expect(["pass", "fail", "partial", "skip"]).toContain(result.status);
+    }
+  });
+
+  it("wp-rest-api-accessible passes when wp-json link present", () => {
+    const check = wordpressAdapter.checks.find(c => c.id === "wp-rest-api-accessible")!;
+    const page = makePage('<html><body><link rel="https://api.w.org/" href="/wp-json/"></body></html>');
+    const result = check.run([page], baseMeta);
+    expect((result as any).status).toBe("pass");
+  });
+
+  it("wp-robots-default-blocking passes when no AI bots blocked", () => {
+    const check = wordpressAdapter.checks.find(c => c.id === "wp-robots-default-blocking")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: *\nAllow: /\n" };
+    const result = check.run([], meta);
+    expect((result as any).status).toBe("pass");
+  });
+
+  it("wp-robots-default-blocking fails when AI bots blocked", () => {
+    const check = wordpressAdapter.checks.find(c => c.id === "wp-robots-default-blocking")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: GPTBot\nDisallow: /\nUser-agent: ClaudeBot\nDisallow: /\n" };
+    const result = check.run([], meta);
+    expect((result as any).status).toBe("fail");
+  });
+});
+
+// ─── Next.js Checks ─────────────────────────────────────────────
+
+describe("Next.js checks", () => {
+  it("has 3 checks", () => {
+    expect(nextjsAdapter.checks).toHaveLength(3);
+  });
+
+  it("all checks return valid results", async () => {
+    const page = makePage('<html><body><script id="__NEXT_DATA__">{}</script></body></html>');
+    for (const check of nextjsAdapter.checks) {
+      const result = await check.run([page], baseMeta);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+    }
+  });
+});
+
+// ─── Shopify Checks ─────────────────────────────────────────────
+
+describe("Shopify checks", () => {
+  it("has 3 checks", () => {
+    expect(shopifyAdapter.checks).toHaveLength(3);
+  });
+
+  it("shopify-product-schema skips when no product pages", () => {
+    const check = shopifyAdapter.checks.find(c => c.id === "shopify-product-schema")!;
+    const page = makePage("<html><body>Homepage</body></html>");
+    const result = check.run([page], baseMeta);
+    expect((result as any).status).toBe("skip");
+  });
+
+  it("shopify-product-schema passes with Product JSON-LD", () => {
+    const check = shopifyAdapter.checks.find(c => c.id === "shopify-product-schema")!;
+    const page = makePage(
+      '<html><body><script type="application/ld+json">{"@type":"Product","name":"Test"}</script></body></html>',
+      "https://example.com/products/test-product",
+    );
+    const result = check.run([page], baseMeta);
+    expect((result as any).status).toBe("pass");
+  });
+});
+
+// ─── Docusaurus Checks ──────────────────────────────────────────
+
+describe("Docusaurus checks", () => {
+  it("has 2 checks", () => {
+    expect(docusaurusAdapter.checks).toHaveLength(2);
+  });
+
+  it("docusaurus-versioned-docs skips when no versioned docs", () => {
+    const check = docusaurusAdapter.checks.find(c => c.id === "docusaurus-versioned-docs")!;
+    const page = makePage("<html><body>Simple docs</body></html>");
+    const result = check.run([page], baseMeta);
+    expect((result as any).status).toBe("skip");
+  });
+});
+
+// ─── Integration File Generation ────────────────────────────────
+
+describe("WordPress integration generation", () => {
+  it("generates 5 files", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(5);
+  });
+
+  it("generates valid PHP plugin", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const plugin = files.find(f => f.filename === "wordpress/w2agent-plugin.php");
+    expect(plugin).toBeDefined();
+    expect(plugin!.content).toContain("<?php");
+    expect(plugin!.content).toContain("Plugin Name: w2agent");
+    expect(plugin!.content).toContain("w2agent_generate_llms_txt");
+    expect(plugin!.content).toContain("template_redirect");
+    expect(plugin!.content).toContain("robots_txt");
+    expect(plugin!.content).toContain("wp_head");
+  });
+
+  it("generates dynamic WP plugin (queries database)", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const plugin = files.find(f => f.filename === "wordpress/w2agent-plugin.php");
+    expect(plugin!.content).toContain("get_posts");
+    expect(plugin!.content).toContain("w2agent_generate_llms_txt");
+    expect(plugin!.content).toContain("save_post");
+    expect(plugin!.content).toContain("admin_menu");
+  });
+
+  it("includes INSTALL.md", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const install = files.find(f => f.filename === "wordpress/INSTALL.md");
+    expect(install).toBeDefined();
+    expect(install!.content).toContain("Dynamically generated");
+  });
+
+  it("includes seed data files", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const filenames = files.map(f => f.filename);
+    expect(filenames).toContain("wordpress/data/llms.txt");
+    expect(filenames).toContain("wordpress/data/agent-card.json");
+    expect(filenames).toContain("wordpress/data/robots-rules.txt");
+  });
+});
+
+describe("Next.js integration generation", () => {
+  it("generates 8 files", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(8);
+  });
+
+  it("generates ISR route handlers (not just static files)", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const llmsRoute = files.find(f => f.filename === "nextjs/app/llms.txt/route.ts");
+    expect(llmsRoute).toBeDefined();
+    expect(llmsRoute!.content).toContain("revalidate");
+    expect(llmsRoute!.content).toContain("export async function GET");
+    expect(llmsRoute!.content).toContain("s-maxage=3600");
+  });
+
+  it("generates middleware with content negotiation", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const mw = files.find(f => f.filename === "nextjs/middleware.ts");
+    expect(mw).toBeDefined();
+    expect(mw!.content).toContain("text/markdown");
+    expect(mw!.content).toContain("NextResponse.rewrite");
+  });
+
+  it("generates build script for CI/CD", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const build = files.find(f => f.filename === "nextjs/w2agent-build.mjs");
+    expect(build).toBeDefined();
+    expect(build!.content).toContain("execFileSync");
+    expect(build!.content).toContain("w2agent");
+  });
+
+  it("includes static seed files", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const filenames = files.map(f => f.filename);
+    expect(filenames).toContain("nextjs/public/llms.txt");
+    expect(filenames).toContain("nextjs/public/llms-full.txt");
+  });
+});
+
+describe("Shopify integration generation", () => {
+  it("generates 5 files", () => {
+    const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(5);
+  });
+
+  it("generates Liquid snippet with dynamic product data", () => {
+    const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const snippet = files.find(f => f.filename === "shopify/snippets/w2agent-head.liquid");
+    expect(snippet).toBeDefined();
+    expect(snippet!.content).toContain("{{ product.title");
+    expect(snippet!.content).toContain("{{ product.price");
+    expect(snippet!.content).toContain("product.available");
+  });
+
+  it("generates robots.txt.liquid template", () => {
+    const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const robots = files.find(f => f.filename === "shopify/templates/robots.txt.liquid");
+    expect(robots).toBeDefined();
+    expect(robots!.content).toContain("{{ shop.url }}");
+    expect(robots!.content).toContain("Disallow: /checkout");
+  });
+});
+
+describe("Docusaurus integration generation", () => {
+  it("generates 4 files", () => {
+    const files = docusaurusAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(4);
+  });
+
+  it("generates build plugin that reads from docs directory", () => {
+    const files = docusaurusAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const plugin = files.find(f => f.filename === "docusaurus/w2agent-plugin.js");
+    expect(plugin).toBeDefined();
+    expect(plugin!.content).toContain("generateFromDocs");
+    expect(plugin!.content).toContain("walkDir");
+    expect(plugin!.content).toContain("gray-matter");
+    expect(plugin!.content).toContain("postBuild");
+  });
+
+  it("includes static fallback files", () => {
+    const files = docusaurusAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const filenames = files.map(f => f.filename);
+    expect(filenames).toContain("docusaurus/static/llms.txt");
+    expect(filenames).toContain("docusaurus/static/.well-known/agent-card.json");
+  });
+});
+
+// ─── File sizes ─────────────────────────────────────────────────
+
+describe("generated file sizes", () => {
+  it("all generated files have correct size", () => {
+    for (const adapter of allAdapters()) {
+      const files = adapter.generateIntegration(makeCtx(), makeCoreFiles());
+      for (const file of files) {
+        const expectedSize = new TextEncoder().encode(file.content).length;
+        expect(file.size).toBe(expectedSize);
+      }
+    }
+  });
+
+  it("no generated file is empty", () => {
+    for (const adapter of allAdapters()) {
+      const files = adapter.generateIntegration(makeCtx(), makeCoreFiles());
+      for (const file of files) {
+        expect(file.content.length).toBeGreaterThan(0);
+        expect(file.size).toBeGreaterThan(0);
+      }
+    }
+  });
+});

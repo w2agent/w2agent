@@ -1,6 +1,13 @@
 import chalk from "chalk";
 import type { AuditReport, CategoryResult, LetterGrade } from "@w2agent/core";
 
+const PLATFORM_NAMES: Record<string, string> = {
+  wordpress: "WordPress",
+  nextjs: "Next.js",
+  shopify: "Shopify",
+  docusaurus: "Docusaurus",
+};
+
 const FILLED = "█";
 const EMPTY = "░";
 const BAR_WIDTH = 10;
@@ -43,6 +50,11 @@ export function formatReport(report: AuditReport): string {
   lines.push(chalk.gray("  " + "─".repeat(36)));
   lines.push("");
   lines.push(`  URL: ${chalk.cyan(report.url)}`);
+  if (report.platform) {
+    const p = report.platform;
+    const name = PLATFORM_NAMES[p.platform] || p.platform;
+    lines.push(`  Platform: ${chalk.magenta(name)} (${Math.round(p.confidence * 100)}% confidence)${p.version ? ` v${p.version}` : ""}`);
+  }
   lines.push(`  Pages scanned: ${report.pagesScanned}`);
   lines.push(`  Time: ${(report.duration / 1000).toFixed(1)}s`);
   lines.push("");

@@ -8,8 +8,11 @@
 # Audit a site
 npx w2agent audit https://your-site.com
 
-# Generate llms.txt and llms-full.txt
+# Generate llms.txt and all AI-ready files
 npx w2agent generate https://your-site.com
+
+# Generate platform-specific integration files
+npx w2agent integrate https://your-site.com
 ```
 
 ### From source
@@ -30,9 +33,11 @@ pnpm dev:web
 # Open http://localhost:3737
 ```
 
-The web UI lets you audit a site and then generate files directly in the browser — with preview, copy, and download.
+The web UI lets you audit a site and then generate files directly in the browser — with preview, copy, and download. Platform detection is shown as a badge in the results.
 
-## CLI Options
+## CLI Commands
+
+### `audit` — Score AI readiness
 
 ```bash
 w2agent audit <url> [options]
@@ -48,34 +53,69 @@ Options:
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
+Platform-specific checks run automatically when WordPress, Next.js, Shopify, or Docusaurus is detected.
+
+### `generate` — Create AI-ready files
+
 ```bash
 w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, all (default: all)
+  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
   -m, --max-pages <n>      Max pages to crawl (default: 50)
   -s, --sections <list>    Only these URL sections (comma-separated)
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
-## Generate Workflow
+When a platform is detected, integration files are automatically included in the output.
 
-The typical workflow is: audit → see issues → generate fixes.
+### `integrate` — Platform-specific integration
+
+```bash
+w2agent integrate <url> [options]
+
+Options:
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -p, --platform <name>    Force platform: wordpress, nextjs, shopify, docusaurus
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  --timeout <ms>           Request timeout (default: 10000)
+```
+
+Focused command that generates only platform-specific files with deployment instructions.
+
+## Workflow
+
+The typical workflow is: audit → see issues → generate fixes → deploy.
 
 ```bash
 # 1. Audit your site
 npx w2agent audit https://your-site.com
 
-# 2. Generate llms.txt and friends
+# 2. Generate llms.txt and friends (platform integration files auto-included)
 npx w2agent generate https://your-site.com --output ./public/
 
-# 3. Deploy the generated files to your site root
+# 3. Deploy the generated files to your site
+#    - WordPress: upload plugin to /wp-content/plugins/
+#    - Next.js: copy route handlers + middleware
+#    - Shopify: paste Liquid snippets into theme
+#    - Docusaurus: add build plugin to config
+#    - Any site: copy files to site root
+
 # 4. Re-audit to confirm score improvement
 npx w2agent audit https://your-site.com
 ```
 
 See [GENERATE.md](GENERATE.md) for detailed reference.
+
+## Platform Adapters
+
+| Platform | What gets generated | How it stays fresh |
+|----------|--------------------|--------------------|
+| **WordPress** | PHP plugin with admin page | Dynamically generates llms.txt from WP database on each request |
+| **Next.js** | Route handlers + middleware | ISR revalidation (1h) + build script for CI/CD |
+| **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |
+| **Docusaurus** | Build plugin | Reads docs/ directory at build time, generates fresh llms.txt |
 
 ## CI/CD Integration
 
@@ -87,8 +127,8 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 ## Project Structure
 
 ```
-packages/core    - Shared engine (audit + generate)
-packages/cli     - CLI tool (audit + generate commands)
+packages/core    - Shared engine (audit + generate + platform adapters)
+packages/cli     - CLI tool (audit + generate + integrate commands)
 apps/web         - Next.js web UI (audit + generate)
 ```
 

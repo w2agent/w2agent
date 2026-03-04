@@ -2,11 +2,12 @@
 
 **AI Readiness Audit for the Web** — Like Lighthouse, but for AI agents.
 
-Score any website's readiness for AI crawlers, LLMs, and autonomous agents. 35+ checks across 6 categories, with actionable fix suggestions. Then **generate** the files to fix them.
+Score any website's readiness for AI crawlers, LLMs, and autonomous agents. 47+ checks across 6 categories, with actionable fix suggestions. Then **generate** the files to fix them — with platform-native integrations for WordPress, Next.js, Shopify, and Docusaurus.
 
 ```bash
 npx w2agent audit https://your-site.com
 npx w2agent generate https://your-site.com
+npx w2agent integrate https://your-site.com
 ```
 
 ```
@@ -15,6 +16,7 @@ npx w2agent generate https://your-site.com
 
   URL: https://your-site.com
   Pages scanned: 12
+  Platform: WordPress (95% confidence)
   Time: 4.2s
 
   Overall Score: 72/100 (C)
@@ -34,8 +36,11 @@ npx w2agent generate https://your-site.com
 
 ## Features
 
-- **35+ checks** across 6 scoring categories
+- **47+ checks** across 6 scoring categories (35 core + 12 platform-specific)
+- **Platform detection** — auto-detects WordPress, Next.js, Shopify, Docusaurus
+- **Platform integrations** — generates native plugins, middleware, Liquid snippets
 - **Generate llms.txt + llms-full.txt** — auto-generate from any site
+- **7 output formats** — llms.txt, llms-full.txt, robots.txt, schema-org.json, agent-card.json, faq.json, markdown
 - **No API keys required** — pure HTTP/HTML analysis, no LLM dependency
 - **Multi-page** — crawls sitemap + discovers pages via internal links
 - **Actionable** — shows fix snippets and "points if fixed" ROI
@@ -52,10 +57,14 @@ npx w2agent audit https://example.com
 npx w2agent audit https://example.com --depth 10 --verbose
 npx w2agent audit https://example.com --ci --threshold 80
 
-# Generate llms.txt + llms-full.txt
+# Generate llms.txt + llms-full.txt + all AI-ready files
 npx w2agent generate https://example.com
 npx w2agent generate https://example.com --format llms-txt
 npx w2agent generate https://example.com --max-pages 50 --output ./output/
+
+# Generate platform-specific integration files
+npx w2agent integrate https://example.com
+npx w2agent integrate https://example.com --platform wordpress
 ```
 
 ### Web UI
@@ -77,7 +86,26 @@ pnpm install
 pnpm build
 node packages/cli/dist/index.js audit https://example.com
 node packages/cli/dist/index.js generate https://example.com
+node packages/cli/dist/index.js integrate https://example.com
 ```
+
+## Platform Adapters
+
+w2agent auto-detects your platform and generates native integration code:
+
+| Platform | Detection | Integration Generated |
+|----------|-----------|----------------------|
+| **WordPress** | Generator meta, wp-content, wp-json | PHP plugin with dynamic llms.txt from WP database, admin page, robots.txt filter |
+| **Next.js** | `__NEXT_DATA__`, `_next/static` | Route handlers with ISR, middleware for content negotiation, build script |
+| **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt.liquid, Product JSON-LD |
+| **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from docs directory |
+
+Platform-specific checks run automatically during audit:
+
+- **WordPress** (4 checks): REST API, security plugin blocking, robots.txt AI rules, page builder markup
+- **Next.js** (3 checks): .well-known serving, static generation, metadata API usage
+- **Shopify** (3 checks): robots.txt customization, product schema, theme app blocks
+- **Docusaurus** (2 checks): sidebar coverage, versioned docs discovery
 
 ## Scoring
 
@@ -117,9 +145,19 @@ w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, all (default: all)
+  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
   -m, --max-pages <n>      Max pages to crawl (default: 50)
   -s, --sections <list>    Only include these URL sections (comma-separated)
+  --timeout <ms>           Request timeout in ms (default: 10000)
+```
+
+```
+w2agent integrate <url> [options]
+
+Options:
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -p, --platform <name>    Force platform: wordpress, nextjs, shopify, docusaurus
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
 
@@ -128,9 +166,9 @@ See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
 ## Project Structure
 
 ```
-packages/core     Shared engine — audit checks, generate, crawler, scoring
-packages/cli      CLI tool (npx w2agent audit/generate)
-apps/web          Next.js web UI — audit + generate
+packages/core     Shared engine — audit checks, generate, crawler, platform adapters
+packages/cli      CLI tool (npx w2agent audit/generate/integrate)
+apps/web          Next.js web UI — audit + generate with platform detection
 ```
 
 ## Development
@@ -138,7 +176,7 @@ apps/web          Next.js web UI — audit + generate
 ```bash
 pnpm install
 pnpm build          # Build all packages
-pnpm test           # Run tests (79 tests across 8 files)
+pnpm test           # Run tests (149 tests across 9 files)
 pnpm dev            # Dev mode (watch + Next.js dev server)
 ```
 

@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerGenerateCommand } from "./commands/generate.js";
+import { registerIntegrateCommand } from "./commands/integrate.js";
 
 const program = new Command();
 
@@ -13,5 +14,6 @@ program
 
 registerAuditCommand(program);
 registerGenerateCommand(program);
+registerIntegrateCommand(program);
 
 program.parse();

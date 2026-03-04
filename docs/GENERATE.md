@@ -1,6 +1,6 @@
 # w2agent generate — Reference
 
-Generate llms.txt, llms-full.txt, and per-page markdown files for any website.
+Generate llms.txt, llms-full.txt, and per-page markdown files for any website. Auto-detects platform and generates native integration files.
 
 ## Usage
 
@@ -13,14 +13,16 @@ npx w2agent generate <url> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
-| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `all` |
+| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `all` |
 | `-m, --max-pages <n>` | `50` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
 | `--timeout <ms>` | `10000` | Per-request timeout |
 
 ## Output Files
 
-### llms.txt
+### Core Files (always generated)
+
+#### llms.txt
 
 Structured index following the [llmstxt.org](https://llmstxt.org) spec:
 
@@ -39,16 +41,9 @@ Structured index following the [llmstxt.org](https://llmstxt.org) spec:
 - [Latest Post](/blog/latest): Description of the post
 ```
 
-Pages are auto-categorized into sections by URL path:
-- `/docs/*` → "Docs"
-- `/blog/*` → "Blog"
-- `/api/*` → "API"
-- Other common prefixes are recognized (guides, tutorials, products, etc.)
-- Unrecognized paths use the first URL segment as the section name
+Pages are auto-categorized into sections by URL path.
 
-Descriptions are sourced from: meta description → first content sentence.
-
-### llms-full.txt
+#### llms-full.txt
 
 Full site content concatenated with frontmatter separators:
 
@@ -61,20 +56,59 @@ title: Page Title
 [full page content as markdown]
 ```
 
-### Per-page Markdown
+#### robots.txt
 
-Individual `.md` files for each page, written to `markdown/` subdirectory:
+AI-friendly robots.txt with rules for known AI crawlers.
 
+#### schema-org.json
+
+Auto-detected Schema.org JSON-LD for the site.
+
+#### agent-card.json
+
+Agent discovery card at `/.well-known/agent-card.json`.
+
+#### faq.json
+
+Extracted FAQ content in FAQPage schema format.
+
+#### Per-page Markdown
+
+Individual `.md` files for each page, written to `markdown/` subdirectory.
+
+### Platform Integration Files (auto-detected)
+
+When a platform is detected, additional integration files are generated:
+
+| Platform | Files Generated |
+|----------|----------------|
+| **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt generation, admin page, robots.txt filter, `wordpress/data/` seed files, `wordpress/INSTALL.md` |
+| **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation, `nextjs/w2agent-build.mjs` — CI/CD build script, `nextjs/INSTALL.md` |
+| **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/templates/robots.txt.liquid`, `shopify/INSTALL.md` |
+| **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from docs directory, `docusaurus/INSTALL.md` |
+
+## Platform Detection
+
+Detection runs against already-crawled pages (zero extra HTTP requests):
+
+| Platform | Signal | Confidence |
+|----------|--------|-----------|
+| WordPress | `<meta name="generator" content="WordPress">` | 100% |
+| WordPress | `/wp-content/` or `/wp-includes/` in HTML | 95% |
+| Next.js | `__NEXT_DATA__` script tag | 100% |
+| Next.js | `/_next/static/` in asset paths | 95% |
+| Shopify | `cdn.shopify.com` in assets | 95% |
+| Docusaurus | `<meta name="generator" content="Docusaurus">` | 100% |
+
+## `integrate` Command
+
+Focused command for platform-specific output only:
+
+```bash
+npx w2agent integrate <url> [--platform wordpress|nextjs|shopify|docusaurus]
 ```
-w2agent-output/
-├── llms.txt
-├── llms-full.txt
-└── markdown/
-    ├── index.md
-    ├── docs-getting-started.md
-    ├── docs-api.md
-    └── blog-latest-post.md
-```
+
+Auto-detects platform (or use `--platform` to force), generates only integration files, and shows deployment instructions.
 
 ## Page Discovery
 
@@ -108,6 +142,10 @@ npx w2agent generate https://example.com --sections docs,blog --output ./public/
 
 # Crawl up to 100 pages
 npx w2agent generate https://large-site.com --max-pages 100
+
+# Generate platform integration files only
+npx w2agent integrate https://your-wp-site.com
+npx w2agent integrate https://your-site.com --platform nextjs
 ```
 
 ## Web UI
@@ -120,8 +158,9 @@ pnpm dev:web
 
 1. Paste a URL and click **Audit**
 2. After results appear, click **"Generate Files"**
-3. Preview the generated llms.txt / llms-full.txt inline
+3. Preview generated files inline — core files and platform integration files are grouped separately
 4. Copy to clipboard or download individual files
+5. Platform detection badge shows which platform was detected
 
 ## Web API
 
@@ -137,7 +176,7 @@ pnpm dev:web
 }
 ```
 
-Returns a `GenerateResult` JSON with all generated files.
+Returns a `GenerateResult` JSON with all generated files and `platform` detection result.
 
 ## Programmatic Use
 
@@ -149,8 +188,12 @@ const result = await runGenerate("https://example.com", {
   formats: ["llms-txt", "full"],
 });
 
+// Platform detection result
+if (result.platform) {
+  console.log(`Detected: ${result.platform.platform} (${result.platform.confidence})`);
+}
+
 for (const file of result.files) {
   console.log(file.filename, file.size);
-  // Write file.content to disk
 }
 ```

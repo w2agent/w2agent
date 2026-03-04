@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 import { CATEGORY_CONFIG as CATEGORIES, DEFAULT_OPTIONS } from "./types.js";
 import { crawlSite } from "./crawler.js";
+import { detectPlatform, getAdapter } from "../adapters/registry.js";
 
 const checkRegistry: Check[] = [];
 
@@ -41,13 +42,26 @@ export async function runAudit(
   // Crawl
   const { pages, metadata } = await crawlSite(url, options, onProgress);
 
+  // Detect platform
+  const detected = detectPlatform(pages, metadata);
+  if (detected) {
+    onProgress?.(`Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`);
+  }
+
   // Use provided checks or fall back to registry
   const sourceChecks = checksOverride ?? checkRegistry;
 
+  // Merge platform-specific checks
+  const allChecks = [...sourceChecks];
+  if (detected) {
+    const adapter = getAdapter(detected.platform);
+    if (adapter) allChecks.push(...adapter.checks);
+  }
+
   // Filter checks by selected categories
   const checks = options.categories
-    ? sourceChecks.filter((c) => options.categories!.includes(c.category))
-    : [...sourceChecks];
+    ? allChecks.filter((c) => options.categories!.includes(c.category))
+    : [...allChecks];
 
   // Run checks
   onProgress?.(`Running ${checks.length} checks...`);
@@ -76,6 +90,7 @@ export async function runAudit(
     grade,
     categories,
     topIssues,
+    ...(detected && { platform: detected }),
   };
 }
 
