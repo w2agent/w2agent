@@ -15,6 +15,8 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   nextjs: "Next.js",
   shopify: "Shopify",
   docusaurus: "Docusaurus",
+  nuxt: "Nuxt",
+  astro: "Astro",
 };
 
 export function registerIntegrateCommand(program: Command): void {
@@ -48,7 +50,7 @@ export function registerIntegrateCommand(program: Command): void {
         spinner.stop();
 
         // Determine platform
-        const validPlatforms: PlatformId[] = ["wordpress", "nextjs", "shopify", "docusaurus"];
+        const validPlatforms: PlatformId[] = ["wordpress", "nextjs", "shopify", "docusaurus", "nuxt", "astro"];
         let platformId: PlatformId | undefined;
         if (opts.platform) {
           if (!validPlatforms.includes(opts.platform as PlatformId)) {
