@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Page With Schema.org</title>
+  <meta name="description" content="A page with full structured data" />
+  <link rel="canonical" href="https://example.com/with-schema" />
+  <link rel="alternate" type="text/markdown" href="/with-schema.md" />
+  <meta property="og:title" content="Schema Page" />
+  <meta property="og:description" content="Has structured data" />
+  <meta property="og:image" content="https://example.com/img.jpg" />
+  <meta property="article:published_time" content="2024-01-15T00:00:00Z" />
+  <meta property="article:modified_time" content="2024-02-10T00:00:00Z" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "name": "Test Article",
+    "description": "An article for testing",
+    "author": {
+      "@type": "Person",
+      "name": "Test Author"
+    },
+    "datePublished": "2024-01-15",
+    "dateModified": "2024-02-10",
+    "image": "https://example.com/img.jpg",
+    "url": "https://example.com/with-schema",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://example.com/search?q={search_term}",
+      "query-input": "required name=search_term"
+    }
+  }
+  </script>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+  </nav>
+  <main>
+    <article>
+      <h1>Test Article with Full Schema</h1>
+      <section>
+        <h2>Introduction</h2>
+        <p>This article demonstrates a well-structured page with complete Schema.org markup, proper semantic HTML, and rich content. According to recent research, pages with structured data are 3x more likely to be featured in AI-generated answers.</p>
+        <blockquote>"Structured data is the foundation of machine-readable web content." — Web Standards Expert</blockquote>
+      </section>
+      <section>
+        <h2>Frequently Asked Questions</h2>
+        <details>
+          <summary>What is structured data?</summary>
+          <p>Structured data is a standardized format for providing information about a page.</p>
+        </details>
+        <details>
+          <summary>Why use JSON-LD?</summary>
+          <p>JSON-LD is Google's recommended format for structured data markup.</p>
+        </details>
+        <details>
+          <summary>How does it help AI agents?</summary>
+          <p>AI agents can parse structured data to understand page content without rendering.</p>
+        </details>
+      </section>
+      <p>The source of this data comes from extensive testing across 500 websites. Reference: Web Quality Report 2024.</p>
+      <p>By <a rel="author" href="/author/test">Test Author</a>, PhD in Computer Science</p>
+    </article>
+  </main>
+  <aside>
+    <h3>Related Articles</h3>
+    <ul>
+      <li><a href="/article-1">Related Article 1</a></li>
+      <li><a href="/article-2">Related Article 2</a></li>
+    </ul>
+  </aside>
+  <footer>
+    <p>Footer content with additional information about the site and its purpose. This helps provide context for AI agents parsing the page.</p>
+  </footer>
+</body>
+</html>
