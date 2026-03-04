@@ -20,3 +20,17 @@ export { allChecks } from "./audit/checks/index.js";
 export { parseHTML } from "./shared/html-parser.js";
 export { fetchPage, fetchText } from "./shared/fetcher.js";
 export { loadConfig, mergeConfigWithOptions } from "./shared/config.js";
+
+// Generate
+export type {
+  GenerateOptions,
+  GenerateFormat,
+  GenerateResult,
+  GeneratedFile,
+  PageMarkdown,
+} from "./generate/types.js";
+export { DEFAULT_GENERATE_OPTIONS } from "./generate/types.js";
+export { runGenerate } from "./generate/engine.js";
+export { htmlToMarkdown } from "./generate/html-to-markdown.js";
+export { generateLlmsTxt, extractSiteInfo } from "./generate/llms-txt.js";
+export { generateLlmsFullTxt } from "./generate/llms-full-txt.js";

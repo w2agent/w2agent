@@ -24,9 +24,9 @@
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1.1 | **HTML → Markdown conversion** | Clean markdown from any page, stripping nav/footer/ads. Boilerplate removal via heuristics + optional LLM |
-| 1.2 | **llms.txt generation** | Auto-generate `/llms.txt` — structured index of site's key pages with descriptions |
-| 1.3 | **llms-full.txt generation** | Auto-generate `/llms-full.txt` — full site content in single markdown file |
+| 1.1 | **HTML → Markdown conversion** | Clean markdown from any page, stripping nav/footer/ads. Boilerplate removal via heuristics + optional LLM | ✅ Shipped |
+| 1.2 | **llms.txt generation** | Auto-generate `/llms.txt` — structured index of site's key pages with descriptions | ✅ Shipped |
+| 1.3 | **llms-full.txt generation** | Auto-generate `/llms-full.txt` — full site content in single markdown file | ✅ Shipped |
 | 1.4 | **Content negotiation** | Detect AI user-agents or `Accept: text/markdown` header and serve markdown instead of HTML |
 | 1.5 | **Incremental updates** | Watch for site changes, regenerate only affected markdown/llms.txt sections |
 | 1.6 | **Versioned content** | Serve different llms.txt per version (e.g., `/v2/llms.txt`) for docs sites |
@@ -173,7 +173,7 @@ Agents use 5 discovery mechanisms: search APIs, .well-known endpoints, MCP regis
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 10.1 | **CLI tool** | `w2agent init`, `w2agent generate`, `w2agent serve`, `w2agent audit` |
+| 10.1 | **CLI tool** | `w2agent init`, `w2agent generate`, `w2agent serve`, `w2agent audit` | ✅ audit + generate shipped |
 | 10.2 | **Config file** | `w2agent.config.yaml` — define site type, modules, credentials, customization |
 | 10.3 | **Plugin system** | Extensible architecture for custom site types, output formats, integrations |
 | 10.4 | **CI/CD integration** | GitHub Actions / GitLab CI to regenerate agent assets on deploy |

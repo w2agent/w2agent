@@ -5,7 +5,11 @@
 ### CLI (zero-install)
 
 ```bash
+# Audit a site
 npx w2agent audit https://your-site.com
+
+# Generate llms.txt and llms-full.txt
+npx w2agent generate https://your-site.com
 ```
 
 ### From source
@@ -22,9 +26,11 @@ node packages/cli/dist/index.js audit https://your-site.com
 ### Web UI
 
 ```bash
-pnpm --filter @w2agent/web dev
-# Open http://localhost:3000
+pnpm dev:web
+# Open http://localhost:3737
 ```
+
+The web UI lets you audit a site and then generate files directly in the browser — with preview, copy, and download.
 
 ## CLI Options
 
@@ -42,6 +48,35 @@ Options:
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
+```bash
+w2agent generate <url> [options]
+
+Options:
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -f, --format <format>    Output: llms-txt, full, markdown, all (default: all)
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -s, --sections <list>    Only these URL sections (comma-separated)
+  --timeout <ms>           Request timeout (default: 10000)
+```
+
+## Generate Workflow
+
+The typical workflow is: audit → see issues → generate fixes.
+
+```bash
+# 1. Audit your site
+npx w2agent audit https://your-site.com
+
+# 2. Generate llms.txt and friends
+npx w2agent generate https://your-site.com --output ./public/
+
+# 3. Deploy the generated files to your site root
+# 4. Re-audit to confirm score improvement
+npx w2agent audit https://your-site.com
+```
+
+See [GENERATE.md](GENERATE.md) for detailed reference.
+
 ## CI/CD Integration
 
 ```yaml
@@ -52,9 +87,9 @@ Options:
 ## Project Structure
 
 ```
-packages/core    - Shared audit engine (35+ checks, 6 categories)
-packages/cli     - CLI tool (npx w2agent audit)
-apps/web         - Next.js web UI
+packages/core    - Shared engine (audit + generate)
+packages/cli     - CLI tool (audit + generate commands)
+apps/web         - Next.js web UI (audit + generate)
 ```
 
 ## Scoring

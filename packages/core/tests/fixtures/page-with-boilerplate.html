@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Docs - Getting Started</title>
+  <meta name="description" content="Learn how to get started with our platform" />
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs">Docs</a>
+    <a href="/blog">Blog</a>
+    <a href="/pricing">Pricing</a>
+  </nav>
+  <aside class="sidebar">
+    <ul>
+      <li><a href="/docs/getting-started">Getting Started</a></li>
+      <li><a href="/docs/installation">Installation</a></li>
+      <li><a href="/docs/configuration">Configuration</a></li>
+    </ul>
+  </aside>
+  <main>
+    <article>
+      <h1>Getting Started</h1>
+      <p>Welcome to the getting started guide. This will walk you through the basics of setting up our platform.</p>
+      <h2>Installation</h2>
+      <p>First, install the package using npm:</p>
+      <pre><code class="language-bash">npm install our-package</code></pre>
+      <p>Then import it in your project:</p>
+      <pre><code class="language-js">import { setup } from 'our-package';</code></pre>
+      <h2>Configuration</h2>
+      <p>Create a config file at the root of your project:</p>
+      <ul>
+        <li>Set the <code>apiKey</code> to your API key</li>
+        <li>Set the <code>environment</code> to production or development</li>
+      </ul>
+      <table>
+        <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+        <tr><td>apiKey</td><td>none</td><td>Your API key</td></tr>
+        <tr><td>environment</td><td>development</td><td>Target environment</td></tr>
+        <tr><td>timeout</td><td>5000</td><td>Request timeout in ms</td></tr>
+      </table>
+      <h2>Next Steps</h2>
+      <p>Check out the <a href="/docs/api">API Reference</a> for complete documentation.</p>
+    </article>
+  </main>
+  <footer>
+    <p>&copy; 2024 Our Company. All rights reserved.</p>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </footer>
+</body>
+</html>

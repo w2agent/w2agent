@@ -2,10 +2,11 @@
 
 **AI Readiness Audit for the Web** — Like Lighthouse, but for AI agents.
 
-Score any website's readiness for AI crawlers, LLMs, and autonomous agents. 35+ checks across 6 categories, with actionable fix suggestions.
+Score any website's readiness for AI crawlers, LLMs, and autonomous agents. 35+ checks across 6 categories, with actionable fix suggestions. Then **generate** the files to fix them.
 
 ```bash
 npx w2agent audit https://your-site.com
+npx w2agent generate https://your-site.com
 ```
 
 ```
@@ -34,10 +35,11 @@ npx w2agent audit https://your-site.com
 ## Features
 
 - **35+ checks** across 6 scoring categories
+- **Generate llms.txt + llms-full.txt** — auto-generate from any site
 - **No API keys required** — pure HTTP/HTML analysis, no LLM dependency
-- **Multi-page** — crawls your sitemap, scores site-wide
+- **Multi-page** — crawls sitemap + discovers pages via internal links
 - **Actionable** — shows fix snippets and "points if fixed" ROI
-- **CLI + Web UI** — developer CLI and hosted web interface
+- **CLI + Web UI** — developer CLI and hosted web interface with preview/download
 - **CI/CD ready** — `--ci --threshold 80` for automated quality gates
 
 ## Install & Use
@@ -45,25 +47,26 @@ npx w2agent audit https://your-site.com
 ### CLI (zero-install)
 
 ```bash
-# Basic audit
+# Audit a site
 npx w2agent audit https://example.com
-
-# Options
 npx w2agent audit https://example.com --depth 10 --verbose
-npx w2agent audit https://example.com --format json --output report.json
-npx w2agent audit https://example.com --category structured-data
-
-# CI mode
 npx w2agent audit https://example.com --ci --threshold 80
+
+# Generate llms.txt + llms-full.txt
+npx w2agent generate https://example.com
+npx w2agent generate https://example.com --format llms-txt
+npx w2agent generate https://example.com --max-pages 50 --output ./output/
 ```
 
 ### Web UI
 
 ```bash
 pnpm install && pnpm build
-pnpm --filter @w2agent/web dev
-# Open http://localhost:3000
+pnpm dev:web
+# Open http://localhost:3737
 ```
+
+Paste a URL → audit → click **"Generate Files"** → preview, copy, or download the results.
 
 ### From source
 
@@ -73,6 +76,7 @@ cd w2agent
 pnpm install
 pnpm build
 node packages/cli/dist/index.js audit https://example.com
+node packages/cli/dist/index.js generate https://example.com
 ```
 
 ## Scoring
@@ -108,12 +112,25 @@ Options:
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
 
+```
+w2agent generate <url> [options]
+
+Options:
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -f, --format <format>    Output: llms-txt, full, markdown, all (default: all)
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -s, --sections <list>    Only include these URL sections (comma-separated)
+  --timeout <ms>           Request timeout in ms (default: 10000)
+```
+
+See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
+
 ## Project Structure
 
 ```
-packages/core     Shared audit engine — checks, crawler, scoring
-packages/cli      CLI tool (npx w2agent audit)
-apps/web          Next.js web UI — paste URL, see score
+packages/core     Shared engine — audit checks, generate, crawler, scoring
+packages/cli      CLI tool (npx w2agent audit/generate)
+apps/web          Next.js web UI — audit + generate
 ```
 
 ## Development
@@ -121,7 +138,7 @@ apps/web          Next.js web UI — paste URL, see score
 ```bash
 pnpm install
 pnpm build          # Build all packages
-pnpm test           # Run tests (63 tests across 7 files)
+pnpm test           # Run tests (79 tests across 8 files)
 pnpm dev            # Dev mode (watch + Next.js dev server)
 ```
 

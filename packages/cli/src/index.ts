@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { registerAuditCommand } from "./commands/audit.js";
+import { registerGenerateCommand } from "./commands/generate.js";
 
 const program = new Command();
 
@@ -11,5 +12,6 @@ program
   .version("0.1.0");
 
 registerAuditCommand(program);
+registerGenerateCommand(program);
 
 program.parse();
