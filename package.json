@@ -4,6 +4,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
+    "dev:web": "pnpm --filter @w2agent/core build && pnpm --filter @w2agent/web dev --port 3737",
     "test": "turbo test",
     "lint": "turbo lint",
     "clean": "turbo clean"
