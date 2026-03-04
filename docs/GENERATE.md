@@ -118,6 +118,8 @@ When a platform is detected, additional integration files are generated:
 |----------|----------------|
 | **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt generation, admin page, robots.txt filter, `wordpress/data/` seed files, `wordpress/INSTALL.md` |
 | **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation, `nextjs/w2agent-build.mjs` — CI/CD build script, `nextjs/INSTALL.md` |
+| **Nuxt** | `nuxt/server/routes/llms.txt.ts` — Nitro server route, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/INSTALL.md` |
+| **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/middleware.ts` — content negotiation, `astro/INSTALL.md` |
 | **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/templates/robots.txt.liquid`, `shopify/INSTALL.md` |
 | **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from docs directory, `docusaurus/INSTALL.md` |
 
@@ -131,6 +133,8 @@ Detection runs against already-crawled pages (zero extra HTTP requests):
 | WordPress | `/wp-content/` or `/wp-includes/` in HTML | 95% |
 | Next.js | `__NEXT_DATA__` script tag | 100% |
 | Next.js | `/_next/static/` in asset paths | 95% |
+| Nuxt | `__NUXT` in HTML or Nuxt meta tags | 95% |
+| Astro | `<meta name="generator" content="Astro">` | 100% |
 | Shopify | `cdn.shopify.com` in assets | 95% |
 | Docusaurus | `<meta name="generator" content="Docusaurus">` | 100% |
 
@@ -139,7 +143,7 @@ Detection runs against already-crawled pages (zero extra HTTP requests):
 Focused command for platform-specific output only:
 
 ```bash
-npx w2agent integrate <url> [--platform wordpress|nextjs|shopify|docusaurus]
+npx w2agent integrate <url> [--platform wordpress|nextjs|nuxt|astro|shopify|docusaurus]
 ```
 
 Auto-detects platform (or use `--platform` to force), generates only integration files, and shows deployment instructions.

@@ -1,0 +1,13 @@
+{
+  "name": "w2agent-docusaurus-fixture",
+  "private": true,
+  "scripts": {
+    "build": "docusaurus build"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.0.0",
+    "@docusaurus/preset-classic": "^3.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}

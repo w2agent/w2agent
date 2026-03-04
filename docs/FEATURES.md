@@ -267,16 +267,32 @@ Each module pre-configures the right mix of features for a specific site type.
 
 ## PLATFORM ADAPTERS
 
-| Platform | Delivery | Notes |
-|----------|----------|-------|
-| **Any website** | CLI tool | Universal. Crawls URL, generates assets. | ✅ Shipped |
-| **WordPress** | Plugin | Dynamic llms.txt from WP database, admin page, robots.txt filter, auto-detection. | ✅ Shipped |
-| **Next.js** | Route handlers + middleware | ISR route handlers, content negotiation middleware, build script for CI/CD. | ✅ Shipped |
-| **Shopify** | Liquid snippets | Liquid head snippet with Product JSON-LD, robots.txt.liquid, auto-detection. | ✅ Shipped |
-| **Docusaurus** | Build plugin | Build-time llms.txt generation from docs directory, auto-detection. | ✅ Shipped |
-| **Webflow** | App or proxy | Content negotiation at same URLs, structured data injection. |
-| **Universal proxy** | Reverse proxy | Caddy/Nginx plugin or standalone binary. Any origin. Self-hostable. |
-| **CDN edge** | Worker/middleware | Cloudflare Worker or Vercel Edge. Zero infrastructure. |
+| Platform | Delivery | Integration Tests | Notes | Status |
+|----------|----------|-------------------|-------|--------|
+| **Any website** | CLI tool | — | Universal. Crawls URL, generates assets. | Shipped |
+| **WordPress** | Plugin | Syntax validation, endpoint verification | Dynamic llms.txt from WP database, admin page, robots.txt filter, auto-detection. | Shipped |
+| **Next.js** | Route handlers + middleware | Full build + live audit (llms.txt, agent-card, content negotiation) | ISR route handlers, content negotiation middleware, build script for CI/CD. | Shipped |
+| **Nuxt** | Server routes + middleware | Full build + live audit (llms.txt, agent-card) | Nitro server routes, auto-imported middleware. | Shipped |
+| **Astro** | Static files + middleware | Full build + live audit (llms.txt, agent-card, response time) | Static output or SSR middleware for content negotiation. | Shipped |
+| **Shopify** | Liquid snippets | Syntax validation, structure verification | Liquid head snippet with Product JSON-LD, robots.txt.liquid, auto-detection. | Shipped |
+| **Docusaurus** | Build plugin | Full build + live audit (llms.txt, agent-card) | Build-time llms.txt generation from docs directory, auto-detection. | Shipped |
+| **Webflow** | App or proxy | — | Content negotiation at same URLs, structured data injection. | |
+| **Universal proxy** | Reverse proxy | — | Caddy/Nginx plugin or standalone binary. Any origin. Self-hostable. | |
+| **CDN edge** | Worker/middleware | — | Cloudflare Worker or Vercel Edge. Zero infrastructure. | |
+
+### Integration Test Coverage
+
+Every shipped platform adapter is verified by integration tests that:
+
+1. Generate integration files via `generateIntegration()`
+2. Inject them into a minimal real project fixture
+3. Build the project (JS platforms) or validate syntax (PHP/Liquid)
+4. Start a preview server and run `runAudit()` against localhost
+5. Assert that discovery endpoints (`/llms.txt`, `/.well-known/agent-card.json`) are served correctly
+
+Negative tests also verify the audit catches real problems (missing llms.txt, invalid content, malformed agent-card).
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for details on running and extending integration tests.
 
 ---
 
@@ -323,11 +339,27 @@ Each module pre-configures the right mix of features for a specific site type.
 
 ## VERIFICATION
 
+### Automated (CI)
+
+- **216 unit tests** — audit engine, checks, adapters, generators, MCP server
+- **83 integration tests** — real platform builds with live server audits across 6 platforms
+- **3 negative tests** — confirm audit catches missing/invalid llms.txt and agent-card
+- **CI matrix** — 6 platforms × 2 Node versions (`.github/workflows/integration-tests.yml`)
+
+```bash
+pnpm test                                        # Unit tests (~1s)
+pnpm --filter @w2agent/core test:integration     # Integration tests (~75s)
+```
+
+### Manual
+
 1. Pick 3-5 real websites of different types (e-commerce, docs, local business, blog, SaaS)
 2. Run `w2agent audit` against each — score their current AI readiness
 3. Run `w2agent generate` — produce llms.txt + markdown for each
 4. Test with actual AI agents (Claude, ChatGPT, Perplexity): ask questions about the site before/after
 5. Measure: citation rate, answer accuracy, content coverage with vs without w2agent assets
+
+See [SMOKE-TESTS.md](SMOKE-TESTS.md) for real-world audit results.
 
 ---
 

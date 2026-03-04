@@ -1,0 +1,10 @@
+{
+  "name": "w2agent-astro-fixture",
+  "private": true,
+  "scripts": {
+    "build": "astro build"
+  },
+  "dependencies": {
+    "astro": "^4.0.0"
+  }
+}

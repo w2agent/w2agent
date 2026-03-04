@@ -144,6 +144,8 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 |----------|--------------------|--------------------|
 | **WordPress** | PHP plugin with admin page | Dynamically generates llms.txt from WP database on each request |
 | **Next.js** | Route handlers + middleware | ISR revalidation (1h) + build script for CI/CD |
+| **Nuxt** | Nitro server routes + middleware | Server routes generate llms.txt dynamically per request |
+| **Astro** | Static files + middleware | Static output at build time, middleware for content negotiation |
 | **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |
 | **Docusaurus** | Build plugin | Reads docs/ directory at build time, generates fresh llms.txt |
 

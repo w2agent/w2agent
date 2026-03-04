@@ -1,0 +1,71 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/core/src/adapters/**"
+      - "packages/core/tests/integration.test.ts"
+      - "packages/core/tests/fixtures/platforms/**"
+  workflow_dispatch:
+
+jobs:
+  integration:
+    name: "${{ matrix.platform }} (Node ${{ matrix.node }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [nextjs, nuxt, astro, docusaurus, wordpress, shopify]
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build core
+        run: pnpm --filter @w2agent/core build
+
+      - name: Run integration tests
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          NODE_ENV: test
+        run: pnpm --filter @w2agent/core test:integration -- --reporter=verbose -t "$PLATFORM"
+
+  integration-conformance:
+    name: "Conformance (Node 20)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build core
+        run: pnpm --filter @w2agent/core build
+
+      - name: Run conformance tests
+        run: pnpm --filter @w2agent/core test:integration -- --reporter=verbose -t "conformance"
+        env:
+          NODE_ENV: test

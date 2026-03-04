@@ -93,17 +93,21 @@ node packages/cli/dist/index.js integrate https://example.com
 
 w2agent auto-detects your platform and generates native integration code:
 
-| Platform | Detection | Integration Generated |
-|----------|-----------|----------------------|
-| **WordPress** | Generator meta, wp-content, wp-json | PHP plugin with dynamic llms.txt from WP database, admin page, robots.txt filter |
-| **Next.js** | `__NEXT_DATA__`, `_next/static` | Route handlers with ISR, middleware for content negotiation, build script |
-| **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt.liquid, Product JSON-LD |
-| **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from docs directory |
+| Platform | Detection | Integration Generated | Tested |
+|----------|-----------|----------------------|--------|
+| **WordPress** | Generator meta, wp-content, wp-json | PHP plugin with dynamic llms.txt from WP database, admin page, robots.txt filter | Syntax + structure |
+| **Next.js** | `__NEXT_DATA__`, `_next/static` | Route handlers with ISR, middleware for content negotiation, build script | Build + live audit |
+| **Nuxt** | `__NUXT`, Nuxt meta tags | Nitro server routes, auto-imported middleware | Build + live audit |
+| **Astro** | Generator meta, astro assets | Static files + middleware for content negotiation | Build + live audit |
+| **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt.liquid, Product JSON-LD | Syntax + structure |
+| **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from docs directory | Build + live audit |
 
 Platform-specific checks run automatically during audit:
 
 - **WordPress** (4 checks): REST API, security plugin blocking, robots.txt AI rules, page builder markup
 - **Next.js** (3 checks): .well-known serving, static generation, metadata API usage
+- **Nuxt** (3 checks): Nitro compatibility, server route serving, middleware integration
+- **Astro** (3 checks): static output structure, middleware support, build integration
 - **Shopify** (3 checks): robots.txt customization, product schema, theme app blocks
 - **Docusaurus** (2 checks): sidebar coverage, versioned docs discovery
 
@@ -176,9 +180,14 @@ apps/web          Next.js web UI — audit + generate with platform detection
 ```bash
 pnpm install
 pnpm build          # Build all packages
-pnpm test           # Run tests (149 tests across 9 files)
+pnpm test           # Unit tests (216 tests across 10 files)
 pnpm dev            # Dev mode (watch + Next.js dev server)
+
+# Integration tests — builds real platform projects and audits them
+pnpm --filter @w2agent/core test:integration
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide, testing architecture, and how to add new platforms.
 
 ## CI/CD Integration
 
