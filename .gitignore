@@ -9,4 +9,5 @@ dist/
 .turbo/
 .vercel/
 w2agent-output/
+.data/
 .vercel

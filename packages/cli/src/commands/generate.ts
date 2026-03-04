@@ -126,6 +126,7 @@ function parseFormats(format: string): GenerateFormat[] {
     "schema-org": "schema-org",
     "agent-card": "agent-card",
     "faq": "faq",
+    "mcp-server": "mcp-server",
   };
   return [map[format] || "llms-txt"];
 }

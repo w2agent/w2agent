@@ -9,6 +9,7 @@ import { generateRobotsTxt } from "./robots-txt.js";
 import { generateSchemaOrg } from "./schema-org.js";
 import { generateAgentCard } from "./agent-card.js";
 import { generateFaq } from "./faq.js";
+import { generateMcpServer } from "./mcp-server.js";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -185,6 +186,13 @@ export async function runGenerate(
     if (faq) {
       files.push(makeFile("faq.json", JSON.stringify(faq, null, 2) + "\n"));
     }
+  }
+
+  // Generate MCP server
+  if (options.formats.includes("mcp-server")) {
+    onProgress?.("Generating MCP server...");
+    const mcpFiles = generateMcpServer(ctx);
+    files.push(...mcpFiles);
   }
 
   // Detect platform and generate integration files

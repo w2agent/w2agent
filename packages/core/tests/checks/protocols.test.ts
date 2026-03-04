@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 import {
   mcpDiscovery,
@@ -23,17 +23,106 @@ const basePage: FetchedPage = {
 };
 
 describe("mcp-discovery", () => {
-  it("passes when MCP endpoint exists", () => {
-    const result = mcpDiscovery.run([basePage], {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("fails when no MCP endpoint", async () => {
+    const result = await mcpDiscovery.run([basePage], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("scores 100 when MCP endpoint returns valid initialize response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: () => Promise.resolve(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2025-03-26",
+          serverInfo: { name: "test-server", version: "1.0.0" },
+          capabilities: { tools: {} },
+        },
+      })),
+    });
+
+    const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
       wellKnown: { mcp: '{"endpoints": []}' },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("test-server");
+    expect(result.details).toContain("test-server");
   });
 
-  it("fails when no MCP endpoint", () => {
-    const result = mcpDiscovery.run([basePage], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  it("scores 50 when endpoint exists but returns non-200", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 405,
+      statusText: "Method Not Allowed",
+      headers: new Headers(),
+    });
+
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      wellKnown: { mcp: "something" },
+    });
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toContain("405");
+  });
+
+  it("scores 50 when endpoint returns invalid JSON", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "text/html" }),
+      text: () => Promise.resolve("<html>not json</html>"),
+    });
+
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      wellKnown: { mcp: "exists" },
+    });
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toContain("invalid MCP response");
+  });
+
+  it("scores 50 when fetch throws (timeout/network)", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("timeout"));
+
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      wellKnown: { mcp: "exists" },
+    });
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toContain("could not complete");
+  });
+
+  it("parses SSE format responses", async () => {
+    const sseBody = `event: message\ndata: ${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        protocolVersion: "2025-03-26",
+        serverInfo: { name: "sse-server", version: "2.0.0" },
+        capabilities: {},
+      },
+    })}\n\n`;
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "text/event-stream" }),
+      text: () => Promise.resolve(sseBody),
+    });
+
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      wellKnown: { mcp: "exists" },
+    });
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("sse-server");
   });
 });
 

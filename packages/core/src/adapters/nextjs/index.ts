@@ -50,6 +50,48 @@ export const nextjsAdapter: PlatformAdapter = {
     const llmsFullTxt = coreFiles.find(f => f.filename === "llms-full.txt")?.content || "";
     const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
 
-    return generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
+    const files = generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
+
+    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+      const webhookRoute = `import { NextResponse } from "next/server";
+
+/**
+ * w2agent MCP Webhook — Next.js Integration
+ *
+ * Place at: app/api/w2agent-mcp-webhook/route.ts
+ * Triggers a re-crawl when content changes via revalidateTag or on-demand.
+ */
+
+const WEBHOOK_URL = process.env.W2AGENT_MCP_WEBHOOK_URL || "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG";
+const WEBHOOK_TOKEN = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+
+    // Notify w2agent MCP server of content change
+    await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: \`Bearer \${WEBHOOK_TOKEN}\`,
+      },
+      body: JSON.stringify({ trigger: "nextjs", ...body }),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+`;
+      files.push({
+        filename: "nextjs/app/api/w2agent-mcp-webhook/route.ts",
+        content: webhookRoute,
+        size: new TextEncoder().encode(webhookRoute).length,
+      });
+    }
+
+    return files;
   },
 };

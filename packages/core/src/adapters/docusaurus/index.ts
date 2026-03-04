@@ -47,6 +47,48 @@ export const docusaurusAdapter: PlatformAdapter = {
     const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
     const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
 
-    return generateDocusaurusIntegration(llmsTxt, agentCard, ctx.baseUrl);
+    const files = generateDocusaurusIntegration(llmsTxt, agentCard, ctx.baseUrl);
+
+    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+      const postBuildPlugin = `/**
+ * w2agent MCP Webhook — Docusaurus Plugin
+ *
+ * Add to docusaurus.config.js plugins array:
+ * plugins: [require.resolve('./w2agent-mcp-webhook-plugin')],
+ *
+ * Triggers a re-crawl of your MCP server after each build.
+ */
+module.exports = function w2agentMcpWebhookPlugin() {
+  return {
+    name: "w2agent-mcp-webhook",
+    async postBuild() {
+      const webhookUrl = process.env.W2AGENT_MCP_WEBHOOK_URL || "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG";
+      const token = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+
+      try {
+        const res = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: \`Bearer \${token}\`,
+          },
+          body: JSON.stringify({ trigger: "docusaurus", event: "postBuild" }),
+        });
+        console.log(\`[w2agent] MCP webhook: \${res.status}\`);
+      } catch (err) {
+        console.warn("[w2agent] MCP webhook failed:", err.message);
+      }
+    },
+  };
+};
+`;
+      files.push({
+        filename: "docusaurus/w2agent-mcp-webhook-plugin.js",
+        content: postBuildPlugin,
+        size: new TextEncoder().encode(postBuildPlugin).length,
+      });
+    }
+
+    return files;
   },
 };

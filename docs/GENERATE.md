@@ -13,7 +13,7 @@ npx w2agent generate <url> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
-| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `all` |
+| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `all` |
 | `-m, --max-pages <n>` | `50` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
 | `--timeout <ms>` | `10000` | Per-request timeout |
@@ -75,6 +75,40 @@ Extracted FAQ content in FAQPage schema format.
 #### Per-page Markdown
 
 Individual `.md` files for each page, written to `markdown/` subdirectory.
+
+#### MCP Server (`mcp-server`)
+
+A standalone MCP server project generated from crawled site content. Output to `mcp-server/`:
+
+| File | Description |
+|------|-------------|
+| `server.ts` | MCP server with auto-detected tools, Express + Streamable HTTP |
+| `data/pages.json` | All crawled pages as PageMarkdown[] |
+| `data/faq.json` | FAQ entries (if detected) |
+| `package.json` | Dependencies: @modelcontextprotocol/sdk, express, zod, tsx |
+| `tsconfig.json` | Node ESM TypeScript config |
+| `README.md` | Tool list, setup instructions, Claude Desktop config |
+
+Auto-detected tools:
+
+| Tool | Condition | Description |
+|------|-----------|-------------|
+| `list-pages` | Always | List all page titles + URLs |
+| `get-page` | Always | Get markdown content by URL or slug |
+| `search-site` | Always | Keyword search with weighted scoring (title 3x, description 2x, content 1x) |
+| `search-faq` | FAQ content found | Search FAQ question/answer pairs |
+| `site-search` | SearchAction in JSON-LD | Site's native search URL |
+| `submit-form-N` | Forms with action + named inputs | One tool per detected form |
+
+Also available via `w2agent mcp deploy`:
+
+```bash
+w2agent mcp deploy <url>                     # Standalone MCP server
+w2agent mcp deploy <url> --self-host vercel  # Vercel-deployable project
+w2agent mcp deploy <url> --self-host cf      # Cloudflare Worker project
+w2agent mcp status <slug>                    # Check hosted deployment
+w2agent mcp update <slug>                    # Re-crawl hosted deployment
+```
 
 ### Platform Integration Files (auto-detected)
 

@@ -84,6 +84,33 @@ Options:
 
 Focused command that generates only platform-specific files with deployment instructions.
 
+### `mcp` — Generate and deploy MCP servers
+
+```bash
+# Generate a standalone MCP server
+w2agent mcp deploy <url>
+
+# Generate a Vercel-deployable MCP server
+w2agent mcp deploy <url> --self-host vercel
+
+# Generate a Cloudflare Worker MCP server
+w2agent mcp deploy <url> --self-host cf
+
+# Check hosted deployment status
+w2agent mcp status <slug>
+
+# Re-crawl and update hosted deployment
+w2agent mcp update <slug>
+
+Options:
+  --self-host <platform>   Self-host platform: vercel, cf
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  --timeout <ms>           Request timeout (default: 10000)
+```
+
+Auto-detects tools from crawled content: page listing, search, FAQ, site-search (via SearchAction), and form submission.
+
 ## Workflow
 
 The typical workflow is: audit → see issues → generate fixes → deploy.
@@ -102,7 +129,10 @@ npx w2agent generate https://your-site.com --output ./public/
 #    - Docusaurus: add build plugin to config
 #    - Any site: copy files to site root
 
-# 4. Re-audit to confirm score improvement
+# 4. Generate an MCP server so agents can search/read your site
+npx w2agent mcp deploy https://your-site.com
+
+# 5. Re-audit to confirm score improvement
 npx w2agent audit https://your-site.com
 ```
 

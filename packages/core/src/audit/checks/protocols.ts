@@ -7,24 +7,140 @@ export const mcpDiscovery: Check = {
   category: "agent-protocols",
   weight: 1.5,
   severity: "info",
-  run: (_pages, metadata) => {
-    const exists = !!metadata.wellKnown["mcp"];
-
-    return {
-      id: "mcp-discovery",
+  run: async (_pages, metadata) => {
+    const wellKnownContent = metadata.wellKnown["mcp"];
+    const base = {
+      id: "mcp-discovery" as const,
       name: "MCP endpoint",
-      category: "agent-protocols",
-      status: exists ? "pass" : "fail",
-      score: exists ? 100 : 0,
+      category: "agent-protocols" as const,
       maxScore: 100,
       weight: 1.5,
-      message: exists
-        ? "MCP discovery endpoint found"
-        : "No /.well-known/mcp endpoint found",
-      severity: "info",
+      severity: "info" as const,
     };
+
+    if (!wellKnownContent) {
+      return {
+        ...base,
+        status: "fail",
+        score: 0,
+        message: "No /.well-known/mcp endpoint found",
+      };
+    }
+
+    // Endpoint exists — try to send an MCP initialize request
+    try {
+      const mcpUrl = `${metadata.baseUrl}/.well-known/mcp`;
+      const initRequest = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "w2agent-audit", version: "0.1.0" },
+        },
+      };
+
+      const response = await fetch(mcpUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify(initRequest),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        return {
+          ...base,
+          status: "partial",
+          score: 50,
+          message: `MCP endpoint found but returned ${response.status} on initialize`,
+          details: `POST /.well-known/mcp → ${response.status} ${response.statusText}`,
+        };
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      const body = await response.text();
+
+      // Try to parse as JSON-RPC response
+      const parsed = tryParseJsonRpc(body, contentType);
+
+      if (parsed && parsed.serverInfo) {
+        const tools = parsed.tools || [];
+        const resources = parsed.resources || [];
+        const details = [
+          `Server: ${parsed.serverInfo.name} v${parsed.serverInfo.version || "?"}`,
+          tools.length > 0 ? `Tools: ${tools.join(", ")}` : "No tools listed",
+          resources.length > 0 ? `Resources: ${resources.length}` : "",
+        ].filter(Boolean).join("\n");
+
+        return {
+          ...base,
+          status: "pass",
+          score: 100,
+          message: `MCP server found: ${parsed.serverInfo.name} with ${tools.length} tool(s)`,
+          details,
+        };
+      }
+
+      // Got a response but couldn't parse it as valid MCP
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: "MCP endpoint found but returned invalid MCP response",
+        details: `Content-Type: ${contentType}, body length: ${body.length}`,
+      };
+    } catch {
+      // Endpoint exists but initialize request failed (timeout, network, etc.)
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: "MCP endpoint found but could not complete initialize handshake",
+      };
+    }
   },
 };
+
+interface McpParsedResponse {
+  serverInfo: { name: string; version?: string };
+  tools: string[];
+  resources: string[];
+}
+
+function tryParseJsonRpc(body: string, contentType: string): McpParsedResponse | null {
+  try {
+    // Handle SSE format (text/event-stream)
+    let jsonStr = body;
+    if (contentType.includes("text/event-stream")) {
+      const lines = body.split("\n");
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          jsonStr = line.slice(6);
+          break;
+        }
+      }
+    }
+
+    const json = JSON.parse(jsonStr);
+    const result = json.result;
+    if (!result?.serverInfo?.name) return null;
+
+    const tools: string[] = [];
+    if (result.capabilities?.tools) {
+      // Tools are listed in capabilities; names come from a tools/list call
+      // For now just note that tools capability exists
+    }
+
+    return {
+      serverInfo: result.serverInfo,
+      tools,
+      resources: [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const apiEndpoints: Check = {
   id: "api-endpoints",

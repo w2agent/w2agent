@@ -6,6 +6,8 @@ import { wordpressAdapter } from "../src/adapters/wordpress/index.js";
 import { nextjsAdapter } from "../src/adapters/nextjs/index.js";
 import { shopifyAdapter } from "../src/adapters/shopify/index.js";
 import { docusaurusAdapter } from "../src/adapters/docusaurus/index.js";
+import { nuxtAdapter } from "../src/adapters/nuxt/index.js";
+import { astroAdapter } from "../src/adapters/astro/index.js";
 
 // Ensure adapters are registered
 import "../src/adapters/index.js";
@@ -35,8 +37,8 @@ function makeCoreFiles(): GeneratedFile[] {
 // ─── Registry ───────────────────────────────────────────────────
 
 describe("adapter registry", () => {
-  it("has all 4 adapters registered", () => {
-    expect(allAdapters()).toHaveLength(4);
+  it("has all 6 adapters registered", () => {
+    expect(allAdapters()).toHaveLength(6);
   });
 
   it("can retrieve each adapter by ID", () => {
@@ -44,6 +46,8 @@ describe("adapter registry", () => {
     expect(getAdapter("nextjs")).toBe(nextjsAdapter);
     expect(getAdapter("shopify")).toBe(shopifyAdapter);
     expect(getAdapter("docusaurus")).toBe(docusaurusAdapter);
+    expect(getAdapter("nuxt")).toBe(nuxtAdapter);
+    expect(getAdapter("astro")).toBe(astroAdapter);
   });
 
   it("returns undefined for unknown platform", () => {
@@ -187,6 +191,95 @@ describe("Docusaurus detection", () => {
   });
 });
 
+// ─── Nuxt Detection ─────────────────────────────────────────────
+
+describe("Nuxt detection", () => {
+  it("detects via generator meta tag (confidence 1.0)", () => {
+    const page = makePage('<html><head><meta name="generator" content="Nuxt 3.12.4"></head><body></body></html>');
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("nuxt");
+    expect(result!.confidence).toBe(1.0);
+    expect(result!.version).toBe("3.12.4");
+  });
+
+  it("detects via __NUXT_DATA__ (confidence 0.95)", () => {
+    const page = makePage('<html><body><script type="application/json" id="__NUXT_DATA__">[]</script></body></html>');
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via __NUXT__ global (confidence 0.95)", () => {
+    const page = makePage('<html><body><script>window.__NUXT__={}</script></body></html>');
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via /_nuxt/ asset paths (confidence 0.85)", () => {
+    const page = makePage('<html><head><link rel="preload" href="/_nuxt/entry.abc123.js"></head><body></body></html>');
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.85);
+  });
+
+  it("detects via x-powered-by header (confidence 0.95)", () => {
+    const page = makePage("<html><body></body></html>", "https://example.com", {
+      "x-powered-by": "Nuxt",
+    });
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("returns null for non-Nuxt site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = nuxtAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── Astro Detection ────────────────────────────────────────────
+
+describe("Astro detection", () => {
+  it("detects via generator meta tag (confidence 1.0)", () => {
+    const page = makePage('<html><head><meta name="generator" content="Astro v4.15.9"></head><body></body></html>');
+    const result = astroAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.platform).toBe("astro");
+    expect(result!.confidence).toBe(1.0);
+    expect(result!.version).toBe("4.15.9");
+  });
+
+  it("detects via astro-island custom element (confidence 0.95)", () => {
+    const page = makePage('<html><body><astro-island component-url="/_astro/Counter.abc.js"></astro-island></body></html>');
+    const result = astroAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.95);
+  });
+
+  it("detects via data-astro-cid attributes (confidence 0.9)", () => {
+    const page = makePage('<html><body><div data-astro-cid-abc123>Content</div></body></html>');
+    const result = astroAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.9);
+  });
+
+  it("detects via /_astro/ asset paths (confidence 0.85)", () => {
+    const page = makePage('<html><head><link rel="stylesheet" href="/_astro/index.abc123.css"></head><body></body></html>');
+    const result = astroAdapter.detect([page], baseMeta);
+    expect(result).not.toBeNull();
+    expect(result!.confidence).toBe(0.85);
+  });
+
+  it("returns null for non-Astro site", () => {
+    const page = makePage("<html><body>Hello</body></html>");
+    const result = astroAdapter.detect([page], baseMeta);
+    expect(result).toBeNull();
+  });
+});
+
 // ─── detectPlatform (registry-level) ────────────────────────────
 
 describe("detectPlatform", () => {
@@ -313,6 +406,80 @@ describe("Docusaurus checks", () => {
     const page = makePage("<html><body>Simple docs</body></html>");
     const result = check.run([page], baseMeta);
     expect((result as any).status).toBe("skip");
+  });
+});
+
+// ─── Nuxt Checks ────────────────────────────────────────────────
+
+describe("Nuxt checks", () => {
+  it("has 4 checks", () => {
+    expect(nuxtAdapter.checks).toHaveLength(4);
+  });
+
+  it("all checks return valid results", async () => {
+    const page = makePage('<html><head><meta name="generator" content="Nuxt 3.12"></head><body><p>Nuxt content here with enough text</p></body></html>');
+    for (const check of nuxtAdapter.checks) {
+      const result = await check.run([page], baseMeta);
+      expect(result.id).toBe(check.id);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+      expect(result.maxScore).toBe(100);
+      expect(["pass", "fail", "partial", "skip"]).toContain(result.status);
+    }
+  });
+
+  it("nuxt-ssr-hints passes for server-rendered pages", () => {
+    const check = nuxtAdapter.checks.find(c => c.id === "nuxt-ssr-hints")!;
+    const page = makePage("<html><body><div>A substantial amount of server-rendered content that proves this page is not a bare SPA shell. It has real meaningful content here.</div><p>More content for good measure to exceed the threshold.</p></body></html>");
+    const result = check.run([page], baseMeta);
+    expect((result as any).status).toBe("pass");
+  });
+});
+
+// ─── Astro Checks ───────────────────────────────────────────────
+
+describe("Astro checks", () => {
+  it("has 3 checks", () => {
+    expect(astroAdapter.checks).toHaveLength(3);
+  });
+
+  it("all checks return valid results", async () => {
+    const page = makePage('<html><head><meta name="generator" content="Astro v4.15"></head><body><p>Astro content</p></body></html>');
+    for (const check of astroAdapter.checks) {
+      const result = await check.run([page], baseMeta);
+      expect(result.id).toBe(check.id);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+      expect(result.maxScore).toBe(100);
+      expect(["pass", "fail", "partial", "skip"]).toContain(result.status);
+    }
+  });
+
+  it("astro-sitemap-integration passes when sitemap exists", () => {
+    const check = astroAdapter.checks.find(c => c.id === "astro-sitemap-integration")!;
+    const meta = { ...baseMeta, wellKnown: { "sitemap.xml": "<xml>sitemap</xml>" } };
+    const result = check.run([], meta);
+    expect((result as any).status).toBe("pass");
+  });
+
+  it("astro-sitemap-integration fails when no sitemap", () => {
+    const check = astroAdapter.checks.find(c => c.id === "astro-sitemap-integration")!;
+    const result = check.run([], baseMeta);
+    expect((result as any).status).toBe("fail");
+  });
+
+  it("astro-robots-txt passes when robots.txt allows AI bots", () => {
+    const check = astroAdapter.checks.find(c => c.id === "astro-robots-txt")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: *\nAllow: /\n" };
+    const result = check.run([], meta);
+    expect((result as any).status).toBe("pass");
+  });
+
+  it("astro-robots-txt fails when AI bots blocked", () => {
+    const check = astroAdapter.checks.find(c => c.id === "astro-robots-txt")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: GPTBot\nDisallow: /\n" };
+    const result = check.run([], meta);
+    expect((result as any).status).toBe("fail");
   });
 });
 
@@ -445,6 +612,138 @@ describe("Docusaurus integration generation", () => {
     const filenames = files.map(f => f.filename);
     expect(filenames).toContain("docusaurus/static/llms.txt");
     expect(filenames).toContain("docusaurus/static/.well-known/agent-card.json");
+  });
+});
+
+describe("Nuxt integration generation", () => {
+  it("generates 8 files", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(8);
+  });
+
+  it("generates Nitro cached event handlers", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const llmsRoute = files.find(f => f.filename === "nuxt/server/routes/llms.txt.ts");
+    expect(llmsRoute).toBeDefined();
+    expect(llmsRoute!.content).toContain("defineCachedEventHandler");
+    expect(llmsRoute!.content).toContain("maxAge: 3600");
+  });
+
+  it("generates content negotiation middleware", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const mw = files.find(f => f.filename === "nuxt/server/middleware/content-negotiation.ts");
+    expect(mw).toBeDefined();
+    expect(mw!.content).toContain("defineEventHandler");
+    expect(mw!.content).toContain("text/markdown");
+    expect(mw!.content).toContain("sendRedirect");
+  });
+
+  it("includes static fallback files", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const filenames = files.map(f => f.filename);
+    expect(filenames).toContain("nuxt/public/llms.txt");
+    expect(filenames).toContain("nuxt/public/llms-full.txt");
+  });
+
+  it("includes INSTALL.md", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const install = files.find(f => f.filename === "nuxt/INSTALL.md");
+    expect(install).toBeDefined();
+    expect(install!.content).toContain("Nitro");
+  });
+});
+
+describe("Astro integration generation", () => {
+  it("generates 8 files", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    expect(files).toHaveLength(8);
+  });
+
+  it("generates static public files (Astro's strength)", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const filenames = files.map(f => f.filename);
+    expect(filenames).toContain("astro/public/llms.txt");
+    expect(filenames).toContain("astro/public/llms-full.txt");
+    expect(filenames).toContain("astro/public/.well-known/agent-card.json");
+  });
+
+  it("generates SSR API endpoints", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const llmsEndpoint = files.find(f => f.filename === "astro/src/pages/llms.txt.ts");
+    expect(llmsEndpoint).toBeDefined();
+    expect(llmsEndpoint!.content).toContain("APIRoute");
+    expect(llmsEndpoint!.content).toContain("export const GET");
+  });
+
+  it("generates Astro integration plugin", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const plugin = files.find(f => f.filename === "astro/w2agent-integration.mjs");
+    expect(plugin).toBeDefined();
+    expect(plugin!.content).toContain("astro:build:done");
+    expect(plugin!.content).toContain("execFileSync");
+    expect(plugin!.content).toContain("w2agent");
+  });
+
+  it("includes INSTALL.md", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const install = files.find(f => f.filename === "astro/INSTALL.md");
+    expect(install).toBeDefined();
+    expect(install!.content).toContain("static-first");
+  });
+});
+
+// ─── MCP Webhook Snippets ──────────────────────────────────────
+
+function makeCoreFilesWithMcp(): GeneratedFile[] {
+  return [
+    ...makeCoreFiles(),
+    { filename: "mcp-server/server.ts", content: "// server", size: 9 },
+    { filename: "mcp-server/data/pages.json", content: "[]", size: 2 },
+  ];
+}
+
+describe("WordPress MCP webhook snippet", () => {
+  it("generates webhook PHP file when mcp-server files present", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename === "wordpress/w2agent-mcp-webhook.php");
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("save_post");
+    expect(webhook!.content).toContain("wp_remote_post");
+    expect(webhook!.content).toContain("W2AGENT_MCP_WEBHOOK");
+  });
+
+  it("does not generate webhook without mcp-server files", () => {
+    const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const webhook = files.find(f => f.filename === "wordpress/w2agent-mcp-webhook.php");
+    expect(webhook).toBeUndefined();
+  });
+});
+
+describe("Next.js MCP webhook snippet", () => {
+  it("generates webhook route when mcp-server files present", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("W2AGENT_MCP_WEBHOOK");
+  });
+});
+
+describe("Shopify MCP webhook snippet", () => {
+  it("generates webhook instructions when mcp-server files present", () => {
+    const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename.includes("MCP-WEBHOOK"));
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("products/update");
+  });
+});
+
+describe("Docusaurus MCP webhook snippet", () => {
+  it("generates postBuild plugin when mcp-server files present", () => {
+    const files = docusaurusAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename.includes("mcp-webhook"));
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("postBuild");
+    expect(webhook!.content).toContain("W2AGENT_MCP_WEBHOOK");
   });
 });
 

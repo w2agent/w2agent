@@ -54,6 +54,48 @@ export const wordpressAdapter: PlatformAdapter = {
       .filter(line => line.trim() && !line.startsWith("Sitemap:"))
       .join("\n");
 
-    return generateWpPlugin(llmsTxt, agentCard, robotsRules, ctx.baseUrl);
+    const files = generateWpPlugin(llmsTxt, agentCard, robotsRules, ctx.baseUrl);
+
+    // Add MCP webhook snippet if mcp-server format is active
+    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+      const webhookSnippet = `<?php
+/**
+ * w2agent MCP Webhook — WordPress Integration
+ *
+ * Add this to your theme's functions.php or a custom plugin.
+ * Triggers a re-crawl of your MCP server when content changes.
+ */
+
+define('W2AGENT_MCP_WEBHOOK_URL', 'https://w2agent.dev/api/mcp/webhook/YOUR_SLUG');
+define('W2AGENT_MCP_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
+
+add_action('save_post', 'w2agent_mcp_notify', 10, 3);
+add_action('delete_post', 'w2agent_mcp_notify', 10, 1);
+
+function w2agent_mcp_notify($post_id, $post = null, $update = true) {
+    // Only trigger on published posts/pages
+    if ($post && $post->post_status !== 'publish') return;
+
+    wp_remote_post(W2AGENT_MCP_WEBHOOK_URL, array(
+        'headers' => array(
+            'Content-Type'  => 'application/json',
+            'Authorization' => 'Bearer ' . W2AGENT_MCP_WEBHOOK_TOKEN,
+        ),
+        'body'    => wp_json_encode(array(
+            'trigger' => 'wordpress',
+            'post_id' => $post_id,
+        )),
+        'blocking' => false,
+    ));
+}
+`;
+      files.push({
+        filename: "wordpress/w2agent-mcp-webhook.php",
+        content: webhookSnippet,
+        size: new TextEncoder().encode(webhookSnippet).length,
+      });
+    }
+
+    return files;
   },
 };

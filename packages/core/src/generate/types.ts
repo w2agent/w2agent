@@ -17,7 +17,7 @@ export interface GenerateOptions {
   sections?: string[];
 }
 
-export type GenerateFormat = "llms-txt" | "full" | "markdown" | "robots-txt" | "schema-org" | "agent-card" | "faq";
+export type GenerateFormat = "llms-txt" | "full" | "markdown" | "robots-txt" | "schema-org" | "agent-card" | "faq" | "mcp-server";
 
 export interface GeneratedFile {
   filename: string;

@@ -39,9 +39,10 @@ export { generateRobotsTxt } from "./generate/robots-txt.js";
 export { generateSchemaOrg } from "./generate/schema-org.js";
 export { generateAgentCard } from "./generate/agent-card.js";
 export { generateFaq } from "./generate/faq.js";
+export { generateMcpServer, detectTools, type SelfHostPlatform, type McpDetectedTools } from "./generate/mcp-server.js";
 
 // Adapters (import registers all built-in adapters)
 import "./adapters/index.js";
 export type { PlatformId, PlatformDetectionResult, PlatformAdapter } from "./adapters/types.js";
 export { detectPlatform, getAdapter, registerAdapter, allAdapters } from "./adapters/registry.js";
-export { wordpressAdapter, nextjsAdapter, shopifyAdapter, docusaurusAdapter } from "./adapters/index.js";
+export { wordpressAdapter, nextjsAdapter, shopifyAdapter, docusaurusAdapter, nuxtAdapter, astroAdapter } from "./adapters/index.js";

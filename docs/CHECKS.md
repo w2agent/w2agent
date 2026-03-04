@@ -54,7 +54,7 @@
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
-| MCP endpoint | `mcp-discovery` | /.well-known/mcp |
+| MCP endpoint | `mcp-discovery` | /.well-known/mcp — sends MCP initialize request, validates serverInfo + capabilities (100=valid, 50=exists but invalid, 0=missing) |
 | API endpoints | `api-endpoints` | OpenAPI, GraphQL links |
 | Structured forms | `forms-structured` | Forms have labels and names |
 | UCP | `well-known-ucp` | /.well-known/ucp |
