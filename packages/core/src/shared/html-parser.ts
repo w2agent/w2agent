@@ -52,7 +52,7 @@ export function parseHTML(html: string): ParsedPage {
   });
 
   const ogTags: Record<string, string> = {};
-  $('meta[property^="og:"]').each((_, el) => {
+  $('meta[property^="og:"], meta[property^="article:"]').each((_, el) => {
     const prop = $(el).attr("property") || "";
     ogTags[prop] = $(el).attr("content") || "";
   });

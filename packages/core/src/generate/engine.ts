@@ -5,13 +5,19 @@ import { parseHTML } from "../shared/html-parser.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
 import { generateLlmsTxt, extractSiteInfo } from "./llms-txt.js";
 import { generateLlmsFullTxt } from "./llms-full-txt.js";
+import { generateRobotsTxt } from "./robots-txt.js";
+import { generateSchemaOrg } from "./schema-org.js";
+import { generateAgentCard } from "./agent-card.js";
+import { generateFaq } from "./faq.js";
 import type {
   GenerateOptions,
   GenerateResult,
+  GenerateContext,
   GeneratedFile,
   PageMarkdown,
 } from "./types.js";
 import { DEFAULT_GENERATE_OPTIONS as DEFAULTS } from "./types.js";
+import { detectPlatform, getAdapter } from "../adapters/registry.js";
 
 export async function runGenerate(
   url: string,
@@ -36,7 +42,7 @@ export async function runGenerate(
   };
 
   onProgress?.("Crawling site...");
-  const { pages } = await crawlSite(url, crawlOptions, onProgress);
+  const { pages, metadata } = await crawlSite(url, crawlOptions, onProgress);
 
   // Fallback: if sitemap yielded no extra pages, discover via internal links
   if (pages.length <= 1 && options.maxPages > 1) {
@@ -141,6 +147,58 @@ export async function runGenerate(
     }
   }
 
+  // Build GenerateContext for new generators
+  const ctx: GenerateContext = {
+    pages: filteredPages,
+    rawPages: pages,
+    metadata,
+    baseUrl,
+  };
+
+  // Generate robots.txt
+  if (options.formats.includes("robots-txt")) {
+    onProgress?.("Generating robots.txt...");
+    const robotsTxt = generateRobotsTxt(ctx);
+    files.push(makeFile("robots.txt", robotsTxt));
+  }
+
+  // Generate schema-org.json
+  if (options.formats.includes("schema-org")) {
+    onProgress?.("Generating schema-org.json...");
+    const schemaOrg = generateSchemaOrg(ctx);
+    if (schemaOrg) {
+      files.push(makeFile("schema-org.json", JSON.stringify(schemaOrg, null, 2) + "\n"));
+    }
+  }
+
+  // Generate agent-card.json
+  if (options.formats.includes("agent-card")) {
+    onProgress?.("Generating agent-card.json...");
+    const agentCard = generateAgentCard(ctx);
+    files.push(makeFile("agent-card.json", JSON.stringify(agentCard, null, 2) + "\n"));
+  }
+
+  // Generate faq.json
+  if (options.formats.includes("faq")) {
+    onProgress?.("Generating faq.json...");
+    const faq = generateFaq(ctx);
+    if (faq) {
+      files.push(makeFile("faq.json", JSON.stringify(faq, null, 2) + "\n"));
+    }
+  }
+
+  // Detect platform and generate integration files
+  const detected = detectPlatform(pages, metadata);
+  if (detected) {
+    onProgress?.(`Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`);
+    const adapter = getAdapter(detected.platform);
+    if (adapter) {
+      onProgress?.(`Generating ${detected.platform} integration files...`);
+      const integrationFiles = adapter.generateIntegration(ctx, files);
+      files.push(...integrationFiles);
+    }
+  }
+
   const duration = Date.now() - start;
 
   return {
@@ -149,6 +207,7 @@ export async function runGenerate(
     pagesProcessed: filteredPages.length,
     files,
     sections: sectionNames,
+    ...(detected && { platform: detected }),
   };
 }
 

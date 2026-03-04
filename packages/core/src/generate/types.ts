@@ -1,3 +1,12 @@
+import type { FetchedPage, SiteMetadata } from "../audit/types.js";
+
+export interface GenerateContext {
+  pages: PageMarkdown[];
+  rawPages: FetchedPage[];
+  metadata: SiteMetadata;
+  baseUrl: string;
+}
+
 export interface GenerateOptions {
   maxPages: number;
   timeout: number;
@@ -8,7 +17,7 @@ export interface GenerateOptions {
   sections?: string[];
 }
 
-export type GenerateFormat = "llms-txt" | "full" | "markdown";
+export type GenerateFormat = "llms-txt" | "full" | "markdown" | "robots-txt" | "schema-org" | "agent-card" | "faq";
 
 export interface GeneratedFile {
   filename: string;
@@ -24,6 +33,7 @@ export interface GenerateResult {
   files: GeneratedFile[];
   /** Section names found in llms.txt */
   sections: string[];
+  platform?: { platform: string; confidence: number; version?: string; details: Record<string, string> };
 }
 
 export interface PageMarkdown {
@@ -37,5 +47,5 @@ export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   maxPages: 50,
   timeout: 10000,
   userAgent: "w2agent/0.1 (+https://w2agent.dev)",
-  formats: ["llms-txt", "full", "markdown"],
+  formats: ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"],
 };

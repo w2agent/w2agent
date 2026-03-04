@@ -13,10 +13,10 @@ import {
 export function registerGenerateCommand(program: Command): void {
   program
     .command("generate")
-    .description("Generate llms.txt, llms-full.txt, and markdown files for a site")
+    .description("Generate AI-ready files: llms.txt, markdown, robots.txt, schema.org, agent card, FAQ")
     .argument("<url>", "URL to generate content for")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
-    .option("-f, --format <format>", "Output format: llms-txt, full, markdown, all", "all")
+    .option("-f, --format <format>", "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all", "all")
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "50")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
@@ -73,6 +73,14 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} llms.txt           (${size}, ${entries} entries across ${sects} sections)`);
           } else if (file.filename === "llms-full.txt") {
             console.log(`  ${chalk.green("✓")} llms-full.txt      (${size}, ${result.pagesProcessed} pages)`);
+          } else if (file.filename === "robots.txt") {
+            console.log(`  ${chalk.green("✓")} robots.txt         (${size})`);
+          } else if (file.filename === "schema-org.json") {
+            console.log(`  ${chalk.green("✓")} schema-org.json    (${size})`);
+          } else if (file.filename === "agent-card.json") {
+            console.log(`  ${chalk.green("✓")} agent-card.json    (${size})`);
+          } else if (file.filename === "faq.json") {
+            console.log(`  ${chalk.green("✓")} faq.json           (${size})`);
           } else if (file.filename.startsWith("markdown/")) {
             // Count markdown files — only print summary once
           }
@@ -86,11 +94,20 @@ export function registerGenerateCommand(program: Command): void {
 
         console.log("");
         console.log(`  Output: ${chalk.cyan(outputDir)}`);
-        console.log("");
-        console.log(chalk.gray("  Deploy: Copy files to your site root, or use a platform adapter:"));
-        console.log(chalk.gray("  →") + " WordPress:  " + chalk.cyan("npx w2agent wordpress-plugin"));
-        console.log(chalk.gray("  →") + " Next.js:    " + chalk.cyan("npm install @w2agent/next"));
-        console.log(chalk.gray("  →") + " Any site:   " + chalk.cyan(`npx w2agent serve --proxy ${url}`));
+        // Show platform detection info
+        if (result.platform) {
+          const p = result.platform;
+          console.log(`  Platform: ${chalk.magenta(p.platform)} (${Math.round(p.confidence * 100)}% confidence)`);
+          const platformFiles = result.files.filter(f => f.filename.startsWith(`${p.platform}/`));
+          if (platformFiles.length > 0) {
+            console.log(`  ${chalk.green("✓")} ${platformFiles.length} ${p.platform} integration files generated`);
+            console.log(chalk.gray(`    Run ${chalk.cyan(`w2agent integrate ${url}`)} for deployment instructions`));
+          }
+        } else {
+          console.log(chalk.gray("  Deploy: Copy files to your site root, or generate platform-specific files:"));
+          console.log(chalk.gray("  →") + ` ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`);
+          console.log(chalk.gray("  →") + ` ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`);
+        }
         console.log("");
       } catch (err) {
         spinner.fail(`Generation failed: ${(err as Error).message}`);
@@ -100,11 +117,15 @@ export function registerGenerateCommand(program: Command): void {
 }
 
 function parseFormats(format: string): GenerateFormat[] {
-  if (format === "all") return ["llms-txt", "full", "markdown"];
+  if (format === "all") return ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"];
   const map: Record<string, GenerateFormat> = {
     "llms-txt": "llms-txt",
     "full": "full",
     "markdown": "markdown",
+    "robots-txt": "robots-txt",
+    "schema-org": "schema-org",
+    "agent-card": "agent-card",
+    "faq": "faq",
   };
   return [map[format] || "llms-txt"];
 }

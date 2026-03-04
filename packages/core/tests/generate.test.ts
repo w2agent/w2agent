@@ -4,7 +4,13 @@ import { resolve } from "node:path";
 import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
 import { generateLlmsTxt, extractSiteInfo } from "../src/generate/llms-txt.js";
 import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
-import type { PageMarkdown } from "../src/generate/types.js";
+import { generateRobotsTxt } from "../src/generate/robots-txt.js";
+import { generateSchemaOrg } from "../src/generate/schema-org.js";
+import { generateAgentCard } from "../src/generate/agent-card.js";
+import { generateFaq } from "../src/generate/faq.js";
+import { parseHTML } from "../src/shared/html-parser.js";
+import type { PageMarkdown, GenerateContext } from "../src/generate/types.js";
+import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
@@ -199,5 +205,311 @@ describe("generateLlmsFullTxt", () => {
     expect(result).toContain("# Documentation");
     expect(result).toContain("- Item 1");
     expect(result).toContain("- Item 2");
+  });
+});
+
+// --- Helper for building GenerateContext in tests ---
+
+function makeCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
+  return {
+    pages: overrides.pages ?? [],
+    rawPages: overrides.rawPages ?? [],
+    metadata: overrides.metadata ?? {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+    },
+    baseUrl: overrides.baseUrl ?? "https://example.com",
+  };
+}
+
+function makeFetchedPage(url: string, html: string): FetchedPage {
+  return { url, status: 200, html, headers: {}, responseTime: 100 };
+}
+
+// --- robots-txt generation ---
+
+describe("generateRobotsTxt", () => {
+  it("generates full robots.txt when none exists", () => {
+    const ctx = makeCtx();
+    const result = generateRobotsTxt(ctx);
+
+    expect(result).toContain("User-agent: *");
+    expect(result).toContain("Allow: /");
+    expect(result).toContain("User-agent: GPTBot");
+    expect(result).toContain("User-agent: ClaudeBot");
+    expect(result).toContain("User-agent: PerplexityBot");
+    expect(result).toContain("Sitemap: https://example.com/sitemap.xml");
+    expect(result).toContain("# llms.txt: https://example.com/llms.txt");
+  });
+
+  it("appends missing bot rules to existing robots.txt", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://example.com",
+        robotsTxt: "User-agent: *\nAllow: /\n\nUser-agent: GPTBot\nAllow: /\n",
+        wellKnown: {},
+      },
+    });
+    const result = generateRobotsTxt(ctx);
+
+    expect(result).toContain("User-agent: *");
+    expect(result).toContain("# --- w2agent: suggested AI bot rules ---");
+    expect(result).toContain("User-agent: ClaudeBot");
+    // GPTBot already exists, should not be duplicated
+    const gptbotMatches = result.match(/User-agent: GPTBot/g);
+    expect(gptbotMatches).toHaveLength(1);
+  });
+
+  it("returns existing robots.txt unchanged if all bots covered", () => {
+    const allBots = [
+      "GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "PerplexityBot",
+      "Google-Extended", "Bytespider", "CCBot", "Applebot-Extended", "Amazonbot",
+      "anthropic-ai", "cohere-ai",
+    ];
+    const existing = allBots.map(b => `User-agent: ${b}\nAllow: /`).join("\n\n")
+      + "\n\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
+
+    const ctx = makeCtx({
+      metadata: { baseUrl: "https://example.com", robotsTxt: existing, wellKnown: {} },
+    });
+    const result = generateRobotsTxt(ctx);
+    expect(result).toBe(existing);
+  });
+});
+
+// --- schema-org generation ---
+
+describe("generateSchemaOrg", () => {
+  it("generates WebPage schema for basic pages", () => {
+    const html = '<html><head><title>About</title><meta name="description" content="About us"></head><body><p>Content</p></body></html>';
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/about", html)],
+      pages: [{ url: "https://example.com/about", title: "About", description: "About us", markdown: "Content" }],
+    });
+
+    const result = generateSchemaOrg(ctx);
+    expect(result).not.toBeNull();
+    expect(result![0].jsonLd["@type"]).toBe("WebPage");
+    expect(result![0].jsonLd.name).toBe("About");
+    expect(result![0].jsonLd.url).toBe("https://example.com/about");
+  });
+
+  it("detects Article type from article:published_time", () => {
+    const html = `<html><head><title>Blog Post</title>
+      <meta property="article:published_time" content="2024-01-01">
+      <meta property="article:modified_time" content="2024-06-01">
+    </head><body><p>Blog content</p></body></html>`;
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/blog/post", html)],
+      pages: [{ url: "https://example.com/blog/post", title: "Blog Post", description: "", markdown: "Blog content" }],
+    });
+
+    const result = generateSchemaOrg(ctx);
+    expect(result).not.toBeNull();
+    expect(result![0].jsonLd["@type"]).toBe("Article");
+    expect(result![0].jsonLd.datePublished).toBe("2024-01-01");
+    expect(result![0].jsonLd.dateModified).toBe("2024-06-01");
+  });
+
+  it("skips pages that already have JSON-LD", () => {
+    const html = `<html><head><title>Page</title>
+      <script type="application/ld+json">{"@type":"Organization","name":"Test"}</script>
+    </head><body><p>Content</p></body></html>`;
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com", html)],
+      pages: [{ url: "https://example.com", title: "Page", description: "", markdown: "Content" }],
+    });
+
+    const result = generateSchemaOrg(ctx);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when no pages need schema", () => {
+    const ctx = makeCtx({ rawPages: [] });
+    const result = generateSchemaOrg(ctx);
+    expect(result).toBeNull();
+  });
+});
+
+// --- agent-card generation ---
+
+describe("generateAgentCard", () => {
+  it("creates agent card with site info", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "A great site", markdown: "Welcome" }],
+      rawPages: [],
+    });
+
+    const card = generateAgentCard(ctx);
+    expect(card.name).toBe("My Site");
+    expect(card.description).toBe("A great site");
+    expect(card.url).toBe("https://example.com");
+    expect(card.version).toBe("1.0.0");
+  });
+
+  it("detects llms.txt capability", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "Desc", markdown: "Content" }],
+      rawPages: [],
+      metadata: {
+        baseUrl: "https://example.com",
+        llmsTxt: "# My Site",
+        wellKnown: {},
+      },
+    });
+
+    const card = generateAgentCard(ctx);
+    expect(card.capabilities.llmsTxt).toBe(true);
+    expect(card.skills.some(s => s.id === "llms-txt")).toBe(true);
+  });
+
+  it("detects SearchAction capability", () => {
+    const html = '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head><body></body></html>';
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],
+      rawPages: [makeFetchedPage("https://example.com", html)],
+    });
+
+    const card = generateAgentCard(ctx);
+    expect(card.capabilities.searchAction).toBe(true);
+    expect(card.capabilities.structuredData).toBe(true);
+  });
+
+  it("provides fallback description when none exists", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],
+      rawPages: [],
+    });
+
+    const card = generateAgentCard(ctx);
+    expect(card.description).toContain("My Site");
+  });
+});
+
+// --- FAQ extraction ---
+
+describe("generateFaq", () => {
+  it("extracts FAQ from dt/dd elements", () => {
+    const html = loadFixture("faq-page.html");
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    expect(result!["@type"]).toBe("FAQPage");
+    expect(result!["@context"]).toBe("https://schema.org");
+
+    const questions = result!.mainEntity.map(e => e.name);
+    expect(questions).toContain("What is Example Company?");
+    expect(questions).toContain("How do I get started?");
+    expect(questions).toContain("What pricing plans are available?");
+  });
+
+  it("extracts FAQ from headings ending with ?", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <h1>Frequently Asked Questions</h1>
+      <h2>What is this?</h2>
+      <p>This is a test product for testing purposes.</p>
+      <h2>How does it work?</h2>
+      <p>It works by processing your data and returning results.</p>
+      <h2>Can I use it for free?</h2>
+      <p>Yes you can use a free tier.</p>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+
+    const questions = result!.mainEntity.map(e => e.name);
+    expect(questions).toContain("What is this?");
+    expect(questions).toContain("How does it work?");
+  });
+
+  it("extracts FAQ from details/summary elements", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <details><summary>What is the return policy?</summary><p>30-day money back guarantee.</p></details>
+      <details><summary>Do you ship internationally?</summary><p>Yes, we ship worldwide.</p></details>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+
+    const questions = result!.mainEntity.map(e => e.name);
+    expect(questions).toContain("What is the return policy?");
+    expect(questions).toContain("Do you ship internationally?");
+  });
+
+  it("extracts FAQ from existing FAQPage JSON-LD", () => {
+    const html = `<html><head><title>Frequently Asked Questions</title>
+      <script type="application/ld+json">{
+        "@type": "FAQPage",
+        "mainEntity": [
+          {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, it is free."}}
+        ]
+      }</script>
+    </head><body><p>Here are our frequently asked questions and answers.</p></body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.mainEntity[0].name).toBe("Is it free?");
+    expect(result!.mainEntity[0].acceptedAnswer.text).toBe("Yes, it is free.");
+  });
+
+  it("deduplicates questions by text", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <dl>
+        <dt>What is this?</dt><dd>Answer one.</dd>
+        <dt>What is this?</dt><dd>Answer two.</dd>
+        <dt>How does it work?</dt><dd>It just works.</dd>
+      </dl>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    const questions = result!.mainEntity.map(e => e.name);
+    expect(questions.filter(q => q === "What is this?")).toHaveLength(1);
+  });
+
+  it("returns null when no FAQ content found", () => {
+    const html = "<html><head><title>Home</title></head><body><p>Just a regular page.</p></body></html>";
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).toBeNull();
+  });
+});
+
+// --- html-parser article:* meta tags ---
+
+describe("parseHTML article meta tags", () => {
+  it("captures article:published_time and article:modified_time", () => {
+    const html = `<html><head>
+      <meta property="og:title" content="My Post">
+      <meta property="article:published_time" content="2024-01-15">
+      <meta property="article:modified_time" content="2024-06-20">
+    </head><body></body></html>`;
+
+    const parsed = parseHTML(html);
+    expect(parsed.ogTags["og:title"]).toBe("My Post");
+    expect(parsed.ogTags["article:published_time"]).toBe("2024-01-15");
+    expect(parsed.ogTags["article:modified_time"]).toBe("2024-06-20");
   });
 });

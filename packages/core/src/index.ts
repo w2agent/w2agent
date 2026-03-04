@@ -25,6 +25,7 @@ export { loadConfig, mergeConfigWithOptions } from "./shared/config.js";
 export type {
   GenerateOptions,
   GenerateFormat,
+  GenerateContext,
   GenerateResult,
   GeneratedFile,
   PageMarkdown,
@@ -34,3 +35,13 @@ export { runGenerate } from "./generate/engine.js";
 export { htmlToMarkdown } from "./generate/html-to-markdown.js";
 export { generateLlmsTxt, extractSiteInfo } from "./generate/llms-txt.js";
 export { generateLlmsFullTxt } from "./generate/llms-full-txt.js";
+export { generateRobotsTxt } from "./generate/robots-txt.js";
+export { generateSchemaOrg } from "./generate/schema-org.js";
+export { generateAgentCard } from "./generate/agent-card.js";
+export { generateFaq } from "./generate/faq.js";
+
+// Adapters (import registers all built-in adapters)
+import "./adapters/index.js";
+export type { PlatformId, PlatformDetectionResult, PlatformAdapter } from "./adapters/types.js";
+export { detectPlatform, getAdapter, registerAdapter, allAdapters } from "./adapters/registry.js";
+export { wordpressAdapter, nextjsAdapter, shopifyAdapter, docusaurusAdapter } from "./adapters/index.js";
