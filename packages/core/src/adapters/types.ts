@@ -1,7 +1,7 @@
 import type { Check, FetchedPage, SiteMetadata } from "../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../generate/types.js";
 
-export type PlatformId = "wordpress" | "shopify" | "nextjs" | "docusaurus";
+export type PlatformId = "wordpress" | "shopify" | "nextjs" | "docusaurus" | "nuxt" | "astro";
 
 export interface PlatformDetectionResult {
   platform: PlatformId;

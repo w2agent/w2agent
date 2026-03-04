@@ -747,6 +747,38 @@ describe("Docusaurus MCP webhook snippet", () => {
   });
 });
 
+describe("Nuxt MCP webhook snippet", () => {
+  it("generates webhook Nitro route when mcp-server files present", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook!.content).toContain("defineEventHandler");
+  });
+
+  it("does not generate webhook without mcp-server files", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const webhook = files.find(f => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook).toBeUndefined();
+  });
+});
+
+describe("Astro MCP webhook snippet", () => {
+  it("generates webhook integration when mcp-server files present", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find(f => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook).toBeDefined();
+    expect(webhook!.content).toContain("astro:build:done");
+    expect(webhook!.content).toContain("W2AGENT_MCP_WEBHOOK");
+  });
+
+  it("does not generate webhook without mcp-server files", () => {
+    const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const webhook = files.find(f => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook).toBeUndefined();
+  });
+});
+
 // ─── File sizes ─────────────────────────────────────────────────
 
 describe("generated file sizes", () => {
