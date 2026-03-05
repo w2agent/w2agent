@@ -2,6 +2,7 @@ import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { shopifyChecks } from "./checks.js";
+import { resolveShopifyInstall } from "./install.js";
 import { generateShopifyIntegration } from "./templates.js";
 
 export const shopifyAdapter: PlatformAdapter = {
@@ -45,6 +46,8 @@ export const shopifyAdapter: PlatformAdapter = {
   },
 
   checks: shopifyChecks,
+
+  resolveInstall: resolveShopifyInstall,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
