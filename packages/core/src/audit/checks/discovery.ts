@@ -97,7 +97,7 @@ export const llmsTxtLinksResolve: Check = {
       };
     }
 
-    const urlRegex = /https?:\/\/\S+/g;
+    const urlRegex = /https?:\/\/[^\s)>\],:]+/g;
     const urls = metadata.llmsTxt.match(urlRegex) || [];
 
     if (urls.length === 0) {
