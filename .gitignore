@@ -11,3 +11,4 @@ dist/
 w2agent-output/
 .data/
 .vercel
+*.tsbuildinfo
