@@ -148,6 +148,33 @@ npx w2agent integrate <url> [--platform wordpress|nextjs|nuxt|astro|shopify|docu
 
 Auto-detects platform (or use `--platform` to force), generates only integration files, and shows deployment instructions.
 
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-o, --output <dir>` | `./w2agent-output` | Output directory (default mode) |
+| `-p, --platform <platform>` | auto-detect | Force platform |
+| `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
+| `--timeout <ms>` | `10000` | Per-request timeout |
+| `--install` | off | Install files directly into your project |
+| `--project-dir <dir>` | `.` | Project root for `--install` |
+
+### `--install` Mode
+
+With `--install`, files are copied directly into your project instead of an output directory:
+
+```bash
+npx w2agent integrate https://my-site.com --install
+npx w2agent integrate https://my-site.com --install --project-dir ../my-app
+```
+
+Behavior:
+- Skips non-project files (`INSTALL.md`)
+- If `middleware.ts` already exists and contains `w2agent` or `llms.txt`, skips it
+- If `middleware.ts` exists without w2agent code, saves as `middleware.w2agent.ts` for manual merge
+- For Next.js: installs route handlers, build script, and seed content into `public/`
+- Route handlers take priority over seed files (if routes exist for llms.txt, seed files are not installed to `public/`)
+
 ## Page Discovery
 
 Pages are discovered in two ways:
