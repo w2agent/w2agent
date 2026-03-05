@@ -2,6 +2,7 @@ import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { astroChecks } from "./checks.js";
+import { resolveAstroInstall } from "./install.js";
 import { generateAstroIntegration } from "./templates.js";
 
 export const astroAdapter: PlatformAdapter = {
@@ -50,6 +51,8 @@ export const astroAdapter: PlatformAdapter = {
   },
 
   checks: astroChecks,
+
+  resolveInstall: resolveAstroInstall,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
