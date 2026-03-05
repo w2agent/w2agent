@@ -60,7 +60,7 @@ npx w2agent audit https://example.com --ci --threshold 80
 # Generate llms.txt + llms-full.txt + all AI-ready files
 npx w2agent generate https://example.com
 npx w2agent generate https://example.com --format llms-txt
-npx w2agent generate https://example.com --max-pages 50 --output ./output/
+npx w2agent generate https://example.com --max-pages 200 --output ./output/
 
 # Generate platform-specific integration files
 npx w2agent integrate https://example.com
@@ -150,7 +150,7 @@ w2agent generate <url> [options]
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
   -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
-  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only include these URL sections (comma-separated)
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
@@ -161,7 +161,7 @@ w2agent integrate <url> [options]
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
   -p, --platform <name>    Force platform: wordpress, nextjs, shopify, docusaurus
-  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
 

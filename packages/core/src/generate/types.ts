@@ -38,6 +38,8 @@ export interface GenerateResult {
   url: string;
   duration: number;
   pagesProcessed: number;
+  /** Total pages discovered (sitemap + links) before applying maxPages limit */
+  totalPagesFound: number;
   files: GeneratedFile[];
   /** Section names found in llms.txt */
   sections: string[];
@@ -57,7 +59,7 @@ export interface PageMarkdown {
 }
 
 export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
-  maxPages: 50,
+  maxPages: 100,
   timeout: 10000,
   userAgent: "w2agent/0.1 (+https://w2agent.dev)",
   formats: ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"],

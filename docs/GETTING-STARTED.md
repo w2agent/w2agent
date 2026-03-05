@@ -63,7 +63,7 @@ w2agent generate <url> [options]
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
   -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
-  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only these URL sections (comma-separated)
   --timeout <ms>           Request timeout (default: 10000)
 ```
@@ -78,7 +78,7 @@ w2agent integrate <url> [options]
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
   -p, --platform <name>    Force platform: wordpress, nextjs, shopify, docusaurus
-  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
@@ -105,7 +105,7 @@ w2agent mcp update <slug>
 Options:
   --self-host <platform>   Self-host platform: vercel, cf
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -m, --max-pages <n>      Max pages to crawl (default: 50)
+  -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout (default: 10000)
 ```
 

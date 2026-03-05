@@ -4,6 +4,8 @@ import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
 export interface CrawlResult {
   pages: FetchedPage[];
   metadata: SiteMetadata;
+  /** Total URLs discovered (sitemap) before applying maxPages limit */
+  totalUrlsFound: number;
 }
 
 export async function crawlSite(
@@ -50,7 +52,9 @@ export async function crawlSite(
   const visited = new Set<string>([url]);
 
   const sitemapUrls = parseSitemapUrls(metadata.sitemapXml, baseUrl);
-  const urlsToFetch = sitemapUrls.filter((u) => !visited.has(u)).slice(0, options.maxPages - 1);
+  const uniqueSitemapUrls = sitemapUrls.filter((u) => !visited.has(u));
+  const totalUrlsFound = 1 + uniqueSitemapUrls.length; // homepage + sitemap
+  const urlsToFetch = uniqueSitemapUrls.slice(0, options.maxPages - 1);
 
   if (urlsToFetch.length > 0) {
     onProgress?.(`Scanning ${urlsToFetch.length} pages from sitemap...`);
@@ -70,7 +74,7 @@ export async function crawlSite(
     }
   }
 
-  return { pages, metadata };
+  return { pages, metadata, totalUrlsFound };
 }
 
 function parseSitemapUrls(xml: string | undefined, baseUrl: string): string[] {

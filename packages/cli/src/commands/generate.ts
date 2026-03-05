@@ -18,7 +18,7 @@ export function registerGenerateCommand(program: Command): void {
       "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all",
       "all",
     )
-    .option("-m, --max-pages <number>", "Maximum pages to crawl", "50")
+    .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .action(async (url: string, opts) => {
@@ -62,6 +62,13 @@ export function registerGenerateCommand(program: Command): void {
         console.log("");
         console.log(`  URL: ${chalk.cyan(url)}`);
         console.log(`  Pages crawled: ${result.pagesProcessed}`);
+        if (result.totalPagesFound > result.pagesProcessed) {
+          console.log(
+            chalk.yellow(
+              `  ⚠ ${result.totalPagesFound} pages found, limited to ${result.pagesProcessed}. Self-host or upgrade for full coverage.`,
+            ),
+          );
+        }
         console.log(`  Time: ${(result.duration / 1000).toFixed(1)}s`);
         console.log("");
         console.log("  Generated:");

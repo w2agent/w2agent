@@ -14,7 +14,7 @@ npx w2agent generate <url> [options]
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
 | `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `all` |
-| `-m, --max-pages <n>` | `50` | Maximum pages to crawl |
+| `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
 | `--timeout <ms>` | `10000` | Per-request timeout |
 

@@ -43,13 +43,15 @@ export async function runGenerate(
   };
 
   onProgress?.("Crawling site...");
-  const { pages, metadata } = await crawlSite(url, crawlOptions, onProgress);
+  const { pages, metadata, totalUrlsFound } = await crawlSite(url, crawlOptions, onProgress);
+  let totalPagesFound = totalUrlsFound;
 
   // Fallback: if sitemap yielded no extra pages, discover via internal links
   if (pages.length <= 1 && options.maxPages > 1) {
     const baseUrl = new URL(url).origin;
     const visited = new Set(pages.map((p) => p.url));
     const linkUrls = extractInternalLinks(pages, baseUrl, visited);
+    totalPagesFound = pages.length + linkUrls.length;
     const toFetch = linkUrls.slice(0, options.maxPages - pages.length);
 
     if (toFetch.length > 0) {
@@ -219,6 +221,7 @@ export async function runGenerate(
     url,
     duration,
     pagesProcessed: filteredPages.length,
+    totalPagesFound,
     files,
     sections: sectionNames,
     ...(detected && { platform: detected }),
