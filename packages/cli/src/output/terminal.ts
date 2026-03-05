@@ -1,5 +1,5 @@
+import type { AuditReport, LetterGrade } from "@w2agent/core";
 import chalk from "chalk";
-import type { AuditReport, CategoryResult, LetterGrade } from "@w2agent/core";
 
 const PLATFORM_NAMES: Record<string, string> = {
   wordpress: "WordPress",
@@ -14,11 +14,16 @@ const BAR_WIDTH = 10;
 
 function gradeColor(grade: LetterGrade): typeof chalk {
   switch (grade) {
-    case "A": return chalk.green;
-    case "B": return chalk.greenBright;
-    case "C": return chalk.yellow;
-    case "D": return chalk.hex("#FFA500");
-    case "F": return chalk.red;
+    case "A":
+      return chalk.green;
+    case "B":
+      return chalk.greenBright;
+    case "C":
+      return chalk.yellow;
+    case "D":
+      return chalk.hex("#FFA500");
+    case "F":
+      return chalk.red;
   }
 }
 
@@ -47,18 +52,22 @@ export function formatReport(report: AuditReport): string {
 
   lines.push("");
   lines.push(chalk.bold("  w2agent audit — AI Readiness Report"));
-  lines.push(chalk.gray("  " + "─".repeat(36)));
+  lines.push(chalk.gray(`  ${"─".repeat(36)}`));
   lines.push("");
   lines.push(`  URL: ${chalk.cyan(report.url)}`);
   if (report.platform) {
     const p = report.platform;
     const name = PLATFORM_NAMES[p.platform] || p.platform;
-    lines.push(`  Platform: ${chalk.magenta(name)} (${Math.round(p.confidence * 100)}% confidence)${p.version ? ` v${p.version}` : ""}`);
+    lines.push(
+      `  Platform: ${chalk.magenta(name)} (${Math.round(p.confidence * 100)}% confidence)${p.version ? ` v${p.version}` : ""}`,
+    );
   }
   lines.push(`  Pages scanned: ${report.pagesScanned}`);
   lines.push(`  Time: ${(report.duration / 1000).toFixed(1)}s`);
   lines.push("");
-  lines.push(`  Overall Score: ${color.bold(`${report.overallScore}/100`)} (${color.bold(report.grade)})`);
+  lines.push(
+    `  Overall Score: ${color.bold(`${report.overallScore}/100`)} (${color.bold(report.grade)})`,
+  );
   lines.push("");
 
   for (const category of report.categories) {
@@ -90,13 +99,21 @@ export function formatVerboseReport(report: AuditReport): string {
   lines.push("");
 
   for (const category of report.categories) {
-    lines.push(`  ${chalk.bold(category.name)} — ${scoreColor(category.score)(`${category.score}/100`)}`);
+    lines.push(
+      `  ${chalk.bold(category.name)} — ${scoreColor(category.score)(`${category.score}/100`)}`,
+    );
     for (const check of category.checks) {
-      const icon = check.status === "pass" ? chalk.green("✓") :
-                   check.status === "partial" ? chalk.yellow("~") :
-                   check.status === "skip" ? chalk.gray("-") :
-                   chalk.red("✗");
-      lines.push(`    ${icon} ${padRight(check.name, 40)} ${scoreColor(check.score)(`${check.score}`)}`);
+      const icon =
+        check.status === "pass"
+          ? chalk.green("✓")
+          : check.status === "partial"
+            ? chalk.yellow("~")
+            : check.status === "skip"
+              ? chalk.gray("-")
+              : chalk.red("✗");
+      lines.push(
+        `    ${icon} ${padRight(check.name, 40)} ${scoreColor(check.score)(`${check.score}`)}`,
+      );
       if (check.status !== "pass" && check.message) {
         lines.push(`      ${chalk.gray(check.message)}`);
       }

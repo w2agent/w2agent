@@ -1,14 +1,14 @@
-import { describe, it, expect } from "vitest";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
 import {
   llmsTxtExists,
   llmsTxtValid,
+  markdownAlternate,
   wellKnownAgentCard,
   wellKnownAgentsJson,
-  markdownAlternate,
 } from "../../src/audit/checks/discovery.js";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -42,7 +42,8 @@ describe("llms-txt-valid", () => {
   it("validates spec compliance", () => {
     const result = llmsTxtValid.run([basePage], {
       ...baseMeta,
-      llmsTxt: "# My Site\n\n> A great site for testing\n\n## Documentation\n\n- [Docs](https://example.com/docs): Main docs",
+      llmsTxt:
+        "# My Site\n\n> A great site for testing\n\n## Documentation\n\n- [Docs](https://example.com/docs): Main docs",
     });
     expect(result.score).toBe(100);
   });

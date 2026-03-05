@@ -36,7 +36,7 @@ export function generateFaq(ctx: GenerateContext): FaqPageSchema | null {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: deduped.map(e => ({
+    mainEntity: deduped.map((e) => ({
       "@type": "Question",
       name: e.question,
       acceptedAnswer: {

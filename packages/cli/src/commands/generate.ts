@@ -1,22 +1,23 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { type GenerateFormat, type GenerateOptions, runGenerate } from "@w2agent/core";
+import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import chalk from "chalk";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import {
-  runGenerate,
-  type GenerateFormat,
-  type GenerateOptions,
-  DEFAULT_GENERATE_OPTIONS,
-} from "@w2agent/core";
 
 export function registerGenerateCommand(program: Command): void {
   program
     .command("generate")
-    .description("Generate AI-ready files: llms.txt, markdown, robots.txt, schema.org, agent card, FAQ")
+    .description(
+      "Generate AI-ready files: llms.txt, markdown, robots.txt, schema.org, agent card, FAQ",
+    )
     .argument("<url>", "URL to generate content for")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
-    .option("-f, --format <format>", "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all", "all")
+    .option(
+      "-f, --format <format>",
+      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all",
+      "all",
+    )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "50")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
@@ -31,8 +32,8 @@ export function registerGenerateCommand(program: Command): void {
         : undefined;
 
       const generateOptions: Partial<GenerateOptions> = {
-        maxPages: parseInt(opts.maxPages),
-        timeout: parseInt(opts.timeout),
+        maxPages: parseInt(opts.maxPages, 10),
+        timeout: parseInt(opts.timeout, 10),
         formats,
         sections,
       };
@@ -57,7 +58,7 @@ export function registerGenerateCommand(program: Command): void {
         // Print summary
         console.log("");
         console.log(chalk.bold("  w2agent generate — AI Content Generator"));
-        console.log(chalk.gray("  " + "─".repeat(40)));
+        console.log(chalk.gray(`  ${"─".repeat(40)}`));
         console.log("");
         console.log(`  URL: ${chalk.cyan(url)}`);
         console.log(`  Pages crawled: ${result.pagesProcessed}`);
@@ -70,9 +71,13 @@ export function registerGenerateCommand(program: Command): void {
           if (file.filename === "llms.txt") {
             const entries = result.pagesProcessed;
             const sects = result.sections.length;
-            console.log(`  ${chalk.green("✓")} llms.txt           (${size}, ${entries} entries across ${sects} sections)`);
+            console.log(
+              `  ${chalk.green("✓")} llms.txt           (${size}, ${entries} entries across ${sects} sections)`,
+            );
           } else if (file.filename === "llms-full.txt") {
-            console.log(`  ${chalk.green("✓")} llms-full.txt      (${size}, ${result.pagesProcessed} pages)`);
+            console.log(
+              `  ${chalk.green("✓")} llms-full.txt      (${size}, ${result.pagesProcessed} pages)`,
+            );
           } else if (file.filename === "robots.txt") {
             console.log(`  ${chalk.green("✓")} robots.txt         (${size})`);
           } else if (file.filename === "schema-org.json") {
@@ -86,10 +91,12 @@ export function registerGenerateCommand(program: Command): void {
           }
         }
 
-        const mdFiles = result.files.filter(f => f.filename.startsWith("markdown/"));
+        const mdFiles = result.files.filter((f) => f.filename.startsWith("markdown/"));
         if (mdFiles.length > 0) {
           const avgSize = Math.round(mdFiles.reduce((sum, f) => sum + f.size, 0) / mdFiles.length);
-          console.log(`  ${chalk.green("✓")} ${mdFiles.length} markdown files  (avg ${formatSize(avgSize)} each)`);
+          console.log(
+            `  ${chalk.green("✓")} ${mdFiles.length} markdown files  (avg ${formatSize(avgSize)} each)`,
+          );
         }
 
         console.log("");
@@ -97,16 +104,32 @@ export function registerGenerateCommand(program: Command): void {
         // Show platform detection info
         if (result.platform) {
           const p = result.platform;
-          console.log(`  Platform: ${chalk.magenta(p.platform)} (${Math.round(p.confidence * 100)}% confidence)`);
-          const platformFiles = result.files.filter(f => f.filename.startsWith(`${p.platform}/`));
+          console.log(
+            `  Platform: ${chalk.magenta(p.platform)} (${Math.round(p.confidence * 100)}% confidence)`,
+          );
+          const platformFiles = result.files.filter((f) => f.filename.startsWith(`${p.platform}/`));
           if (platformFiles.length > 0) {
-            console.log(`  ${chalk.green("✓")} ${platformFiles.length} ${p.platform} integration files generated`);
-            console.log(chalk.gray(`    Run ${chalk.cyan(`w2agent integrate ${url}`)} for deployment instructions`));
+            console.log(
+              `  ${chalk.green("✓")} ${platformFiles.length} ${p.platform} integration files generated`,
+            );
+            console.log(
+              chalk.gray(
+                `    Run ${chalk.cyan(`w2agent integrate ${url}`)} for deployment instructions`,
+              ),
+            );
           }
         } else {
-          console.log(chalk.gray("  Deploy: Copy files to your site root, or generate platform-specific files:"));
-          console.log(chalk.gray("  →") + ` ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`);
-          console.log(chalk.gray("  →") + ` ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`);
+          console.log(
+            chalk.gray(
+              "  Deploy: Copy files to your site root, or generate platform-specific files:",
+            ),
+          );
+          console.log(
+            `${chalk.gray("  →")} ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`,
+          );
+          console.log(
+            `${chalk.gray("  →")} ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`,
+          );
         }
         console.log("");
       } catch (err) {
@@ -117,15 +140,16 @@ export function registerGenerateCommand(program: Command): void {
 }
 
 function parseFormats(format: string): GenerateFormat[] {
-  if (format === "all") return ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"];
+  if (format === "all")
+    return ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"];
   const map: Record<string, GenerateFormat> = {
     "llms-txt": "llms-txt",
-    "full": "full",
-    "markdown": "markdown",
+    full: "full",
+    markdown: "markdown",
     "robots-txt": "robots-txt",
     "schema-org": "schema-org",
     "agent-card": "agent-card",
-    "faq": "faq",
+    faq: "faq",
     "mcp-server": "mcp-server",
   };
   return [map[format] || "llms-txt"];

@@ -8,14 +8,15 @@ export const docusaurusSidebarCoverageCheck: Check = {
   severity: "info",
   run(pages: FetchedPage[]) {
     // Check if sidebar navigation exists and covers docs
-    const hasSidebar = pages.some(p =>
-      p.html.includes("theme-doc-sidebar") ||
-      p.html.includes("menu__list") ||
-      p.html.includes("sidebar_"),
+    const hasSidebar = pages.some(
+      (p) =>
+        p.html.includes("theme-doc-sidebar") ||
+        p.html.includes("menu__list") ||
+        p.html.includes("sidebar_"),
     );
 
-    const docPages = pages.filter(p =>
-      p.url.includes("/docs/") || p.html.includes("theme-doc-markdown"),
+    const docPages = pages.filter(
+      (p) => p.url.includes("/docs/") || p.html.includes("theme-doc-markdown"),
     );
 
     return {
@@ -44,14 +45,15 @@ export const docusaurusVersionedDocsCheck: Check = {
   weight: 1,
   severity: "info",
   run(pages: FetchedPage[]) {
-    const hasVersionDropdown = pages.some(p =>
-      p.html.includes("docsVersionDropdown") ||
-      p.html.includes("docs-version-") ||
-      p.html.includes("version-"),
+    const hasVersionDropdown = pages.some(
+      (p) =>
+        p.html.includes("docsVersionDropdown") ||
+        p.html.includes("docs-version-") ||
+        p.html.includes("version-"),
     );
 
-    const versionedPaths = pages.filter(p =>
-      /\/docs\/\d+\.\d+/.test(p.url) || /\/docs\/next\//.test(p.url),
+    const versionedPaths = pages.filter(
+      (p) => /\/docs\/\d+\.\d+/.test(p.url) || /\/docs\/next\//.test(p.url),
     );
 
     if (!hasVersionDropdown && versionedPaths.length === 0) {

@@ -47,7 +47,7 @@ export function generateAgentCard(ctx: GenerateContext): AgentCard {
   // Check for structured data in any page
   for (const page of ctx.rawPages) {
     if (!page.html) continue;
-    if (page.html.includes('application/ld+json')) {
+    if (page.html.includes("application/ld+json")) {
       capabilities.structuredData = true;
       break;
     }

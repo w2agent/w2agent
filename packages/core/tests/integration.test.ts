@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { cpSync, mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { type ChildProcess, execSync, spawn } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import type { GenerateContext, GeneratedFile } from "../src/generate/types.js";
-import type { SiteMetadata, AuditReport, CheckResult } from "../src/audit/types.js";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getAdapter } from "../src/adapters/registry.js";
 import type { PlatformId } from "../src/adapters/types.js";
-import { runAudit } from "../src/audit/engine.js";
 import { allChecks } from "../src/audit/checks/index.js";
+import { runAudit } from "../src/audit/engine.js";
+import type { AuditReport, CheckResult, SiteMetadata } from "../src/audit/types.js";
+import type { GenerateContext, GeneratedFile } from "../src/generate/types.js";
 
 import "../src/adapters/index.js";
 
@@ -33,7 +33,10 @@ function makeCoreFiles(): GeneratedFile[] {
   ];
 }
 
-function loadFixture(platformId: PlatformId, fixtureName: string): {
+function loadFixture(
+  platformId: PlatformId,
+  fixtureName: string,
+): {
   dir: string;
   files: GeneratedFile[];
 } {
@@ -61,12 +64,12 @@ function writeGeneratedFiles(dir: string, files: GeneratedFile[], prefix: string
 
   for (const file of files) {
     const basename = file.filename.split("/").pop()!;
-    if (SKIP_FILES.has(basename) || SKIP_SUFFIXES.some(s => file.filename.endsWith(s))) {
+    if (SKIP_FILES.has(basename) || SKIP_SUFFIXES.some((s) => file.filename.endsWith(s))) {
       skipped.push(file.filename);
       continue;
     }
 
-    const relativePath = file.filename.startsWith(prefix + "/")
+    const relativePath = file.filename.startsWith(`${prefix}/`)
       ? file.filename.slice(prefix.length + 1)
       : file.filename;
 
@@ -137,7 +140,13 @@ interface ServerHandle {
   kill: () => void;
 }
 
-function startServer(dir: string, command: string, args: string[], port: number, env: Record<string, string> = {}): ServerHandle {
+function startServer(
+  dir: string,
+  command: string,
+  args: string[],
+  port: number,
+  env: Record<string, string> = {},
+): ServerHandle {
   const proc = spawn(command, args, {
     cwd: dir,
     env: { ...process.env, ...env },
@@ -150,7 +159,11 @@ function startServer(dir: string, command: string, args: string[], port: number,
     url,
     kill: () => {
       proc.kill("SIGTERM");
-      setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 2000);
+      setTimeout(() => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {}
+      }, 2000);
     },
   };
 }
@@ -221,31 +234,31 @@ describe("integration: Astro", { timeout: 180_000 }, () => {
   it("audit: llms.txt exists and is found", () => {
     const check = getCheckResult(report, "llms-txt-exists");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: llms.txt follows spec", () => {
     const check = getCheckResult(report, "llms-txt-valid");
     expect(check).toBeDefined();
-    expect(check!.score).toBeGreaterThanOrEqual(50);
+    expect(check?.score).toBeGreaterThanOrEqual(50);
   });
 
   it("audit: agent-card.json is discoverable", () => {
     const check = getCheckResult(report, "well-known-agent-card");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: no error status codes", () => {
     const check = getCheckResult(report, "status-codes");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: fast response time", () => {
     const check = getCheckResult(report, "response-time");
     expect(check).toBeDefined();
-    expect(check!.score).toBeGreaterThanOrEqual(60);
+    expect(check?.score).toBeGreaterThanOrEqual(60);
   });
 });
 
@@ -287,25 +300,25 @@ describe("integration: Next.js", { timeout: 180_000 }, () => {
   it("audit: llms.txt exists and is found", () => {
     const check = getCheckResult(report, "llms-txt-exists");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: llms.txt follows spec", () => {
     const check = getCheckResult(report, "llms-txt-valid");
     expect(check).toBeDefined();
-    expect(check!.score).toBeGreaterThanOrEqual(50);
+    expect(check?.score).toBeGreaterThanOrEqual(50);
   });
 
   it("audit: agent-card.json is discoverable", () => {
     const check = getCheckResult(report, "well-known-agent-card");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: no error status codes", () => {
     const check = getCheckResult(report, "status-codes");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 });
 
@@ -328,13 +341,10 @@ describe("integration: Nuxt", { timeout: 180_000 }, () => {
     if (!success) throw new Error(`Nuxt build failed: ${output}`);
 
     const port = await getFreePort();
-    server = startServer(
-      fixtureDir,
-      "node",
-      [".output/server/index.mjs"],
-      port,
-      { PORT: String(port), HOST: "localhost" },
-    );
+    server = startServer(fixtureDir, "node", [".output/server/index.mjs"], port, {
+      PORT: String(port),
+      HOST: "localhost",
+    });
     await waitForServer(`http://localhost:${port}`);
 
     report = await auditServer(`http://localhost:${port}`);
@@ -353,19 +363,19 @@ describe("integration: Nuxt", { timeout: 180_000 }, () => {
   it("audit: llms.txt exists and is found", () => {
     const check = getCheckResult(report, "llms-txt-exists");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: agent-card.json is discoverable", () => {
     const check = getCheckResult(report, "well-known-agent-card");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: no error status codes", () => {
     const check = getCheckResult(report, "status-codes");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 });
 
@@ -385,7 +395,7 @@ describe("integration: Docusaurus", { timeout: 240_000 }, () => {
     // Fix for Issue #7: use writeGeneratedFiles consistently.
     // Docusaurus generated files have prefix "docusaurus/" and go into a subdir.
     // For static file integration, we write them into the project's static/ dir.
-    const staticFiles = files.filter(f => f.filename.startsWith("docusaurus/static/"));
+    const staticFiles = files.filter((f) => f.filename.startsWith("docusaurus/static/"));
     for (const file of staticFiles) {
       // "docusaurus/static/llms.txt" -> "static/llms.txt"
       const relativePath = file.filename.replace("docusaurus/", "");
@@ -401,7 +411,12 @@ describe("integration: Docusaurus", { timeout: 240_000 }, () => {
     if (!success) throw new Error(`Docusaurus build failed: ${output}`);
 
     const port = await getFreePort();
-    server = startServer(fixtureDir, "npx", ["docusaurus", "serve", "--port", String(port), "--no-open"], port);
+    server = startServer(
+      fixtureDir,
+      "npx",
+      ["docusaurus", "serve", "--port", String(port), "--no-open"],
+      port,
+    );
     await waitForServer(`http://localhost:${port}`);
 
     report = await auditServer(`http://localhost:${port}`);
@@ -424,19 +439,19 @@ describe("integration: Docusaurus", { timeout: 240_000 }, () => {
   it("audit: llms.txt exists and is found", () => {
     const check = getCheckResult(report, "llms-txt-exists");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: agent-card.json is discoverable", () => {
     const check = getCheckResult(report, "well-known-agent-card");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 
   it("audit: no error status codes", () => {
     const check = getCheckResult(report, "status-codes");
     expect(check).toBeDefined();
-    expect(check!.status).toBe("pass");
+    expect(check?.status).toBe("pass");
   });
 });
 
@@ -454,14 +469,14 @@ describe("integration: WordPress", () => {
   });
 
   it("generates expected files", () => {
-    const filenames = files.map(f => f.filename);
+    const filenames = files.map((f) => f.filename);
     expect(filenames).toContain("wordpress/w2agent-plugin.php");
     expect(filenames).toContain("wordpress/data/llms.txt");
     expect(filenames).toContain("wordpress/data/robots-rules.txt");
   });
 
   it("generated PHP has valid syntax", () => {
-    const phpFiles = files.filter(f => f.filename.endsWith(".php"));
+    const phpFiles = files.filter((f) => f.filename.endsWith(".php"));
     expect(phpFiles.length).toBeGreaterThan(0);
 
     for (const file of phpFiles) {
@@ -473,21 +488,21 @@ describe("integration: WordPress", () => {
   });
 
   it("plugin serves /llms.txt endpoint", () => {
-    const plugin = files.find(f => f.filename.endsWith(".php"))!;
+    const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("/llms.txt");
     expect(plugin.content).toContain("text/plain");
     expect(plugin.content).toContain("w2agent_generate_llms_txt");
   });
 
   it("plugin serves /.well-known/agent-card.json endpoint", () => {
-    const plugin = files.find(f => f.filename.endsWith(".php"))!;
+    const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("/.well-known/agent-card.json");
     expect(plugin.content).toContain("application/json");
     expect(plugin.content).toContain("w2agent_generate_agent_card");
   });
 
   it("plugin adds discovery <link> tag", () => {
-    const plugin = files.find(f => f.filename.endsWith(".php"))!;
+    const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("wp_head");
     expect(plugin.content).toContain('rel="alternate"');
     expect(plugin.content).toContain('type="text/markdown"');
@@ -495,13 +510,13 @@ describe("integration: WordPress", () => {
   });
 
   it("plugin hooks into robots.txt", () => {
-    const plugin = files.find(f => f.filename.endsWith(".php"))!;
+    const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("robots_txt");
     expect(plugin.content).toContain("robots-rules.txt");
   });
 
   it("plugin auto-regenerates on content changes", () => {
-    const plugin = files.find(f => f.filename.endsWith(".php"))!;
+    const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("save_post");
     expect(plugin.content).toContain("wp_cache_delete");
   });
@@ -532,21 +547,21 @@ describe("integration: Shopify", () => {
   });
 
   it("generates expected files", () => {
-    const filenames = files.map(f => f.filename);
+    const filenames = files.map((f) => f.filename);
     expect(filenames).toContain("shopify/snippets/w2agent-head.liquid");
     expect(filenames).toContain("shopify/templates/robots.txt.liquid");
     expect(filenames).toContain("shopify/data/llms.txt");
   });
 
   it("head snippet includes discovery link", () => {
-    const head = files.find(f => f.filename.includes("w2agent-head.liquid"))!;
+    const head = files.find((f) => f.filename.includes("w2agent-head.liquid"))!;
     expect(head.content).toContain('rel="alternate"');
     expect(head.content).toContain('type="text/markdown"');
     expect(head.content).toContain('href="/pages/llms-txt"');
   });
 
   it("head snippet includes product schema.org", () => {
-    const head = files.find(f => f.filename.includes("w2agent-head.liquid"))!;
+    const head = files.find((f) => f.filename.includes("w2agent-head.liquid"))!;
     expect(head.content).toContain("schema.org");
     expect(head.content).toContain('"@type": "Product"');
     expect(head.content).toContain("product.title");
@@ -554,7 +569,7 @@ describe("integration: Shopify", () => {
   });
 
   it("robots.txt template allows AI-relevant paths", () => {
-    const robots = files.find(f => f.filename.includes("robots.txt.liquid"))!;
+    const robots = files.find((f) => f.filename.includes("robots.txt.liquid"))!;
     expect(robots.content).toContain("Allow: /pages/llms-txt");
     expect(robots.content).toContain("Allow: /collections");
     expect(robots.content).toContain("Allow: /products");
@@ -563,7 +578,7 @@ describe("integration: Shopify", () => {
   });
 
   it("generated Liquid templates have valid syntax", () => {
-    const liquidFiles = files.filter(f => f.filename.endsWith(".liquid"));
+    const liquidFiles = files.filter((f) => f.filename.endsWith(".liquid"));
     expect(liquidFiles.length).toBeGreaterThan(0);
 
     for (const file of liquidFiles) {
@@ -594,7 +609,12 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
     expect(success).toBe(true);
 
     const port = await getFreePort();
-    const server = startServer(fixtureDir, "npx", ["astro", "preview", "--port", String(port)], port);
+    const server = startServer(
+      fixtureDir,
+      "npx",
+      ["astro", "preview", "--port", String(port)],
+      port,
+    );
     try {
       await waitForServer(`http://localhost:${port}`);
       const report = await auditServer(`http://localhost:${port}`);
@@ -603,11 +623,11 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
 
       const llmsCheck = getCheckResult(report, "llms-txt-exists");
       expect(llmsCheck).toBeDefined();
-      expect(llmsCheck!.status).toBe("fail");
+      expect(llmsCheck?.status).toBe("fail");
 
       const agentCardCheck = getCheckResult(report, "well-known-agent-card");
       expect(agentCardCheck).toBeDefined();
-      expect(agentCardCheck!.status).toBe("fail");
+      expect(agentCardCheck?.status).toBe("fail");
     } finally {
       server.kill();
     }
@@ -620,13 +640,22 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
 
     // Write invalid llms.txt (no H1, no blockquote, no URLs, no sections)
     mkdirSync(join(fixtureDir, "public"), { recursive: true });
-    writeFileSync(join(fixtureDir, "public/llms.txt"), "just some plain text with no structure", "utf-8");
+    writeFileSync(
+      join(fixtureDir, "public/llms.txt"),
+      "just some plain text with no structure",
+      "utf-8",
+    );
 
     const { success } = npmInstallAndBuild(fixtureDir);
     expect(success).toBe(true);
 
     const port = await getFreePort();
-    const server = startServer(fixtureDir, "npx", ["astro", "preview", "--port", String(port)], port);
+    const server = startServer(
+      fixtureDir,
+      "npx",
+      ["astro", "preview", "--port", String(port)],
+      port,
+    );
     try {
       await waitForServer(`http://localhost:${port}`);
       const report = await auditServer(`http://localhost:${port}`);
@@ -636,11 +665,11 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
       // llms.txt exists but doesn't follow spec
       const llmsExists = getCheckResult(report, "llms-txt-exists");
       expect(llmsExists).toBeDefined();
-      expect(llmsExists!.status).toBe("pass"); // it exists
+      expect(llmsExists?.status).toBe("pass"); // it exists
 
       const llmsValid = getCheckResult(report, "llms-txt-valid");
       expect(llmsValid).toBeDefined();
-      expect(llmsValid!.score).toBeLessThan(50); // but it's not valid
+      expect(llmsValid?.score).toBeLessThan(50); // but it's not valid
     } finally {
       server.kill();
     }
@@ -659,7 +688,12 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
     expect(success).toBe(true);
 
     const port = await getFreePort();
-    const server = startServer(fixtureDir, "npx", ["astro", "preview", "--port", String(port)], port);
+    const server = startServer(
+      fixtureDir,
+      "npx",
+      ["astro", "preview", "--port", String(port)],
+      port,
+    );
     try {
       await waitForServer(`http://localhost:${port}`);
       const report = await auditServer(`http://localhost:${port}`);
@@ -668,7 +702,7 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
 
       const agentCardCheck = getCheckResult(report, "well-known-agent-card");
       expect(agentCardCheck).toBeDefined();
-      expect(agentCardCheck!.status).toBe("fail");
+      expect(agentCardCheck?.status).toBe("fail");
     } finally {
       server.kill();
     }
@@ -726,12 +760,12 @@ describe("integration: conformance", () => {
       });
 
       it("includes an INSTALL.md", () => {
-        expect(files.some(f => f.filename.endsWith("INSTALL.md"))).toBe(true);
+        expect(files.some((f) => f.filename.endsWith("INSTALL.md"))).toBe(true);
       });
 
       it("serves llms.txt content", () => {
-        const hasLlmsTxt = files.some(f =>
-          f.filename.includes("llms.txt") || f.content.includes("llms.txt")
+        const hasLlmsTxt = files.some(
+          (f) => f.filename.includes("llms.txt") || f.content.includes("llms.txt"),
         );
         expect(hasLlmsTxt).toBe(true);
       });

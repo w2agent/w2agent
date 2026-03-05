@@ -188,7 +188,9 @@ npx w2agent generate ${siteUrl} --output ./public/
   files.push(makeFile("nuxt/server/routes/llms.txt.ts", llmsTxtRoute));
   files.push(makeFile("nuxt/server/routes/llms-full.txt.ts", llmsFullTxtRoute));
   files.push(makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", agentCardRoute));
-  files.push(makeFile("nuxt/server/middleware/content-negotiation.ts", contentNegotiationMiddleware));
+  files.push(
+    makeFile("nuxt/server/middleware/content-negotiation.ts", contentNegotiationMiddleware),
+  );
   files.push(makeFile("nuxt/public/llms.txt", llmsTxtContent));
   files.push(makeFile("nuxt/public/llms-full.txt", llmsFullTxtContent));
   files.push(makeFile("nuxt/w2agent-build.mjs", buildScript));

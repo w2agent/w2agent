@@ -1,20 +1,22 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  registerChecks,
-  clearChecks,
-  getRegisteredChecks,
-} from "../src/audit/engine.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
-import type { Check, FetchedPage, SiteMetadata } from "../src/audit/types.js";
+import { clearChecks, getRegisteredChecks, registerChecks } from "../src/audit/engine.js";
+import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
 }
 
 function makePage(html: string, url = "https://example.com"): FetchedPage {
-  return { url, status: 200, html, headers: { "content-type": "text/html; charset=utf-8" }, responseTime: 100 };
+  return {
+    url,
+    status: 200,
+    html,
+    headers: { "content-type": "text/html; charset=utf-8" },
+    responseTime: 100,
+  };
 }
 
 describe("check registry", () => {
@@ -41,7 +43,8 @@ describe("individual check execution", () => {
     const meta: SiteMetadata = {
       baseUrl: "https://example.com",
       robotsTxt: "User-agent: *\nAllow: /",
-      sitemapXml: '<?xml version="1.0"?><urlset><url><loc>https://example.com/</loc></url></urlset>',
+      sitemapXml:
+        '<?xml version="1.0"?><urlset><url><loc>https://example.com/</loc></url></urlset>',
       wellKnown: {},
     };
 

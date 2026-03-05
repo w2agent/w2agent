@@ -6,12 +6,11 @@ export const wpRestApiCheck: Check = {
   category: "agent-protocols",
   weight: 1,
   severity: "warning",
-  run(pages: FetchedPage[], metadata: SiteMetadata) {
-    const hasWpJson = pages.some(p =>
-      p.headers["link"]?.includes("wp-json") ||
-      p.html.includes('rel="https://api.w.org/"'),
+  run(pages: FetchedPage[], _metadata: SiteMetadata) {
+    const hasWpJson = pages.some(
+      (p) => p.headers.link?.includes("wp-json") || p.html.includes('rel="https://api.w.org/"'),
     );
-    const restEndpointPage = pages.find(p => p.url.includes("/wp-json/"));
+    const restEndpointPage = pages.find((p) => p.url.includes("/wp-json/"));
     const accessible = hasWpJson || !!restEndpointPage;
 
     return {
@@ -47,8 +46,8 @@ export const wpSecurityBlockingCheck: Check = {
       "all-in-one-wp-security",
       "shield-security",
     ];
-    const html = pages.map(p => p.html.toLowerCase()).join(" ");
-    const found = blockingSignals.filter(s => html.includes(s));
+    const html = pages.map((p) => p.html.toLowerCase()).join(" ");
+    const found = blockingSignals.filter((s) => html.includes(s));
 
     return {
       id: this.id,
@@ -59,12 +58,14 @@ export const wpSecurityBlockingCheck: Check = {
       status: found.length === 0 ? "pass" : "partial",
       score: found.length === 0 ? 100 : 50,
       maxScore: 100,
-      message: found.length === 0
-        ? "No aggressive security plugins detected that might block AI bots"
-        : `Security plugin(s) detected: ${found.join(", ")}. May block AI crawlers.`,
-      details: found.length > 0
-        ? "Check plugin settings to whitelist AI bot user agents (GPTBot, ClaudeBot, etc.)"
-        : undefined,
+      message:
+        found.length === 0
+          ? "No aggressive security plugins detected that might block AI bots"
+          : `Security plugin(s) detected: ${found.join(", ")}. May block AI crawlers.`,
+      details:
+        found.length > 0
+          ? "Check plugin settings to whitelist AI bot user agents (GPTBot, ClaudeBot, etc.)"
+          : undefined,
     };
   },
 };
@@ -78,9 +79,10 @@ export const wpRobotsBlockingCheck: Check = {
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
     const robots = metadata.robotsTxt || "";
     const aiBots = ["gptbot", "claudebot", "anthropic", "chatgpt", "google-extended", "ccbot"];
-    const blocked = aiBots.filter(bot =>
-      robots.toLowerCase().includes(`user-agent: ${bot}`) &&
-      robots.toLowerCase().includes("disallow: /"),
+    const blocked = aiBots.filter(
+      (bot) =>
+        robots.toLowerCase().includes(`user-agent: ${bot}`) &&
+        robots.toLowerCase().includes("disallow: /"),
     );
 
     return {
@@ -92,12 +94,14 @@ export const wpRobotsBlockingCheck: Check = {
       status: blocked.length === 0 ? "pass" : "fail",
       score: blocked.length === 0 ? 100 : Math.max(0, 100 - blocked.length * 20),
       maxScore: 100,
-      message: blocked.length === 0
-        ? "robots.txt does not block known AI crawlers"
-        : `robots.txt blocks ${blocked.length} AI bot(s): ${blocked.join(", ")}`,
-      details: blocked.length > 0
-        ? "Consider selectively allowing AI bots to index your content for AI discovery."
-        : undefined,
+      message:
+        blocked.length === 0
+          ? "robots.txt does not block known AI crawlers"
+          : `robots.txt blocks ${blocked.length} AI bot(s): ${blocked.join(", ")}`,
+      details:
+        blocked.length > 0
+          ? "Consider selectively allowing AI bots to index your content for AI discovery."
+          : undefined,
     };
   },
 };
@@ -125,7 +129,7 @@ export const wpPageBuilderSoupCheck: Check = {
       }
     }
 
-    const divHeavy = pages.some(p => {
+    const divHeavy = pages.some((p) => {
       const divCount = (p.html.match(/<div/gi) || []).length;
       const textLength = p.html.replace(/<[^>]+>/g, "").length;
       return divCount > 0 && textLength / divCount < 20;

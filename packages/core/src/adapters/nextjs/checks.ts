@@ -37,15 +37,17 @@ export const nextjsStaticGenerationCheck: Check = {
   weight: 1,
   severity: "info",
   run(pages: FetchedPage[]) {
-    const hasStaticHints = pages.some(p =>
-      p.headers["x-nextjs-cache"] === "HIT" ||
-      p.headers["x-vercel-cache"] === "HIT" ||
-      p.html.includes("__NEXT_DATA__"),
+    const hasStaticHints = pages.some(
+      (p) =>
+        p.headers["x-nextjs-cache"] === "HIT" ||
+        p.headers["x-vercel-cache"] === "HIT" ||
+        p.html.includes("__NEXT_DATA__"),
     );
 
-    const hasSSROnly = pages.some(p =>
-      p.headers["cache-control"]?.includes("no-cache") ||
-      p.headers["cache-control"]?.includes("private"),
+    const hasSSROnly = pages.some(
+      (p) =>
+        p.headers["cache-control"]?.includes("no-cache") ||
+        p.headers["cache-control"]?.includes("private"),
     );
 
     const isStatic = hasStaticHints && !hasSSROnly;
@@ -95,9 +97,10 @@ export const nextjsMetadataApiCheck: Check = {
       status: ratio >= 0.8 ? "pass" : ratio >= 0.5 ? "partial" : "fail",
       score: Math.round(ratio * 100),
       maxScore: 100,
-      message: ratio >= 0.8
-        ? `${hasGoodMetadata}/${pages.length} pages have complete metadata (title, description, OG tags)`
-        : `Only ${hasGoodMetadata}/${pages.length} pages have complete metadata. Use Next.js Metadata API for consistent SEO.`,
+      message:
+        ratio >= 0.8
+          ? `${hasGoodMetadata}/${pages.length} pages have complete metadata (title, description, OG tags)`
+          : `Only ${hasGoodMetadata}/${pages.length} pages have complete metadata. Use Next.js Metadata API for consistent SEO.`,
     };
   },
 };

@@ -1,5 +1,5 @@
-import type { Check } from "../types.js";
 import { parseHTML } from "../../shared/html-parser.js";
+import type { Check } from "../types.js";
 
 export const mcpDiscovery: Check = {
   id: "mcp-discovery",
@@ -8,7 +8,7 @@ export const mcpDiscovery: Check = {
   weight: 1.5,
   severity: "info",
   run: async (_pages, metadata) => {
-    const wellKnownContent = metadata.wellKnown["mcp"];
+    const wellKnownContent = metadata.wellKnown.mcp;
     const base = {
       id: "mcp-discovery" as const,
       name: "MCP endpoint",
@@ -43,7 +43,10 @@ export const mcpDiscovery: Check = {
 
       const response = await fetch(mcpUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
         body: JSON.stringify(initRequest),
         signal: AbortSignal.timeout(5000),
       });
@@ -64,14 +67,16 @@ export const mcpDiscovery: Check = {
       // Try to parse as JSON-RPC response
       const parsed = tryParseJsonRpc(body, contentType);
 
-      if (parsed && parsed.serverInfo) {
+      if (parsed?.serverInfo) {
         const tools = parsed.tools || [];
         const resources = parsed.resources || [];
         const details = [
           `Server: ${parsed.serverInfo.name} v${parsed.serverInfo.version || "?"}`,
           tools.length > 0 ? `Tools: ${tools.join(", ")}` : "No tools listed",
           resources.length > 0 ? `Resources: ${resources.length}` : "",
-        ].filter(Boolean).join("\n");
+        ]
+          .filter(Boolean)
+          .join("\n");
 
         return {
           ...base,
@@ -148,7 +153,7 @@ export const apiEndpoints: Check = {
   category: "agent-protocols",
   weight: 1,
   severity: "info",
-  run: (pages, metadata) => {
+  run: (pages, _metadata) => {
     const indicators: string[] = [];
 
     // Check for OpenAPI / Swagger links
@@ -184,9 +189,10 @@ export const apiEndpoints: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: score > 0
-        ? `Found ${indicators.length} API endpoint reference(s)`
-        : "No discoverable API endpoints (OpenAPI, GraphQL, etc.)",
+      message:
+        score > 0
+          ? `Found ${indicators.length} API endpoint reference(s)`
+          : "No discoverable API endpoints (OpenAPI, GraphQL, etc.)",
       severity: "info",
     };
   },
@@ -268,7 +274,7 @@ export const wellKnownUcp: Check = {
   weight: 0.5,
   severity: "info",
   run: (_pages, metadata) => {
-    const exists = !!metadata.wellKnown["ucp"];
+    const exists = !!metadata.wellKnown.ucp;
 
     return {
       id: "well-known-ucp",
@@ -319,9 +325,10 @@ export const actionSchemas: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: pagesWithActions > 0
-        ? `${pagesWithActions} page(s) have machine-readable action schemas`
-        : "No action schemas found (SearchAction, OrderAction, etc.)",
+      message:
+        pagesWithActions > 0
+          ? `${pagesWithActions} page(s) have machine-readable action schemas`
+          : "No action schemas found (SearchAction, OrderAction, etc.)",
       severity: "info",
     };
   },
@@ -333,13 +340,13 @@ export const authDiscovery: Check = {
   category: "agent-protocols",
   weight: 0.5,
   severity: "info",
-  run: (pages, metadata) => {
+  run: (pages, _metadata) => {
     const indicators: string[] = [];
 
     // Check headers for auth-related info
     for (const page of pages) {
       if (page.headers["www-authenticate"]) indicators.push("WWW-Authenticate header");
-      if (page.headers["link"]?.includes("oauth")) indicators.push("OAuth link header");
+      if (page.headers.link?.includes("oauth")) indicators.push("OAuth link header");
     }
 
     // Check for OAuth/auth links in pages
@@ -370,9 +377,10 @@ export const authDiscovery: Check = {
       score,
       maxScore: 100,
       weight: 0.5,
-      message: score > 0
-        ? "Authentication discovery mechanism found"
-        : "No discoverable authentication mechanism",
+      message:
+        score > 0
+          ? "Authentication discovery mechanism found"
+          : "No discoverable authentication mechanism",
       severity: "info",
     };
   },

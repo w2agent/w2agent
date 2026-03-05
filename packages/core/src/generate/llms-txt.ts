@@ -15,10 +15,7 @@ interface LlmsTxtOptions {
  * ## Section
  * - [Title](URL): Description
  */
-export function generateLlmsTxt(
-  pages: PageMarkdown[],
-  options: LlmsTxtOptions,
-): string {
+export function generateLlmsTxt(pages: PageMarkdown[], options: LlmsTxtOptions): string {
   const lines: string[] = [];
 
   // Header
@@ -47,7 +44,7 @@ export function generateLlmsTxt(
     lines.push("");
   }
 
-  return lines.join("\n").trimEnd() + "\n";
+  return `${lines.join("\n").trimEnd()}\n`;
 }
 
 /**
@@ -62,14 +59,14 @@ function groupBySection(
   for (const page of pages) {
     const section = getSectionName(page.url);
     if (filterSections && filterSections.length > 0) {
-      if (!filterSections.some(s => section.toLowerCase() === s.toLowerCase())) {
+      if (!filterSections.some((s) => section.toLowerCase() === s.toLowerCase())) {
         continue;
       }
     }
     if (!groups.has(section)) {
       groups.set(section, []);
     }
-    groups.get(section)!.push(page);
+    groups.get(section)?.push(page);
   }
 
   // Sort sections: known categories first, then alphabetical
@@ -151,15 +148,21 @@ function getDescription(page: PageMarkdown): string {
   for (const line of lines) {
     const trimmed = line.trim();
     // Skip headings, empty lines, and markdown syntax
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("-") ||
-        trimmed.startsWith("|") || trimmed.startsWith("```") ||
-        trimmed.startsWith(">") || trimmed.startsWith("![")) {
+    if (
+      !trimmed ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("-") ||
+      trimmed.startsWith("|") ||
+      trimmed.startsWith("```") ||
+      trimmed.startsWith(">") ||
+      trimmed.startsWith("![")
+    ) {
       continue;
     }
     // Found a paragraph line
     const sentence = trimmed.split(/\.\s/)[0];
     if (sentence && sentence.length > 10) {
-      return truncate(sentence.endsWith(".") ? sentence : sentence + ".", 150);
+      return truncate(sentence.endsWith(".") ? sentence : `${sentence}.`, 150);
     }
   }
 
@@ -168,7 +171,7 @@ function getDescription(page: PageMarkdown): string {
 
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str;
-  return str.slice(0, max - 3).trimEnd() + "...";
+  return `${str.slice(0, max - 3).trimEnd()}...`;
 }
 
 function urlToTitle(url: string): string {
@@ -190,7 +193,7 @@ export function extractSiteInfo(
   baseUrl: string,
 ): { siteName: string; siteDescription: string } {
   // Find homepage
-  const homepage = pages.find(p => {
+  const homepage = pages.find((p) => {
     try {
       return new URL(p.url).pathname === "/" || p.url === baseUrl;
     } catch {

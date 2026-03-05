@@ -1,9 +1,9 @@
 import type { Check } from "../types.js";
 import { botAccessibilityChecks } from "./bot-accessibility.js";
-import { structuredDataChecks } from "./structured-data.js";
 import { contentQualityChecks } from "./content-quality.js";
 import { discoveryChecks } from "./discovery.js";
 import { protocolChecks } from "./protocols.js";
+import { structuredDataChecks } from "./structured-data.js";
 import { technicalChecks } from "./technical.js";
 
 export const allChecks: Check[] = [

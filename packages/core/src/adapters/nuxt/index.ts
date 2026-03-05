@@ -16,7 +16,9 @@ export const nuxtAdapter: PlatformAdapter = {
 
     for (const page of pages) {
       // Generator meta tag (highest confidence)
-      const genMatch = page.html.match(/<meta\s+name=["']generator["']\s+content=["']Nuxt\s*([\d.]*)/i);
+      const genMatch = page.html.match(
+        /<meta\s+name=["']generator["']\s+content=["']Nuxt\s*([\d.]*)/i,
+      );
       if (genMatch) {
         confidence = Math.max(confidence, 1.0);
         version = genMatch[1] || undefined;
@@ -53,13 +55,13 @@ export const nuxtAdapter: PlatformAdapter = {
   checks: nuxtChecks,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
-    const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
-    const llmsFullTxt = coreFiles.find(f => f.filename === "llms-full.txt")?.content || "";
-    const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
+    const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
+    const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content || "";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
 
     const files = generateNuxtIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
 
-    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookRoute = `import { defineEventHandler, readBody } from "h3";
 
 /**

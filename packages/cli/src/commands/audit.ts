@@ -1,18 +1,18 @@
-import type { Command } from "commander";
-import ora from "ora";
 import { writeFileSync } from "node:fs";
 import {
-  runAudit,
-  registerChecks,
-  clearChecks,
+  type AuditOptions,
   allChecks,
+  type CategoryId,
+  clearChecks,
   loadConfig,
   mergeConfigWithOptions,
-  type AuditOptions,
-  type CategoryId,
+  registerChecks,
+  runAudit,
 } from "@w2agent/core";
-import { formatReport, formatVerboseReport } from "../output/terminal.js";
+import type { Command } from "commander";
+import ora from "ora";
 import { formatJson } from "../output/json.js";
+import { formatReport, formatVerboseReport } from "../output/terminal.js";
 
 export function registerAuditCommand(program: Command): void {
   program
@@ -30,13 +30,11 @@ export function registerAuditCommand(program: Command): void {
     .action(async (url: string, opts) => {
       const config = loadConfig();
 
-      const categories = opts.category
-        ? [opts.category as CategoryId]
-        : undefined;
+      const categories = opts.category ? [opts.category as CategoryId] : undefined;
 
       const auditOptions = mergeConfigWithOptions(config, {
-        maxPages: parseInt(opts.depth),
-        timeout: parseInt(opts.timeout),
+        maxPages: parseInt(opts.depth, 10),
+        timeout: parseInt(opts.timeout, 10),
         categories,
         verbose: opts.verbose ?? false,
       }) as AuditOptions;
@@ -58,11 +56,12 @@ export function registerAuditCommand(program: Command): void {
 
         spinner.stop();
 
-        const output = opts.format === "json"
-          ? formatJson(report)
-          : opts.verbose
-            ? formatVerboseReport(report)
-            : formatReport(report);
+        const output =
+          opts.format === "json"
+            ? formatJson(report)
+            : opts.verbose
+              ? formatVerboseReport(report)
+              : formatReport(report);
 
         if (opts.output) {
           writeFileSync(opts.output, output, "utf-8");
@@ -72,11 +71,9 @@ export function registerAuditCommand(program: Command): void {
         }
 
         if (opts.ci) {
-          const threshold = parseInt(opts.threshold);
+          const threshold = parseInt(opts.threshold, 10);
           if (report.overallScore < threshold) {
-            console.error(
-              `Score ${report.overallScore} is below threshold ${threshold}`,
-            );
+            console.error(`Score ${report.overallScore} is below threshold ${threshold}`);
             process.exit(1);
           }
         }

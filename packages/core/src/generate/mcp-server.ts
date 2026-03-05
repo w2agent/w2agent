@@ -1,6 +1,6 @@
 import { parseHTML } from "../shared/html-parser.js";
-import { extractSiteInfo } from "./llms-txt.js";
 import { generateFaq } from "./faq.js";
+import { extractSiteInfo } from "./llms-txt.js";
 import type { GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
@@ -37,7 +37,10 @@ export type SelfHostPlatform = "vercel" | "cf";
 
 // --- Public API ---
 
-export function generateMcpServer(ctx: GenerateContext, selfHost?: SelfHostPlatform): GeneratedFile[] {
+export function generateMcpServer(
+  ctx: GenerateContext,
+  selfHost?: SelfHostPlatform,
+): GeneratedFile[] {
   const { siteName } = extractSiteInfo(ctx.pages, ctx.baseUrl);
   const detected = detectTools(ctx);
   const dataFiles = generateDataFiles(ctx);
@@ -137,7 +140,9 @@ export function detectTools(ctx: GenerateContext): McpDetectedTools {
       $form.find("input, select, textarea").each((_, input) => {
         const $input = parsed.$(input);
         const name = $input.attr("name");
-        const type = $input.attr("type") || ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text");
+        const type =
+          $input.attr("type") ||
+          ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text");
         if (!name || type === "hidden" || type === "submit") return;
 
         const field: FormField = {
@@ -179,7 +184,7 @@ export function detectTools(ctx: GenerateContext): McpDetectedTools {
 
   // Add form tools
   forms.forEach((form, i) => {
-    const fieldNames = form.fields.map(f => f.name).join(", ");
+    const fieldNames = form.fields.map((f) => f.name).join(", ");
     tools.push({
       name: `submit-form-${i}`,
       description: `Submit form (${form.method} ${form.action}) with fields: ${fieldNames}`,
@@ -196,18 +201,18 @@ export function generateDataFiles(ctx: GenerateContext): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
   // pages.json
-  const pagesData: PageMarkdown[] = ctx.pages.map(p => ({
+  const pagesData: PageMarkdown[] = ctx.pages.map((p) => ({
     url: p.url,
     title: p.title,
     description: p.description,
     markdown: p.markdown,
   }));
-  files.push(makeFile("mcp-server/data/pages.json", JSON.stringify(pagesData, null, 2) + "\n"));
+  files.push(makeFile("mcp-server/data/pages.json", `${JSON.stringify(pagesData, null, 2)}\n`));
 
   // faq.json (if detected)
   const faqData = generateFaq(ctx);
   if (faqData) {
-    files.push(makeFile("mcp-server/data/faq.json", JSON.stringify(faqData, null, 2) + "\n"));
+    files.push(makeFile("mcp-server/data/faq.json", `${JSON.stringify(faqData, null, 2)}\n`));
   }
 
   return files;
@@ -219,7 +224,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   const lines: string[] = [];
 
   lines.push(`import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";`);
-  lines.push(`import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";`);
+  lines.push(
+    `import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";`,
+  );
   lines.push(`import express from "express";`);
   lines.push(`import { z } from "zod";`);
   lines.push(`import { readFileSync } from "node:fs";`);
@@ -229,10 +236,14 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`const __dirname = dirname(fileURLToPath(import.meta.url));`);
   lines.push(``);
   lines.push(`// Load data`);
-  lines.push(`const pages = JSON.parse(readFileSync(resolve(__dirname, "data/pages.json"), "utf-8"));`);
+  lines.push(
+    `const pages = JSON.parse(readFileSync(resolve(__dirname, "data/pages.json"), "utf-8"));`,
+  );
 
   if (detected.hasFaq) {
-    lines.push(`const faq = JSON.parse(readFileSync(resolve(__dirname, "data/faq.json"), "utf-8"));`);
+    lines.push(
+      `const faq = JSON.parse(readFileSync(resolve(__dirname, "data/faq.json"), "utf-8"));`,
+    );
   }
 
   lines.push(``);
@@ -245,7 +256,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
 
   // list-pages tool
   lines.push(`// Tool: list-pages`);
-  lines.push(`server.tool("list-pages", "List all pages on the site with titles and URLs", {}, async () => {`);
+  lines.push(
+    `server.tool("list-pages", "List all pages on the site with titles and URLs", {}, async () => {`,
+  );
   lines.push(`  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`);
   lines.push(`  return { content: [{ type: "text", text: listing }] };`);
   lines.push(`});`);
@@ -253,16 +266,24 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
 
   // get-page tool
   lines.push(`// Tool: get-page`);
-  lines.push(`server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, async ({ url }) => {`);
-  lines.push(`  const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));`);
+  lines.push(
+    `server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, async ({ url }) => {`,
+  );
+  lines.push(
+    `  const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));`,
+  );
   lines.push(`  if (!page) return { content: [{ type: "text", text: "Page not found" }] };`);
-  lines.push(`  return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };`);
+  lines.push(
+    `  return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };`,
+  );
   lines.push(`});`);
   lines.push(``);
 
   // search-site tool
   lines.push(`// Tool: search-site`);
-  lines.push(`server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, async ({ query }) => {`);
+  lines.push(
+    `server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+  );
   lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
   lines.push(`  const scored = pages.map((p: any) => {`);
   lines.push(`    let score = 0;`);
@@ -272,9 +293,13 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`      if (p.markdown?.toLowerCase().includes(term)) score += 1;`);
   lines.push(`    }`);
   lines.push(`    return { ...p, score };`);
-  lines.push(`  }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);`);
+  lines.push(
+    `  }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);`,
+  );
   lines.push(``);
-  lines.push(`  if (scored.length === 0) return { content: [{ type: "text", text: "No results found" }] };`);
+  lines.push(
+    `  if (scored.length === 0) return { content: [{ type: "text", text: "No results found" }] };`,
+  );
   lines.push(`  const results = scored.map((p: any) => {`);
   lines.push(`    const snippet = p.markdown?.slice(0, 200) || "";`);
   lines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
@@ -286,15 +311,21 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // search-faq tool
   if (detected.hasFaq) {
     lines.push(`// Tool: search-faq`);
-    lines.push(`server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, async ({ query }) => {`);
+    lines.push(
+      `server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+    );
     lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
     lines.push(`  const entries = faq.mainEntity || [];`);
     lines.push(`  const matches = entries.filter((e: any) => {`);
     lines.push(`    const text = (e.name + " " + e.acceptedAnswer?.text).toLowerCase();`);
     lines.push(`    return terms.some((t: string) => text.includes(t));`);
     lines.push(`  });`);
-    lines.push(`  if (matches.length === 0) return { content: [{ type: "text", text: "No FAQ matches found" }] };`);
-    lines.push(`  const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");`);
+    lines.push(
+      `  if (matches.length === 0) return { content: [{ type: "text", text: "No FAQ matches found" }] };`,
+    );
+    lines.push(
+      `  const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");`,
+    );
     lines.push(`  return { content: [{ type: "text", text: result }] };`);
     lines.push(`});`);
     lines.push(``);
@@ -303,26 +334,36 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // site-search tool (SearchAction stub)
   if (detected.hasSearchAction) {
     lines.push(`// Tool: site-search (via SearchAction)`);
-    lines.push(`server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, async ({ query }) => {`);
-    lines.push(`  const searchUrl = ${JSON.stringify(baseUrl + "/search?q=")} + encodeURIComponent(query);`);
-    lines.push(`  return { content: [{ type: "text", text: \`Search URL: \${searchUrl}\\n\\nNote: This returns the search URL. For full results, use search-site instead.\` }] };`);
+    lines.push(
+      `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+    );
+    lines.push(
+      `  const searchUrl = ${JSON.stringify(`${baseUrl}/search?q=`)} + encodeURIComponent(query);`,
+    );
+    lines.push(
+      `  return { content: [{ type: "text", text: \`Search URL: \${searchUrl}\\n\\nNote: This returns the search URL. For full results, use search-site instead.\` }] };`,
+    );
     lines.push(`});`);
     lines.push(``);
   }
 
   // Form submission tools
   detected.forms.forEach((form, i) => {
-    const fieldSchemas = form.fields.map(f => {
+    const fieldSchemas = form.fields.map((f) => {
       const zodType = f.type === "number" ? "z.number()" : "z.string()";
       const desc = f.label || f.name;
       return `    ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
     });
 
     lines.push(`// Tool: submit-form-${i}`);
-    lines.push(`server.tool("submit-form-${i}", ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`);
+    lines.push(
+      `server.tool("submit-form-${i}", ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
+    );
     lines.push(fieldSchemas.join(",\n"));
     lines.push(`}, async (params) => {`);
-    lines.push(`  return { content: [{ type: "text", text: "Form submission stub. Action: ${form.method} ${form.action}\\nFields: " + JSON.stringify(params) }] };`);
+    lines.push(
+      `  return { content: [{ type: "text", text: "Form submission stub. Action: ${form.method} ${form.action}\\nFields: " + JSON.stringify(params) }] };`,
+    );
     lines.push(`});`);
     lines.push(``);
   });
@@ -342,7 +383,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`app.use(express.json());`);
   lines.push(``);
   lines.push(`app.all("/mcp", async (req, res) => {`);
-  lines.push(`  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`);
+  lines.push(
+    `  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`,
+  );
   lines.push(`  res.on("close", () => transport.close());`);
   lines.push(`  await server.connect(transport);`);
   lines.push(`  await transport.handleRequest(req, res);`);
@@ -355,16 +398,21 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(``);
   lines.push(`const PORT = process.env.PORT || 3100;`);
   lines.push(`app.listen(PORT, () => {`);
-  lines.push(`  console.log(\`MCP server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`);
+  lines.push(
+    `  console.log(\`MCP server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`,
+  );
   lines.push(`});`);
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 // --- Package.json ---
 
 function generatePackageJson(siteName: string): string {
-  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const slug = siteName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   const pkg = {
     name: `${slug}-mcp-server`,
     version: "1.0.0",
@@ -384,7 +432,7 @@ function generatePackageJson(siteName: string): string {
       "@types/node": "^22.0.0",
     },
   };
-  return JSON.stringify(pkg, null, 2) + "\n";
+  return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
 // --- tsconfig.json ---
@@ -401,7 +449,7 @@ function generateTsConfig(): string {
       resolveJsonModule: true,
     },
   };
-  return JSON.stringify(config, null, 2) + "\n";
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 // --- README ---
@@ -451,14 +499,21 @@ function generateVercelTemplate(
   detected: McpDetectedTools,
   dataFiles: GeneratedFile[],
 ): GeneratedFile[] {
-  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const slug = siteName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
-  const vercelJson = JSON.stringify({
-    rewrites: [
-      { source: "/.well-known/mcp", destination: "/api/mcp" },
-      { source: "/mcp", destination: "/api/mcp" },
-    ],
-  }, null, 2) + "\n";
+  const vercelJson = `${JSON.stringify(
+    {
+      rewrites: [
+        { source: "/.well-known/mcp", destination: "/api/mcp" },
+        { source: "/mcp", destination: "/api/mcp" },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
 
   const apiMcpTs = `import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -495,7 +550,9 @@ function createServer() {
     const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 200)}...\`).join("\\n\\n");
     return { content: [{ type: "text", text: results }] };
   });
-${detected.hasFaq ? `
+${
+  detected.hasFaq
+    ? `
   server.tool("search-faq", "Search FAQ", { query: z.string() }, async ({ query }) => {
     const terms = query.toLowerCase().split(/\\s+/);
     const entries = (faq as any).mainEntity || [];
@@ -507,7 +564,9 @@ ${detected.hasFaq ? `
     const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");
     return { content: [{ type: "text", text: result }] };
   });
-` : ""}
+`
+    : ""
+}
   return server;
 }
 
@@ -520,20 +579,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 `;
 
-  const pkgJson = JSON.stringify({
-    name: `${slug}-mcp-vercel`,
-    version: "1.0.0",
-    type: "module",
-    scripts: {
-      dev: "vercel dev",
-      deploy: "vercel --prod",
+  const pkgJson = `${JSON.stringify(
+    {
+      name: `${slug}-mcp-vercel`,
+      version: "1.0.0",
+      type: "module",
+      scripts: {
+        dev: "vercel dev",
+        deploy: "vercel --prod",
+      },
+      dependencies: {
+        "@modelcontextprotocol/sdk": "^1.12.0",
+        "@vercel/node": "^5.0.0",
+        zod: "^3.24.0",
+      },
     },
-    dependencies: {
-      "@modelcontextprotocol/sdk": "^1.12.0",
-      "@vercel/node": "^5.0.0",
-      zod: "^3.24.0",
-    },
-  }, null, 2) + "\n";
+    null,
+    2,
+  )}\n`;
 
   const readme = generateReadme(siteName, detected, baseUrl);
 
@@ -555,7 +618,10 @@ function generateCloudflareTemplate(
   detected: McpDetectedTools,
   dataFiles: GeneratedFile[],
 ): GeneratedFile[] {
-  const slug = siteName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const slug = siteName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
   const wranglerToml = `name = "${slug}-mcp"
 main = "worker.ts"
@@ -590,7 +656,7 @@ export default {
       return new Response(JSON.stringify({
         name: ${JSON.stringify(siteName)},
         version: "1.0.0",
-        tools: ${JSON.stringify(detected.tools.map(t => t.name))},
+        tools: ${JSON.stringify(detected.tools.map((t) => t.name))},
       }), { headers: { "content-type": "application/json" } });
     }
 
@@ -711,24 +777,28 @@ npx wrangler kv key put --binding MCP_DATA "pages" --path data/pages.json
 ${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path data/faq.json\n' : ""}echo "Data uploaded. Deploy with: npx wrangler deploy"
 `;
 
-  const pkgJson = JSON.stringify({
-    name: `${slug}-mcp-cf`,
-    version: "1.0.0",
-    type: "module",
-    scripts: {
-      dev: "wrangler dev",
-      deploy: "wrangler deploy",
-      "setup-data": "bash setup.sh",
+  const pkgJson = `${JSON.stringify(
+    {
+      name: `${slug}-mcp-cf`,
+      version: "1.0.0",
+      type: "module",
+      scripts: {
+        dev: "wrangler dev",
+        deploy: "wrangler deploy",
+        "setup-data": "bash setup.sh",
+      },
+      dependencies: {
+        "@modelcontextprotocol/sdk": "^1.12.0",
+        zod: "^3.24.0",
+      },
+      devDependencies: {
+        wrangler: "^4.0.0",
+        "@cloudflare/workers-types": "^4.0.0",
+      },
     },
-    dependencies: {
-      "@modelcontextprotocol/sdk": "^1.12.0",
-      zod: "^3.24.0",
-    },
-    devDependencies: {
-      wrangler: "^4.0.0",
-      "@cloudflare/workers-types": "^4.0.0",
-    },
-  }, null, 2) + "\n";
+    null,
+    2,
+  )}\n`;
 
   const readme = generateReadme(siteName, detected, baseUrl);
 

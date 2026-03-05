@@ -1,5 +1,5 @@
-import type { Check, FetchedPage, SiteMetadata } from "../types.js";
 import { parseHTML } from "../../shared/html-parser.js";
+import type { Check } from "../types.js";
 
 export const schemaOrgPresent: Check = {
   id: "schema-org-present",
@@ -41,9 +41,22 @@ export const schemaOrgType: Check = {
   severity: "info",
   run: (pages) => {
     const validTypes = [
-      "WebPage", "Article", "BlogPosting", "Product", "LocalBusiness",
-      "Organization", "Person", "FAQPage", "HowTo", "Recipe", "Event",
-      "Course", "SoftwareApplication", "WebSite", "ItemList", "BreadcrumbList",
+      "WebPage",
+      "Article",
+      "BlogPosting",
+      "Product",
+      "LocalBusiness",
+      "Organization",
+      "Person",
+      "FAQPage",
+      "HowTo",
+      "Recipe",
+      "Event",
+      "Course",
+      "SoftwareApplication",
+      "WebSite",
+      "ItemList",
+      "BreadcrumbList",
     ];
 
     const parsed = pages.map((p) => parseHTML(p.html));
@@ -110,9 +123,10 @@ export const schemaOrgCompleteness: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: pagesWithSchema > 0
-        ? `Average field completeness: ${score}%`
-        : "No Schema.org data to evaluate",
+      message:
+        pagesWithSchema > 0
+          ? `Average field completeness: ${score}%`
+          : "No Schema.org data to evaluate",
       severity: "info",
     };
   },
@@ -133,8 +147,8 @@ export const schemaOrgValid: Check = {
       if (parsed.jsonLd.length === 0) continue;
       totalSchemaPages++;
 
-      const hasContext = parsed.jsonLd.some(
-        (ld) => (ld as Record<string, unknown>)?.["@context"]?.toString().includes("schema.org"),
+      const hasContext = parsed.jsonLd.some((ld) =>
+        (ld as Record<string, unknown>)?.["@context"]?.toString().includes("schema.org"),
       );
       const hasType = parsed.jsonLd.some(
         (ld) => typeof (ld as Record<string, unknown>)?.["@type"] === "string",
@@ -149,13 +163,15 @@ export const schemaOrgValid: Check = {
       id: "schema-org-valid",
       name: "JSON-LD valid",
       category: "structured-data",
-      status: score === 100 ? "pass" : score > 0 ? "partial" : totalSchemaPages === 0 ? "skip" : "fail",
+      status:
+        score === 100 ? "pass" : score > 0 ? "partial" : totalSchemaPages === 0 ? "skip" : "fail",
       score: totalSchemaPages === 0 ? 0 : score,
       maxScore: 100,
       weight: 1,
-      message: totalSchemaPages === 0
-        ? "No JSON-LD found to validate"
-        : `${validCount}/${totalSchemaPages} JSON-LD blocks are valid`,
+      message:
+        totalSchemaPages === 0
+          ? "No JSON-LD found to validate"
+          : `${validCount}/${totalSchemaPages} JSON-LD blocks are valid`,
       severity: score < 100 ? "error" : "info",
     };
   },
@@ -187,13 +203,13 @@ export const ogMetaTags: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: score >= 80
-        ? "OpenGraph tags are well-configured"
-        : "Missing OpenGraph tags on some pages",
+      message:
+        score >= 80 ? "OpenGraph tags are well-configured" : "Missing OpenGraph tags on some pages",
       severity: score < 50 ? "warning" : "info",
-      fixSnippet: score < 100
-        ? `<!-- Add to <head> -->\n<meta property="og:title" content="Your Page Title" />\n<meta property="og:description" content="Your page description" />\n<meta property="og:image" content="https://yoursite.com/og-image.jpg" />`
-        : undefined,
+      fixSnippet:
+        score < 100
+          ? `<!-- Add to <head> -->\n<meta property="og:title" content="Your Page Title" />\n<meta property="og:description" content="Your page description" />\n<meta property="og:image" content="https://yoursite.com/og-image.jpg" />`
+          : undefined,
     };
   },
 };
@@ -267,9 +283,10 @@ export const semanticHtml: Check = {
       score,
       maxScore: 100,
       weight: 0.5,
-      message: score >= 60
-        ? "Good use of semantic HTML elements"
-        : "Limited use of semantic HTML (<article>, <section>, <nav>, <main>)",
+      message:
+        score >= 60
+          ? "Good use of semantic HTML elements"
+          : "Limited use of semantic HTML (<article>, <section>, <nav>, <main>)",
       severity: "info",
     };
   },

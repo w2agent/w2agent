@@ -1,5 +1,5 @@
 import { fetchPage, fetchText } from "../shared/fetcher.js";
-import type { FetchedPage, SiteMetadata, AuditOptions } from "./types.js";
+import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
 
 export interface CrawlResult {
   pages: FetchedPage[];
@@ -25,13 +25,7 @@ export async function crawlSite(
   ]);
 
   onProgress?.("Fetching .well-known files...");
-  const wellKnownPaths = [
-    "agent-card.json",
-    "agents.json",
-    "ara/manifest.json",
-    "mcp",
-    "ucp",
-  ];
+  const wellKnownPaths = ["agent-card.json", "agents.json", "ara/manifest.json", "mcp", "ucp"];
   const wellKnownResults = await Promise.all(
     wellKnownPaths.map(async (path) => {
       const result = await fetchText(`${baseUrl}/.well-known/${path}`, options);
@@ -56,9 +50,7 @@ export async function crawlSite(
   const visited = new Set<string>([url]);
 
   const sitemapUrls = parseSitemapUrls(metadata.sitemapXml, baseUrl);
-  const urlsToFetch = sitemapUrls
-    .filter((u) => !visited.has(u))
-    .slice(0, options.maxPages - 1);
+  const urlsToFetch = sitemapUrls.filter((u) => !visited.has(u)).slice(0, options.maxPages - 1);
 
   if (urlsToFetch.length > 0) {
     onProgress?.(`Scanning ${urlsToFetch.length} pages from sitemap...`);
@@ -72,7 +64,9 @@ export async function crawlSite(
           visited.add(page.url);
         }
       }
-      onProgress?.(`Scanned ${Math.min(i + batchSize, urlsToFetch.length)}/${urlsToFetch.length} pages...`);
+      onProgress?.(
+        `Scanned ${Math.min(i + batchSize, urlsToFetch.length)}/${urlsToFetch.length} pages...`,
+      );
     }
   }
 
@@ -83,7 +77,7 @@ function parseSitemapUrls(xml: string | undefined, baseUrl: string): string[] {
   if (!xml) return [];
   const urls: string[] = [];
   const locRegex = /<loc>\s*(.*?)\s*<\/loc>/gi;
-  let match;
+  let match: RegExpExecArray | null = null;
   while ((match = locRegex.exec(xml)) !== null) {
     const loc = match[1].trim();
     try {

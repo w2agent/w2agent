@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "lint": "biome check .",
     "clean": "rm -rf dist"
   },
   "dependencies": {

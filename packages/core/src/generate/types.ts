@@ -17,7 +17,15 @@ export interface GenerateOptions {
   sections?: string[];
 }
 
-export type GenerateFormat = "llms-txt" | "full" | "markdown" | "robots-txt" | "schema-org" | "agent-card" | "faq" | "mcp-server";
+export type GenerateFormat =
+  | "llms-txt"
+  | "full"
+  | "markdown"
+  | "robots-txt"
+  | "schema-org"
+  | "agent-card"
+  | "faq"
+  | "mcp-server";
 
 export interface GeneratedFile {
   filename: string;
@@ -33,7 +41,12 @@ export interface GenerateResult {
   files: GeneratedFile[];
   /** Section names found in llms.txt */
   sections: string[];
-  platform?: { platform: string; confidence: number; version?: string; details: Record<string, string> };
+  platform?: {
+    platform: string;
+    confidence: number;
+    version?: string;
+    details: Record<string, string>;
+  };
 }
 
 export interface PageMarkdown {

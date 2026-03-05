@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { describe, expect, it } from "vitest";
 import {
-  schemaOrgPresent,
-  ogMetaTags,
   headingHierarchy,
+  ogMetaTags,
+  schemaOrgPresent,
   semanticHtml,
 } from "../../src/audit/checks/structured-data.js";
+import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",

@@ -75,5 +75,5 @@ function appendMissingRules(existing: string, baseUrl: string): string {
   lines.push("# --- w2agent: suggested AI bot rules ---");
   lines.push(...additions);
 
-  return lines.join("\n").trimEnd() + "\n";
+  return `${lines.join("\n").trimEnd()}\n`;
 }

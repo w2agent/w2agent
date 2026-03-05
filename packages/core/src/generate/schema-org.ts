@@ -18,7 +18,7 @@ export function generateSchemaOrg(ctx: GenerateContext): SchemaOrgEntry[] | null
     if (hasExistingJsonLd) continue;
 
     const schemaType = detectType(parsed);
-    const mdPage = ctx.pages.find(p => normalizeUrl(p.url) === normalizeUrl(page.url));
+    const mdPage = ctx.pages.find((p) => normalizeUrl(p.url) === normalizeUrl(page.url));
 
     const jsonLd: Record<string, unknown> = {
       "@context": "https://schema.org",
@@ -56,9 +56,7 @@ function detectType(parsed: ReturnType<typeof parseHTML>): string {
   if (parsed.hasFaqContent) return "FAQPage";
 
   const hasArticleTime = !!parsed.ogTags["article:published_time"];
-  const hasAuthorLink = parsed.links.some(
-    l => l.href.includes("/author") || l.rel === "author",
-  );
+  const hasAuthorLink = parsed.links.some((l) => l.href.includes("/author") || l.rel === "author");
   if (hasArticleTime || hasAuthorLink) return "Article";
 
   return "WebPage";

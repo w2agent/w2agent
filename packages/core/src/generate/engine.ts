@@ -1,24 +1,24 @@
+import { detectPlatform, getAdapter } from "../adapters/registry.js";
 import { crawlSite } from "../audit/crawler.js";
 import type { AuditOptions, FetchedPage } from "../audit/types.js";
 import { fetchPage } from "../shared/fetcher.js";
 import { parseHTML } from "../shared/html-parser.js";
-import { htmlToMarkdown } from "./html-to-markdown.js";
-import { generateLlmsTxt, extractSiteInfo } from "./llms-txt.js";
-import { generateLlmsFullTxt } from "./llms-full-txt.js";
-import { generateRobotsTxt } from "./robots-txt.js";
-import { generateSchemaOrg } from "./schema-org.js";
 import { generateAgentCard } from "./agent-card.js";
 import { generateFaq } from "./faq.js";
+import { htmlToMarkdown } from "./html-to-markdown.js";
+import { generateLlmsFullTxt } from "./llms-full-txt.js";
+import { extractSiteInfo, generateLlmsTxt } from "./llms-txt.js";
 import { generateMcpServer } from "./mcp-server.js";
+import { generateRobotsTxt } from "./robots-txt.js";
+import { generateSchemaOrg } from "./schema-org.js";
 import type {
-  GenerateOptions,
-  GenerateResult,
   GenerateContext,
   GeneratedFile,
+  GenerateOptions,
+  GenerateResult,
   PageMarkdown,
 } from "./types.js";
 import { DEFAULT_GENERATE_OPTIONS as DEFAULTS } from "./types.js";
-import { detectPlatform, getAdapter } from "../adapters/registry.js";
 
 export async function runGenerate(
   url: string,
@@ -48,7 +48,7 @@ export async function runGenerate(
   // Fallback: if sitemap yielded no extra pages, discover via internal links
   if (pages.length <= 1 && options.maxPages > 1) {
     const baseUrl = new URL(url).origin;
-    const visited = new Set(pages.map(p => p.url));
+    const visited = new Set(pages.map((p) => p.url));
     const linkUrls = extractInternalLinks(pages, baseUrl, visited);
     const toFetch = linkUrls.slice(0, options.maxPages - pages.length);
 
@@ -57,16 +57,16 @@ export async function runGenerate(
       const batchSize = 5;
       for (let i = 0; i < toFetch.length; i += batchSize) {
         const batch = toFetch.slice(i, i + batchSize);
-        const results = await Promise.all(
-          batch.map(u => fetchPage(u, crawlOptions)),
-        );
+        const results = await Promise.all(batch.map((u) => fetchPage(u, crawlOptions)));
         for (const page of results) {
           if (page.status === 200 && page.html) {
             pages.push(page);
             visited.add(page.url);
           }
         }
-        onProgress?.(`Scanned ${Math.min(i + batchSize, toFetch.length)}/${toFetch.length} pages from links...`);
+        onProgress?.(
+          `Scanned ${Math.min(i + batchSize, toFetch.length)}/${toFetch.length} pages from links...`,
+        );
       }
     }
   }
@@ -89,18 +89,22 @@ export async function runGenerate(
   // Filter by sections if specified
   let filteredPages = markdownPages;
   if (options.sections && options.sections.length > 0) {
-    filteredPages = markdownPages.filter(page => {
+    filteredPages = markdownPages.filter((page) => {
       try {
         const path = new URL(page.url).pathname;
         const firstSegment = path.split("/").filter(Boolean)[0]?.toLowerCase();
-        return options.sections!.some(s => s.toLowerCase() === firstSegment);
+        return options.sections?.some((s) => s.toLowerCase() === firstSegment);
       } catch {
         return false;
       }
     });
     // Always include homepage even when filtering
-    const homepage = markdownPages.find(p => {
-      try { return new URL(p.url).pathname === "/"; } catch { return false; }
+    const homepage = markdownPages.find((p) => {
+      try {
+        return new URL(p.url).pathname === "/";
+      } catch {
+        return false;
+      }
     });
     if (homepage && !filteredPages.includes(homepage)) {
       filteredPages.unshift(homepage);
@@ -142,7 +146,7 @@ export async function runGenerate(
   if (options.formats.includes("markdown")) {
     onProgress?.("Generating markdown files...");
     for (const page of filteredPages) {
-      const filename = urlToFilename(page.url) + ".md";
+      const filename = `${urlToFilename(page.url)}.md`;
       const content = `---\nurl: ${page.url}\ntitle: ${page.title}\n---\n\n${page.markdown}\n`;
       files.push(makeFile(`markdown/${filename}`, content));
     }
@@ -168,7 +172,7 @@ export async function runGenerate(
     onProgress?.("Generating schema-org.json...");
     const schemaOrg = generateSchemaOrg(ctx);
     if (schemaOrg) {
-      files.push(makeFile("schema-org.json", JSON.stringify(schemaOrg, null, 2) + "\n"));
+      files.push(makeFile("schema-org.json", `${JSON.stringify(schemaOrg, null, 2)}\n`));
     }
   }
 
@@ -176,7 +180,7 @@ export async function runGenerate(
   if (options.formats.includes("agent-card")) {
     onProgress?.("Generating agent-card.json...");
     const agentCard = generateAgentCard(ctx);
-    files.push(makeFile("agent-card.json", JSON.stringify(agentCard, null, 2) + "\n"));
+    files.push(makeFile("agent-card.json", `${JSON.stringify(agentCard, null, 2)}\n`));
   }
 
   // Generate faq.json
@@ -184,7 +188,7 @@ export async function runGenerate(
     onProgress?.("Generating faq.json...");
     const faq = generateFaq(ctx);
     if (faq) {
-      files.push(makeFile("faq.json", JSON.stringify(faq, null, 2) + "\n"));
+      files.push(makeFile("faq.json", `${JSON.stringify(faq, null, 2)}\n`));
     }
   }
 
@@ -198,7 +202,9 @@ export async function runGenerate(
   // Detect platform and generate integration files
   const detected = detectPlatform(pages, metadata);
   if (detected) {
-    onProgress?.(`Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`);
+    onProgress?.(
+      `Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`,
+    );
     const adapter = getAdapter(detected.platform);
     if (adapter) {
       onProgress?.(`Generating ${detected.platform} integration files...`);

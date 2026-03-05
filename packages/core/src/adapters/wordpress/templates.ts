@@ -25,79 +25,79 @@ define('W2AGENT_DATA_DIR', W2AGENT_PLUGIN_DIR . 'data/');
 // ─── Dynamic llms.txt generation from WP content ───────────────
 
 function w2agent_generate_llms_txt() {
-    \$site_name = get_bloginfo('name');
-    \$site_desc = get_bloginfo('description');
-    \$site_url = home_url();
+    $site_name = get_bloginfo('name');
+    $site_desc = get_bloginfo('description');
+    $site_url = home_url();
 
-    \$output = "# \$site_name\\n\\n";
-    if (\$site_desc) {
-        \$output .= "> \$site_desc\\n\\n";
+    $output = "# $site_name\\n\\n";
+    if ($site_desc) {
+        $output .= "> $site_desc\\n\\n";
     }
 
     // Group published posts/pages by type
-    \$post_types = ['page', 'post'];
-    \$sections = [];
+    $post_types = ['page', 'post'];
+    $sections = [];
 
-    foreach (\$post_types as \$type) {
-        \$items = get_posts([
-            'post_type' => \$type,
+    foreach ($post_types as $type) {
+        $items = get_posts([
+            'post_type' => $type,
             'post_status' => 'publish',
             'numberposts' => 100,
             'orderby' => 'menu_order date',
             'order' => 'ASC',
         ]);
-        if (empty(\$items)) continue;
+        if (empty($items)) continue;
 
-        \$section_name = \$type === 'page' ? 'Pages' : 'Posts';
-        \$lines = [];
-        foreach (\$items as \$item) {
-            \$url = get_permalink(\$item);
-            \$title = \$item->post_title;
-            \$excerpt = \$item->post_excerpt ?: wp_trim_words(strip_tags(\$item->post_content), 25, '...');
-            \$lines[] = "- [\$title](\$url): \$excerpt";
+        $section_name = $type === 'page' ? 'Pages' : 'Posts';
+        $lines = [];
+        foreach ($items as $item) {
+            $url = get_permalink($item);
+            $title = $item->post_title;
+            $excerpt = $item->post_excerpt ?: wp_trim_words(strip_tags($item->post_content), 25, '...');
+            $lines[] = "- [$title]($url): $excerpt";
         }
-        \$sections[\$section_name] = \$lines;
+        $sections[$section_name] = $lines;
     }
 
     // Custom post types
-    \$custom_types = get_post_types(['public' => true, '_builtin' => false], 'objects');
-    foreach (\$custom_types as \$cpt) {
-        \$items = get_posts([
-            'post_type' => \$cpt->name,
+    $custom_types = get_post_types(['public' => true, '_builtin' => false], 'objects');
+    foreach ($custom_types as $cpt) {
+        $items = get_posts([
+            'post_type' => $cpt->name,
             'post_status' => 'publish',
             'numberposts' => 50,
         ]);
-        if (empty(\$items)) continue;
+        if (empty($items)) continue;
 
-        \$lines = [];
-        foreach (\$items as \$item) {
-            \$url = get_permalink(\$item);
-            \$title = \$item->post_title;
-            \$excerpt = wp_trim_words(strip_tags(\$item->post_content), 25, '...');
-            \$lines[] = "- [\$title](\$url): \$excerpt";
+        $lines = [];
+        foreach ($items as $item) {
+            $url = get_permalink($item);
+            $title = $item->post_title;
+            $excerpt = wp_trim_words(strip_tags($item->post_content), 25, '...');
+            $lines[] = "- [$title]($url): $excerpt";
         }
-        \$sections[\$cpt->label] = \$lines;
+        $sections[$cpt->label] = $lines;
     }
 
-    foreach (\$sections as \$name => \$lines) {
-        \$output .= "## \$name\\n\\n" . implode("\\n", \$lines) . "\\n\\n";
+    foreach ($sections as $name => $lines) {
+        $output .= "## $name\\n\\n" . implode("\\n", $lines) . "\\n\\n";
     }
 
-    return \$output;
+    return $output;
 }
 
 function w2agent_generate_agent_card() {
-    \$site_name = get_bloginfo('name');
-    \$site_desc = get_bloginfo('description');
-    \$site_url = home_url();
+    $site_name = get_bloginfo('name');
+    $site_desc = get_bloginfo('description');
+    $site_url = home_url();
 
     return json_encode([
-        'name' => \$site_name,
-        'description' => \$site_desc,
-        'url' => \$site_url,
+        'name' => $site_name,
+        'description' => $site_desc,
+        'url' => $site_url,
         'capabilities' => [
-            'llms_txt' => \$site_url . '/llms.txt',
-            'robots_txt' => \$site_url . '/robots.txt',
+            'llms_txt' => $site_url . '/llms.txt',
+            'robots_txt' => $site_url . '/robots.txt',
         ],
         'protocols' => ['llms-txt', 'robots-txt', 'schema-org'],
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -106,9 +106,9 @@ function w2agent_generate_agent_card() {
 // ─── Serve endpoints ────────────────────────────────────────────
 
 add_action('template_redirect', function() {
-    \$uri = parse_url(\$_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-    if (\$uri === '/llms.txt') {
+    if ($uri === '/llms.txt') {
         header('Content-Type: text/plain; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
 
@@ -121,7 +121,7 @@ add_action('template_redirect', function() {
         exit;
     }
 
-    if (\$uri === '/.well-known/agent-card.json') {
+    if ($uri === '/.well-known/agent-card.json') {
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
 
@@ -142,22 +142,22 @@ add_action('wp_head', function() {
 
 // ─── Robots.txt integration ─────────────────────────────────────
 
-add_filter('robots_txt', function(\$output, \$public) {
-    \$rules_file = W2AGENT_DATA_DIR . 'robots-rules.txt';
-    if (file_exists(\$rules_file)) {
-        \$rules = file_get_contents(\$rules_file);
-        if (\$rules) {
-            \$output .= "\\n" . \$rules;
+add_filter('robots_txt', function($output, $public) {
+    $rules_file = W2AGENT_DATA_DIR . 'robots-rules.txt';
+    if (file_exists($rules_file)) {
+        $rules = file_get_contents($rules_file);
+        if ($rules) {
+            $output .= "\\n" . $rules;
         }
     }
-    return \$output;
+    return $output;
 }, 10, 2);
 
 // ─── Auto-regenerate on content changes ─────────────────────────
 
 // Invalidate cache when posts are created/updated/deleted
-add_action('save_post', function(\$post_id) {
-    if (wp_is_post_revision(\$post_id)) return;
+add_action('save_post', function($post_id) {
+    if (wp_is_post_revision($post_id)) return;
     // Clear any object cache for llms.txt
     wp_cache_delete('w2agent_llms_txt');
     wp_cache_delete('w2agent_agent_card');
@@ -176,7 +176,7 @@ add_action('admin_menu', function() {
 });
 
 function w2agent_settings_page() {
-    \$site_url = home_url();
+    $site_url = home_url();
     ?>
     <div class="wrap">
         <h1>w2agent — AI Readiness</h1>
@@ -184,9 +184,9 @@ function w2agent_settings_page() {
 
         <h2>Active Endpoints</h2>
         <table class="widefat" style="max-width: 600px;">
-            <tr><td><strong>/llms.txt</strong></td><td><a href="<?php echo \$site_url; ?>/llms.txt" target="_blank">View</a></td><td>Generated from posts &amp; pages</td></tr>
-            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo \$site_url; ?>/.well-known/agent-card.json" target="_blank">View</a></td><td>Generated from site info</td></tr>
-            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo \$site_url; ?>/robots.txt" target="_blank">View</a></td><td>AI bot rules merged</td></tr>
+            <tr><td><strong>/llms.txt</strong></td><td><a href="<?php echo $site_url; ?>/llms.txt" target="_blank">View</a></td><td>Generated from posts &amp; pages</td></tr>
+            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo $site_url; ?>/.well-known/agent-card.json" target="_blank">View</a></td><td>Generated from site info</td></tr>
+            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo $site_url; ?>/robots.txt" target="_blank">View</a></td><td>AI bot rules merged</td></tr>
         </table>
 
         <h2>How It Works</h2>
@@ -199,7 +199,7 @@ function w2agent_settings_page() {
 
         <h2>Re-audit Your Site</h2>
         <p>Run from your terminal to check your AI readiness score:</p>
-        <code style="background: #f1f1f1; padding: 8px 12px; display: inline-block;">npx w2agent audit <?php echo \$site_url; ?></code>
+        <code style="background: #f1f1f1; padding: 8px 12px; display: inline-block;">npx w2agent audit <?php echo $site_url; ?></code>
     </div>
     <?php
 }

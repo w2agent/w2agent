@@ -1,6 +1,6 @@
-import type { Check } from "../types.js";
-import { parseHTML } from "../../shared/html-parser.js";
 import { fetchText } from "../../shared/fetcher.js";
+import { parseHTML } from "../../shared/html-parser.js";
+import type { Check } from "../types.js";
 
 export const llmsTxtExists: Check = {
   id: "llms-txt-exists",
@@ -67,9 +67,10 @@ export const llmsTxtValid: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: score >= 70
-        ? "llms.txt follows the specification"
-        : `llms.txt partially follows spec (${score}% complete)`,
+      message:
+        score >= 70
+          ? "llms.txt follows the specification"
+          : `llms.txt partially follows spec (${score}% complete)`,
       severity: "info",
     };
   },
@@ -199,9 +200,7 @@ export const wellKnownAgentsJson: Check = {
       score: valid ? 100 : 0,
       maxScore: 100,
       weight: 1,
-      message: valid
-        ? "agents.json found and valid"
-        : "No /.well-known/agents.json found",
+      message: valid ? "agents.json found and valid" : "No /.well-known/agents.json found",
       severity: "info",
     };
   },
@@ -225,9 +224,7 @@ export const wellKnownAra: Check = {
       score: exists ? 100 : 0,
       maxScore: 100,
       weight: 0.5,
-      message: exists
-        ? "ARA manifest found"
-        : "No ARA manifest found",
+      message: exists ? "ARA manifest found" : "No ARA manifest found",
       severity: "info",
     };
   },
@@ -244,9 +241,7 @@ export const markdownAlternate: Check = {
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
-      const hasMarkdownAlt = parsed.alternateLinks.some(
-        (link) => link.type.includes("markdown"),
-      );
+      const hasMarkdownAlt = parsed.alternateLinks.some((link) => link.type.includes("markdown"));
       if (hasMarkdownAlt) pagesWithAlt++;
     }
 
@@ -260,13 +255,15 @@ export const markdownAlternate: Check = {
       score,
       maxScore: 100,
       weight: 0.5,
-      message: pagesWithAlt > 0
-        ? `${pagesWithAlt} page(s) have markdown alternate links`
-        : "No markdown alternate links found",
+      message:
+        pagesWithAlt > 0
+          ? `${pagesWithAlt} page(s) have markdown alternate links`
+          : "No markdown alternate links found",
       severity: "info",
-      fixSnippet: pagesWithAlt === 0
-        ? `<!-- Add to <head> -->\n<link rel="alternate" type="text/markdown" href="/page.md" />`
-        : undefined,
+      fixSnippet:
+        pagesWithAlt === 0
+          ? `<!-- Add to <head> -->\n<link rel="alternate" type="text/markdown" href="/page.md" />`
+          : undefined,
     };
   },
 };

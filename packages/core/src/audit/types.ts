@@ -50,7 +50,12 @@ export interface AuditReport {
   grade: LetterGrade;
   categories: CategoryResult[];
   topIssues: TopIssue[];
-  platform?: { platform: string; confidence: number; version?: string; details: Record<string, string> };
+  platform?: {
+    platform: string;
+    confidence: number;
+    version?: string;
+    details: Record<string, string>;
+  };
 }
 
 export interface FetchedPage {

@@ -1,5 +1,5 @@
-import * as cheerio from "cheerio";
 import type { CheerioAPI } from "cheerio";
+import * as cheerio from "cheerio";
 import type { PageMarkdown } from "./types.js";
 
 // Use cheerio's return types directly — Cheerio<any> works for all node operations
@@ -8,13 +8,9 @@ type CheerioNode = ReturnType<CheerioAPI>;
 export function htmlToMarkdown(html: string, url: string): PageMarkdown {
   const $ = cheerio.load(html);
 
-  const title = $("title").first().text().trim() ||
-    $("h1").first().text().trim() ||
-    "";
+  const title = $("title").first().text().trim() || $("h1").first().text().trim() || "";
 
-  const description =
-    $('meta[name="description"]').attr("content")?.trim() ||
-    "";
+  const description = $('meta[name="description"]').attr("content")?.trim() || "";
 
   $("script, style, noscript, iframe, svg, template").remove();
 
@@ -47,7 +43,7 @@ function extractMainContent($: CheerioAPI): CheerioNode {
     if (["nav", "header", "footer", "aside"].includes(tag)) return;
     const id = ($el.attr("id") || "").toLowerCase();
     const cls = ($el.attr("class") || "").toLowerCase();
-    if (/(nav|menu|sidebar|footer|header|cookie|banner|ad[s]?)\b/.test(id + " " + cls)) return;
+    if (/(nav|menu|sidebar|footer|header|cookie|banner|ad[s]?)\b/.test(`${id} ${cls}`)) return;
 
     const text = $el.text().trim();
     const textLen = text.length;
@@ -69,15 +65,13 @@ function extractMainContent($: CheerioAPI): CheerioNode {
 function convertToMarkdown($: CheerioAPI, root: CheerioNode): string {
   const lines: string[] = [];
   processNode($, root, lines, 0);
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function processNode(
-  $: CheerioAPI,
-  node: CheerioNode,
-  lines: string[],
-  listDepth: number,
-): void {
+function processNode($: CheerioAPI, node: CheerioNode, lines: string[], listDepth: number): void {
   node.contents().each((_, child: any) => {
     if (child.type === "text") {
       const text = child.data || "";
@@ -100,11 +94,11 @@ function processNode(
       case "h4":
       case "h5":
       case "h6": {
-        const level = parseInt(tag[1]);
+        const level = parseInt(tag[1], 10);
         const text = $el.text().trim();
         if (text) {
           lines.push("");
-          lines.push("#".repeat(level) + " " + text);
+          lines.push(`${"#".repeat(level)} ${text}`);
           lines.push("");
         }
         break;
@@ -135,7 +129,7 @@ function processNode(
         if (text.trim()) {
           lines.push("");
           for (const line of text.trim().split("\n")) {
-            lines.push("> " + line);
+            lines.push(`> ${line}`);
           }
           lines.push("");
         }
@@ -147,7 +141,7 @@ function processNode(
         const lang = code.attr("class")?.match(/language-(\w+)/)?.[1] || "";
         const text = code.length > 0 ? code.text() : $el.text();
         lines.push("");
-        lines.push("```" + lang);
+        lines.push(`\`\`\`${lang}`);
         lines.push(text);
         lines.push("```");
         lines.push("");
@@ -156,7 +150,7 @@ function processNode(
 
       case "code": {
         if (!$el.parent("pre").length) {
-          lines.push("`" + $el.text() + "`");
+          lines.push(`\`${$el.text()}\``);
         }
         break;
       }
@@ -172,9 +166,11 @@ function processNode(
           if (text.trim()) {
             lines.push(indent + prefix + text.trim());
           }
-          $(li).children("ul, ol").each((_, nested: any) => {
-            processNode($, $(nested), lines, listDepth + 1);
-          });
+          $(li)
+            .children("ul, ol")
+            .each((_, nested: any) => {
+              processNode($, $(nested), lines, listDepth + 1);
+            });
           idx++;
         });
         lines.push("");
@@ -185,24 +181,26 @@ function processNode(
         const rows: string[][] = [];
         $el.find("tr").each((_, tr: any) => {
           const cells: string[] = [];
-          $(tr).find("th, td").each((_, cell: any) => {
-            cells.push($(cell).text().trim());
-          });
+          $(tr)
+            .find("th, td")
+            .each((_, cell: any) => {
+              cells.push($(cell).text().trim());
+            });
           if (cells.length > 0) rows.push(cells);
         });
 
         if (rows.length > 0) {
           lines.push("");
-          const maxCols = Math.max(...rows.map(r => r.length));
-          const normalized = rows.map(r => {
+          const maxCols = Math.max(...rows.map((r) => r.length));
+          const normalized = rows.map((r) => {
             while (r.length < maxCols) r.push("");
             return r;
           });
 
-          lines.push("| " + normalized[0].join(" | ") + " |");
-          lines.push("| " + normalized[0].map(() => "---").join(" | ") + " |");
+          lines.push(`| ${normalized[0].join(" | ")} |`);
+          lines.push(`| ${normalized[0].map(() => "---").join(" | ")} |`);
           for (let i = 1; i < normalized.length; i++) {
-            lines.push("| " + normalized[i].join(" | ") + " |");
+            lines.push(`| ${normalized[i].join(" | ")} |`);
           }
           lines.push("");
         }
@@ -255,14 +253,14 @@ function inlineContent($: CheerioAPI, el: CheerioNode): string {
       }
       case "strong":
       case "b":
-        result += "**" + $child.text().trim() + "**";
+        result += `**${$child.text().trim()}**`;
         break;
       case "em":
       case "i":
-        result += "*" + $child.text().trim() + "*";
+        result += `*${$child.text().trim()}*`;
         break;
       case "code":
-        result += "`" + $child.text() + "`";
+        result += `\`${$child.text()}\``;
         break;
       case "br":
         result += "\n";

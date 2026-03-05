@@ -1,5 +1,5 @@
-import * as cheerio from "cheerio";
 import type { CheerioAPI } from "cheerio";
+import * as cheerio from "cheerio";
 
 export interface ParsedPage {
   $: CheerioAPI;
@@ -39,7 +39,7 @@ export function parseHTML(html: string): ParsedPage {
   $("h1, h2, h3, h4, h5, h6").each((_, el) => {
     const tag = (el as unknown as { tagName: string }).tagName;
     headings.push({
-      level: parseInt(tag[1]),
+      level: parseInt(tag[1], 10),
       text: $(el).text().trim(),
     });
   });

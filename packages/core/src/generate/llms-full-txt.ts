@@ -16,15 +16,10 @@ export function generateLlmsFullTxt(pages: PageMarkdown[]): string {
   const sections: string[] = [];
 
   for (const page of pages) {
-    const frontmatter = [
-      "---",
-      `url: ${page.url}`,
-      `title: ${page.title}`,
-      "---",
-    ].join("\n");
+    const frontmatter = ["---", `url: ${page.url}`, `title: ${page.title}`, "---"].join("\n");
 
-    sections.push(frontmatter + "\n\n" + page.markdown);
+    sections.push(`${frontmatter}\n\n${page.markdown}`);
   }
 
-  return sections.join("\n\n") + "\n";
+  return `${sections.join("\n\n")}\n`;
 }

@@ -1,4 +1,4 @@
-import type { FetchedPage, SiteMetadata } from "../../audit/types.js";
+import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nextjsChecks } from "./checks.js";
@@ -7,7 +7,8 @@ import { generateNextjsIntegration } from "./templates.js";
 export const nextjsAdapter: PlatformAdapter = {
   id: "nextjs",
   name: "Next.js",
-  description: "Next.js framework — middleware for content negotiation, route handlers for agent card",
+  description:
+    "Next.js framework — middleware for content negotiation, route handlers for agent card",
 
   detect(pages: FetchedPage[]): PlatformDetectionResult | null {
     let confidence = 0;
@@ -46,13 +47,13 @@ export const nextjsAdapter: PlatformAdapter = {
   checks: nextjsChecks,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
-    const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
-    const llmsFullTxt = coreFiles.find(f => f.filename === "llms-full.txt")?.content || "";
-    const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
+    const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
+    const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content || "";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
 
     const files = generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
 
-    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookRoute = `import { NextResponse } from "next/server";
 
 /**

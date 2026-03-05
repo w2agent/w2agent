@@ -10,7 +10,8 @@ export const shopifyRobotsEditableCheck: Check = {
     const robots = metadata.robotsTxt || "";
     // Shopify 2.0+ allows robots.txt.liquid customization
     // The default Shopify robots.txt has specific patterns
-    const isShopifyDefault = robots.includes("Disallow: /admin") &&
+    const isShopifyDefault =
+      robots.includes("Disallow: /admin") &&
       robots.includes("Disallow: /cart") &&
       robots.includes("Disallow: /checkout");
 
@@ -46,8 +47,8 @@ export const shopifyProductSchemaCheck: Check = {
     for (const page of pages) {
       if (page.url.includes("/products/")) {
         productPages++;
-        const hasProductSchema = page.html.includes('"@type":"Product"') ||
-          page.html.includes('"@type": "Product"');
+        const hasProductSchema =
+          page.html.includes('"@type":"Product"') || page.html.includes('"@type": "Product"');
         if (hasProductSchema) withSchema++;
       }
     }
@@ -76,12 +77,14 @@ export const shopifyProductSchemaCheck: Check = {
       status: ratio >= 0.8 ? "pass" : ratio > 0 ? "partial" : "fail",
       score: Math.round(ratio * 100),
       maxScore: 100,
-      message: ratio >= 0.8
-        ? `${withSchema}/${productPages} product pages have Product JSON-LD schema`
-        : `Only ${withSchema}/${productPages} product pages have Product JSON-LD. AI agents need structured product data.`,
-      details: ratio < 0.8
-        ? "Ensure your Shopify theme includes Product structured data with price, availability, and reviews."
-        : undefined,
+      message:
+        ratio >= 0.8
+          ? `${withSchema}/${productPages} product pages have Product JSON-LD schema`
+          : `Only ${withSchema}/${productPages} product pages have Product JSON-LD. AI agents need structured product data.`,
+      details:
+        ratio < 0.8
+          ? "Ensure your Shopify theme includes Product structured data with price, availability, and reviews."
+          : undefined,
     };
   },
 };
@@ -94,10 +97,11 @@ export const shopifyThemeAppBlocksCheck: Check = {
   severity: "info",
   run(pages: FetchedPage[]) {
     // Online Store 2.0 themes use JSON templates and support app blocks
-    const hasOS2Signals = pages.some(p =>
-      p.html.includes("shopify-section") ||
-      p.html.includes("data-section-type") ||
-      p.html.includes("shopify-block"),
+    const hasOS2Signals = pages.some(
+      (p) =>
+        p.html.includes("shopify-section") ||
+        p.html.includes("data-section-type") ||
+        p.html.includes("shopify-block"),
     );
 
     return {

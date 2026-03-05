@@ -7,8 +7,8 @@ export const astroSitemapIntegrationCheck: Check = {
   weight: 1,
   severity: "warning",
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
-    const hasSitemap = !!metadata.wellKnown["sitemap.xml"] ||
-      !!metadata.wellKnown["sitemap-index.xml"];
+    const hasSitemap =
+      !!metadata.wellKnown["sitemap.xml"] || !!metadata.wellKnown["sitemap-index.xml"];
 
     return {
       id: this.id,
@@ -22,9 +22,7 @@ export const astroSitemapIntegrationCheck: Check = {
       message: hasSitemap
         ? "Sitemap detected — AI crawlers can discover all pages"
         : "No sitemap found. Install @astrojs/sitemap for automatic sitemap generation.",
-      details: hasSitemap
-        ? undefined
-        : "Run: npx astro add sitemap",
+      details: hasSitemap ? undefined : "Run: npx astro add sitemap",
     };
   },
 };
@@ -54,8 +52,15 @@ export const astroRobotsTxtCheck: Check = {
     }
 
     // Check if AI bots are blocked
-    const aiBots = ["gptbot", "claudebot", "chatgpt-user", "anthropic", "cohere-ai", "perplexitybot"];
-    const blocked = aiBots.filter(bot => {
+    const aiBots = [
+      "gptbot",
+      "claudebot",
+      "chatgpt-user",
+      "anthropic",
+      "cohere-ai",
+      "perplexitybot",
+    ];
+    const blocked = aiBots.filter((bot) => {
       const pattern = new RegExp(`user-agent:\\s*${bot}[\\s\\S]*?disallow:\\s*/`, "i");
       return pattern.test(robotsTxt);
     });
@@ -98,12 +103,11 @@ export const astroSsrModeCheck: Check = {
   run(pages: FetchedPage[]) {
     // Astro static sites have fully rendered HTML by default
     // SSR mode is detected by server-timing or x-astro-* headers
-    const hasSSRHeaders = pages.some(p =>
-      p.headers["x-astro-ssr"] ||
-      p.headers["server-timing"]?.includes("astro"),
+    const hasSSRHeaders = pages.some(
+      (p) => p.headers["x-astro-ssr"] || p.headers["server-timing"]?.includes("astro"),
     );
 
-    const isFullyRendered = pages.every(p => {
+    const isFullyRendered = pages.every((p) => {
       const bodyContent = p.html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").trim();
       return bodyContent.length > 200;
     });

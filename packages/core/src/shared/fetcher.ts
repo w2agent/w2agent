@@ -1,4 +1,4 @@
-import type { FetchedPage, AuditOptions } from "../audit/types.js";
+import type { AuditOptions, FetchedPage } from "../audit/types.js";
 
 export async function fetchPage(
   url: string,

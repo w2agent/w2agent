@@ -1,12 +1,12 @@
-import { describe, it, expect } from "vitest";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { describe, expect, it } from "vitest";
 import {
-  robotsTxtExists,
-  robotsTxtAiBots,
-  sitemapExists,
   responseTime,
+  robotsTxtAiBots,
+  robotsTxtExists,
+  sitemapExists,
   statusCodes,
 } from "../../src/audit/checks/bot-accessibility.js";
+import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -72,7 +72,8 @@ describe("sitemap-exists", () => {
   it("passes with valid sitemap", () => {
     const result = sitemapExists.run([basePage], {
       ...baseMeta,
-      sitemapXml: '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/</loc></url></urlset>',
+      sitemapXml:
+        '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/</loc></url></urlset>',
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
   });

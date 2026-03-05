@@ -16,7 +16,9 @@ export const astroAdapter: PlatformAdapter = {
 
     for (const page of pages) {
       // Generator meta tag (highest confidence) — Astro uses "Astro vX.X"
-      const genMatch = page.html.match(/<meta\s+name=["']generator["']\s+content=["']Astro\s*v?([\d.]*)/i);
+      const genMatch = page.html.match(
+        /<meta\s+name=["']generator["']\s+content=["']Astro\s*v?([\d.]*)/i,
+      );
       if (genMatch) {
         confidence = Math.max(confidence, 1.0);
         version = genMatch[1] || undefined;
@@ -50,13 +52,13 @@ export const astroAdapter: PlatformAdapter = {
   checks: astroChecks,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
-    const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
-    const llmsFullTxt = coreFiles.find(f => f.filename === "llms-full.txt")?.content || "";
-    const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
+    const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
+    const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content || "";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
 
     const files = generateAstroIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
 
-    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookPlugin = `/**
  * w2agent MCP Webhook — Astro Integration
  *

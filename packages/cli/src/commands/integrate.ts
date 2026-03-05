@@ -1,14 +1,9 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { getAdapter, type PlatformId, runGenerate } from "@w2agent/core";
+import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import chalk from "chalk";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import {
-  runGenerate,
-  type PlatformId,
-  detectPlatform,
-  getAdapter,
-} from "@w2agent/core";
 
 const PLATFORM_NAMES: Record<PlatformId, string> = {
   wordpress: "WordPress",
@@ -22,7 +17,9 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
 export function registerIntegrateCommand(program: Command): void {
   program
     .command("integrate")
-    .description("Generate platform-specific integration files (WordPress plugin, Next.js middleware, etc.)")
+    .description(
+      "Generate platform-specific integration files (WordPress plugin, Next.js middleware, etc.)",
+    )
     .argument("<url>", "URL to generate integration for")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option("-p, --platform <platform>", "Force platform: wordpress, nextjs, shopify, docusaurus")
@@ -40,21 +37,34 @@ export function registerIntegrateCommand(program: Command): void {
         const result = await runGenerate(
           url,
           {
-            maxPages: parseInt(opts.maxPages),
-            timeout: parseInt(opts.timeout),
+            maxPages: parseInt(opts.maxPages, 10),
+            timeout: parseInt(opts.timeout, 10),
             formats: ["llms-txt", "full", "robots-txt", "agent-card"],
           },
-          (status) => { spinner.text = status; },
+          (status) => {
+            spinner.text = status;
+          },
         );
 
         spinner.stop();
 
         // Determine platform
-        const validPlatforms: PlatformId[] = ["wordpress", "nextjs", "shopify", "docusaurus", "nuxt", "astro"];
+        const validPlatforms: PlatformId[] = [
+          "wordpress",
+          "nextjs",
+          "shopify",
+          "docusaurus",
+          "nuxt",
+          "astro",
+        ];
         let platformId: PlatformId | undefined;
         if (opts.platform) {
           if (!validPlatforms.includes(opts.platform as PlatformId)) {
-            console.error(chalk.red(`Unknown platform: ${opts.platform}. Valid options: ${validPlatforms.join(", ")}`));
+            console.error(
+              chalk.red(
+                `Unknown platform: ${opts.platform}. Valid options: ${validPlatforms.join(", ")}`,
+              ),
+            );
             process.exit(1);
           }
           platformId = opts.platform as PlatformId;
@@ -67,10 +77,10 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(chalk.yellow("  Could not auto-detect platform."));
           console.log("");
           console.log("  Specify manually with --platform:");
-          console.log(`    ${chalk.cyan("w2agent integrate " + url + " --platform wordpress")}`);
-          console.log(`    ${chalk.cyan("w2agent integrate " + url + " --platform nextjs")}`);
-          console.log(`    ${chalk.cyan("w2agent integrate " + url + " --platform shopify")}`);
-          console.log(`    ${chalk.cyan("w2agent integrate " + url + " --platform docusaurus")}`);
+          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`);
+          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`);
+          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform shopify`)}`);
+          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform docusaurus`)}`);
           console.log("");
           console.log(chalk.gray("  Core files were still generated in the output directory."));
 
@@ -91,7 +101,7 @@ export function registerIntegrateCommand(program: Command): void {
         }
 
         // If platform was forced (not auto-detected), generate integration files manually
-        const integrationFiles = result.files.filter(f =>
+        const integrationFiles = result.files.filter((f) =>
           f.filename.startsWith(`${platformId}/`),
         );
 
@@ -117,15 +127,17 @@ export function registerIntegrateCommand(program: Command): void {
         }
 
         // Print summary
-        const platformFiles = result.files.filter(f => f.filename.startsWith(`${platformId}/`));
+        const platformFiles = result.files.filter((f) => f.filename.startsWith(`${platformId}/`));
         const platformName = PLATFORM_NAMES[platformId] || platformId;
 
         console.log("");
         console.log(chalk.bold(`  w2agent integrate — ${platformName} Integration`));
-        console.log(chalk.gray("  " + "─".repeat(40)));
+        console.log(chalk.gray(`  ${"─".repeat(40)}`));
         console.log("");
         console.log(`  URL: ${chalk.cyan(url)}`);
-        console.log(`  Platform: ${chalk.magenta(platformName)}${result.platform ? ` (${Math.round(result.platform.confidence * 100)}% confidence)` : " (manual)"}`);
+        console.log(
+          `  Platform: ${chalk.magenta(platformName)}${result.platform ? ` (${Math.round(result.platform.confidence * 100)}% confidence)` : " (manual)"}`,
+        );
         console.log(`  Time: ${(result.duration / 1000).toFixed(1)}s`);
         console.log("");
         console.log("  Integration files:");
@@ -138,7 +150,7 @@ export function registerIntegrateCommand(program: Command): void {
         console.log("");
 
         // Print install hint
-        const installFile = platformFiles.find(f => f.filename.endsWith("INSTALL.md"));
+        const installFile = platformFiles.find((f) => f.filename.endsWith("INSTALL.md"));
         if (installFile) {
           console.log(chalk.gray(`  See ${installFile.filename} for deployment instructions.`));
           console.log("");

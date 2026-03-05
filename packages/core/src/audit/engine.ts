@@ -1,3 +1,5 @@
+import { detectPlatform, getAdapter } from "../adapters/registry.js";
+import { crawlSite } from "./crawler.js";
 import type {
   AuditOptions,
   AuditReport,
@@ -9,8 +11,6 @@ import type {
   TopIssue,
 } from "./types.js";
 import { CATEGORY_CONFIG as CATEGORIES, DEFAULT_OPTIONS } from "./types.js";
-import { crawlSite } from "./crawler.js";
-import { detectPlatform, getAdapter } from "../adapters/registry.js";
 
 const checkRegistry: Check[] = [];
 
@@ -45,7 +45,9 @@ export async function runAudit(
   // Detect platform
   const detected = detectPlatform(pages, metadata);
   if (detected) {
-    onProgress?.(`Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`);
+    onProgress?.(
+      `Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`,
+    );
   }
 
   // Use provided checks or fall back to registry
@@ -60,7 +62,7 @@ export async function runAudit(
 
   // Filter checks by selected categories
   const checks = options.categories
-    ? allChecks.filter((c) => options.categories!.includes(c.category))
+    ? allChecks.filter((c) => options.categories?.includes(c.category))
     : [...allChecks];
 
   // Run checks
@@ -141,7 +143,7 @@ function computeGrade(score: number): LetterGrade {
 function computeTopIssues(
   results: CheckResult[],
   categories: CategoryResult[],
-  overallScore: number,
+  _overallScore: number,
 ): TopIssue[] {
   const failedChecks = results
     .filter((r) => r.score < 100)

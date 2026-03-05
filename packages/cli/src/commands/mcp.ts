@@ -1,20 +1,18 @@
-import type { Command } from "commander";
-import ora from "ora";
-import chalk from "chalk";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
-  runGenerate,
-  generateMcpServer,
-  type GenerateOptions,
   type GenerateContext,
+  type GenerateOptions,
+  generateMcpServer,
+  runGenerate,
   type SelfHostPlatform,
 } from "@w2agent/core";
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
 
 export function registerMcpCommand(program: Command): void {
-  const mcp = program
-    .command("mcp")
-    .description("Generate and deploy MCP servers for any website");
+  const mcp = program.command("mcp").description("Generate and deploy MCP servers for any website");
 
   // --- mcp deploy ---
   mcp
@@ -37,8 +35,8 @@ export function registerMcpCommand(program: Command): void {
       }
 
       const generateOptions: Partial<GenerateOptions> = {
-        maxPages: parseInt(opts.maxPages),
-        timeout: parseInt(opts.timeout),
+        maxPages: parseInt(opts.maxPages, 10),
+        timeout: parseInt(opts.timeout, 10),
         formats: ["mcp-server"],
       };
 
@@ -50,13 +48,13 @@ export function registerMcpCommand(program: Command): void {
           spinner.text = status;
         });
 
-        let mcpFiles = result.files.filter(f => f.filename.startsWith("mcp-server/"));
+        let mcpFiles = result.files.filter((f) => f.filename.startsWith("mcp-server/"));
 
         // If self-host, re-generate with platform templates
         if (selfHost) {
           spinner.text = `Generating ${selfHost} template...`;
           // Extract the ctx from the result - rebuild from generated data
-          const pagesFile = result.files.find(f => f.filename === "mcp-server/data/pages.json");
+          const pagesFile = result.files.find((f) => f.filename === "mcp-server/data/pages.json");
           const pages = pagesFile ? JSON.parse(pagesFile.content) : [];
           const ctx: GenerateContext = {
             pages,
@@ -80,7 +78,7 @@ export function registerMcpCommand(program: Command): void {
         // Summary
         console.log("");
         console.log(chalk.bold("  w2agent mcp deploy — MCP Server Generator"));
-        console.log(chalk.gray("  " + "─".repeat(42)));
+        console.log(chalk.gray(`  ${"─".repeat(42)}`));
         console.log("");
         console.log(`  Source: ${chalk.cyan(url)}`);
         console.log(`  Pages crawled: ${result.pagesProcessed}`);
@@ -108,17 +106,17 @@ export function registerMcpCommand(program: Command): void {
 
         if (selfHost === "vercel") {
           console.log("  Next steps:");
-          console.log(chalk.gray("  cd") + ` ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
+          console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
           console.log(chalk.gray("  npm install && vercel --prod"));
         } else if (selfHost === "cf") {
           console.log("  Next steps:");
-          console.log(chalk.gray("  cd") + ` ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
+          console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
           console.log(chalk.gray("  npm install"));
           console.log(chalk.gray("  # Edit wrangler.toml with your KV namespace ID"));
           console.log(chalk.gray("  bash setup.sh && npx wrangler deploy"));
         } else {
           console.log("  Next steps:");
-          console.log(chalk.gray("  cd") + ` ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
+          console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
           console.log(chalk.gray("  npm install"));
           console.log(chalk.gray("  npm start"));
         }
@@ -141,7 +139,9 @@ export function registerMcpCommand(program: Command): void {
     .action(async (slug?: string) => {
       if (!slug) {
         console.log(chalk.yellow("Usage: w2agent mcp status <slug>"));
-        console.log(chalk.gray("  Check health of a hosted MCP deployment at <slug>.mcp.w2agent.dev"));
+        console.log(
+          chalk.gray("  Check health of a hosted MCP deployment at <slug>.mcp.w2agent.dev"),
+        );
         return;
       }
 

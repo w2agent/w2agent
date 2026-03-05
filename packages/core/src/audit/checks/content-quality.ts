@@ -1,5 +1,5 @@
-import type { Check } from "../types.js";
 import { parseHTML } from "../../shared/html-parser.js";
+import type { Check } from "../types.js";
 
 export const answerFirst: Check = {
   id: "answer-first",
@@ -31,9 +31,10 @@ export const answerFirst: Check = {
       score,
       maxScore: 100,
       weight: 1.5,
-      message: score >= 70
-        ? "Pages lead with substantive content"
-        : "Some pages lack early substantive content or meta descriptions",
+      message:
+        score >= 70
+          ? "Pages lead with substantive content"
+          : "Some pages lack early substantive content or meta descriptions",
       severity: "info",
     };
   },
@@ -161,13 +162,15 @@ export const faqContent: Check = {
       score,
       maxScore: 100,
       weight: 0.5,
-      message: faqPages > 0
-        ? `${faqPages} page(s) contain FAQ/Q&A content`
-        : "No FAQ or Q&A content detected",
+      message:
+        faqPages > 0
+          ? `${faqPages} page(s) contain FAQ/Q&A content`
+          : "No FAQ or Q&A content detected",
       severity: "info",
-      fixSnippet: faqPages === 0
-        ? `<!-- Add FAQ schema + content -->\n<script type="application/ld+json">\n{\n  "@context": "https://schema.org",\n  "@type": "FAQPage",\n  "mainEntity": [{\n    "@type": "Question",\n    "name": "Your question?",\n    "acceptedAnswer": {\n      "@type": "Answer",\n      "text": "Your answer."\n    }\n  }]\n}\n</script>`
-        : undefined,
+      fixSnippet:
+        faqPages === 0
+          ? `<!-- Add FAQ schema + content -->\n<script type="application/ld+json">\n{\n  "@context": "https://schema.org",\n  "@type": "FAQPage",\n  "mainEntity": [{\n    "@type": "Question",\n    "name": "Your question?",\n    "acceptedAnswer": {\n      "@type": "Answer",\n      "text": "Your answer."\n    }\n  }]\n}\n</script>`
+          : undefined,
     };
   },
 };
@@ -191,9 +194,16 @@ export const citationReadiness: Check = {
       // Has quotes
       if (parsed.$("blockquote").length > 0 || /"[^"]{20,}"/.test(parsed.text)) pageScore += 25;
       // Has references/sources
-      if (text.includes("source") || text.includes("reference") || text.includes("according to") || text.includes("study")) pageScore += 25;
+      if (
+        text.includes("source") ||
+        text.includes("reference") ||
+        text.includes("according to") ||
+        text.includes("study")
+      )
+        pageScore += 25;
       // Has author attribution
-      if (parsed.$('[rel="author"]').length > 0 || text.includes("by ") || text.includes("author")) pageScore += 25;
+      if (parsed.$('[rel="author"]').length > 0 || text.includes("by ") || text.includes("author"))
+        pageScore += 25;
 
       totalScore += pageScore;
     }

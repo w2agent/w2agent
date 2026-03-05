@@ -1,5 +1,5 @@
-import type { Check } from "../types.js";
 import { parseHTML } from "../../shared/html-parser.js";
+import type { Check } from "../types.js";
 
 export const httpsCheck: Check = {
   id: "https",
@@ -97,9 +97,10 @@ export const canonicalUrls: Check = {
       weight: 1,
       message: `${pagesWithCanonical}/${pages.length} pages have canonical URLs`,
       severity: score < 50 ? "warning" : "info",
-      fixSnippet: score < 100
-        ? `<!-- Add to <head> -->\n<link rel="canonical" href="https://yoursite.com/current-page" />`
-        : undefined,
+      fixSnippet:
+        score < 100
+          ? `<!-- Add to <head> -->\n<link rel="canonical" href="https://yoursite.com/current-page" />`
+          : undefined,
     };
   },
 };
@@ -194,9 +195,10 @@ export const noJsDependency: Check = {
       score,
       maxScore: 100,
       weight: 1,
-      message: score >= 70
-        ? "Content is accessible without JavaScript"
-        : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering`,
+      message:
+        score >= 70
+          ? "Content is accessible without JavaScript"
+          : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering`,
       severity: score < 50 ? "warning" : "info",
     };
   },

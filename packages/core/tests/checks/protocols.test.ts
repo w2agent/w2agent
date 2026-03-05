@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
-import {
-  mcpDiscovery,
-  formsStructured,
-  actionSchemas,
-  wellKnownUcp,
-} from "../../src/audit/checks/protocols.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  actionSchemas,
+  formsStructured,
+  mcpDiscovery,
+  wellKnownUcp,
+} from "../../src/audit/checks/protocols.js";
+import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -38,15 +38,18 @@ describe("mcp-discovery", () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       headers: new Headers({ "content-type": "application/json" }),
-      text: () => Promise.resolve(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          protocolVersion: "2025-03-26",
-          serverInfo: { name: "test-server", version: "1.0.0" },
-          capabilities: { tools: {} },
-        },
-      })),
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              protocolVersion: "2025-03-26",
+              serverInfo: { name: "test-server", version: "1.0.0" },
+              capabilities: { tools: {} },
+            },
+          }),
+        ),
     });
 
     const result = await mcpDiscovery.run([basePage], {

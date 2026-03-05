@@ -1,4 +1,4 @@
-import type { FetchedPage, SiteMetadata } from "../../audit/types.js";
+import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { shopifyChecks } from "./checks.js";
@@ -47,17 +47,17 @@ export const shopifyAdapter: PlatformAdapter = {
   checks: shopifyChecks,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
-    const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
-    const robotsTxt = coreFiles.find(f => f.filename === "robots.txt")?.content || "";
+    const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
+    const robotsTxt = coreFiles.find((f) => f.filename === "robots.txt")?.content || "";
 
     const robotsAdditions = robotsTxt
       .split("\n")
-      .filter(line => line.trim() && !line.startsWith("Sitemap:"))
+      .filter((line) => line.trim() && !line.startsWith("Sitemap:"))
       .join("\n");
 
     const files = generateShopifyIntegration(llmsTxt, robotsAdditions, ctx.baseUrl);
 
-    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookInstructions = `# Shopify MCP Webhook Integration
 
 To automatically update your MCP server when content changes, subscribe to Shopify webhooks.

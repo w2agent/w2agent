@@ -1,15 +1,15 @@
-import { describe, it, expect } from "vitest";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
-import {
-  httpsCheck,
-  securityHeaders,
-  canonicalUrls,
-  mobileViewport,
-  charsetUtf8,
-  noJsDependency,
-} from "../../src/audit/checks/technical.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  canonicalUrls,
+  charsetUtf8,
+  httpsCheck,
+  mobileViewport,
+  noJsDependency,
+  securityHeaders,
+} from "../../src/audit/checks/technical.js";
+import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -35,10 +35,7 @@ describe("https", () => {
   });
 
   it("fails for HTTP pages", () => {
-    const result = httpsCheck.run(
-      [{ ...basePage, url: "http://example.com" }],
-      baseMeta,
-    );
+    const result = httpsCheck.run([{ ...basePage, url: "http://example.com" }], baseMeta);
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 });

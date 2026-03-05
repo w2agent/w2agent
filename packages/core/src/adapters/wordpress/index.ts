@@ -9,14 +9,16 @@ export const wordpressAdapter: PlatformAdapter = {
   name: "WordPress",
   description: "WordPress CMS — serves llms.txt via plugin, hooks into robots_txt filter",
 
-  detect(pages: FetchedPage[], metadata: SiteMetadata): PlatformDetectionResult | null {
+  detect(pages: FetchedPage[], _metadata: SiteMetadata): PlatformDetectionResult | null {
     let confidence = 0;
     let version: string | undefined;
     const details: Record<string, string> = {};
 
     for (const page of pages) {
       // Generator meta tag (highest confidence)
-      const genMatch = page.html.match(/<meta\s+name=["']generator["']\s+content=["']WordPress\s*([\d.]*)/i);
+      const genMatch = page.html.match(
+        /<meta\s+name=["']generator["']\s+content=["']WordPress\s*([\d.]*)/i,
+      );
       if (genMatch) {
         confidence = Math.max(confidence, 1.0);
         version = genMatch[1] || undefined;
@@ -30,7 +32,7 @@ export const wordpressAdapter: PlatformAdapter = {
       }
 
       // wp-json link header
-      if (page.headers["link"]?.includes("wp-json") || page.html.includes("wp-json")) {
+      if (page.headers.link?.includes("wp-json") || page.html.includes("wp-json")) {
         confidence = Math.max(confidence, 0.85);
         details.api = "wp-json link detected";
       }
@@ -44,20 +46,20 @@ export const wordpressAdapter: PlatformAdapter = {
   checks: wordpressChecks,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
-    const llmsTxt = coreFiles.find(f => f.filename === "llms.txt")?.content || "";
-    const agentCard = coreFiles.find(f => f.filename === "agent-card.json")?.content || "{}";
-    const robotsTxt = coreFiles.find(f => f.filename === "robots.txt")?.content || "";
+    const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
+    const robotsTxt = coreFiles.find((f) => f.filename === "robots.txt")?.content || "";
 
     // Extract just the AI-specific rules from generated robots.txt
     const robotsRules = robotsTxt
       .split("\n")
-      .filter(line => line.trim() && !line.startsWith("Sitemap:"))
+      .filter((line) => line.trim() && !line.startsWith("Sitemap:"))
       .join("\n");
 
     const files = generateWpPlugin(llmsTxt, agentCard, robotsRules, ctx.baseUrl);
 
     // Add MCP webhook snippet if mcp-server format is active
-    if (coreFiles.some(f => f.filename.startsWith("mcp-server/"))) {
+    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookSnippet = `<?php
 /**
  * w2agent MCP Webhook — WordPress Integration

@@ -1,16 +1,16 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
-import { generateLlmsTxt, extractSiteInfo } from "../src/generate/llms-txt.js";
-import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
-import { generateRobotsTxt } from "../src/generate/robots-txt.js";
-import { generateSchemaOrg } from "../src/generate/schema-org.js";
+import { describe, expect, it } from "vitest";
+import type { FetchedPage } from "../src/audit/types.js";
 import { generateAgentCard } from "../src/generate/agent-card.js";
 import { generateFaq } from "../src/generate/faq.js";
+import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
+import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
+import { extractSiteInfo, generateLlmsTxt } from "../src/generate/llms-txt.js";
+import { generateRobotsTxt } from "../src/generate/robots-txt.js";
+import { generateSchemaOrg } from "../src/generate/schema-org.js";
+import type { GenerateContext, PageMarkdown } from "../src/generate/types.js";
 import { parseHTML } from "../src/shared/html-parser.js";
-import type { PageMarkdown, GenerateContext } from "../src/generate/types.js";
-import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
@@ -91,7 +91,8 @@ describe("htmlToMarkdown", () => {
   });
 
   it("extracts links as markdown links", () => {
-    const html = '<html><body><main><p>See <a href="/docs">the docs</a> for more.</p></main></body></html>';
+    const html =
+      '<html><body><main><p>See <a href="/docs">the docs</a> for more.</p></main></body></html>';
     const result = htmlToMarkdown(html, "https://example.com");
     expect(result.markdown).toContain("[the docs](/docs)");
   });
@@ -101,11 +102,36 @@ describe("htmlToMarkdown", () => {
 
 describe("generateLlmsTxt", () => {
   const pages: PageMarkdown[] = [
-    { url: "https://example.com/", title: "Example Site", description: "A great site", markdown: "Welcome to Example." },
-    { url: "https://example.com/docs/getting-started", title: "Getting Started", description: "How to get started", markdown: "First steps." },
-    { url: "https://example.com/docs/api", title: "API Reference", description: "Complete API docs", markdown: "API details." },
-    { url: "https://example.com/blog/hello-world", title: "Hello World", description: "Our first post", markdown: "Hello!" },
-    { url: "https://example.com/about", title: "About Us", description: "", markdown: "We are Example." },
+    {
+      url: "https://example.com/",
+      title: "Example Site",
+      description: "A great site",
+      markdown: "Welcome to Example.",
+    },
+    {
+      url: "https://example.com/docs/getting-started",
+      title: "Getting Started",
+      description: "How to get started",
+      markdown: "First steps.",
+    },
+    {
+      url: "https://example.com/docs/api",
+      title: "API Reference",
+      description: "Complete API docs",
+      markdown: "API details.",
+    },
+    {
+      url: "https://example.com/blog/hello-world",
+      title: "Hello World",
+      description: "Our first post",
+      markdown: "Hello!",
+    },
+    {
+      url: "https://example.com/about",
+      title: "About Us",
+      description: "",
+      markdown: "We are Example.",
+    },
   ];
 
   it("follows the llmstxt.org spec format", () => {
@@ -118,9 +144,13 @@ describe("generateLlmsTxt", () => {
     expect(result).toContain("> A great site for examples");
     expect(result).toContain("## Docs");
     expect(result).toContain("## Blog");
-    expect(result).toContain("- [Getting Started](https://example.com/docs/getting-started): How to get started");
+    expect(result).toContain(
+      "- [Getting Started](https://example.com/docs/getting-started): How to get started",
+    );
     expect(result).toContain("- [API Reference](https://example.com/docs/api): Complete API docs");
-    expect(result).toContain("- [Hello World](https://example.com/blog/hello-world): Our first post");
+    expect(result).toContain(
+      "- [Hello World](https://example.com/blog/hello-world): Our first post",
+    );
   });
 
   it("groups pages by URL path segments", () => {
@@ -161,7 +191,12 @@ describe("generateLlmsTxt", () => {
 describe("extractSiteInfo", () => {
   it("extracts site name from homepage title", () => {
     const pages: PageMarkdown[] = [
-      { url: "https://example.com/", title: "My Cool Site", description: "The best site", markdown: "Welcome." },
+      {
+        url: "https://example.com/",
+        title: "My Cool Site",
+        description: "The best site",
+        markdown: "Welcome.",
+      },
     ];
 
     const info = extractSiteInfo(pages, "https://example.com");
@@ -198,7 +233,12 @@ describe("generateLlmsFullTxt", () => {
 
   it("preserves markdown content in each section", () => {
     const pages: PageMarkdown[] = [
-      { url: "https://example.com/docs", title: "Docs", description: "", markdown: "# Documentation\n\n- Item 1\n- Item 2" },
+      {
+        url: "https://example.com/docs",
+        title: "Docs",
+        description: "",
+        markdown: "# Documentation\n\n- Item 1\n- Item 2",
+      },
     ];
 
     const result = generateLlmsFullTxt(pages);
@@ -262,12 +302,22 @@ describe("generateRobotsTxt", () => {
 
   it("returns existing robots.txt unchanged if all bots covered", () => {
     const allBots = [
-      "GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "PerplexityBot",
-      "Google-Extended", "Bytespider", "CCBot", "Applebot-Extended", "Amazonbot",
-      "anthropic-ai", "cohere-ai",
+      "GPTBot",
+      "ChatGPT-User",
+      "ClaudeBot",
+      "Claude-Web",
+      "PerplexityBot",
+      "Google-Extended",
+      "Bytespider",
+      "CCBot",
+      "Applebot-Extended",
+      "Amazonbot",
+      "anthropic-ai",
+      "cohere-ai",
     ];
-    const existing = allBots.map(b => `User-agent: ${b}\nAllow: /`).join("\n\n")
-      + "\n\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
+    const existing =
+      allBots.map((b) => `User-agent: ${b}\nAllow: /`).join("\n\n") +
+      "\n\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
 
     const ctx = makeCtx({
       metadata: { baseUrl: "https://example.com", robotsTxt: existing, wellKnown: {} },
@@ -281,17 +331,25 @@ describe("generateRobotsTxt", () => {
 
 describe("generateSchemaOrg", () => {
   it("generates WebPage schema for basic pages", () => {
-    const html = '<html><head><title>About</title><meta name="description" content="About us"></head><body><p>Content</p></body></html>';
+    const html =
+      '<html><head><title>About</title><meta name="description" content="About us"></head><body><p>Content</p></body></html>';
     const ctx = makeCtx({
       rawPages: [makeFetchedPage("https://example.com/about", html)],
-      pages: [{ url: "https://example.com/about", title: "About", description: "About us", markdown: "Content" }],
+      pages: [
+        {
+          url: "https://example.com/about",
+          title: "About",
+          description: "About us",
+          markdown: "Content",
+        },
+      ],
     });
 
     const result = generateSchemaOrg(ctx);
     expect(result).not.toBeNull();
-    expect(result![0].jsonLd["@type"]).toBe("WebPage");
-    expect(result![0].jsonLd.name).toBe("About");
-    expect(result![0].jsonLd.url).toBe("https://example.com/about");
+    expect(result?.[0].jsonLd["@type"]).toBe("WebPage");
+    expect(result?.[0].jsonLd.name).toBe("About");
+    expect(result?.[0].jsonLd.url).toBe("https://example.com/about");
   });
 
   it("detects Article type from article:published_time", () => {
@@ -301,14 +359,21 @@ describe("generateSchemaOrg", () => {
     </head><body><p>Blog content</p></body></html>`;
     const ctx = makeCtx({
       rawPages: [makeFetchedPage("https://example.com/blog/post", html)],
-      pages: [{ url: "https://example.com/blog/post", title: "Blog Post", description: "", markdown: "Blog content" }],
+      pages: [
+        {
+          url: "https://example.com/blog/post",
+          title: "Blog Post",
+          description: "",
+          markdown: "Blog content",
+        },
+      ],
     });
 
     const result = generateSchemaOrg(ctx);
     expect(result).not.toBeNull();
-    expect(result![0].jsonLd["@type"]).toBe("Article");
-    expect(result![0].jsonLd.datePublished).toBe("2024-01-01");
-    expect(result![0].jsonLd.dateModified).toBe("2024-06-01");
+    expect(result?.[0].jsonLd["@type"]).toBe("Article");
+    expect(result?.[0].jsonLd.datePublished).toBe("2024-01-01");
+    expect(result?.[0].jsonLd.dateModified).toBe("2024-06-01");
   });
 
   it("skips pages that already have JSON-LD", () => {
@@ -336,7 +401,14 @@ describe("generateSchemaOrg", () => {
 describe("generateAgentCard", () => {
   it("creates agent card with site info", () => {
     const ctx = makeCtx({
-      pages: [{ url: "https://example.com/", title: "My Site", description: "A great site", markdown: "Welcome" }],
+      pages: [
+        {
+          url: "https://example.com/",
+          title: "My Site",
+          description: "A great site",
+          markdown: "Welcome",
+        },
+      ],
       rawPages: [],
     });
 
@@ -349,7 +421,9 @@ describe("generateAgentCard", () => {
 
   it("detects llms.txt capability", () => {
     const ctx = makeCtx({
-      pages: [{ url: "https://example.com/", title: "My Site", description: "Desc", markdown: "Content" }],
+      pages: [
+        { url: "https://example.com/", title: "My Site", description: "Desc", markdown: "Content" },
+      ],
       rawPages: [],
       metadata: {
         baseUrl: "https://example.com",
@@ -360,11 +434,12 @@ describe("generateAgentCard", () => {
 
     const card = generateAgentCard(ctx);
     expect(card.capabilities.llmsTxt).toBe(true);
-    expect(card.skills.some(s => s.id === "llms-txt")).toBe(true);
+    expect(card.skills.some((s) => s.id === "llms-txt")).toBe(true);
   });
 
   it("detects SearchAction capability", () => {
-    const html = '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head><body></body></html>';
+    const html =
+      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head><body></body></html>';
     const ctx = makeCtx({
       pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],
       rawPages: [makeFetchedPage("https://example.com", html)],
@@ -397,10 +472,10 @@ describe("generateFaq", () => {
 
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
-    expect(result!["@type"]).toBe("FAQPage");
-    expect(result!["@context"]).toBe("https://schema.org");
+    expect(result?.["@type"]).toBe("FAQPage");
+    expect(result?.["@context"]).toBe("https://schema.org");
 
-    const questions = result!.mainEntity.map(e => e.name);
+    const questions = result?.mainEntity.map((e) => e.name);
     expect(questions).toContain("What is Example Company?");
     expect(questions).toContain("How do I get started?");
     expect(questions).toContain("What pricing plans are available?");
@@ -424,7 +499,7 @@ describe("generateFaq", () => {
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
 
-    const questions = result!.mainEntity.map(e => e.name);
+    const questions = result?.mainEntity.map((e) => e.name);
     expect(questions).toContain("What is this?");
     expect(questions).toContain("How does it work?");
   });
@@ -442,7 +517,7 @@ describe("generateFaq", () => {
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
 
-    const questions = result!.mainEntity.map(e => e.name);
+    const questions = result?.mainEntity.map((e) => e.name);
     expect(questions).toContain("What is the return policy?");
     expect(questions).toContain("Do you ship internationally?");
   });
@@ -463,8 +538,8 @@ describe("generateFaq", () => {
 
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
-    expect(result!.mainEntity[0].name).toBe("Is it free?");
-    expect(result!.mainEntity[0].acceptedAnswer.text).toBe("Yes, it is free.");
+    expect(result?.mainEntity[0].name).toBe("Is it free?");
+    expect(result?.mainEntity[0].acceptedAnswer.text).toBe("Yes, it is free.");
   });
 
   it("deduplicates questions by text", () => {
@@ -482,12 +557,13 @@ describe("generateFaq", () => {
 
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
-    const questions = result!.mainEntity.map(e => e.name);
-    expect(questions.filter(q => q === "What is this?")).toHaveLength(1);
+    const questions = result?.mainEntity.map((e) => e.name);
+    expect(questions.filter((q) => q === "What is this?")).toHaveLength(1);
   });
 
   it("returns null when no FAQ content found", () => {
-    const html = "<html><head><title>Home</title></head><body><p>Just a regular page.</p></body></html>";
+    const html =
+      "<html><head><title>Home</title></head><body><p>Just a regular page.</p></body></html>";
     const ctx = makeCtx({
       rawPages: [makeFetchedPage("https://example.com", html)],
     });
