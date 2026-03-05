@@ -2,6 +2,7 @@ import type { FetchedPage, SiteMetadata } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { wordpressChecks } from "./checks.js";
+import { resolveWordPressInstall } from "./install.js";
 import { generateWpPlugin } from "./templates.js";
 
 export const wordpressAdapter: PlatformAdapter = {
@@ -44,6 +45,8 @@ export const wordpressAdapter: PlatformAdapter = {
   },
 
   checks: wordpressChecks,
+
+  resolveInstall: resolveWordPressInstall,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
