@@ -188,7 +188,7 @@ pnpm test           # Unit tests (216 tests across 10 files)
 pnpm dev            # Dev mode (watch + Next.js dev server)
 
 # Integration tests — builds real platform projects and audits them
-pnpm --filter @w2agent/core test:integration
+pnpm --filter w2agent-core test:integration
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide, testing architecture, and how to add new platforms.

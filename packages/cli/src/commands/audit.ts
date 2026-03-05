@@ -8,7 +8,7 @@ import {
   mergeConfigWithOptions,
   registerChecks,
   runAudit,
-} from "@w2agent/core";
+} from "w2agent-core";
 import type { Command } from "commander";
 import ora from "ora";
 import { formatJson } from "../output/json.js";

@@ -1,7 +1,9 @@
 {
-  "name": "@w2agent/core",
+  "name": "w2agent-core",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
+  "files": ["dist", "README.md"],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

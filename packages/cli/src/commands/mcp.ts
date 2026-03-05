@@ -6,7 +6,7 @@ import {
   generateMcpServer,
   runGenerate,
   type SelfHostPlatform,
-} from "@w2agent/core";
+} from "w2agent-core";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";

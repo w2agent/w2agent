@@ -1,7 +1,9 @@
 {
   "name": "w2agent",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
+  "files": ["dist", "README.md"],
   "bin": {
     "w2agent": "./dist/index.js"
   },
@@ -12,7 +14,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@w2agent/core": "workspace:*",
+    "w2agent-core": "workspace:*",
     "commander": "^13.0.0",
     "chalk": "^5.4.0",
     "ora": "^8.2.0"

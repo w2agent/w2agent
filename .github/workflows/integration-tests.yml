@@ -35,13 +35,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build core
-        run: pnpm --filter @w2agent/core build
+        run: pnpm --filter w2agent-core build
 
       - name: Run integration tests
         env:
           PLATFORM: ${{ matrix.platform }}
           NODE_ENV: test
-        run: pnpm --filter @w2agent/core test:integration -- --reporter=verbose -t "$PLATFORM"
+        run: pnpm --filter w2agent-core test:integration -- --reporter=verbose -t "$PLATFORM"
 
   integration-conformance:
     name: "Conformance (Node 20)"
@@ -63,9 +63,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build core
-        run: pnpm --filter @w2agent/core build
+        run: pnpm --filter w2agent-core build
 
       - name: Run conformance tests
-        run: pnpm --filter @w2agent/core test:integration -- --reporter=verbose -t "conformance"
+        run: pnpm --filter w2agent-core test:integration -- --reporter=verbose -t "conformance"
         env:
           NODE_ENV: test

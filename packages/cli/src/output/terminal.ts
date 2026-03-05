@@ -1,4 +1,4 @@
-import type { AuditReport, LetterGrade } from "@w2agent/core";
+import type { AuditReport, LetterGrade } from "w2agent-core";
 import chalk from "chalk";
 
 const PLATFORM_NAMES: Record<string, string> = {

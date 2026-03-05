@@ -7,7 +7,7 @@ import {
   planInstall,
   type PlatformId,
   runGenerate,
-} from "@w2agent/core";
+} from "w2agent-core";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
