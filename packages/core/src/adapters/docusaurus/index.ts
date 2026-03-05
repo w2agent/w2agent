@@ -2,6 +2,7 @@ import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { docusaurusChecks } from "./checks.js";
+import { resolveDocusaurusInstall } from "./install.js";
 import { generateDocusaurusIntegration } from "./templates.js";
 
 export const docusaurusAdapter: PlatformAdapter = {
@@ -44,6 +45,8 @@ export const docusaurusAdapter: PlatformAdapter = {
   },
 
   checks: docusaurusChecks,
+
+  resolveInstall: resolveDocusaurusInstall,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
