@@ -11,6 +11,7 @@ import { extractSiteInfo, generateLlmsTxt } from "./llms-txt.js";
 import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
 import { generateSchemaOrg } from "./schema-org.js";
+import { generateSkillMd } from "./skill-md.js";
 import type {
   GenerateContext,
   GeneratedFile,
@@ -199,6 +200,13 @@ export async function runGenerate(
     onProgress?.("Generating MCP server...");
     const mcpFiles = generateMcpServer(ctx);
     files.push(...mcpFiles);
+  }
+
+  // Generate SKILL.md
+  if (options.formats.includes("skill-md")) {
+    onProgress?.("Generating skill.md...");
+    const skillMd = generateSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    files.push(makeFile("skill.md", skillMd));
   }
 
   // Detect platform and generate integration files

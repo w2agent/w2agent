@@ -15,6 +15,8 @@ export interface GenerateOptions {
   formats: GenerateFormat[];
   /** Only include pages under these URL path prefixes (e.g., ["docs", "blog"]) */
   sections?: string[];
+  /** MCP server endpoint URL for SKILL.md generation */
+  mcpEndpoint?: string;
 }
 
 export type GenerateFormat =
@@ -25,7 +27,8 @@ export type GenerateFormat =
   | "schema-org"
   | "agent-card"
   | "faq"
-  | "mcp-server";
+  | "mcp-server"
+  | "skill-md";
 
 export interface GeneratedFile {
   filename: string;

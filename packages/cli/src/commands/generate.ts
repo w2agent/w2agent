@@ -15,11 +15,12 @@ export function registerGenerateCommand(program: Command): void {
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option(
       "-f, --format <format>",
-      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all",
+      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, all",
       "all",
     )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
+    .option("--mcp-endpoint <url>", "MCP server endpoint URL (for skill-md format)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .action(async (url: string, opts) => {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -36,6 +37,7 @@ export function registerGenerateCommand(program: Command): void {
         timeout: parseInt(opts.timeout, 10),
         formats,
         sections,
+        mcpEndpoint: opts.mcpEndpoint,
       };
 
       const spinner = ora("Starting generation...").start();
@@ -93,6 +95,8 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} agent-card.json    (${size})`);
           } else if (file.filename === "faq.json") {
             console.log(`  ${chalk.green("✓")} faq.json           (${size})`);
+          } else if (file.filename === "skill.md") {
+            console.log(`  ${chalk.green("✓")} skill.md           (${size})`);
           } else if (file.filename.startsWith("markdown/")) {
             // Count markdown files — only print summary once
           }
@@ -158,6 +162,7 @@ function parseFormats(format: string): GenerateFormat[] {
     "agent-card": "agent-card",
     faq: "faq",
     "mcp-server": "mcp-server",
+    "skill-md": "skill-md",
   };
   return [map[format] || "llms-txt"];
 }

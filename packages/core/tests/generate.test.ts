@@ -9,6 +9,7 @@ import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "../src/generate/llms-txt.js";
 import { generateRobotsTxt } from "../src/generate/robots-txt.js";
 import { generateSchemaOrg } from "../src/generate/schema-org.js";
+import { generateSkillMd } from "../src/generate/skill-md.js";
 import type { GenerateContext, PageMarkdown } from "../src/generate/types.js";
 import { parseHTML } from "../src/shared/html-parser.js";
 
@@ -587,5 +588,155 @@ describe("parseHTML article meta tags", () => {
     expect(parsed.ogTags["og:title"]).toBe("My Post");
     expect(parsed.ogTags["article:published_time"]).toBe("2024-01-15");
     expect(parsed.ogTags["article:modified_time"]).toBe("2024-06-20");
+  });
+});
+
+// --- SKILL.md generation ---
+
+describe("generateSkillMd", () => {
+  const pages: PageMarkdown[] = [
+    {
+      url: "https://example.com/",
+      title: "Example Site",
+      description: "A great example site",
+      markdown: "Welcome to Example.",
+    },
+    {
+      url: "https://example.com/docs/getting-started",
+      title: "Getting Started",
+      description: "How to get started",
+      markdown: "First steps.",
+    },
+    {
+      url: "https://example.com/docs/api",
+      title: "API Reference",
+      description: "Complete API docs",
+      markdown: "API details.",
+    },
+    {
+      url: "https://example.com/about",
+      title: "About Us",
+      description: "",
+      markdown: "We are Example.",
+    },
+  ];
+
+  function makeSkillCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
+    return {
+      pages: overrides.pages ?? pages,
+      rawPages: overrides.rawPages ?? [],
+      metadata: overrides.metadata ?? {
+        baseUrl: "https://example.com",
+        wellKnown: {},
+      },
+      baseUrl: overrides.baseUrl ?? "https://example.com",
+    };
+  }
+
+  it("has valid YAML frontmatter with name and description", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx);
+
+    expect(result).toMatch(/^---\n/);
+    expect(result).toMatch(/\nname: example-com-agent\n/);
+    expect(result).toMatch(/\ndescription: ".*Example Site.*"\n/);
+    expect(result).toContain("---\n\n#");
+  });
+
+  it("derives slug from hostname including subdomains", () => {
+    const ctx = makeSkillCtx({
+      baseUrl: "https://docs.example.com",
+      pages: [
+        {
+          url: "https://docs.example.com/",
+          title: "Docs",
+          description: "Docs site",
+          markdown: "Welcome.",
+        },
+      ],
+    });
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("name: docs-example-com-agent");
+  });
+
+  it("includes page count in overview", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("Pages indexed: 4");
+  });
+
+  it("includes MCP endpoint when provided", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx, {
+      mcpEndpoint: "https://w2agent.dev/api/mcp/example-com",
+    });
+
+    expect(result).toContain("https://w2agent.dev/api/mcp/example-com");
+    expect(result).not.toContain("TODO");
+  });
+
+  it("uses localhost placeholder with TODO when no endpoint", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("localhost:3100/mcp");
+    expect(result).toContain("TODO");
+  });
+
+  it("lists all detected tools", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("### `list-pages`");
+    expect(result).toContain("### `get-page`");
+    expect(result).toContain("### `search-site`");
+  });
+
+  it("lists key pages with links", () => {
+    const ctx = makeSkillCtx();
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("[Example Site](https://example.com/)");
+    expect(result).toContain("[Getting Started](https://example.com/docs/getting-started)");
+    expect(result).toContain("## Key Content Areas");
+  });
+
+  it("includes search-faq tool when FAQ content detected", () => {
+    const faqHtml = `<html><head><title>FAQ</title></head><body>
+      <h1>Frequently Asked Questions</h1>
+      <h2>What is this?</h2>
+      <p>This is a test product for testing purposes.</p>
+      <h2>How does it work?</h2>
+      <p>It works by processing your data and returning results.</p>
+    </body></html>`;
+
+    const ctx = makeSkillCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", faqHtml)],
+    });
+    const result = generateSkillMd(ctx);
+
+    expect(result).toContain("### `search-faq`");
+    expect(result).toContain("search-faq");
+  });
+
+  it("escapes double quotes in YAML description", () => {
+    const ctx = makeSkillCtx({
+      pages: [
+        {
+          url: "https://example.com/",
+          title: 'Site "With Quotes"',
+          description: 'A "great" site',
+          markdown: "Welcome.",
+        },
+      ],
+    });
+    const result = generateSkillMd(ctx);
+
+    // Should not have unescaped quotes inside the YAML value
+    const descLine = result.split("\n").find((l) => l.startsWith("description:"));
+    expect(descLine).toBeDefined();
+    expect(descLine).not.toMatch(/description: ".*[^\\]".*[^\\]".*"/);
   });
 });
