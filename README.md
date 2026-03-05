@@ -65,6 +65,10 @@ npx w2agent generate https://example.com --max-pages 200 --output ./output/
 # Generate platform-specific integration files
 npx w2agent integrate https://example.com
 npx w2agent integrate https://example.com --platform wordpress
+
+# Install integration files directly into your project
+npx w2agent integrate https://example.com --install
+npx w2agent integrate https://example.com --install --dry-run  # preview only
 ```
 
 ### Web UI

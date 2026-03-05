@@ -1,72 +1,136 @@
 # `w2agent integrate --install` — Implementation Notes
 
-## What Was Shipped
+## Architecture
 
-The `integrate` command now supports `--install` mode that copies platform-specific files directly into the user's project, instead of writing to an output directory.
+The `--install` mode uses an **InstallPlan framework** that separates planning from execution:
 
-### Commit: `64f198d`
-
-**Files changed:**
-- `packages/cli/src/commands/integrate.ts` — added `--install` and `--project-dir` flags, install logic
-- `packages/cli/apps/web/` — Next.js template files used as reference/test fixtures
-
-### How `--install` Works
-
-1. Runs the normal generate pipeline (crawl, extract, detect platform, generate integration files)
-2. Instead of writing all files to `--output` dir, copies platform-specific files into the project root
-3. Smart handling for files that might conflict:
-   - `INSTALL.md` is skipped (not a project file)
-   - `middleware.ts` is merge-aware: if user already has one with w2agent code, skip; if existing without w2agent code, save as `.w2agent.ts` for manual merge; if no existing middleware, install normally
-   - Seed files (`public/llms.txt`, `public/llms-full.txt`) are only installed if the platform adapter doesn't include route handlers that would serve the same content dynamically
-
-### Template Files (Next.js)
-
-The `packages/cli/apps/web/` directory contains the generated output from running `w2agent integrate http://localhost:3737 --platform nextjs --install`. These files serve as a reference for what gets installed:
+1. **Planner** (`packages/core/src/install/planner.ts`) — analyzes the project directory and generated files, produces an `InstallPlan`
+2. **Executor** (`packages/core/src/install/executor.ts`) — writes files according to the plan, returns a summary
+3. **Per-platform resolvers** — each adapter implements `resolveInstall()` with platform-specific conflict detection
 
 ```
-packages/cli/apps/web/
-├── app/
-│   ├── .well-known/agent-card.json/route.ts  # Agent discovery endpoint
-│   ├── llms-full.txt/route.ts                # Full content route (ISR)
-│   └── llms.txt/route.ts                     # llms.txt route (ISR, with fallback)
-├── middleware.ts                              # Content negotiation (text/markdown → /llms.txt)
-├── public/
-│   ├── llms-full.txt                         # Seed content (45KB generated from localhost)
-│   └── llms.txt                              # Seed content (3KB)
-└── w2agent-build.mjs                         # CI/CD regeneration script
+integrate command
+  → runGenerate() → detect platform → get adapter
+  → planInstall(adapter, files, projectDir) → InstallPlan
+  → executeInstallPlan(plan, projectDir) → summary
 ```
 
-**Note:** These template files currently have `localhost:3737` hardcoded as the site URL. This is because they were generated against the local dev server. The actual install process generates files with the real target URL.
+### InstallPlan Structure
 
-## What Still Needs Work
+```ts
+interface InstallPlan {
+  platform: PlatformId;
+  actions: InstallAction[];      // write | skip | manual
+  warnings: string[];            // non-fatal issues
+  postInstallSteps: string[];    // things user must do after
+}
+```
 
-### Per-Platform Install Support
+Each action has a `type`, `dest` (relative path), optional `content`, and optional `reason` (for skip/manual).
 
-Currently `--install` logic is generic. Platform-specific quirks are not fully handled:
+## CLI Flags
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Next.js | Working | Route handlers, middleware, build script, seed files |
-| WordPress | Not applicable | WordPress uses a PHP plugin, not file-level install |
-| Shopify | Not applicable | Shopify uses Liquid snippets in theme directories |
-| Docusaurus | Untested | Should work (JS plugin file, no middleware conflicts) |
-| Nuxt | Untested | Should work (Nitro routes, middleware) |
-| Astro | Untested | Should work (public/ files, middleware) |
+```
+--install              Install files directly into your project
+--project-dir <dir>    Project root for --install (default: .)
+--dry-run              Show what --install would do without writing files
+```
 
-### Missing Features
+## Per-Platform Install Resolvers
 
-1. **No `--dry-run` flag** — users can't preview what would be installed before it happens
-2. **No rollback/uninstall** — once installed, there's no `w2agent uninstall` command
-3. **No post-install verification** — should suggest running `w2agent audit` after install
-4. **Middleware merge is manual** — when a conflict is detected, user gets a `.w2agent.ts` file but no automated merge tool
-5. **No `package.json` script injection** — could auto-add `"postbuild": "node w2agent-build.mjs"` to the user's package.json
-6. **Template files use localhost URLs** — the files in `packages/cli/apps/web/` have hardcoded `localhost:3737` (cosmetic, doesn't affect actual install which generates fresh files)
+Each platform adapter implements `resolveInstall(files, projectDir)` that detects the project layout and produces an appropriate plan.
 
-### Testing
+### Next.js (`packages/core/src/adapters/nextjs/install.ts`)
 
-- No unit tests for the `--install` code path. The `packages/core/tests/integration.test.ts` tests adapter generation but not the CLI install mechanism.
-- Recommended: add a test that runs `integrate --install --project-dir <tmpdir>` and verifies file placement, merge behavior, and skip logic.
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| `src/app/` layout | `src/app/` dir exists | Adjusts all `app/` paths to `src/app/` |
+| Pages Router only | Has `pages/` but no `app/` | Skip all with warning |
+| Existing `app/llms.txt/route.ts` | File exists | Skip + warn |
+| Existing middleware (with w2agent) | Read file, check content | Skip |
+| Existing middleware (no w2agent) | Read file, check content | Write as `.w2agent.ts` + merge instructions |
+| Existing `public/llms.txt` | File exists | Skip + warn |
+| Existing `w2agent-build.mjs` | File exists | Skip + warn |
 
-### Integration with Site Service
+### Nuxt (`packages/core/src/adapters/nuxt/install.ts`)
 
-The `--install` command is independent of the hosted site service (`w2agent.dev/api/mcp/deploy`). A future enhancement could link them: after `--install`, optionally deploy to the hosted service for badge/monitoring.
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| Nuxt 2 project | `package.json` nuxt version < 3 | Skip all with warning |
+| Existing server routes | File exists | Skip + warn |
+| Existing middleware (with w2agent) | Read file, check content | Skip |
+| Existing middleware (no w2agent) | Read file | Write as `.w2agent.ts` |
+
+### Astro (`packages/core/src/adapters/astro/install.ts`)
+
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| Static mode (default) | `astro.config.*` output setting | Only install `public/` files, skip SSR endpoints |
+| SSR/hybrid mode | `output: "server"` or `"hybrid"` | Install all files |
+| No config found | Missing `astro.config.*` | Warn + proceed with public/ files |
+| Existing `public/llms.txt` | File exists | Skip + warn |
+
+### Docusaurus (`packages/core/src/adapters/docusaurus/install.ts`)
+
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| Plugin already in config | Read config for "w2agent" | Skip plugin + warn |
+| Existing `static/llms.txt` | File exists | Skip + warn |
+| Missing `gray-matter` dep | Check `package.json` | Post-install step |
+| No config found | Missing config | Warn + install to static/ |
+
+### WordPress (`packages/core/src/adapters/wordpress/install.ts`)
+
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| Standard WP root | `wp-content/plugins/` exists | Install to `wp-content/plugins/w2agent/` |
+| Custom plugin dir | `WP_PLUGIN_DIR` in wp-config.php | Use custom path |
+| Not in WP root | Missing markers | Warn + still write files |
+| Existing plugin | `wp-content/plugins/w2agent/` exists | Skip all + warn to remove old version |
+
+### Shopify (`packages/core/src/adapters/shopify/install.ts`)
+
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| In theme dir | Has `layout/theme.liquid` or `config/settings_schema.json` | Write snippets + templates |
+| Not in theme dir | Missing markers | Warn + still write |
+| Existing head snippet | File exists | Skip + warn |
+| Existing `robots.txt.liquid` | File exists | Skip + provide merge instructions (never overwrite) |
+
+## Testing
+
+### Unit tests (35 tests across 7 test files)
+
+- `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (10 tests)
+- `tests/install-nextjs.test.ts` — src/app, pages-router, middleware merge, existing files (9 tests)
+- `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (6 tests)
+- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (6 tests)
+- `tests/install-docusaurus.test.ts` — plugin config, gray-matter (6 tests)
+- `tests/install-wordpress.test.ts` — WP root, existing plugin (4 tests)
+- `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
+
+All tests use temp directories with fixture files — fast, no network.
+
+### Dry run testing
+
+```bash
+# Preview what would be installed
+w2agent integrate https://example.com --platform nextjs --install --dry-run --project-dir /path/to/project
+```
+
+## File Map
+
+```
+packages/core/src/install/
+├── types.ts      # InstallAction, InstallPlan types
+├── planner.ts    # planInstall() + fallback logic
+└── executor.ts   # executeInstallPlan(), formatInstallSummary()
+
+packages/core/src/adapters/
+├── nextjs/install.ts
+├── nuxt/install.ts
+├── astro/install.ts
+├── docusaurus/install.ts
+├── wordpress/install.ts
+└── shopify/install.ts
+```

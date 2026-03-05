@@ -158,6 +158,7 @@ Auto-detects platform (or use `--platform` to force), generates only integration
 | `--timeout <ms>` | `10000` | Per-request timeout |
 | `--install` | off | Install files directly into your project |
 | `--project-dir <dir>` | `.` | Project root for `--install` |
+| `--dry-run` | off | Show what `--install` would do without writing files |
 
 ### `--install` Mode
 
@@ -166,14 +167,24 @@ With `--install`, files are copied directly into your project instead of an outp
 ```bash
 npx w2agent integrate https://my-site.com --install
 npx w2agent integrate https://my-site.com --install --project-dir ../my-app
+npx w2agent integrate https://my-site.com --install --dry-run  # preview only
 ```
+
+Each platform has a dedicated install resolver that detects your project layout and handles conflicts:
+
+- **Next.js** — detects `src/app/` vs `app/`, Pages Router vs App Router, existing middleware/routes
+- **Nuxt** — detects Nuxt 2 vs 3, existing server routes and middleware
+- **Astro** — detects static vs SSR/hybrid output mode, installs SSR endpoints only when applicable
+- **Docusaurus** — detects existing plugin config, checks for `gray-matter` dependency
+- **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent/`
+- **Shopify** — detects theme directory, never overwrites existing `robots.txt.liquid`
 
 Behavior:
 - Skips non-project files (`INSTALL.md`)
-- If `middleware.ts` already exists and contains `w2agent` or `llms.txt`, skips it
-- If `middleware.ts` exists without w2agent code, saves as `middleware.w2agent.ts` for manual merge
-- For Next.js: installs route handlers, build script, and seed content into `public/`
-- Route handlers take priority over seed files (if routes exist for llms.txt, seed files are not installed to `public/`)
+- Detects existing files and skips with warnings instead of overwriting
+- Existing middleware with w2agent code → skipped; without → saved as `.w2agent.ts` for manual merge
+- Prints post-install steps (e.g., "add postbuild script", "activate plugin")
+- Use `--dry-run` to preview the install plan without writing anything
 
 ## Page Discovery
 
