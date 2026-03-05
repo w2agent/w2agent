@@ -76,7 +76,7 @@ Agents use 5 discovery mechanisms: search APIs, .well-known endpoints, MCP regis
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 4.1 | **Chat with website** | Embeddable chat widget powered by site's content (RAG-based) |
+| 4.1 | **Chat with website** | Embeddable chat widget powered by site's content (RAG-based) | ✅ Shipped |
 | 4.2 | **Vector index builder** | Build and maintain vector embeddings of site content for retrieval |
 | 4.3 | **Multi-model support** | Plug in OpenAI, Claude, Gemini, Ollama, or any OpenAI-compatible API |
 | 4.4 | **Source citation** | Every chat response cites specific pages/sections from the site |
@@ -314,7 +314,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details on running and extending i
 ### V1 — "Agent Interface"
 
 9. MCP server generation from site content/API ✅ Shipped (standalone + Vercel + CF Workers + hosted)
-10. Chat with website (embeddable RAG widget)
+10. Chat with website (embeddable RAG widget) ✅ Shipped
 11. SKILL.md generation
 12. A2A Agent Card at `/.well-known/agent-card.json` ✅ Shipped
 13. Content negotiation middleware (serve markdown to AI user-agents) ✅ Shipped (Next.js adapter)
