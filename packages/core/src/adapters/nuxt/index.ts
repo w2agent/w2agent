@@ -2,6 +2,7 @@ import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nuxtChecks } from "./checks.js";
+import { resolveNuxtInstall } from "./install.js";
 import { generateNuxtIntegration } from "./templates.js";
 
 export const nuxtAdapter: PlatformAdapter = {
@@ -53,6 +54,8 @@ export const nuxtAdapter: PlatformAdapter = {
   },
 
   checks: nuxtChecks,
+
+  resolveInstall: resolveNuxtInstall,
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
