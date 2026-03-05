@@ -1,5 +1,6 @@
 import type { Check, FetchedPage, SiteMetadata } from "../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../generate/types.js";
+import type { InstallPlan } from "../install/types.js";
 
 export type PlatformId = "wordpress" | "shopify" | "nextjs" | "docusaurus" | "nuxt" | "astro";
 
@@ -20,4 +21,6 @@ export interface PlatformAdapter {
   checks: Check[];
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[];
+
+  resolveInstall?(files: GeneratedFile[], projectDir: string): InstallPlan;
 }

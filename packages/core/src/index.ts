@@ -63,3 +63,8 @@ export {
 } from "./adapters/index.js";
 export { allAdapters, detectPlatform, getAdapter, registerAdapter } from "./adapters/registry.js";
 export type { PlatformAdapter, PlatformDetectionResult, PlatformId } from "./adapters/types.js";
+
+// Install
+export { executeInstallPlan, formatInstallSummary } from "./install/executor.js";
+export { planInstall } from "./install/planner.js";
+export type { InstallAction, InstallActionType, InstallPlan } from "./install/types.js";
