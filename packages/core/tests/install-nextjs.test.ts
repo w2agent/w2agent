@@ -129,9 +129,7 @@ describe("Next.js install resolver", () => {
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "public/llms.txt",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "public/llms.txt");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toContain("already exists");
   });
@@ -141,9 +139,7 @@ describe("Next.js install resolver", () => {
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "w2agent-build.mjs",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-build.mjs");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toBe("already exists");
     // No postbuild step since build script wasn't written
@@ -154,5 +150,47 @@ describe("Next.js install resolver", () => {
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
     const dests = plan.actions.map((a) => a.dest);
     expect(dests).not.toContain("INSTALL.md");
+  });
+
+  it("writes unknown file types through catch-all", () => {
+    const files = [
+      ...makeNextjsFiles(),
+      makeFile("nextjs/some-custom-config.json", '{"key": "value"}'),
+    ];
+
+    const plan = resolveNextjsInstall(files, tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("some-custom-config.json");
+  });
+
+  it("detects middleware.js (not just .ts)", () => {
+    writeFileSync(join(tempDir, "middleware.js"), "export function middleware() {}", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+    const mergeAction = plan.actions.find((a) => a.dest === "middleware.w2agent.ts");
+    expect(mergeAction).toBeDefined();
+  });
+
+  it("detects src/middleware.ts", () => {
+    rmSync(join(tempDir, "app"), { recursive: true });
+    mkdirSync(join(tempDir, "src", "app"), { recursive: true });
+    writeFileSync(join(tempDir, "src", "middleware.ts"), "// auth", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+    const mergeAction = plan.actions.find((a) => a.dest === "middleware.w2agent.ts");
+    expect(mergeAction).toBeDefined();
+  });
+
+  it("detects existing llms.txt route in src/app layout", () => {
+    rmSync(join(tempDir, "app"), { recursive: true });
+    mkdirSync(join(tempDir, "src", "app", "llms.txt"), { recursive: true });
+    writeFileSync(join(tempDir, "src", "app", "llms.txt", "route.ts"), "// existing", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+    const skipped = plan.actions.filter(
+      (a) => a.type === "skip" && a.dest.includes("llms.txt/route.ts"),
+    );
+    expect(skipped.length).toBe(1);
+    expect(skipped[0].dest).toBe("src/app/llms.txt/route.ts");
   });
 });

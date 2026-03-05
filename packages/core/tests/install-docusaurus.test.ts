@@ -108,4 +108,50 @@ describe("Docusaurus install resolver", () => {
     const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
     expect(plan.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(false);
   });
+
+  it("skips plugin when file already exists on disk", () => {
+    writeFileSync(join(tempDir, "w2agent-plugin.js"), "module.exports = function() {}", "utf-8");
+
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    const skipped = plan.actions.find(
+      (a) => a.type === "skip" && a.dest === "w2agent-plugin.js",
+    );
+    expect(skipped).toBeDefined();
+    expect(skipped?.reason).toContain("already configured");
+  });
+
+  it("writes unknown file types through catch-all", () => {
+    const files = [
+      ...makeDocusaurusFiles(),
+      makeFile("docusaurus/some-extra-config.json", "{}"),
+    ];
+
+    const plan = resolveDocusaurusInstall(files, tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("some-extra-config.json");
+  });
+
+  it("detects docusaurus.config.ts", () => {
+    rmSync(join(tempDir, "docusaurus.config.js"));
+    writeFileSync(
+      join(tempDir, "docusaurus.config.ts"),
+      "export default { title: 'My Site' };",
+      "utf-8",
+    );
+
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    expect(plan.warnings.some((w) => w.includes("No docusaurus.config"))).toBe(false);
+  });
+
+  it("detects docusaurus.config.mjs", () => {
+    rmSync(join(tempDir, "docusaurus.config.js"));
+    writeFileSync(
+      join(tempDir, "docusaurus.config.mjs"),
+      "export default { title: 'My Site' };",
+      "utf-8",
+    );
+
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    expect(plan.warnings.some((w) => w.includes("No docusaurus.config"))).toBe(false);
+  });
 });

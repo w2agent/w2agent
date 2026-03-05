@@ -14,8 +14,14 @@ function makeNuxtFiles(): GeneratedFile[] {
     makeFile("llms.txt", "# LLMs"),
     makeFile("nuxt/server/routes/llms.txt.ts", "export default defineEventHandler(() => {})"),
     makeFile("nuxt/server/routes/llms-full.txt.ts", "export default defineEventHandler(() => {})"),
-    makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", "export default defineEventHandler(() => {})"),
-    makeFile("nuxt/server/middleware/content-negotiation.ts", "export default defineEventHandler(() => {})"),
+    makeFile(
+      "nuxt/server/routes/.well-known/agent-card.json.ts",
+      "export default defineEventHandler(() => {})",
+    ),
+    makeFile(
+      "nuxt/server/middleware/content-negotiation.ts",
+      "export default defineEventHandler(() => {})",
+    ),
     makeFile("nuxt/public/llms.txt", "# Seed"),
     makeFile("nuxt/public/llms-full.txt", "# Seed Full"),
     makeFile("nuxt/w2agent-build.mjs", "// build script"),
@@ -70,17 +76,11 @@ describe("Nuxt install resolver", () => {
 
   it("skips existing server routes", () => {
     mkdirSync(join(tempDir, "server", "routes"), { recursive: true });
-    writeFileSync(
-      join(tempDir, "server", "routes", "llms.txt.ts"),
-      "// existing",
-      "utf-8",
-    );
+    writeFileSync(join(tempDir, "server", "routes", "llms.txt.ts"), "// existing", "utf-8");
 
     const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
 
-    const skipped = plan.actions.filter(
-      (a) => a.type === "skip" && a.dest.includes("llms.txt"),
-    );
+    const skipped = plan.actions.filter((a) => a.type === "skip" && a.dest.includes("llms.txt"));
     expect(skipped.length).toBeGreaterThan(0);
   });
 
@@ -123,9 +123,43 @@ describe("Nuxt install resolver", () => {
 
     const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
 
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "public/llms.txt",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "public/llms.txt");
     expect(skipped).toBeDefined();
+  });
+
+  it("skips existing build script", () => {
+    writeFileSync(join(tempDir, "w2agent-build.mjs"), "// existing", "utf-8");
+
+    const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
+
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-build.mjs");
+    expect(skipped).toBeDefined();
+    expect(skipped?.reason).toBe("already exists");
+    // No postbuild step when build script was skipped
+    expect(plan.postInstallSteps.length).toBe(0);
+  });
+
+  it("writes unknown file types through catch-all", () => {
+    const files = [...makeNuxtFiles(), makeFile("nuxt/some-config.json", '{"key": "value"}')];
+
+    const plan = resolveNuxtInstall(files, tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("some-config.json");
+  });
+
+  it("adds postbuild step when build script is installed", () => {
+    const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
+    expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(true);
+  });
+
+  it("skips llms-full.txt route when existing routes detected", () => {
+    mkdirSync(join(tempDir, "server", "routes"), { recursive: true });
+    writeFileSync(join(tempDir, "server", "routes", "llms.txt.ts"), "// existing", "utf-8");
+
+    const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
+    const skippedFull = plan.actions.find(
+      (a) => a.type === "skip" && a.dest === "server/routes/llms-full.txt.ts",
+    );
+    expect(skippedFull).toBeDefined();
   });
 });

@@ -73,4 +73,37 @@ describe("WordPress install resolver", () => {
     const dests = plan.actions.map((a) => a.dest);
     expect(dests.some((d) => d.includes("INSTALL.md"))).toBe(false);
   });
+
+  it("uses custom WP_PLUGIN_DIR from wp-config.php", () => {
+    writeFileSync(
+      join(tempDir, "wp-config.php"),
+      "<?php\ndefine('WP_PLUGIN_DIR', 'custom-plugins');\n",
+      "utf-8",
+    );
+    mkdirSync(join(tempDir, "custom-plugins"), { recursive: true });
+
+    const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+
+    expect(dests[0]).toContain("custom-plugins/w2agent/");
+    expect(dests.every((d) => d.startsWith("custom-plugins/w2agent/"))).toBe(true);
+  });
+
+  it("suggests activating plugin as post-install step", () => {
+    const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+    expect(plan.postInstallSteps.some((s) => s.includes("Activate"))).toBe(true);
+  });
+
+  it("returns no actions when plugin already exists", () => {
+    mkdirSync(join(tempDir, "wp-content", "plugins", "w2agent"), { recursive: true });
+    writeFileSync(
+      join(tempDir, "wp-content", "plugins", "w2agent", "w2agent-plugin.php"),
+      "<?php",
+      "utf-8",
+    );
+
+    const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+    expect(plan.actions.length).toBe(0);
+    expect(plan.postInstallSteps.length).toBe(0);
+  });
 });

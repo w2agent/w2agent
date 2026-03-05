@@ -104,4 +104,49 @@ describe("Astro install resolver", () => {
     const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
     expect(plan.postInstallSteps.some((s) => s.includes("integration"))).toBe(true);
   });
+
+  it("skips existing build script", () => {
+    writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+    writeFileSync(join(tempDir, "w2agent-build.mjs"), "// existing", "utf-8");
+
+    const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+    const skipped = plan.actions.find(
+      (a) => a.type === "skip" && a.dest === "w2agent-build.mjs",
+    );
+    expect(skipped).toBeDefined();
+    expect(skipped?.reason).toBe("already exists");
+  });
+
+  it("skips existing integration plugin", () => {
+    writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+    writeFileSync(join(tempDir, "w2agent-integration.mjs"), "// existing", "utf-8");
+
+    const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+    const skipped = plan.actions.find(
+      (a) => a.type === "skip" && a.dest === "w2agent-integration.mjs",
+    );
+    expect(skipped).toBeDefined();
+    // Should NOT suggest adding integration since it already exists
+    expect(plan.postInstallSteps.some((s) => s.includes("integration"))).toBe(false);
+  });
+
+  it("writes unknown file types through catch-all", () => {
+    writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+    const files = [
+      ...makeAstroFiles(),
+      makeFile("astro/some-extra-file.json", '{}'),
+    ];
+
+    const plan = resolveAstroInstall(files, tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("some-extra-file.json");
+  });
+
+  it("detects astro.config.ts", () => {
+    writeFileSync(join(tempDir, "astro.config.ts"), 'export default defineConfig({ output: "server" });', "utf-8");
+
+    const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("src/pages/llms.txt.ts");
+  });
 });
