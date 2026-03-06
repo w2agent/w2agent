@@ -226,21 +226,11 @@ npx w2agent integrate https://your-site.com --platform nextjs
 
 ## Web UI
 
-Start the dev server and open http://localhost:3737:
-
-```bash
-pnpm dev:web
-```
-
-1. Paste a URL and click **Audit**
-2. After results appear, click **"Generate Files"**
-3. Preview generated files inline — core files and platform integration files are grouped separately
-4. Copy to clipboard or download individual files
-5. Platform detection badge shows which platform was detected
+Try the hosted version at [w2agent.com](https://w2agent.com) — audit, generate, preview, and download files in the browser.
 
 ## Web API
 
-`POST /api/generate` with JSON body:
+The hosted platform exposes `POST /api/generate` with JSON body:
 
 ```json
 {

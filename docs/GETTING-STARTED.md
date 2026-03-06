@@ -28,12 +28,7 @@ node packages/cli/dist/index.js audit https://your-site.com
 
 ### Web UI
 
-```bash
-pnpm dev:web
-# Open http://localhost:3737
-```
-
-The web UI lets you audit a site and then generate files directly in the browser — with preview, copy, and download. Platform detection is shown as a badge in the results.
+Try the hosted version at [w2agent.com](https://w2agent.com) — audit a site and generate files directly in the browser with preview, copy, and download.
 
 ## CLI Commands
 
