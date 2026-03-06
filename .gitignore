@@ -5,6 +5,7 @@ dist/
 *.log
 .DS_Store
 .claude/
+.serena/
 .turbo/
 w2agent-output/
 .data/
