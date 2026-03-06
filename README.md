@@ -44,7 +44,7 @@ npx w2agent integrate https://your-site.com
 - **No API keys required** — pure HTTP/HTML analysis, no LLM dependency
 - **Multi-page** — crawls sitemap + discovers pages via internal links
 - **Actionable** — shows fix snippets and "points if fixed" ROI
-- **CLI + Web UI** — developer CLI and hosted web interface with preview/download
+- **CLI** — developer CLI with rich terminal output
 - **CI/CD ready** — `--ci --threshold 80` for automated quality gates
 
 ## Install & Use
@@ -71,15 +71,9 @@ npx w2agent integrate https://example.com --install
 npx w2agent integrate https://example.com --install --dry-run  # preview only
 ```
 
-### Web UI
+### Hosted Web UI
 
-```bash
-pnpm install && pnpm build
-pnpm dev:web
-# Open http://localhost:3737
-```
-
-Paste a URL → audit → click **"Generate Files"** → preview, copy, or download the results.
+Try the hosted version at [w2agent.com](https://w2agent.com) — paste a URL, audit, and generate files with a visual interface.
 
 ### From source
 
@@ -174,9 +168,8 @@ See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
 ## Project Structure
 
 ```
-packages/core     Shared engine — audit checks, generate, crawler, platform adapters
-packages/cli      CLI tool (npx w2agent audit/generate/integrate)
-apps/web          Next.js web UI — audit + generate with platform detection
+packages/core     Audit engine, generators, platform adapters (published as w2agent-core)
+packages/cli      CLI tool (published as w2agent)
 ```
 
 ## Development
@@ -184,8 +177,8 @@ apps/web          Next.js web UI — audit + generate with platform detection
 ```bash
 pnpm install
 pnpm build          # Build all packages
-pnpm test           # Unit tests (216 tests across 10 files)
-pnpm dev            # Dev mode (watch + Next.js dev server)
+pnpm test           # Unit tests
+pnpm dev            # Dev mode (watch)
 
 # Integration tests — builds real platform projects and audits them
 pnpm --filter w2agent-core test:integration

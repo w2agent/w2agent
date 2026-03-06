@@ -12,15 +12,14 @@ pnpm build
 ## Project Structure
 
 ```
-packages/core     Shared engine — audit checks, generate, crawler, platform adapters
-packages/cli      CLI tool (npx w2agent audit/generate/integrate)
-apps/web          Next.js web UI — audit + generate with platform detection
+packages/core     Audit engine, generators, platform adapters (published as w2agent-core)
+packages/cli      CLI tool (published as w2agent)
 ```
 
 ## Development
 
 ```bash
-pnpm dev            # Watch mode (core + web)
+pnpm dev            # Watch mode (core + cli)
 pnpm build          # Build all packages
 pnpm test           # Unit tests (all packages)
 ```

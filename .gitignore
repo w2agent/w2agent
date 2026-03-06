@@ -1,14 +1,11 @@
 node_modules/
 dist/
-.next/
 .env
 .env.local
 *.log
 .DS_Store
 .claude/
 .turbo/
-.vercel/
 w2agent-output/
 .data/
-.vercel
 *.tsbuildinfo
