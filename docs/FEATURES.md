@@ -61,14 +61,13 @@ Agents use 5 discovery mechanisms: search APIs, .well-known endpoints, MCP regis
 |---|---------|-------------|
 | 3.1 | **MCP server generation** | Auto-generate MCP server from site's API/forms/actions. Streamable HTTP transport. Standalone, Vercel, and Cloudflare Workers templates. Hosted at `<slug>.mcp.w2agent.dev` with webhook re-crawl. | ✅ Shipped |
 | 3.2 | **SKILL.md generation** | Generate SKILL.md files from site capabilities for coding agent discovery | ✅ Shipped |
-| 3.3 | **AGENTS.md generation** | Generate AGENTS.md for code repositories with build/test/convention guidance |
-| 3.4 | **OpenAPI → agent actions** | Convert existing OpenAPI specs to MCP tools, GPT Actions, and agents.json flows |
-| 3.5 | **Form → tool conversion** | Detect HTML forms and convert them to structured agent-callable MCP tools |
-| 3.6 | **Action consequence signaling** | Metadata on each action: reversible/irreversible, cost, side effects |
-| 3.7 | **Permission scoping** | Granular agent permissions: read-only, write with approval, full autonomy |
-| 3.8 | **Rate limiting config** | Configurable rate limits per agent, with tiered access levels |
-| 3.9 | **Agent-to-agent delegation** | Site's MCP server can act as a sub-agent (e.g., restaurant booking agent called by travel planner) |
-| 3.10 | **Webhook/push notifications** | Agents can subscribe to events (price drops, availability changes, content updates) |
+| 3.3 | **OpenAPI → agent actions** | Convert existing OpenAPI specs to MCP tools, GPT Actions, and agents.json flows |
+| 3.4 | **Form → tool conversion** | Detect HTML forms and convert them to structured agent-callable MCP tools |
+| 3.5 | **Action consequence signaling** | Metadata on each action: reversible/irreversible, cost, side effects |
+| 3.6 | **Permission scoping** | Granular agent permissions: read-only, write with approval, full autonomy |
+| 3.7 | **Rate limiting config** | Configurable rate limits per agent, with tiered access levels |
+| 3.8 | **Agent-to-agent delegation** | Site's MCP server can act as a sub-agent (e.g., restaurant booking agent called by travel planner) |
+| 3.9 | **Webhook/push notifications** | Agents can subscribe to events (price drops, availability changes, content updates) |
 
 ---
 
@@ -202,7 +201,6 @@ Each module pre-configures the right mix of features for a specific site type.
 ### Documentation Module
 - API reference → llms.txt with endpoint summaries
 - OpenAPI spec → MCP server + agents.json flows
-- AGENTS.md for code repos
 - Versioned llms.txt per doc version
 - Code sample extraction with language tags
 - Tutorial → SKILL.md conversion
