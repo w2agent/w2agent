@@ -161,7 +161,6 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 ```
 packages/core    - Shared engine (audit + generate + platform adapters)
 packages/cli     - CLI tool (audit + generate + integrate commands)
-apps/web         - Next.js web UI (audit + generate)
 ```
 
 ## Scoring

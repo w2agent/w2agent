@@ -1,4 +1,6 @@
 import { writeFileSync } from "node:fs";
+import type { Command } from "commander";
+import ora from "ora";
 import {
   type AuditOptions,
   allChecks,
@@ -9,8 +11,6 @@ import {
   registerChecks,
   runAudit,
 } from "w2agent-core";
-import type { Command } from "commander";
-import ora from "ora";
 import { formatJson } from "../output/json.js";
 import { formatReport, formatVerboseReport } from "../output/terminal.js";
 

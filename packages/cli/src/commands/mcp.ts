@@ -1,5 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
 import {
   type GenerateContext,
   type GenerateOptions,
@@ -7,9 +10,6 @@ import {
   runGenerate,
   type SelfHostPlatform,
 } from "w2agent-core";
-import chalk from "chalk";
-import type { Command } from "commander";
-import ora from "ora";
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program.command("mcp").description("Generate and deploy MCP servers for any website");

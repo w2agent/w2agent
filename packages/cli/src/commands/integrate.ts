@@ -1,16 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
 import {
   executeInstallPlan,
   formatInstallSummary,
   getAdapter,
-  planInstall,
   type PlatformId,
+  planInstall,
   runGenerate,
 } from "w2agent-core";
-import chalk from "chalk";
-import type { Command } from "commander";
-import ora from "ora";
 
 const PLATFORM_NAMES: Record<PlatformId, string> = {
   wordpress: "WordPress",
@@ -146,13 +146,7 @@ export function registerIntegrateCommand(program: Command): void {
             console.log(summary);
           } else {
             const execResult = executeInstallPlan(plan, projectDir);
-            const summary = formatInstallSummary(
-              plan,
-              execResult,
-              projectDir,
-              url,
-              platformName,
-            );
+            const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
           }
         } else {
