@@ -5,6 +5,8 @@ import {
   actionSchemas,
   formsStructured,
   mcpDiscovery,
+  webmcpDeclarative,
+  webmcpImperative,
   wellKnownUcp,
 } from "../../src/audit/checks/protocols.js";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
@@ -177,5 +179,89 @@ describe("well-known-ucp", () => {
       wellKnown: { ucp: '{"version": "1.0"}' },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+});
+
+describe("webmcp-declarative", () => {
+  it("skips when no forms exist", () => {
+    const result = webmcpDeclarative.run([basePage], baseMeta);
+    expect(result).toMatchObject({ status: "skip", score: 100 });
+  });
+
+  it("fails when forms exist but none have WebMCP attributes", () => {
+    const html = `<html><body><form>
+      <input type="text" name="query" />
+    </form></body></html>`;
+    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toContain("No forms have WebMCP");
+  });
+
+  it("passes when all forms have toolname", () => {
+    const html = `<html><body>
+      <form toolname="search" tooldescription="Search things">
+        <input type="text" name="q" toolparamdescription="Search query" />
+      </form>
+    </body></html>`;
+    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("1/1");
+  });
+
+  it("returns partial when some forms have toolname", () => {
+    const html = `<html><body>
+      <form toolname="search" tooldescription="Search">
+        <input type="text" name="q" />
+      </form>
+      <form>
+        <input type="text" name="email" />
+      </form>
+      <form>
+        <input type="text" name="name" />
+      </form>
+    </body></html>`;
+    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "partial" });
+    expect(result.score).toBe(33); // Math.round(1/3 * 100)
+    expect(result.message).toContain("1/3");
+  });
+});
+
+describe("webmcp-imperative", () => {
+  it("fails when no scripts exist", () => {
+    const result = webmcpImperative.run([basePage], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("passes when inline script uses navigator.modelContext", () => {
+    const html = `<html><body>
+      <script>
+        navigator.modelContext.registerTool({
+          name: "test",
+          description: "A test tool",
+          inputSchema: { type: "object", properties: {} },
+          async execute() {}
+        });
+      </script>
+    </body></html>`;
+    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("1 page(s)");
+  });
+
+  it("fails when script exists but has no modelContext", () => {
+    const html = `<html><body>
+      <script>console.log("hello");</script>
+    </body></html>`;
+    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("fails when script is external (src attribute)", () => {
+    const html = `<html><body>
+      <script src="/webmcp-tools.js"></script>
+    </body></html>`;
+    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 });

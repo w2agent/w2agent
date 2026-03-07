@@ -386,6 +386,123 @@ export const authDiscovery: Check = {
   },
 };
 
+export const webmcpDeclarative: Check = {
+  id: "webmcp-declarative",
+  name: "WebMCP declarative API",
+  category: "agent-protocols",
+  weight: 0.75,
+  severity: "info",
+  run: (pages) => {
+    let totalForms = 0;
+    let webmcpForms = 0;
+    const webmcpDetails: string[] = [];
+
+    for (const page of pages) {
+      const parsed = parseHTML(page.html);
+      const forms = parsed.$("form");
+      totalForms += forms.length;
+
+      forms.each((_, form) => {
+        const $form = parsed.$(form);
+        if ($form.attr("toolname")) {
+          webmcpForms++;
+          webmcpDetails.push(
+            `${page.url}: <form toolname="${$form.attr("toolname")}">`
+          );
+        }
+      });
+    }
+
+    const base = {
+      id: "webmcp-declarative" as const,
+      name: "WebMCP declarative API",
+      category: "agent-protocols" as const,
+      maxScore: 100,
+      weight: 0.75,
+      severity: "info" as const,
+      fixSnippet: `<form toolname="searchFlights" tooldescription="Search available flights" toolautosubmit="true">
+  <input type="text" name="origin" toolparamdescription="IATA airport code for departure" />
+  <input type="text" name="destination" toolparamdescription="IATA airport code for arrival" />
+</form>`,
+    };
+
+    if (totalForms === 0) {
+      return { ...base, status: "skip", score: 100, message: "No forms found (not applicable)" };
+    }
+
+    const score = Math.round((webmcpForms / totalForms) * 100);
+
+    return {
+      ...base,
+      status: score >= 80 ? "pass" : score > 0 ? "partial" : "fail",
+      score,
+      message: webmcpForms > 0
+        ? `${webmcpForms}/${totalForms} forms have WebMCP attributes`
+        : "No forms have WebMCP tool declarations",
+      ...(webmcpDetails.length > 0 ? { details: webmcpDetails.join("\n") } : {}),
+    };
+  },
+};
+
+export const webmcpImperative: Check = {
+  id: "webmcp-imperative",
+  name: "WebMCP imperative API",
+  category: "agent-protocols",
+  weight: 0.5,
+  severity: "info",
+  run: (pages) => {
+    const detectedPages: string[] = [];
+
+    for (const page of pages) {
+      const parsed = parseHTML(page.html);
+      const scripts = parsed.$("script:not([src])");
+      let found = false;
+
+      scripts.each((_, script) => {
+        if (found) return;
+        const content = parsed.$(script).html() || "";
+        if (
+          content.includes("navigator.modelContext") ||
+          content.includes("modelContext.registerTool")
+        ) {
+          found = true;
+          detectedPages.push(page.url);
+        }
+      });
+    }
+
+    const found = detectedPages.length > 0;
+
+    return {
+      id: "webmcp-imperative",
+      name: "WebMCP imperative API",
+      category: "agent-protocols",
+      status: found ? "pass" : "fail",
+      score: found ? 100 : 0,
+      maxScore: 100,
+      weight: 0.5,
+      message: found
+        ? `WebMCP imperative API detected on ${detectedPages.length} page(s)`
+        : "No navigator.modelContext usage found",
+      severity: "info",
+      ...(found ? { details: detectedPages.join("\n") } : {}),
+      fixSnippet: `navigator.modelContext.registerTool({
+  name: "addToCart",
+  description: "Add a product to the shopping cart",
+  inputSchema: {
+    type: "object",
+    properties: {
+      productId: { type: "string", description: "Product ID" },
+      quantity: { type: "number", description: "Quantity to add" },
+    },
+    required: ["productId"],
+  },
+  async execute(args) { /* implementation */ },
+});`,
+    };
+  },
+};
+
 export const protocolChecks: Check[] = [
   mcpDiscovery,
   apiEndpoints,
@@ -393,4 +510,6 @@ export const protocolChecks: Check[] = [
   wellKnownUcp,
   actionSchemas,
   authDiscovery,
+  webmcpDeclarative,
+  webmcpImperative,
 ];
