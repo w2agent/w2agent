@@ -1,4 +1,5 @@
 import { fetchPage, fetchText } from "../shared/fetcher.js";
+import { sortUrlsByScore } from "../shared/page-scoring.js";
 import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
 
 export interface CrawlResult {
@@ -54,7 +55,8 @@ export async function crawlSite(
   const sitemapUrls = parseSitemapUrls(metadata.sitemapXml, baseUrl);
   const uniqueSitemapUrls = sitemapUrls.filter((u) => !visited.has(u));
   const totalUrlsFound = 1 + uniqueSitemapUrls.length; // homepage + sitemap
-  const urlsToFetch = uniqueSitemapUrls.slice(0, options.maxPages - 1);
+  const rankedUrls = sortUrlsByScore(uniqueSitemapUrls);
+  const urlsToFetch = rankedUrls.slice(0, options.maxPages - 1);
 
   if (urlsToFetch.length > 0) {
     onProgress?.(`Scanning ${urlsToFetch.length} pages from sitemap...`);

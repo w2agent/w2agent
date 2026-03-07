@@ -50,6 +50,7 @@ export { DEFAULT_GENERATE_OPTIONS } from "./generate/types.js";
 export { loadConfig, mergeConfigWithOptions } from "./shared/config.js";
 export { fetchPage, fetchText } from "./shared/fetcher.js";
 export { parseHTML } from "./shared/html-parser.js";
+export { scoreUrl, sortUrlsByScore } from "./shared/page-scoring.js";
 
 // Adapters (import registers all built-in adapters)
 import "./adapters/index.js";

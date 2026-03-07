@@ -3,6 +3,7 @@ import { crawlSite } from "../audit/crawler.js";
 import type { AuditOptions, FetchedPage } from "../audit/types.js";
 import { fetchPage } from "../shared/fetcher.js";
 import { parseHTML } from "../shared/html-parser.js";
+import { sortUrlsByScore } from "../shared/page-scoring.js";
 import { generateAgentCard } from "./agent-card.js";
 import { generateFaq } from "./faq.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
@@ -53,7 +54,8 @@ export async function runGenerate(
     const visited = new Set(pages.map((p) => p.url));
     const linkUrls = extractInternalLinks(pages, baseUrl, visited);
     totalPagesFound = pages.length + linkUrls.length;
-    const toFetch = linkUrls.slice(0, options.maxPages - pages.length);
+    const rankedLinks = sortUrlsByScore(linkUrls);
+    const toFetch = rankedLinks.slice(0, options.maxPages - pages.length);
 
     if (toFetch.length > 0) {
       onProgress?.(`No sitemap found. Discovering ${toFetch.length} pages from links...`);
