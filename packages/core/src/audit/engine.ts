@@ -133,10 +133,10 @@ function computeOverallScore(categories: CategoryResult[]): number {
 }
 
 function computeGrade(score: number): LetterGrade {
-  if (score >= 90) return "A";
-  if (score >= 80) return "B";
-  if (score >= 70) return "C";
-  if (score >= 60) return "D";
+  if (score >= 75) return "A";
+  if (score >= 60) return "B";
+  if (score >= 45) return "C";
+  if (score >= 30) return "D";
   return "F";
 }
 
