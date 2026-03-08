@@ -3,7 +3,17 @@ import { dirname, resolve } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import { type GenerateFormat, type GenerateOptions, runGenerate } from "w2agent-core";
+import {
+  type AuditOptions,
+  allChecks,
+  clearChecks,
+  type GenerateFormat,
+  type GenerateOptions,
+  mapFailedChecksToFormats,
+  registerChecks,
+  runAudit,
+  runGenerate,
+} from "w2agent-core";
 
 export function registerGenerateCommand(program: Command): void {
   program
@@ -15,22 +25,24 @@ export function registerGenerateCommand(program: Command): void {
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option(
       "-f, --format <format>",
-      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, all",
+      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, all",
       "all",
     )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--mcp-endpoint <url>", "MCP server endpoint URL (for skill-md format)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option("--from-audit", "Run audit first, then generate fixes for failed checks only")
     .action(async (url: string, opts) => {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
       }
 
-      const formats = parseFormats(opts.format);
+      let formats = parseFormats(opts.format);
       const sections = opts.sections
         ? opts.sections.split(",").map((s: string) => s.trim())
         : undefined;
+      let unfixableChecks: Array<{ id: string; message: string }> = [];
 
       const generateOptions: Partial<GenerateOptions> = {
         maxPages: parseInt(opts.maxPages, 10),
@@ -43,6 +55,53 @@ export function registerGenerateCommand(program: Command): void {
       const spinner = ora("Starting generation...").start();
 
       try {
+        if (opts.fromAudit) {
+          clearChecks();
+          registerChecks(allChecks);
+
+          spinner.text = "Running audit...";
+          const auditReport = await runAudit(
+            url,
+            {
+              maxPages: parseInt(opts.maxPages, 10),
+              timeout: parseInt(opts.timeout, 10),
+            } as AuditOptions,
+            (status) => {
+              spinner.text = status;
+            },
+          );
+          spinner.stop();
+
+          const { formats: auditFormats, unfixable } = mapFailedChecksToFormats(auditReport);
+
+          const gc = gradeColorFn(auditReport.grade);
+          console.log("");
+          console.log(chalk.bold("  w2agent audit → generate"));
+          console.log(chalk.gray(`  ${"─".repeat(40)}`));
+          console.log("");
+          console.log(
+            `  Audit Score: ${gc(`${auditReport.overallScore}/100`)} (${gc(auditReport.grade)})`,
+          );
+          console.log("");
+
+          if (auditFormats.length === 0) {
+            console.log(chalk.green("  ✓ All checks passed — nothing to generate!"));
+            console.log("");
+            return;
+          }
+
+          console.log(`  Generating fixes for ${chalk.cyan(String(auditFormats.length))} format(s):`);
+          for (const f of auditFormats) {
+            console.log(`    ${chalk.blue("→")} ${f}`);
+          }
+          console.log("");
+
+          generateOptions.formats = auditFormats;
+          unfixableChecks = unfixable.map((c) => ({ id: c.id, message: c.message }));
+
+          spinner.start("Starting generation...");
+        }
+
         const result = await runGenerate(url, generateOptions, (status) => {
           spinner.text = status;
         });
@@ -99,6 +158,8 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} skill.md           (${size})`);
           } else if (file.filename.startsWith("markdown/")) {
             // Count markdown files — only print summary once
+          } else if (file.filename.startsWith("webmcp/")) {
+            // Count webmcp files — handled below
           }
         }
 
@@ -107,6 +168,13 @@ export function registerGenerateCommand(program: Command): void {
           const avgSize = Math.round(mdFiles.reduce((sum, f) => sum + f.size, 0) / mdFiles.length);
           console.log(
             `  ${chalk.green("✓")} ${mdFiles.length} markdown files  (avg ${formatSize(avgSize)} each)`,
+          );
+        }
+
+        const webmcpFiles = result.files.filter((f) => f.filename.startsWith("webmcp/"));
+        if (webmcpFiles.length > 0) {
+          console.log(
+            `  ${chalk.green("✓")} ${webmcpFiles.length} webmcp files    (declarative HTML + imperative JS)`,
           );
         }
 
@@ -143,6 +211,14 @@ export function registerGenerateCommand(program: Command): void {
           );
         }
         console.log("");
+
+        if (unfixableChecks.length > 0) {
+          console.log(chalk.bold("  Manual fixes needed:"));
+          for (const check of unfixableChecks) {
+            console.log(`  ${chalk.yellow("!")} ${check.message} ${chalk.gray(`(${check.id})`)}`);
+          }
+          console.log("");
+        }
       } catch (err) {
         spinner.fail(`Generation failed: ${(err as Error).message}`);
         process.exit(1);
@@ -163,6 +239,7 @@ function parseFormats(format: string): GenerateFormat[] {
     faq: "faq",
     "mcp-server": "mcp-server",
     "skill-md": "skill-md",
+    webmcp: "webmcp",
   };
   return [map[format] || "llms-txt"];
 }
@@ -170,4 +247,19 @@ function parseFormats(format: string): GenerateFormat[] {
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function gradeColorFn(grade: string): (text: string) => string {
+  switch (grade) {
+    case "A":
+      return chalk.green;
+    case "B":
+      return chalk.greenBright;
+    case "C":
+      return chalk.yellow;
+    case "D":
+      return chalk.hex("#FFA500");
+    default:
+      return chalk.red;
+  }
 }
