@@ -28,10 +28,7 @@ export function detectWordPressLayout(projectDir: string): WordPressLayout {
   return { isWpRoot, pluginDir, hasExistingPlugin };
 }
 
-export function resolveWordPressInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveWordPressInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectWordPressLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];

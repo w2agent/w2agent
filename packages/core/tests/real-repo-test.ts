@@ -1,11 +1,17 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { resolveNextjsInstall, detectNextjsLayout } from "../src/adapters/nextjs/install.js";
-import { resolveNuxtInstall, detectNuxtLayout } from "../src/adapters/nuxt/install.js";
-import { resolveAstroInstall, detectAstroLayout } from "../src/adapters/astro/install.js";
-import { resolveDocusaurusInstall, detectDocusaurusLayout } from "../src/adapters/docusaurus/install.js";
-import { resolveWordPressInstall, detectWordPressLayout } from "../src/adapters/wordpress/install.js";
-import { resolveShopifyInstall, detectShopifyLayout } from "../src/adapters/shopify/install.js";
+import { detectAstroLayout, resolveAstroInstall } from "../src/adapters/astro/install.js";
+import {
+  detectDocusaurusLayout,
+  resolveDocusaurusInstall,
+} from "../src/adapters/docusaurus/install.js";
+import { detectNextjsLayout, resolveNextjsInstall } from "../src/adapters/nextjs/install.js";
+import { detectNuxtLayout, resolveNuxtInstall } from "../src/adapters/nuxt/install.js";
+import { detectShopifyLayout, resolveShopifyInstall } from "../src/adapters/shopify/install.js";
+import {
+  detectWordPressLayout,
+  resolveWordPressInstall,
+} from "../src/adapters/wordpress/install.js";
 import type { GeneratedFile } from "../src/generate/types.js";
 
 function makeFile(filename: string, content = "test content"): GeneratedFile {
@@ -30,8 +36,14 @@ const PLATFORM_FILES: Record<string, GeneratedFile[]> = {
     makeFile("llms.txt", "# LLMs"),
     makeFile("nuxt/server/routes/llms.txt.ts", "export default defineEventHandler(() => {})"),
     makeFile("nuxt/server/routes/llms-full.txt.ts", "export default defineEventHandler(() => {})"),
-    makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", "export default defineEventHandler(() => {})"),
-    makeFile("nuxt/server/middleware/content-negotiation.ts", "export default defineEventHandler(() => {})"),
+    makeFile(
+      "nuxt/server/routes/.well-known/agent-card.json.ts",
+      "export default defineEventHandler(() => {})",
+    ),
+    makeFile(
+      "nuxt/server/middleware/content-negotiation.ts",
+      "export default defineEventHandler(() => {})",
+    ),
     makeFile("nuxt/public/llms.txt", "# Seed"),
     makeFile("nuxt/public/llms-full.txt", "# Seed Full"),
     makeFile("nuxt/w2agent-build.mjs", "// build"),
@@ -116,7 +128,11 @@ function testRepo(platform: string, repoName: string): TestResult {
     // cal.com has apps/web, taxonomy is root, next.js has examples
     for (const sub of ["apps/web", "apps/dashboard", "."]) {
       const candidate = join(repoDir, sub);
-      if (existsSync(join(candidate, "app")) || existsSync(join(candidate, "src", "app")) || existsSync(join(candidate, "pages"))) {
+      if (
+        existsSync(join(candidate, "app")) ||
+        existsSync(join(candidate, "src", "app")) ||
+        existsSync(join(candidate, "pages"))
+      ) {
         projectDir = candidate;
         break;
       }
@@ -124,7 +140,10 @@ function testRepo(platform: string, repoName: string): TestResult {
   } else if (platform === "nuxt") {
     for (const sub of [".", "packages/nuxt", "src"]) {
       const candidate = join(repoDir, sub);
-      if (existsSync(join(candidate, "nuxt.config.ts")) || existsSync(join(candidate, "nuxt.config.js"))) {
+      if (
+        existsSync(join(candidate, "nuxt.config.ts")) ||
+        existsSync(join(candidate, "nuxt.config.js"))
+      ) {
         projectDir = candidate;
         break;
       }
@@ -132,7 +151,10 @@ function testRepo(platform: string, repoName: string): TestResult {
   } else if (platform === "docusaurus") {
     for (const sub of ["website", "docs", "."]) {
       const candidate = join(repoDir, sub);
-      if (existsSync(join(candidate, "docusaurus.config.js")) || existsSync(join(candidate, "docusaurus.config.ts"))) {
+      if (
+        existsSync(join(candidate, "docusaurus.config.js")) ||
+        existsSync(join(candidate, "docusaurus.config.ts"))
+      ) {
         projectDir = candidate;
         break;
       }
@@ -181,7 +203,7 @@ function testRepo(platform: string, repoName: string): TestResult {
 }
 
 // Main
-const platforms = readdirSync(REPO_DIR).filter(d => existsSync(join(REPO_DIR, d)));
+const platforms = readdirSync(REPO_DIR).filter((d) => existsSync(join(REPO_DIR, d)));
 const allResults: TestResult[] = [];
 
 for (const platform of platforms) {
@@ -200,7 +222,9 @@ for (const platform of platforms) {
     const icon = result.status === "pass" ? "✅" : result.status === "warn" ? "⚠️" : "❌";
     console.log(`\n${icon} ${platform}/${repo}`);
     console.log(`   Layout: ${JSON.stringify(result.layout, null, 0)}`);
-    console.log(`   Actions: ${result.writes} write, ${result.skips} skip, ${result.manuals} manual`);
+    console.log(
+      `   Actions: ${result.writes} write, ${result.skips} skip, ${result.manuals} manual`,
+    );
     if (result.warnings.length > 0) {
       for (const w of result.warnings) console.log(`   ⚠ ${w}`);
     }
@@ -219,15 +243,15 @@ console.log("SUMMARY");
 console.log(`${"=".repeat(60)}`);
 
 for (const platform of platforms) {
-  const results = allResults.filter(r => r.platform === platform);
-  const pass = results.filter(r => r.status === "pass").length;
-  const warn = results.filter(r => r.status === "warn").length;
-  const fail = results.filter(r => r.status === "fail").length;
+  const results = allResults.filter((r) => r.platform === platform);
+  const pass = results.filter((r) => r.status === "pass").length;
+  const warn = results.filter((r) => r.status === "warn").length;
+  const fail = results.filter((r) => r.status === "fail").length;
   console.log(`${platform}: ${pass} pass, ${warn} warn, ${fail} fail (${results.length} total)`);
 }
 
 const total = allResults.length;
-const totalPass = allResults.filter(r => r.status === "pass").length;
-const totalWarn = allResults.filter(r => r.status === "warn").length;
-const totalFail = allResults.filter(r => r.status === "fail").length;
+const totalPass = allResults.filter((r) => r.status === "pass").length;
+const totalWarn = allResults.filter((r) => r.status === "warn").length;
+const totalFail = allResults.filter((r) => r.status === "fail").length;
 console.log(`\nTotal: ${totalPass} pass, ${totalWarn} warn, ${totalFail} fail (${total} repos)`);

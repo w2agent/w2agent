@@ -47,10 +47,7 @@ export function detectDocusaurusLayout(projectDir: string): DocusaurusLayout {
   };
 }
 
-export function resolveDocusaurusInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectDocusaurusLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
@@ -81,9 +78,7 @@ export function resolveDocusaurusInstall(
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push(
-        'Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]',
-      );
+      postInstallSteps.push('Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]');
       continue;
     }
 

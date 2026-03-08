@@ -35,8 +35,7 @@ function planInstallFallback(
 
   // Check if platform has route handlers (e.g., Next.js app/llms.txt/route.ts)
   const hasRouteHandlers = platformFiles.some(
-    (f) =>
-      f.filename.includes("/app/llms.txt/") || f.filename.includes("/app/llms-full.txt/"),
+    (f) => f.filename.includes("/app/llms.txt/") || f.filename.includes("/app/llms-full.txt/"),
   );
 
   // Seed files (core llms.txt / llms-full.txt) go to public/ if no route handlers

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
@@ -62,10 +62,7 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   };
 }
 
-export function resolveNextjsInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectNextjsLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
@@ -179,9 +176,7 @@ export function resolveNextjsInstall(
   }
 
   // Post-install: suggest adding build script to package.json
-  const hasBuildAction = actions.some(
-    (a) => a.type === "write" && a.dest === "w2agent-build.mjs",
-  );
+  const hasBuildAction = actions.some((a) => a.type === "write" && a.dest === "w2agent-build.mjs");
   if (hasBuildAction) {
     postInstallSteps.push(
       'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',

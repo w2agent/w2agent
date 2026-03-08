@@ -21,10 +21,7 @@ export function detectShopifyLayout(projectDir: string): ShopifyLayout {
   };
 }
 
-export function resolveShopifyInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectShopifyLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
@@ -53,9 +50,7 @@ export function resolveShopifyInstall(
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push(
-        "Add {% render 'w2agent-head' %} to your theme.liquid <head> section.",
-      );
+      postInstallSteps.push("Add {% render 'w2agent-head' %} to your theme.liquid <head> section.");
       continue;
     }
 

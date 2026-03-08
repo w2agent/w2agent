@@ -47,10 +47,7 @@ export function detectAstroLayout(projectDir: string): AstroLayout {
   };
 }
 
-export function resolveAstroInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveAstroInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectAstroLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
@@ -102,7 +99,9 @@ export function resolveAstroInstall(
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push("Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]");
+      postInstallSteps.push(
+        "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
+      );
       continue;
     }
 

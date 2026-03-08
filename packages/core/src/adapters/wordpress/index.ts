@@ -101,6 +101,31 @@ function w2agent_mcp_notify($post_id, $post = null, $update = true) {
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpPhp = `<?php
+/**
+ * W2Agent WebMCP Registration
+ * Outputs WebMCP tool registration script in the footer.
+ * Add to your theme's functions.php: require_once __DIR__ . '/w2agent-webmcp.php';
+ */
+add_action('wp_footer', function() {
+?>
+<script>
+${webmcpJs}
+</script>
+<?php
+}, 99);
+`;
+        files.push({
+          filename: "wordpress/w2agent-webmcp.php",
+          content: webmcpPhp,
+          size: new TextEncoder().encode(webmcpPhp).length,
+        });
+      }
+    }
+
     return files;
   },
 };

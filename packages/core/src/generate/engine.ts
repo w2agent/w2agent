@@ -21,6 +21,7 @@ import type {
   PageMarkdown,
 } from "./types.js";
 import { DEFAULT_GENERATE_OPTIONS as DEFAULTS } from "./types.js";
+import { generateWebMcp } from "./webmcp.js";
 
 export async function runGenerate(
   url: string,
@@ -209,6 +210,13 @@ export async function runGenerate(
     onProgress?.("Generating skill.md...");
     const skillMd = generateSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
     files.push(makeFile("skill.md", skillMd));
+  }
+
+  // Generate WebMCP declarations
+  if (options.formats.includes("webmcp")) {
+    onProgress?.("Generating WebMCP declarations...");
+    const webmcpFiles = generateWebMcp(ctx);
+    files.push(...webmcpFiles);
   }
 
   // Detect platform and generate integration files

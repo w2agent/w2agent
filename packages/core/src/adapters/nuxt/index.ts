@@ -104,6 +104,25 @@ export default defineEventHandler(async (event) => {
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpPlugin = `// W2Agent WebMCP Registration
+// Client-only Nuxt plugin — registers forms as AI tools via navigator.modelContext
+export default defineNuxtPlugin(() => {
+  if (import.meta.client) {
+    ${webmcpJs.split("\n").join("\n    ")}
+  }
+});
+`;
+        files.push({
+          filename: "nuxt/plugins/w2agent-webmcp.client.ts",
+          content: webmcpPlugin,
+          size: new TextEncoder().encode(webmcpPlugin).length,
+        });
+      }
+    }
+
     return files;
   },
 };

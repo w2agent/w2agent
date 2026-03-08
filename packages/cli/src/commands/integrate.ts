@@ -48,7 +48,7 @@ export function registerIntegrateCommand(program: Command): void {
           {
             maxPages: parseInt(opts.maxPages, 10),
             timeout: parseInt(opts.timeout, 10),
-            formats: ["llms-txt", "full", "robots-txt", "agent-card"],
+            formats: ["llms-txt", "full", "robots-txt", "agent-card", "webmcp"],
           },
           (status) => {
             spinner.text = status;

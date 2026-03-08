@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
     "w2agent": "./dist/index.js"
   },

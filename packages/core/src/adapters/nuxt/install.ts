@@ -55,10 +55,7 @@ export function detectNuxtLayout(projectDir: string): NuxtLayout {
   };
 }
 
-export function resolveNuxtInstall(
-  files: GeneratedFile[],
-  projectDir: string,
-): InstallPlan {
+export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectNuxtLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
@@ -83,7 +80,10 @@ export function resolveNuxtInstall(
 
     // Server routes
     if (relPath.startsWith("server/routes/")) {
-      if (layout.hasExistingRoutes && (relPath.includes("llms.txt") || relPath.includes("llms-full.txt"))) {
+      if (
+        layout.hasExistingRoutes &&
+        (relPath.includes("llms.txt") || relPath.includes("llms-full.txt"))
+      ) {
         actions.push({ type: "skip", dest: relPath, reason: "route already exists" });
         warnings.push(`Existing ${relPath} found — skipping.`);
         continue;
@@ -101,7 +101,9 @@ export function resolveNuxtInstall(
       if (layout.hasExistingMiddleware) {
         const mergedName = relPath.replace(/\.(ts|js)$/, ".w2agent.$1");
         actions.push({ type: "write", dest: mergedName, content: file.content });
-        warnings.push(`Existing middleware found — saved as ${baseName.replace(/\.(ts|js)$/, ".w2agent.$1")}. Merge manually.`);
+        warnings.push(
+          `Existing middleware found — saved as ${baseName.replace(/\.(ts|js)$/, ".w2agent.$1")}. Merge manually.`,
+        );
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
@@ -133,9 +135,7 @@ export function resolveNuxtInstall(
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
 
-  const hasBuildAction = actions.some(
-    (a) => a.type === "write" && a.dest === "w2agent-build.mjs",
-  );
+  const hasBuildAction = actions.some((a) => a.type === "write" && a.dest === "w2agent-build.mjs");
   if (hasBuildAction) {
     postInstallSteps.push(
       'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',

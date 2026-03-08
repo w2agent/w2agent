@@ -94,6 +94,21 @@ module.exports = function w2agentMcpWebhookPlugin() {
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpModule = `// W2Agent WebMCP Registration
+// Add to docusaurus.config.js clientModules: ['./w2agent-webmcp-module.js']
+${webmcpJs}
+`;
+        files.push({
+          filename: "docusaurus/w2agent-webmcp-module.js",
+          content: webmcpModule,
+          size: new TextEncoder().encode(webmcpModule).length,
+        });
+      }
+    }
+
     return files;
   },
 };

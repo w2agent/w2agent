@@ -92,9 +92,7 @@ describe("Astro install resolver", () => {
     writeFileSync(join(tempDir, "public", "llms.txt"), "# existing", "utf-8");
 
     const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "public/llms.txt",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "public/llms.txt");
     expect(skipped).toBeDefined();
   });
 
@@ -110,9 +108,7 @@ describe("Astro install resolver", () => {
     writeFileSync(join(tempDir, "w2agent-build.mjs"), "// existing", "utf-8");
 
     const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "w2agent-build.mjs",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-build.mjs");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toBe("already exists");
   });
@@ -132,10 +128,7 @@ describe("Astro install resolver", () => {
 
   it("writes unknown file types through catch-all", () => {
     writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
-    const files = [
-      ...makeAstroFiles(),
-      makeFile("astro/some-extra-file.json", '{}'),
-    ];
+    const files = [...makeAstroFiles(), makeFile("astro/some-extra-file.json", "{}")];
 
     const plan = resolveAstroInstall(files, tempDir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
@@ -143,7 +136,11 @@ describe("Astro install resolver", () => {
   });
 
   it("detects astro.config.ts", () => {
-    writeFileSync(join(tempDir, "astro.config.ts"), 'export default defineConfig({ output: "server" });', "utf-8");
+    writeFileSync(
+      join(tempDir, "astro.config.ts"),
+      'export default defineConfig({ output: "server" });',
+      "utf-8",
+    );
 
     const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);

@@ -107,6 +107,25 @@ The webhook endpoint expects a \`Authorization: Bearer <token>\` header.
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpLiquid = `{% comment %}
+  W2Agent WebMCP Registration
+  Include in theme.liquid before </body>: {% render 'w2agent-webmcp' %}
+{% endcomment %}
+<script>
+${webmcpJs}
+</script>
+`;
+        files.push({
+          filename: "shopify/snippets/w2agent-webmcp.liquid",
+          content: webmcpLiquid,
+          size: new TextEncoder().encode(webmcpLiquid).length,
+        });
+      }
+    }
+
     return files;
   },
 };

@@ -96,6 +96,29 @@ export async function POST(request: Request) {
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpComponent = `"use client";
+
+import Script from "next/script";
+
+export default function WebMcpScript() {
+  return (
+    <Script id="w2agent-webmcp" strategy="lazyOnload">
+      {\`${webmcpJs.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`}
+    </Script>
+  );
+}
+`;
+        files.push({
+          filename: "nextjs/components/WebMcpScript.tsx",
+          content: webmcpComponent,
+          size: new TextEncoder().encode(webmcpComponent).length,
+        });
+      }
+    }
+
     return files;
   },
 };

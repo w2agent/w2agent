@@ -104,6 +104,25 @@ export default function w2agentMcpWebhook() {
       });
     }
 
+    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
+      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+      if (webmcpJs) {
+        const webmcpAstro = `---
+// W2Agent WebMCP Registration
+// Add to your layout: <WebMcpScript />
+---
+<script>
+${webmcpJs}
+</script>
+`;
+        files.push({
+          filename: "astro/components/WebMcpScript.astro",
+          content: webmcpAstro,
+          size: new TextEncoder().encode(webmcpAstro).length,
+        });
+      }
+    }
+
     return files;
   },
 };

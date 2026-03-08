@@ -54,9 +54,7 @@ describe("Docusaurus install resolver", () => {
     writeFileSync(join(tempDir, "static", "llms.txt"), "# existing", "utf-8");
 
     const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "static/llms.txt",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "static/llms.txt");
     expect(skipped).toBeDefined();
   });
 
@@ -68,9 +66,7 @@ describe("Docusaurus install resolver", () => {
     );
 
     const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "w2agent-plugin.js",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-plugin.js");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toContain("already configured");
   });
@@ -113,18 +109,13 @@ describe("Docusaurus install resolver", () => {
     writeFileSync(join(tempDir, "w2agent-plugin.js"), "module.exports = function() {}", "utf-8");
 
     const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "w2agent-plugin.js",
-    );
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-plugin.js");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toContain("already configured");
   });
 
   it("writes unknown file types through catch-all", () => {
-    const files = [
-      ...makeDocusaurusFiles(),
-      makeFile("docusaurus/some-extra-config.json", "{}"),
-    ];
+    const files = [...makeDocusaurusFiles(), makeFile("docusaurus/some-extra-config.json", "{}")];
 
     const plan = resolveDocusaurusInstall(files, tempDir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);

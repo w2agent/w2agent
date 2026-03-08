@@ -406,9 +406,7 @@ export const webmcpDeclarative: Check = {
         const $form = parsed.$(form);
         if ($form.attr("toolname")) {
           webmcpForms++;
-          webmcpDetails.push(
-            `${page.url}: <form toolname="${$form.attr("toolname")}">`
-          );
+          webmcpDetails.push(`${page.url}: <form toolname="${$form.attr("toolname")}">`);
         }
       });
     }
@@ -436,9 +434,10 @@ export const webmcpDeclarative: Check = {
       ...base,
       status: score >= 80 ? "pass" : score > 0 ? "partial" : "fail",
       score,
-      message: webmcpForms > 0
-        ? `${webmcpForms}/${totalForms} forms have WebMCP attributes`
-        : "No forms have WebMCP tool declarations",
+      message:
+        webmcpForms > 0
+          ? `${webmcpForms}/${totalForms} forms have WebMCP attributes`
+          : "No forms have WebMCP tool declarations",
       ...(webmcpDetails.length > 0 ? { details: webmcpDetails.join("\n") } : {}),
     };
   },
