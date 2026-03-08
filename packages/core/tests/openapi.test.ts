@@ -198,13 +198,227 @@ describe("probeOpenAPIPaths", () => {
     expect(result).toBeNull();
   });
 
-  it("probes all 5 paths", async () => {
+  it("probes all 15 paths", async () => {
     mockFetchText.mockResolvedValue(null);
     await probeOpenAPIPaths("https://example.com", opts);
-    expect(mockFetchText).toHaveBeenCalledTimes(5);
+    expect(mockFetchText).toHaveBeenCalledTimes(15);
     for (const path of OPENAPI_PROBE_PATHS) {
       expect(mockFetchText).toHaveBeenCalledWith(`https://example.com${path}`, opts);
     }
+  });
+
+  it("extracts spec URL from Swagger UI HTML response", async () => {
+    const swaggerUIHtml = `
+      <html><body>
+      <div id="swagger-ui"></div>
+      <script>
+        SwaggerUIBundle({ url: "/internal/spec.json", dom_id: '#swagger-ui' })
+      </script>
+      </body></html>
+    `;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Swagger UI Discovered" },
+      paths: { "/pets": { get: {} } },
+    });
+
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/api-docs")) {
+        return { text: swaggerUIHtml, status: 200 };
+      }
+      if (url.endsWith("/internal/spec.json")) {
+        return { text: specJson, status: 200 };
+      }
+      return null;
+    });
+
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("Swagger UI Discovered");
+  });
+
+  it("does not follow Swagger UI URLs when direct probe succeeds", async () => {
+    const swaggerUIHtml = `<html><div id="swagger-ui"></div><script>SwaggerUIBundle({ url: "/internal/spec.json" })</script></html>`;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Direct" },
+      paths: { "/a": { get: {} } },
+    });
+
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/openapi.json")) {
+        return { text: specJson, status: 200 };
+      }
+      if (url.endsWith("/api-docs")) {
+        return { text: swaggerUIHtml, status: 200 };
+      }
+      return null;
+    });
+
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("Direct");
+    expect(mockFetchText).not.toHaveBeenCalledWith(
+      "https://example.com/internal/spec.json",
+      opts,
+    );
+  });
+
+  it("detects Spring Boot spec at /v3/api-docs", async () => {
+    const specJson = JSON.stringify({
+      openapi: "3.0.1",
+      info: { title: "Spring Boot API" },
+      paths: { "/actuator/health": { get: { summary: "Health check" } } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/v3/api-docs")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("Spring Boot API");
+    expect(result?.version).toBe("3.0.1");
+  });
+
+  it("detects ASP.NET spec at /swagger/v1/swagger.json", async () => {
+    const specJson = JSON.stringify({
+      openapi: "3.0.1",
+      info: { title: "ASP.NET API" },
+      paths: { "/api/values": { get: {} } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/swagger/v1/swagger.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("ASP.NET API");
+  });
+
+  it("detects httpbin-style spec at /spec.json", async () => {
+    const specJson = JSON.stringify({
+      swagger: "2.0",
+      info: { title: "httpbin" },
+      basePath: "/",
+      paths: { "/get": { get: { summary: "GET request" } } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/spec.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("httpbin");
+    expect(result?.version).toBe("2.0");
+  });
+
+  it("discovers spec from homepage <a> link when probes fail", async () => {
+    const homepageHtml = `
+      <html><body>
+        <a href="/developer/openapi.json">API Documentation</a>
+      </body></html>
+    `;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Discovered via Link" },
+      paths: { "/users": { get: {} } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/developer/openapi.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
+    expect(result?.title).toBe("Discovered via Link");
+  });
+
+  it("discovers spec from homepage <link> tag", async () => {
+    const homepageHtml = `
+      <html><head>
+        <link rel="openapi" href="/api/v1/swagger.json" />
+      </head><body></body></html>
+    `;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Link Tag Spec" },
+      paths: { "/items": { get: {} } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/api/v1/swagger.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
+    expect(result?.title).toBe("Link Tag Spec");
+  });
+
+  it("does not scan homepage HTML when direct probe succeeds", async () => {
+    const homepageHtml = `<html><a href="/custom/openapi.json">API</a></html>`;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Direct Hit" },
+      paths: { "/a": { get: {} } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/openapi.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
+    expect(result?.title).toBe("Direct Hit");
+    expect(mockFetchText).not.toHaveBeenCalledWith(
+      "https://example.com/custom/openapi.json",
+      opts,
+    );
+  });
+
+  it("returns null when no spec found even with homepage HTML", async () => {
+    const homepageHtml = `<html><body><a href="/about">About</a></body></html>`;
+    mockFetchText.mockResolvedValue(null);
+    const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
+    expect(result).toBeNull();
+  });
+
+  it("ignores homepage links without API keywords", async () => {
+    const homepageHtml = `<html><body><a href="/docs/guide.json">Guide</a></body></html>`;
+    mockFetchText.mockResolvedValue(null);
+    const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
+    expect(result).toBeNull();
+    expect(mockFetchText).toHaveBeenCalledTimes(15);
+  });
+
+  it("extracts spec URL from Swagger UI with JSON-style config", async () => {
+    const swaggerUIHtml = `
+      <html><body>
+      <div id="swagger-ui"></div>
+      <script>
+        const ui = SwaggerUIBundle({"url": "/api/v2/spec.json", "dom_id": "#swagger-ui"})
+      </script>
+      </body></html>
+    `;
+    const specJson = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "JSON Config Swagger" },
+      paths: { "/test": { get: {} } },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/api-docs")) return { text: swaggerUIHtml, status: 200 };
+      if (url.endsWith("/api/v2/spec.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("JSON Config Swagger");
+  });
+
+  it("detects Petstore-style spec at /api/v3/openapi.json", async () => {
+    const specJson = JSON.stringify({
+      openapi: "3.0.2",
+      info: { title: "Petstore" },
+      paths: {
+        "/pet": { get: {}, post: {} },
+        "/pet/{petId}": { get: {}, delete: {} },
+      },
+    });
+    mockFetchText.mockImplementation(async (url) => {
+      if (url.endsWith("/api/v3/openapi.json")) return { text: specJson, status: 200 };
+      return null;
+    });
+    const result = await probeOpenAPIPaths("https://example.com", opts);
+    expect(result?.title).toBe("Petstore");
+    expect(result?.endpoints).toHaveLength(4);
   });
 });
 

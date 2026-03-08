@@ -13,15 +13,62 @@ export const OPENAPI_PROBE_PATHS = [
   "/.well-known/openapi",
   "/api-docs",
   "/api/docs",
+  "/v3/api-docs",
+  "/v2/api-docs",
+  "/swagger/v1/swagger.json",
+  "/swagger/doc.json",
+  "/api/v3/openapi.json",
+  "/api/openapi.json",
+  "/api/swagger.json",
+  "/spec.json",
+  "/api-docs.json",
+  "/docs/openapi.json",
 ];
 
 const MAX_ENDPOINTS = 200;
 const MAX_REF_DEPTH = 5;
 
+function extractOpenAPILinksFromHTML(html: string, baseUrl: string): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const hrefRegex = /href=["']([^"']+)["']/gi;
+  const keywords = /openapi|swagger|api-docs|api\/docs|spec\.json/i;
+  let match: RegExpExecArray | null = null;
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const raw = match[1];
+    if (!keywords.test(raw)) continue;
+    try {
+      const resolved = new URL(raw, baseUrl).href;
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        urls.push(resolved);
+      }
+    } catch {
+      // skip malformed URLs
+    }
+  }
+  return urls;
+}
+
+function extractSwaggerUISpecUrl(html: string, pageUrl: string): string | null {
+  if (!html.includes("swagger-ui") && !html.includes("SwaggerUIBundle")) return null;
+  const match = html.match(/["']?url["']?\s*[:=]\s*["']([^"']+)["']/);
+  if (!match) return null;
+  const raw = match[1];
+  try {
+    return new URL(raw, pageUrl).href;
+  } catch {
+    return null;
+  }
+}
+
 export async function probeOpenAPIPaths(
   baseUrl: string,
   options: Pick<AuditOptions, "timeout" | "userAgent">,
+  htmlHints?: { homepageHtml?: string },
 ): Promise<ParsedOpenAPISpec | null> {
+  const swaggerUISpecUrls: string[] = [];
+
   const results = await Promise.all(
     OPENAPI_PROBE_PATHS.map(async (path) => {
       const url = `${baseUrl}${path}`;
@@ -32,11 +79,47 @@ export async function probeOpenAPIPaths(
         if (!json.openapi && !json.swagger) return null;
         return parseOpenAPISpec(json, url);
       } catch {
+        // JSON parse failed — check if it's Swagger UI HTML with embedded spec URL
+        const specUrl = extractSwaggerUISpecUrl(result.text, url);
+        if (specUrl) swaggerUISpecUrls.push(specUrl);
         return null;
       }
     }),
   );
-  return results.find((r) => r !== null) ?? null;
+
+  const found = results.find((r) => r !== null);
+  if (found) return found;
+
+  // Phase 1b: follow Swagger UI extracted URLs
+  for (const specUrl of swaggerUISpecUrls) {
+    const result = await fetchText(specUrl, options);
+    if (!result || result.status !== 200) continue;
+    try {
+      const json = JSON.parse(result.text);
+      if (!json.openapi && !json.swagger) continue;
+      return parseOpenAPISpec(json, specUrl);
+    } catch {
+      continue;
+    }
+  }
+
+  // Phase 2: scan homepage HTML for OpenAPI/Swagger links
+  if (htmlHints?.homepageHtml) {
+    const candidateUrls = extractOpenAPILinksFromHTML(htmlHints.homepageHtml, baseUrl);
+    for (const candidateUrl of candidateUrls) {
+      const result = await fetchText(candidateUrl, options);
+      if (!result || result.status !== 200) continue;
+      try {
+        const json = JSON.parse(result.text);
+        if (!json.openapi && !json.swagger) continue;
+        return parseOpenAPISpec(json, candidateUrl);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return null;
 }
 
 export function parseOpenAPISpec(json: unknown, specUrl: string): ParsedOpenAPISpec | null {

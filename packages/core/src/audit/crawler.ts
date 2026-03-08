@@ -26,7 +26,7 @@ export async function crawlSite(
     fetchText(`${baseUrl}/robots.txt`, options),
     fetchText(`${baseUrl}/sitemap.xml`, options),
     fetchText(`${baseUrl}/llms.txt`, options),
-    probeOpenAPIPaths(baseUrl, options),
+    probeOpenAPIPaths(baseUrl, options, { homepageHtml: homepage.html }),
   ]);
 
   onProgress?.("Fetching .well-known files...");
