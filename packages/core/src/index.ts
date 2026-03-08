@@ -17,6 +17,10 @@ export type {
   CheckStatus,
   FetchedPage,
   LetterGrade,
+  OpenAPIEndpoint,
+  OpenAPIParameter,
+  OpenAPIRequestBody,
+  ParsedOpenAPISpec,
   Severity,
   SiteMetadata,
   TopIssue,
@@ -25,6 +29,11 @@ export { CATEGORY_CONFIG, DEFAULT_OPTIONS } from "./audit/types.js";
 export { generateAgentCard } from "./generate/agent-card.js";
 export { runGenerate } from "./generate/engine.js";
 export { generateFaq } from "./generate/faq.js";
+export {
+  CHECK_TO_FORMAT,
+  type FromAuditResult,
+  mapFailedChecksToFormats,
+} from "./generate/from-audit.js";
 export { htmlToMarkdown } from "./generate/html-to-markdown.js";
 export { generateLlmsFullTxt } from "./generate/llms-full-txt.js";
 export { extractSiteInfo, generateLlmsTxt } from "./generate/llms-txt.js";
@@ -37,7 +46,6 @@ export {
 export { generateRobotsTxt } from "./generate/robots-txt.js";
 export { generateSchemaOrg } from "./generate/schema-org.js";
 export { generateSkillMd, type SkillMdOptions } from "./generate/skill-md.js";
-// Generate
 export type {
   GenerateContext,
   GeneratedFile,
@@ -47,9 +55,11 @@ export type {
   PageMarkdown,
 } from "./generate/types.js";
 export { DEFAULT_GENERATE_OPTIONS } from "./generate/types.js";
+export { generateWebMcp } from "./generate/webmcp.js";
 export { loadConfig, mergeConfigWithOptions } from "./shared/config.js";
 export { fetchPage, fetchText } from "./shared/fetcher.js";
 export { parseHTML } from "./shared/html-parser.js";
+export { parseOpenAPISpec, probeOpenAPIPaths } from "./shared/openapi.js";
 export { scoreUrl, sortUrlsByScore } from "./shared/page-scoring.js";
 
 // Adapters (import registers all built-in adapters)

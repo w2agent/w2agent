@@ -1,4 +1,5 @@
 import { fetchPage, fetchText } from "../shared/fetcher.js";
+import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { sortUrlsByScore } from "../shared/page-scoring.js";
 import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
 
@@ -21,10 +22,11 @@ export async function crawlSite(
   const homepage = await fetchPage(url, options);
 
   onProgress?.("Fetching robots.txt...");
-  const [robotsResult, sitemapResult, llmsResult] = await Promise.all([
+  const [robotsResult, sitemapResult, llmsResult, openapiResult] = await Promise.all([
     fetchText(`${baseUrl}/robots.txt`, options),
     fetchText(`${baseUrl}/sitemap.xml`, options),
     fetchText(`${baseUrl}/llms.txt`, options),
+    probeOpenAPIPaths(baseUrl, options),
   ]);
 
   onProgress?.("Fetching .well-known files...");
@@ -47,6 +49,7 @@ export async function crawlSite(
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
     llmsTxt: llmsResult?.status === 200 ? llmsResult.text : undefined,
     wellKnown,
+    openapi: openapiResult ?? undefined,
   };
 
   const pages: FetchedPage[] = [homepage];

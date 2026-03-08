@@ -72,6 +72,7 @@ export interface SiteMetadata {
   sitemapXml?: string;
   llmsTxt?: string;
   wellKnown: Record<string, string | undefined>;
+  openapi?: ParsedOpenAPISpec;
 }
 
 export interface Check {
@@ -106,3 +107,36 @@ export const CATEGORY_CONFIG: Record<CategoryId, { name: string; weight: number 
   "agent-protocols": { name: "Agent Protocols", weight: 0.15 },
   technical: { name: "Technical Foundations", weight: 0.1 },
 };
+
+export interface OpenAPIParameter {
+  name: string;
+  in: "query" | "path" | "header" | "cookie";
+  type?: string;
+  required: boolean;
+  description?: string;
+}
+
+export interface OpenAPIRequestBody {
+  contentType: string;
+  required: boolean;
+  properties: Record<string, { type?: string; description?: string }>;
+}
+
+export interface OpenAPIEndpoint {
+  path: string;
+  method: string;
+  operationId?: string;
+  summary?: string;
+  description?: string;
+  parameters: OpenAPIParameter[];
+  requestBody?: OpenAPIRequestBody;
+}
+
+export interface ParsedOpenAPISpec {
+  specUrl: string;
+  version: string;
+  title?: string;
+  description?: string;
+  serverUrl?: string;
+  endpoints: OpenAPIEndpoint[];
+}
