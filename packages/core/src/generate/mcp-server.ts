@@ -1,7 +1,7 @@
 import { parseHTML } from "../shared/html-parser.js";
 import { generateFaq } from "./faq.js";
 import { extractSiteInfo } from "./llms-txt.js";
-import type { GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
+import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
 
@@ -21,16 +21,8 @@ export interface McpDetectedTools {
 export interface DetectedForm {
   action: string;
   method: string;
-  fields: FormField[];
+  fields: ExtractedFormField[];
   pageUrl: string;
-}
-
-interface FormField {
-  name: string;
-  type: string;
-  required: boolean;
-  label?: string;
-  options?: string[];
 }
 
 export type SelfHostPlatform = "vercel" | "cf";
@@ -127,59 +119,16 @@ export function detectTools(ctx: GenerateContext): McpDetectedTools {
     if (hasSearchAction) break;
   }
 
-  // Detect forms
-  for (const page of ctx.rawPages) {
-    if (page.status !== 200 || !page.html) continue;
-    const parsed = parseHTML(page.html);
-    parsed.$("form").each((_, el) => {
-      const $form = parsed.$(el);
-      const action = $form.attr("action");
-      if (!action) return;
-
-      const fields: FormField[] = [];
-      $form.find("input, select, textarea").each((_, input) => {
-        const $input = parsed.$(input);
-        const name = $input.attr("name");
-        const type =
-          $input.attr("type") ||
-          ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text");
-        if (!name || type === "hidden" || type === "submit") return;
-
-        const field: FormField = {
-          name,
-          type,
-          required: $input.attr("required") !== undefined,
-        };
-
-        // Extract label
-        const id = $input.attr("id");
-        if (id) {
-          const label = parsed.$(`label[for="${id}"]`).text().trim();
-          if (label) field.label = label;
-        }
-
-        // Extract select options
-        if ($input.is("select")) {
-          const options: string[] = [];
-          $input.find("option").each((_, opt) => {
-            const val = parsed.$(opt).attr("value");
-            if (val) options.push(val);
-          });
-          if (options.length > 0) field.options = options;
-        }
-
-        fields.push(field);
-      });
-
-      if (fields.length > 0) {
+  // Collect pre-extracted forms from pages
+  for (const page of ctx.pages) {
+    if (page.forms) {
+      for (const form of page.forms) {
         forms.push({
-          action,
-          method: ($form.attr("method") || "GET").toUpperCase(),
-          fields,
+          ...form,
           pageUrl: page.url,
         });
       }
-    });
+    }
   }
 
   // Add form tools
@@ -213,6 +162,16 @@ export function generateDataFiles(ctx: GenerateContext): GeneratedFile[] {
   const faqData = generateFaq(ctx);
   if (faqData) {
     files.push(makeFile("mcp-server/data/faq.json", `${JSON.stringify(faqData, null, 2)}\n`));
+  }
+
+  // openapi.json (if detected)
+  if (ctx.metadata.openapi) {
+    files.push(
+      makeFile(
+        "mcp-server/data/openapi.json",
+        `${JSON.stringify(ctx.metadata.openapi, null, 2)}\n`,
+      ),
+    );
   }
 
   return files;
@@ -257,7 +216,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // list-pages tool
   lines.push(`// Tool: list-pages`);
   lines.push(
-    `server.tool("list-pages", "List all pages on the site with titles and URLs", {}, async () => {`,
+    `server.tool("list-pages", "List all pages on the site with titles and URLs", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
   );
   lines.push(`  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`);
   lines.push(`  return { content: [{ type: "text", text: listing }] };`);
@@ -267,7 +226,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // get-page tool
   lines.push(`// Tool: get-page`);
   lines.push(
-    `server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, async ({ url }) => {`,
+    `server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url }) => {`,
   );
   lines.push(
     `  const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));`,
@@ -282,7 +241,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // search-site tool
   lines.push(`// Tool: search-site`);
   lines.push(
-    `server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+    `server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
   );
   lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
   lines.push(`  const scored = pages.map((p: any) => {`);
@@ -312,7 +271,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   if (detected.hasFaq) {
     lines.push(`// Tool: search-faq`);
     lines.push(
-      `server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+      `server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
     lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
     lines.push(`  const entries = faq.mainEntity || [];`);
@@ -335,7 +294,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   if (detected.hasSearchAction) {
     lines.push(`// Tool: site-search (via SearchAction)`);
     lines.push(
-      `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, async ({ query }) => {`,
+      `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
     lines.push(
       `  const searchUrl = ${JSON.stringify(`${baseUrl}/search?q=`)} + encodeURIComponent(query);`,
@@ -360,7 +319,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       `server.tool("submit-form-${i}", ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
     );
     lines.push(fieldSchemas.join(",\n"));
-    lines.push(`}, async (params) => {`);
+    lines.push(
+      `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
+    );
     lines.push(
       `  return { content: [{ type: "text", text: "Form submission stub. Action: ${form.method} ${form.action}\\nFields: " + JSON.stringify(params) }] };`,
     );
@@ -524,18 +485,18 @@ ${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n
 function createServer() {
   const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
-  server.tool("list-pages", "List all pages", {}, async () => {
+  server.tool("list-pages", "List all pages", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
     const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");
     return { content: [{ type: "text", text: listing }] };
   });
 
-  server.tool("get-page", "Get page content", { url: z.string() }, async ({ url }) => {
+  server.tool("get-page", "Get page content", { url: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url }) => {
     const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));
     if (!page) return { content: [{ type: "text", text: "Page not found" }] };
     return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };
   });
 
-  server.tool("search-site", "Search site content", { query: z.string() }, async ({ query }) => {
+  server.tool("search-site", "Search site content", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
     const terms = query.toLowerCase().split(/\\s+/);
     const scored = pages.map((p: any) => {
       let score = 0;
@@ -553,7 +514,7 @@ function createServer() {
 ${
   detected.hasFaq
     ? `
-  server.tool("search-faq", "Search FAQ", { query: z.string() }, async ({ query }) => {
+  server.tool("search-faq", "Search FAQ", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
     const terms = query.toLowerCase().split(/\\s+/);
     const entries = (faq as any).mainEntity || [];
     const matches = entries.filter((e: any) => {
@@ -667,18 +628,18 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
     // Create stateless MCP server
     const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
-    server.tool("list-pages", "List all pages", {}, async () => {
+    server.tool("list-pages", "List all pages", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
       const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");
       return { content: [{ type: "text", text: listing }] };
     });
 
-    server.tool("get-page", "Get page content", { url: z.string() }, async ({ url: pageUrl }) => {
+    server.tool("get-page", "Get page content", { url: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url: pageUrl }) => {
       const page = pages.find((p: any) => p.url === pageUrl || p.url.endsWith("/" + pageUrl) || p.url.includes(pageUrl));
       if (!page) return { content: [{ type: "text", text: "Page not found" }] };
       return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };
     });
 
-    server.tool("search-site", "Search site content", { query: z.string() }, async ({ query }) => {
+    server.tool("search-site", "Search site content", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
       const terms = query.toLowerCase().split(/\\s+/);
       const scored = pages.map((p: any) => {
         let score = 0;
@@ -714,9 +675,9 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
         id: body.id,
         result: {
           tools: [
-            { name: "list-pages", description: "List all pages", inputSchema: { type: "object", properties: {} } },
-            { name: "get-page", description: "Get page content", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
-            { name: "search-site", description: "Search site content", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+            { name: "list-pages", description: "List all pages", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            { name: "get-page", description: "Get page content", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            { name: "search-site", description: "Search site content", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
           ],
         },
       }), { headers: { "content-type": "application/json" } });

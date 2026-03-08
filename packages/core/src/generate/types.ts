@@ -28,7 +28,8 @@ export type GenerateFormat =
   | "agent-card"
   | "faq"
   | "mcp-server"
-  | "skill-md";
+  | "skill-md"
+  | "webmcp";
 
 export interface GeneratedFile {
   filename: string;
@@ -54,11 +55,30 @@ export interface GenerateResult {
   };
 }
 
+export interface ExtractedFormField {
+  name: string;
+  type: string;
+  required: boolean;
+  label?: string;
+  options?: string[];
+  pattern?: string;
+  min?: string;
+  max?: string;
+  maxlength?: number;
+}
+
+export interface ExtractedForm {
+  action: string;
+  method: string;
+  fields: ExtractedFormField[];
+}
+
 export interface PageMarkdown {
   url: string;
   title: string;
   description: string;
   markdown: string;
+  forms?: ExtractedForm[];
 }
 
 export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {

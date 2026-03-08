@@ -62,54 +62,84 @@ describe("detectTools", () => {
   });
 
   it("detects forms with action and named inputs", () => {
-    const html = `<html><body>
-      <form action="/contact" method="POST">
-        <input name="email" type="email" required>
-        <input name="message" type="text">
-        <input type="submit" value="Send">
-      </form>
-    </body></html>`;
     const ctx = makeCtx({
-      rawPages: [makePage("https://example.com/contact", html)],
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Contact us",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [
+                { name: "email", type: "email", required: true },
+                { name: "message", type: "text", required: false },
+              ],
+            },
+          ],
+        },
+      ],
     });
     const result = detectTools(ctx);
     expect(result.forms).toHaveLength(1);
     expect(result.forms[0].action).toBe("/contact");
     expect(result.forms[0].method).toBe("POST");
+    expect(result.forms[0].pageUrl).toBe("https://example.com/contact");
     expect(result.forms[0].fields).toHaveLength(2);
     expect(result.tools.some((t) => t.name === "submit-form-0")).toBe(true);
   });
 
-  it("skips forms without action attribute", () => {
-    const html = `<html><body>
-      <form><input name="q" type="text"></form>
-    </body></html>`;
+  it("returns empty forms when pages have no forms", () => {
     const ctx = makeCtx({
-      rawPages: [makePage("https://example.com", html)],
+      pages: [{ url: "https://example.com/", title: "Home", description: "", markdown: "Hello" }],
     });
     const result = detectTools(ctx);
     expect(result.forms).toHaveLength(0);
   });
 
-  it("skips hidden and submit inputs in form detection", () => {
-    const html = `<html><body>
-      <form action="/submit" method="POST">
-        <input name="csrf" type="hidden" value="abc">
-        <input name="name" type="text">
-        <input type="submit" value="Go">
-      </form>
-    </body></html>`;
+  it("flattens forms from multiple pages with pageUrl", () => {
     const ctx = makeCtx({
-      rawPages: [makePage("https://example.com", html)],
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Contact",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+        {
+          url: "https://example.com/search",
+          title: "Search",
+          description: "",
+          markdown: "Search",
+          forms: [
+            {
+              action: "/search",
+              method: "GET",
+              fields: [{ name: "q", type: "text", required: false }],
+            },
+          ],
+        },
+      ],
     });
     const result = detectTools(ctx);
-    expect(result.forms[0].fields).toHaveLength(1);
-    expect(result.forms[0].fields[0].name).toBe("name");
+    expect(result.forms).toHaveLength(2);
+    expect(result.forms[0].pageUrl).toBe("https://example.com/contact");
+    expect(result.forms[1].pageUrl).toBe("https://example.com/search");
   });
 
   it("returns no FAQ or SearchAction for basic pages", () => {
     const html = "<html><head><title>Home</title></head><body><p>Hello</p></body></html>";
     const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Home", description: "", markdown: "Hello" }],
       rawPages: [makePage("https://example.com", html)],
     });
     const result = detectTools(ctx);
@@ -362,5 +392,75 @@ describe("generateMcpServer self-host: cf", () => {
   it("includes data files", () => {
     const files = generateMcpServer(ctx, "cf");
     expect(files.some((f) => f.filename === "mcp-server/data/pages.json")).toBe(true);
+  });
+});
+
+// --- Tool Annotations ---
+
+describe("tool annotations", () => {
+  const ctx = makeCtx({
+    pages: [
+      {
+        url: "https://example.com/",
+        title: "Test Site",
+        description: "A test",
+        markdown: "Content",
+      },
+    ],
+  });
+
+  it("standalone server.ts includes readOnlyHint annotations on read tools", () => {
+    const files = generateMcpServer(ctx);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    expect(serverFile.content).toContain("readOnlyHint: true");
+    expect(serverFile.content).toContain("idempotentHint: true");
+    expect(serverFile.content).toContain("openWorldHint: false");
+  });
+
+  it("standalone server.ts includes write annotations on form submit tools", () => {
+    const ctxWithForm = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Hi",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const files = generateMcpServer(ctxWithForm);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    expect(serverFile.content).toContain("destructiveHint: true");
+    expect(serverFile.content).toContain("idempotentHint: false");
+  });
+
+  it("vercel api/mcp.ts includes readOnlyHint annotations", () => {
+    const files = generateMcpServer(ctx, "vercel");
+    const apiFile = files.find((f) => f.filename === "mcp-server/api/mcp.ts")!;
+    expect(apiFile.content).toContain("readOnlyHint: true");
+    expect(apiFile.content).toContain("idempotentHint: true");
+    expect(apiFile.content).toContain("openWorldHint: false");
+  });
+
+  it("cloudflare worker.ts includes readOnlyHint annotations on server.tool calls", () => {
+    const files = generateMcpServer(ctx, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    expect(workerFile.content).toContain("readOnlyHint: true");
+    expect(workerFile.content).toContain("idempotentHint: true");
+  });
+
+  it("cloudflare worker.ts tools/list response includes annotations", () => {
+    const files = generateMcpServer(ctx, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    // The tools/list response is a JS object literal inside JSON.stringify() —
+    // in generated source code, annotations appear as JS syntax, not serialized JSON
+    expect(workerFile.content).toContain("annotations: { readOnlyHint: true");
   });
 });

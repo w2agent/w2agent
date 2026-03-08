@@ -1,6 +1,6 @@
 import type { CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
-import type { PageMarkdown } from "./types.js";
+import type { ExtractedForm, ExtractedFormField, PageMarkdown } from "./types.js";
 
 // Use cheerio's return types directly — Cheerio<any> works for all node operations
 type CheerioNode = ReturnType<CheerioAPI>;
@@ -12,12 +12,80 @@ export function htmlToMarkdown(html: string, url: string): PageMarkdown {
 
   const description = $('meta[name="description"]').attr("content")?.trim() || "";
 
+  const forms = extractForms($);
+
   $("script, style, noscript, iframe, svg, template").remove();
 
   const mainContent = extractMainContent($);
   const markdown = convertToMarkdown($, mainContent);
 
-  return { url, title, description, markdown };
+  return { url, title, description, markdown, forms };
+}
+
+function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
+  const forms: ExtractedForm[] = [];
+
+  $("form").each((_, el) => {
+    const $form = $(el);
+    const action = $form.attr("action");
+    if (!action) return;
+
+    const fields: ExtractedFormField[] = [];
+    $form.find("input, select, textarea").each((_, input) => {
+      const $input = $(input);
+      const name = $input.attr("name");
+      const type =
+        $input.attr("type") ||
+        ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text");
+      if (!name || type === "hidden" || type === "submit") return;
+
+      const field: ExtractedFormField = {
+        name,
+        type,
+        required: $input.attr("required") !== undefined,
+      };
+
+      const id = $input.attr("id");
+      if (id) {
+        const label = $(`label[for="${id}"]`).text().trim();
+        if (label) field.label = label;
+      }
+      if (!field.label) {
+        const ariaLabel = $input.attr("aria-label");
+        if (ariaLabel) field.label = ariaLabel;
+      }
+
+      if ($input.is("select")) {
+        const options: string[] = [];
+        $input.find("option").each((_, opt) => {
+          const val = $(opt).attr("value");
+          if (val) options.push(val);
+        });
+        if (options.length > 0) field.options = options;
+      }
+
+      const pattern = $input.attr("pattern");
+      if (pattern) field.pattern = pattern;
+      const min = $input.attr("min");
+      if (min) field.min = min;
+      const max = $input.attr("max");
+      if (max) field.max = max;
+      const maxlength = $input.attr("maxlength");
+      if (maxlength) field.maxlength = parseInt(maxlength, 10);
+
+      fields.push(field);
+    });
+
+    if (fields.length > 0) {
+      forms.push({
+        action,
+        method: ($form.attr("method") || "GET").toUpperCase(),
+        fields,
+      });
+    }
+  });
+
+  return forms.length > 0 ? forms : undefined;
 }
 
 function extractMainContent($: CheerioAPI): CheerioNode {

@@ -97,6 +97,121 @@ describe("htmlToMarkdown", () => {
     const result = htmlToMarkdown(html, "https://example.com");
     expect(result.markdown).toContain("[the docs](/docs)");
   });
+
+  it("extracts forms with fields and validation attributes", () => {
+    const html = `<html><body>
+      <form action="/search" method="GET">
+        <label for="q">Search</label>
+        <input id="q" name="q" type="text" required maxlength="100" />
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms).toBeDefined();
+    expect(result.forms).toHaveLength(1);
+    expect(result.forms?.[0].action).toBe("/search");
+    expect(result.forms?.[0].method).toBe("GET");
+    expect(result.forms?.[0].fields[0]).toEqual({
+      name: "q",
+      type: "text",
+      required: true,
+      label: "Search",
+      maxlength: 100,
+    });
+  });
+
+  it("extracts aria-label when no <label> element exists", () => {
+    const html = `<html><body>
+      <form action="/api/subscribe" method="POST">
+        <input name="email" type="email" aria-label="Email address" required />
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms).toHaveLength(1);
+    expect(result.forms?.[0].fields[0].label).toBe("Email address");
+  });
+
+  it("extracts pattern, min, max validation attributes", () => {
+    const html = `<html><body>
+      <form action="/register" method="POST">
+        <input name="age" type="number" min="18" max="120" />
+        <input name="zip" type="text" pattern="[0-9]{5}" />
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    const fields = result.forms?.[0].fields;
+    expect(fields[0]).toMatchObject({ name: "age", min: "18", max: "120" });
+    expect(fields[1]).toMatchObject({ name: "zip", pattern: "[0-9]{5}" });
+  });
+
+  it("extracts select options", () => {
+    const html = `<html><body>
+      <form action="/filter" method="GET">
+        <select name="category">
+          <option value="books">Books</option>
+          <option value="movies">Movies</option>
+        </select>
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms?.[0].fields[0].options).toEqual(["books", "movies"]);
+  });
+
+  it("skips forms without action attribute", () => {
+    const html = `<html><body>
+      <form>
+        <input name="q" type="text" />
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms).toBeUndefined();
+  });
+
+  it("skips hidden and submit inputs", () => {
+    const html = `<html><body>
+      <form action="/submit" method="POST">
+        <input name="csrf" type="hidden" value="abc" />
+        <input name="email" type="email" required />
+        <input type="submit" value="Send" />
+      </form>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms?.[0].fields).toHaveLength(1);
+    expect(result.forms?.[0].fields[0].name).toBe("email");
+  });
+
+  it("returns undefined forms when page has no forms", () => {
+    const html = "<html><body><p>No forms here</p></body></html>";
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms).toBeUndefined();
+  });
+
+  it("extracts forms from header/footer (not just main content)", () => {
+    const html = `<html><body>
+      <header>
+        <form action="/search" method="GET">
+          <input name="q" type="search" aria-label="Search" />
+        </form>
+      </header>
+      <main><p>Main content here with enough text to be selected as main.</p></main>
+      <footer>
+        <form action="/subscribe" method="POST">
+          <input name="email" type="email" aria-label="Newsletter email" />
+        </form>
+      </footer>
+    </body></html>`;
+    const result = htmlToMarkdown(html, "https://example.com");
+
+    expect(result.forms).toHaveLength(2);
+    expect(result.forms?.[0].action).toBe("/search");
+    expect(result.forms?.[1].action).toBe("/subscribe");
+  });
 });
 
 // --- llms.txt generation ---
