@@ -226,7 +226,7 @@ npx w2agent integrate https://your-site.com --platform nextjs
 
 ## Web UI
 
-Try the hosted version at [w2agent.com](https://w2agent.com) — audit, generate, preview, and download files in the browser.
+Try the hosted version at [w2agent.dev](https://w2agent.dev) — audit, generate, preview, and download files in the browser.
 
 ## Web API
 

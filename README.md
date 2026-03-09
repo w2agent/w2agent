@@ -73,7 +73,7 @@ npx w2agent integrate https://example.com --install --dry-run  # preview only
 
 ### Hosted Web UI
 
-Try the hosted version at [w2agent.com](https://w2agent.com) — paste a URL, audit, and generate files with a visual interface.
+Try the hosted version at [w2agent.dev](https://w2agent.dev) — paste a URL, audit, and generate files with a visual interface.
 
 ### From source
 

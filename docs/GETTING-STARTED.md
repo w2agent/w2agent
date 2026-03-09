@@ -28,7 +28,7 @@ node packages/cli/dist/index.js audit https://your-site.com
 
 ### Web UI
 
-Try the hosted version at [w2agent.com](https://w2agent.com) — audit a site and generate files directly in the browser with preview, copy, and download.
+Try the hosted version at [w2agent.dev](https://w2agent.dev) — audit a site and generate files directly in the browser with preview, copy, and download.
 
 ## CLI Commands
 
