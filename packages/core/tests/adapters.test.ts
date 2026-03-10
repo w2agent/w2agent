@@ -576,9 +576,9 @@ describe("WordPress integration generation", () => {
 });
 
 describe("Next.js integration generation", () => {
-  it("generates 8 files", () => {
+  it("generates 9 files", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(8);
+    expect(files).toHaveLength(9);
   });
 
   it("generates ISR route handlers (not just static files)", () => {
@@ -609,8 +609,9 @@ describe("Next.js integration generation", () => {
   it("includes static seed files", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const filenames = files.map((f) => f.filename);
-    expect(filenames).toContain("nextjs/public/llms.txt");
-    expect(filenames).toContain("nextjs/public/llms-full.txt");
+    expect(filenames).toContain("nextjs/.w2agent/llms.txt");
+    expect(filenames).toContain("nextjs/.w2agent/llms-full.txt");
+    expect(filenames).toContain("nextjs/.w2agent/agent-card.json");
   });
 });
 
