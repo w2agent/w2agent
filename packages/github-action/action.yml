@@ -1,0 +1,142 @@
+name: 'w2agent Audit & Generate'
+description: 'Audit a website for AI agent readiness, post PR comments, and generate agent assets'
+branding:
+  icon: globe
+  color: blue
+
+inputs:
+  url:
+    description: 'URL to audit'
+    required: true
+  threshold:
+    description: 'Minimum passing score (0–100)'
+    required: false
+    default: '80'
+  output-dir:
+    description: 'Directory for generated files'
+    required: false
+    default: '.w2agent/'
+  github-token:
+    description: 'Token for PR comments'
+    required: false
+    default: ${{ github.token }}
+  node-version:
+    description: 'Node.js version'
+    required: false
+    default: '20'
+
+outputs:
+  score:
+    description: 'Overall audit score (0–100)'
+    value: ${{ steps.parse.outputs.score }}
+  grade:
+    description: 'Audit grade (A–F)'
+    value: ${{ steps.parse.outputs.grade }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install w2agent
+      shell: bash
+      run: npm install -g w2agent
+
+    - name: Run audit
+      id: audit
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+      run: |
+        w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json
+
+    - name: Parse audit results
+      id: parse
+      shell: bash
+      run: |
+        SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json)
+        GRADE=$(jq -r '.grade' /tmp/w2agent-audit.json)
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+        echo "grade=$GRADE" >> $GITHUB_OUTPUT
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('/tmp/w2agent-audit.json', 'utf8'));
+          const emoji = ['A', 'B'].includes(report.grade) ? '✅' : report.grade === 'C' ? '⚠️' : '❌';
+          const rows = report.categories.map(c => `| ${c.name} | ${c.score} |`).join('\n');
+          const issues = report.topIssues.slice(0, 5)
+            .map((issue, i) => `${i + 1}. **${issue.message}** (+${issue.pointsIfFixed} pts)`)
+            .join('\n');
+          const body = [
+            '<!-- w2agent-audit -->',
+            `## ${emoji} w2agent Audit: ${report.overallScore}/100 (${report.grade})`,
+            '',
+            '| Category | Score |',
+            '|----------|-------|',
+            rows,
+            '',
+            '### Top Issues',
+            issues || '_No issues found._',
+            '',
+            `_Audited: ${report.url} · ${new Date(report.timestamp).toUTCString()}_`,
+          ].join('\n');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.body.includes('<!-- w2agent-audit -->'));
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
+
+    - name: Generate agent assets
+      if: github.event_name != 'pull_request'
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        w2agent generate "$URL" --output "$OUTPUT_DIR"
+
+    - name: Commit generated files
+      if: github.event_name == 'push'
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: 'chore: regenerate w2agent assets'
+        file_pattern: ${{ inputs.output-dir }}**
+        commit_user_name: github-actions[bot]
+        commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+
+    - name: Check threshold
+      shell: bash
+      env:
+        THRESHOLD: ${{ inputs.threshold }}
+      run: |
+        SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json)
+        if [ "$SCORE" -lt "$THRESHOLD" ]; then
+          echo "::error::Audit score $SCORE is below threshold $THRESHOLD"
+          exit 1
+        fi
+        echo "Audit passed: $SCORE >= $THRESHOLD"

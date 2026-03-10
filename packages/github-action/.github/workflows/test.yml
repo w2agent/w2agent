@@ -1,0 +1,44 @@
+# NOTE: This workflow requires `w2agent` to be published to npm.
+# The "Install w2agent" step will fail until `npm publish` is run.
+# See: https://www.npmjs.com/package/w2agent
+name: Test Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run w2agent action (local)
+        id: w2agent
+        uses: ./
+        with:
+          url: https://example.com
+          threshold: '0'
+          output-dir: .w2agent-test/
+
+      - name: Verify outputs
+        env:
+          SCORE: ${{ steps.w2agent.outputs.score }}
+          GRADE: ${{ steps.w2agent.outputs.grade }}
+        shell: bash
+        run: |
+          echo "score=$SCORE"
+          echo "grade=$GRADE"
+          [[ -n "$SCORE" ]] || { echo "ERROR: score output not set"; exit 1; }
+          [[ -n "$GRADE" ]] || { echo "ERROR: grade output not set"; exit 1; }
+
+      - name: Verify generated files
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          ls -la .w2agent-test/ || { echo "ERROR: no files in output dir"; exit 1; }
