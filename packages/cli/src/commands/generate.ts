@@ -38,7 +38,7 @@ export function registerGenerateCommand(program: Command): void {
         url = `https://${url}`;
       }
 
-      let formats = parseFormats(opts.format);
+      const formats = parseFormats(opts.format);
       const sections = opts.sections
         ? opts.sections.split(",").map((s: string) => s.trim())
         : undefined;
@@ -90,7 +90,9 @@ export function registerGenerateCommand(program: Command): void {
             return;
           }
 
-          console.log(`  Generating fixes for ${chalk.cyan(String(auditFormats.length))} format(s):`);
+          console.log(
+            `  Generating fixes for ${chalk.cyan(String(auditFormats.length))} format(s):`,
+          );
           for (const f of auditFormats) {
             console.log(`    ${chalk.blue("→")} ${f}`);
           }

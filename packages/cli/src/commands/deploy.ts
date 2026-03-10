@@ -1,0 +1,155 @@
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
+import { getApiUrl, getAuthHeaders } from "../auth.js";
+
+interface DeployResult {
+  slug: string;
+  mcpEndpoint: string;
+  pagesIndexed: number;
+  totalPagesFound?: number;
+  tools: Array<{ name: string; description?: string }>;
+  webhookUrl: string;
+  webhookToken: string;
+  isRedeploy: boolean;
+}
+
+interface SseMessage {
+  type: "progress" | "result" | "error";
+  data: unknown;
+}
+
+export function registerDeployCommand(program: Command): void {
+  program
+    .command("deploy <url>")
+    .description("Deploy a website as a hosted MCP server on w2agent.dev")
+    .option("--api-key <key>", "API key for one-shot deploy (without saving credentials)")
+    .option("--slug <slug>", "Custom slug for the deployment")
+    .action(async (url: string, opts: { apiKey?: string; slug?: string }) => {
+      const apiUrl = getApiUrl();
+      const authHeaders = opts.apiKey
+        ? { Authorization: `Bearer ${opts.apiKey}` }
+        : getAuthHeaders();
+
+      if (Object.keys(authHeaders).length === 0) {
+        console.log(
+          chalk.yellow(
+            "⚠ Not logged in. Deploying anonymously — run `w2agent login` to claim ownership.",
+          ),
+        );
+      }
+
+      const spinner = ora("Connecting to w2agent.dev...").start();
+
+      let response: Response;
+      try {
+        response = await fetch(`${apiUrl}/api/mcp/deploy`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({ url, stream: true, ...(opts.slug ? { slug: opts.slug } : {}) }),
+        });
+      } catch (err) {
+        spinner.fail("Could not reach w2agent.dev");
+        console.error(chalk.red(`  ${(err as Error).message}`));
+        process.exit(1);
+      }
+
+      if (!response.ok) {
+        spinner.stop();
+        let errMsg = `HTTP ${response.status}`;
+        try {
+          const json = (await response.json()) as { error?: string };
+          if (json.error) errMsg = json.error;
+        } catch {}
+
+        if (response.status === 401) {
+          console.error(
+            chalk.red(`✗ Authentication failed. Run \`w2agent login\` to authenticate.`),
+          );
+        } else if (response.status === 403) {
+          console.error(chalk.red(`✗ ${errMsg}`));
+        } else if (response.status === 400) {
+          console.error(chalk.red(`✗ Invalid request: ${errMsg}`));
+        } else {
+          console.error(chalk.red(`✗ Deploy failed: ${errMsg}`));
+        }
+        process.exit(1);
+      }
+
+      // Parse SSE stream
+      const reader = response.body?.getReader();
+      if (!reader) {
+        spinner.fail("No response body");
+        process.exit(1);
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const parseLine = (line: string): SseMessage | null => {
+        if (!line.startsWith("data: ")) return null;
+        try {
+          return JSON.parse(line.slice(6)) as SseMessage;
+        } catch {
+          return null;
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const msg = parseLine(line.trim());
+          if (!msg) continue;
+
+          if (msg.type === "progress") {
+            spinner.text = String(msg.data);
+          } else if (msg.type === "result") {
+            spinner.succeed("Deploy complete");
+            const result = msg.data as DeployResult;
+            printResult(result);
+            return;
+          } else if (msg.type === "error") {
+            spinner.fail("Deploy failed");
+            console.error(chalk.red(`  ${msg.data}`));
+            process.exit(1);
+          }
+        }
+      }
+
+      spinner.fail("Deploy ended without a result");
+      process.exit(1);
+    });
+}
+
+function printResult(result: DeployResult): void {
+  console.log();
+  if (result.isRedeploy) {
+    console.log(chalk.yellow("  Redeployed") + chalk.gray(` → ${result.slug}`));
+  } else {
+    console.log(chalk.green("  Deployed") + chalk.gray(` → ${result.slug}`));
+  }
+  console.log();
+  console.log(`  ${chalk.gray("MCP endpoint")}  ${chalk.white(result.mcpEndpoint)}`);
+  console.log(
+    `  ${chalk.gray("Pages")}         ${chalk.white(result.pagesIndexed)}${result.totalPagesFound && result.totalPagesFound > result.pagesIndexed ? chalk.gray(` / ${result.totalPagesFound} found`) : ""}`,
+  );
+
+  if (result.tools.length > 0) {
+    console.log(
+      `  ${chalk.gray("Tools")}         ${chalk.white(result.tools.map((t) => t.name).join(", "))}`,
+    );
+  }
+
+  console.log(`  ${chalk.gray("Webhook")}       ${chalk.white(result.webhookUrl)}`);
+  console.log(`  ${chalk.gray("Webhook token")} ${chalk.gray(result.webhookToken)}`);
+  console.log();
+}
