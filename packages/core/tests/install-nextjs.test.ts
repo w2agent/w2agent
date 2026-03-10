@@ -17,8 +17,9 @@ function makeNextjsFiles(): GeneratedFile[] {
     makeFile("nextjs/app/llms.txt/route.ts", "export async function GET() {}"),
     makeFile("nextjs/app/llms-full.txt/route.ts", "export async function GET() {}"),
     makeFile("nextjs/app/.well-known/agent-card.json/route.ts", "export async function GET() {}"),
-    makeFile("nextjs/public/llms.txt", "# Seed"),
-    makeFile("nextjs/public/llms-full.txt", "# Seed Full"),
+    makeFile("nextjs/.w2agent/llms.txt", "# Seed"),
+    makeFile("nextjs/.w2agent/llms-full.txt", "# Seed Full"),
+    makeFile("nextjs/.w2agent/agent-card.json", '{"name":"test"}'),
     makeFile("nextjs/w2agent-build.mjs", "// build script"),
     makeFile("nextjs/INSTALL.md", "# Install"),
   ];
@@ -31,7 +32,6 @@ describe("Next.js install resolver", () => {
     tempDir = mkdtempSync(join(tmpdir(), "w2agent-nextjs-install-"));
     // Create a basic Next.js app-router project
     mkdirSync(join(tempDir, "app"), { recursive: true });
-    mkdirSync(join(tempDir, "public"), { recursive: true });
   });
 
   afterEach(() => {
@@ -48,8 +48,9 @@ describe("Next.js install resolver", () => {
     expect(dests).toContain("app/llms.txt/route.ts");
     expect(dests).toContain("app/llms-full.txt/route.ts");
     expect(dests).toContain("app/.well-known/agent-card.json/route.ts");
-    expect(dests).toContain("public/llms.txt");
-    expect(dests).toContain("public/llms-full.txt");
+    expect(dests).toContain(".w2agent/llms.txt");
+    expect(dests).toContain(".w2agent/llms-full.txt");
+    expect(dests).toContain(".w2agent/agent-card.json");
     expect(dests).toContain("w2agent-build.mjs");
     expect(plan.warnings.length).toBe(0);
     expect(plan.postInstallSteps.length).toBeGreaterThan(0);
@@ -124,12 +125,13 @@ describe("Next.js install resolver", () => {
     expect(plan.warnings.some((w) => w.includes("Merge manually"))).toBe(true);
   });
 
-  it("skips existing public/llms.txt", () => {
-    writeFileSync(join(tempDir, "public", "llms.txt"), "# existing", "utf-8");
+  it("skips existing .w2agent/llms.txt", () => {
+    mkdirSync(join(tempDir, ".w2agent"), { recursive: true });
+    writeFileSync(join(tempDir, ".w2agent", "llms.txt"), "# existing", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "public/llms.txt");
+    const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === ".w2agent/llms.txt");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toContain("already exists");
   });

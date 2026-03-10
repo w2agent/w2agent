@@ -9,7 +9,7 @@ interface NextjsLayout {
   hasPagesDir: boolean;
   hasMiddleware: boolean;
   hasExistingLlmsRoute: boolean;
-  hasExistingPublicLlms: boolean;
+  hasExistingW2agentLlms: boolean;
   hasExistingBuildScript: boolean;
   hasW2agentRefs: boolean;
 }
@@ -29,7 +29,7 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
 
   const appRoot = hasSrcDir && existsSync(join(projectDir, "src", "app")) ? "src/app" : "app";
   const hasExistingLlmsRoute = existsSync(join(projectDir, appRoot, "llms.txt", "route.ts"));
-  const hasExistingPublicLlms = existsSync(join(projectDir, "public", "llms.txt"));
+  const hasExistingW2agentLlms = existsSync(join(projectDir, ".w2agent", "llms.txt"));
   const hasExistingBuildScript = existsSync(join(projectDir, "w2agent-build.mjs"));
 
   let hasW2agentRefs = false;
@@ -56,7 +56,7 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
     hasPagesDir,
     hasMiddleware,
     hasExistingLlmsRoute,
-    hasExistingPublicLlms,
+    hasExistingW2agentLlms,
     hasExistingBuildScript,
     hasW2agentRefs,
   };
@@ -107,15 +107,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       continue;
     }
 
-    // Public seed files
-    if (relPath.startsWith("public/")) {
-      if (relPath === "public/llms.txt" && layout.hasExistingPublicLlms) {
+    // .w2agent/ seed files
+    if (relPath.startsWith(".w2agent/")) {
+      if (relPath === ".w2agent/llms.txt" && layout.hasExistingW2agentLlms) {
         actions.push({
           type: "skip",
           dest: relPath,
           reason: "file already exists",
         });
-        warnings.push("Existing public/llms.txt found — skipping seed file.");
+        warnings.push("Existing .w2agent/llms.txt found — skipping seed file.");
         continue;
       }
 
