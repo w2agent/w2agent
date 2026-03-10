@@ -23,6 +23,8 @@ export interface DetectedForm {
   method: string;
   fields: ExtractedFormField[];
   pageUrl: string;
+  id?: string;
+  name?: string;
 }
 
 export type SelfHostPlatform = "vercel" | "cf";
@@ -62,6 +64,45 @@ export function generateMcpServer(
 }
 
 // --- Tool Detection ---
+
+function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<string>): string {
+  let base: string | undefined;
+
+  if (form.id) {
+    base = form.id;
+  } else if (form.name) {
+    base = form.name;
+  } else {
+    const segment = form.action
+      .split("/")
+      .filter((s) => s && s !== "#")
+      .pop()
+      ?.split("?")[0];
+    if (segment) base = segment;
+  }
+
+  if (!base) {
+    const name = `submit-form-${index}`;
+    usedNames.add(name);
+    return name;
+  }
+
+  const sanitized = `submit-${base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 45)}`;
+
+  if (!usedNames.has(sanitized)) {
+    usedNames.add(sanitized);
+    return sanitized;
+  }
+  let counter = 2;
+  while (usedNames.has(`${sanitized}-${counter}`)) counter++;
+  const deduped = `${sanitized}-${counter}`;
+  usedNames.add(deduped);
+  return deduped;
+}
 
 export function detectTools(ctx: GenerateContext): McpDetectedTools {
   const tools: McpTool[] = [];
@@ -132,10 +173,11 @@ export function detectTools(ctx: GenerateContext): McpDetectedTools {
   }
 
   // Add form tools
+  const usedFormNames = new Set<string>();
   forms.forEach((form, i) => {
     const fieldNames = form.fields.map((f) => f.name).join(", ");
     tools.push({
-      name: `submit-form-${i}`,
+      name: inferFormToolName(form, i, usedFormNames),
       description: `Submit form (${form.method} ${form.action}) with fields: ${fieldNames}`,
       condition: "hasForm",
     });
@@ -307,16 +349,18 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   }
 
   // Form submission tools
+  const formTools = detected.tools.filter((t) => t.condition === "hasForm");
   detected.forms.forEach((form, i) => {
+    const toolName = formTools[i]?.name ?? `submit-form-${i}`;
     const fieldSchemas = form.fields.map((f) => {
       const zodType = f.type === "number" ? "z.number()" : "z.string()";
       const desc = f.label || f.name;
       return `    ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
     });
 
-    lines.push(`// Tool: submit-form-${i}`);
+    lines.push(`// Tool: ${toolName}`);
     lines.push(
-      `server.tool("submit-form-${i}", ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
+      `server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
     );
     lines.push(fieldSchemas.join(",\n"));
     lines.push(

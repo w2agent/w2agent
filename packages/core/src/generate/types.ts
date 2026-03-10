@@ -71,6 +71,8 @@ export interface ExtractedForm {
   action: string;
   method: string;
   fields: ExtractedFormField[];
+  id?: string;
+  name?: string;
 }
 
 export interface PageMarkdown {

@@ -88,7 +88,7 @@ describe("detectTools", () => {
     expect(result.forms[0].method).toBe("POST");
     expect(result.forms[0].pageUrl).toBe("https://example.com/contact");
     expect(result.forms[0].fields).toHaveLength(2);
-    expect(result.tools.some((t) => t.name === "submit-form-0")).toBe(true);
+    expect(result.tools.some((t) => t.name === "submit-contact")).toBe(true);
   });
 
   it("returns empty forms when pages have no forms", () => {
@@ -146,6 +146,125 @@ describe("detectTools", () => {
     expect(result.hasFaq).toBe(false);
     expect(result.hasSearchAction).toBe(false);
     expect(result.forms).toHaveLength(0);
+  });
+
+  it("names form tool from action URL path segment", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/newsletter",
+          title: "Newsletter",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "/subscribe",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = detectTools(ctx);
+    expect(result.tools.some((t) => t.name === "submit-subscribe")).toBe(true);
+  });
+
+  it("names form tool from form id attribute", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "/submit",
+              method: "POST",
+              id: "contact-form",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = detectTools(ctx);
+    expect(result.tools.some((t) => t.name === "submit-contact-form")).toBe(true);
+  });
+
+  it("names form tool from form name attribute when no id", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/",
+          title: "Home",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "/submit",
+              method: "POST",
+              name: "newsletter",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = detectTools(ctx);
+    expect(result.tools.some((t) => t.name === "submit-newsletter")).toBe(true);
+  });
+
+  it("deduplicates form tool names with numeric suffix", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/",
+          title: "Home",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+            {
+              action: "/contact",
+              method: "GET",
+              fields: [{ name: "q", type: "text", required: false }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = detectTools(ctx);
+    const names = result.tools.filter((t) => t.condition === "hasForm").map((t) => t.name);
+    expect(names).toContain("submit-contact");
+    expect(names).toContain("submit-contact-2");
+  });
+
+  it("falls back to submit-form-N for anchor-only actions", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/",
+          title: "Home",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "#",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = detectTools(ctx);
+    expect(result.tools.some((t) => t.name === "submit-form-0")).toBe(true);
   });
 });
 

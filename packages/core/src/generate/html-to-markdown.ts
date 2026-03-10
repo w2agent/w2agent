@@ -77,10 +77,14 @@ function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
     });
 
     if (fields.length > 0) {
+      const formId = $form.attr("id");
+      const formName = $form.attr("name");
       forms.push({
         action,
         method: ($form.attr("method") || "GET").toUpperCase(),
         fields,
+        ...(formId ? { id: formId } : {}),
+        ...(formName ? { name: formName } : {}),
       });
     }
   });
