@@ -228,9 +228,18 @@ export function registerGenerateCommand(program: Command): void {
     });
 }
 
-function parseFormats(format: string): GenerateFormat[] {
+export function parseFormats(format: string): GenerateFormat[] {
   if (format === "all")
-    return ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"];
+    return [
+      "llms-txt",
+      "full",
+      "markdown",
+      "robots-txt",
+      "schema-org",
+      "agent-card",
+      "faq",
+      "webmcp",
+    ];
   const map: Record<string, GenerateFormat> = {
     "llms-txt": "llms-txt",
     full: "full",
