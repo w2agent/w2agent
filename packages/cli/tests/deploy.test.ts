@@ -281,7 +281,7 @@ describe("deploy command", () => {
       await buildProgram().parseAsync(["node", "w2agent", "deploy", "https://example.com"]);
 
       const allLog = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
-      expect(allLog).toContain("Redeployed");
+      expect(allLog).toContain("Re-agentized");
     });
   });
 

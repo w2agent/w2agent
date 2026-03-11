@@ -12,12 +12,14 @@ import {
 } from "w2agent-core";
 
 export function registerMcpCommand(program: Command): void {
-  const mcp = program.command("mcp").description("Generate and deploy MCP servers for any website");
+  const mcp = program
+    .command("mcp")
+    .description("Generate self-hosted MCP servers for any website");
 
   // --- mcp deploy ---
   mcp
     .command("deploy")
-    .description("Generate an MCP server for a website")
+    .description("Generate a self-hosted MCP server for a website")
     .argument("<url>", "URL to generate MCP server for")
     .option("--self-host <platform>", "Self-host platform: vercel, cf")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
@@ -77,7 +79,7 @@ export function registerMcpCommand(program: Command): void {
 
         // Summary
         console.log("");
-        console.log(chalk.bold("  w2agent mcp deploy — MCP Server Generator"));
+        console.log(chalk.bold("  w2agent mcp deploy — Self-Host MCP Server"));
         console.log(chalk.gray(`  ${"─".repeat(42)}`));
         console.log("");
         console.log(`  Source: ${chalk.cyan(url)}`);
