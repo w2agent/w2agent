@@ -20,7 +20,7 @@ const mockFetchText = vi.mocked(fetchText);
 const BASE_URL = "https://example.com";
 
 function makeSitemap(urls: string[]): string {
-  return `<?xml version="1.0"?><urlset>${urls.map((u) => `<loc>${u}</loc>`).join("")}</urlset>`;
+  return `<?xml version="1.0"?><urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
 }
 
 function makePageResult(url: string): FetchedPage {

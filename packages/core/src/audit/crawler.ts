@@ -1,7 +1,8 @@
 import robotsParser from "robots-parser";
+import { discoverPages } from "../crawl/discovery.js";
+import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
-import { sortUrlsByScore } from "../shared/page-scoring.js";
 import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -66,13 +67,16 @@ export async function crawlSite(
   );
 
   const pages: FetchedPage[] = [homepage];
-  const visited = new Set<string>([url]);
+  const visited = new Set<string>([new URL(url).href]);
 
-  const sitemapUrls = parseSitemapUrls(metadata.sitemapXml, baseUrl);
-  const uniqueSitemapUrls = sitemapUrls.filter((u) => !visited.has(u));
-  const totalUrlsFound = 1 + uniqueSitemapUrls.length; // homepage + sitemap
-  const rankedUrls = sortUrlsByScore(uniqueSitemapUrls);
-  const urlsToFetch = rankedUrls.slice(0, options.maxPages - 1);
+  const discovered = discoverPages({
+    sitemapXml: metadata.sitemapXml,
+    homepage: { html: homepage.html, url },
+    baseUrl,
+  });
+  const totalUrlsFound = 1 + discovered.filter((p) => !visited.has(p.url)).length;
+  const selected = selectPages(discovered, options.maxPages - 1, visited);
+  const urlsToFetch = selected.map((p) => p.url);
 
   if (urlsToFetch.length > 0) {
     onProgress?.(`Scanning ${urlsToFetch.length} pages from sitemap...`);
@@ -112,21 +116,4 @@ export async function crawlSite(
   }
 
   return { pages, metadata, totalUrlsFound };
-}
-
-function parseSitemapUrls(xml: string | undefined, baseUrl: string): string[] {
-  if (!xml) return [];
-  const urls: string[] = [];
-  const locRegex = /<loc>\s*(.*?)\s*<\/loc>/gi;
-  let match: RegExpExecArray | null = null;
-  while ((match = locRegex.exec(xml)) !== null) {
-    const loc = match[1].trim();
-    try {
-      const parsed = new URL(loc);
-      if (parsed.origin === new URL(baseUrl).origin) {
-        urls.push(loc);
-      }
-    } catch {}
-  }
-  return urls;
 }

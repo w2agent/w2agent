@@ -19,14 +19,14 @@ const URL_PATTERNS: [RegExp, number][] = [
   [/^\/(customers|case-studies|testimonials|stories)(\/|$)/, 3],
 ];
 
-function getUrlPatternScore(pathname: string): number {
+export function getUrlPatternScore(pathname: string): number {
   for (const [pattern, score] of URL_PATTERNS) {
     if (pattern.test(pathname)) return score;
   }
   return 2;
 }
 
-function getUrlDepth(pathname: string): number {
+export function getUrlDepth(pathname: string): number {
   return pathname.split("/").filter(Boolean).length;
 }
 
