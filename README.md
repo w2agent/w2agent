@@ -1,13 +1,14 @@
 # w2agent
 
-**AI Readiness Audit for the Web** — Like Lighthouse, but for AI agents.
+**Every website is already an agent.** w2agent audits, generates, and deploys
+any website as a live MCP server — discoverable and queryable by Claude, GPT,
+and any MCP-compatible AI tool.
 
-Score any website's readiness for AI crawlers, LLMs, and autonomous agents. 47+ checks across 6 categories, with actionable fix suggestions. Then **generate** the files to fix them — with platform-native integrations for WordPress, Next.js, Shopify, and Docusaurus.
+<!-- gif: cli-audit — terminal running `npx w2agent audit https://stripe.com`, score output scrolling in -->
 
 ```bash
-npx w2agent audit https://your-site.com
-npx w2agent generate https://your-site.com
-npx w2agent integrate https://your-site.com
+npx w2agent audit https://your-site.com     # score it
+npx w2agent agentize https://your-site.com  # deploy it as an MCP server
 ```
 
 ```
@@ -34,6 +35,50 @@ npx w2agent integrate https://your-site.com
   ✗ No /.well-known/agent-card.json         (+8 points if fixed)
 ```
 
+## The Pipeline
+
+Turn any website into a queryable AI agent in four steps:
+
+| Step | Command | What happens |
+|------|---------|-------------|
+| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 47+ checks. Find what's blocking agents. |
+| **2. Generate** | `npx w2agent generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
+| **3. Integrate** | `npx w2agent integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
+| **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live MCP server at `<slug>.mcp.w2agent.dev`. |
+
+## The Agent Network
+
+Every agentized site joins a shared network — discoverable via the
+[w2agent directory](https://w2agent.dev/directory) and the **Meta MCP** discovery
+server.
+
+<!-- gif: meta-mcp-discovery — Claude Desktop showing `search_websites` tool call, returning a list of 5 dev-tool agents -->
+
+**Use any agent in Claude Desktop** by adding the Meta MCP endpoint:
+
+```json
+{
+  "mcpServers": {
+    "w2agent-meta": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.w2agent.dev/mcp"]
+    }
+  }
+}
+```
+
+Once connected, Claude can discover and query any of the 100+ sites in the directory:
+
+> "I'm building a SaaS app. What agents do you have for Next.js, Supabase, and Stripe?"
+
+<!-- gif: env-synthesis — Claude synthesizing a .env.example from 3 different site-agents in one response -->
+
+**Individual agents** are accessible directly:
+- Hosted: `https://<slug>.mcp.w2agent.dev/mcp`
+- Self-hosted: deploy the generated MCP server to Vercel or Cloudflare Workers
+
+[Browse the directory →](https://w2agent.dev/directory)
+
 ## Features
 
 - **47+ checks** across 6 scoring categories (35 core + 12 platform-specific)
@@ -41,23 +86,24 @@ npx w2agent integrate https://your-site.com
 - **Platform integrations** — generates native plugins, middleware, Liquid snippets
 - **Generate llms.txt + llms-full.txt** — auto-generate from any site
 - **7 output formats** — llms.txt, llms-full.txt, robots.txt, schema-org.json, agent-card.json, faq.json, markdown
-- **No API keys required** — pure HTTP/HTML analysis, no LLM dependency
+- **No API keys required** — pure HTTP/HTML analysis, no LLM dependency for audit/generate
 - **Multi-page** — crawls sitemap + discovers pages via internal links
 - **Actionable** — shows fix snippets and "points if fixed" ROI
-- **CLI** — developer CLI with rich terminal output
 - **CI/CD ready** — `--ci --threshold 80` for automated quality gates
+- **Agentize** — host any site as a live MCP server at `<slug>.mcp.w2agent.dev`
+- **Meta MCP discovery** — Claude discovers 100+ agents via one endpoint
 
 ## Install & Use
 
-### CLI (zero-install)
+### Audit, Generate, Integrate (no API key required)
 
 ```bash
-# Audit a site
+# Audit a site's AI-readiness
 npx w2agent audit https://example.com
 npx w2agent audit https://example.com --depth 10 --verbose
-npx w2agent audit https://example.com --ci --threshold 80
+npx w2agent audit https://example.com --ci --threshold 80  # CI gate
 
-# Generate llms.txt + llms-full.txt + all AI-ready files
+# Generate llms.txt + all AI-ready files
 npx w2agent generate https://example.com
 npx w2agent generate https://example.com --format llms-txt
 npx w2agent generate https://example.com --max-pages 200 --output ./output/
@@ -65,27 +111,52 @@ npx w2agent generate https://example.com --max-pages 200 --output ./output/
 # Generate platform-specific integration files
 npx w2agent integrate https://example.com
 npx w2agent integrate https://example.com --platform wordpress
-
-# Install integration files directly into your project
-npx w2agent integrate https://example.com --install
-npx w2agent integrate https://example.com --install --dry-run  # preview only
+npx w2agent integrate https://example.com --install        # install into project
 ```
 
-### Hosted Web UI
+### Agentize — hosted MCP on w2agent.dev
 
-Try the hosted version at [w2agent.dev](https://w2agent.dev) — paste a URL, audit, and generate files with a visual interface.
-
-### From source
+Host your site as a live MCP server (requires free API key):
 
 ```bash
-git clone https://github.com/anthropics/w2agent
-cd w2agent
-pnpm install
-pnpm build
-node packages/cli/dist/index.js audit https://example.com
-node packages/cli/dist/index.js generate https://example.com
-node packages/cli/dist/index.js integrate https://example.com
+npx w2agent login                             # one-time auth
+npx w2agent agentize https://example.com      # deploys → example-com.mcp.w2agent.dev
+npx w2agent agentize https://example.com --slug my-docs
 ```
+
+Your MCP endpoint is live immediately. Add it to Claude Desktop:
+```json
+{
+  "mcpServers": {
+    "my-site": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://my-docs.mcp.w2agent.dev/mcp"]
+    }
+  }
+}
+```
+
+### Self-host MCP (no API key, deploy to your own infra)
+
+```bash
+# Generate a deployable MCP server project
+npx w2agent mcp deploy https://example.com --self-host vercel
+npx w2agent mcp deploy https://example.com --self-host cf   # Cloudflare Workers
+
+# Outputs a ready-to-deploy project in ./w2agent-output/
+# vercel deploy ./w2agent-output/   or   wrangler deploy ./w2agent-output/
+```
+
+## Hosted vs Self-hosted
+
+| | Hosted (`agentize`) | Self-hosted (`mcp deploy`) |
+|---|---|---|
+| **Setup** | `npx w2agent login` + one command | Generate + deploy to your infra |
+| **Domain** | `<slug>.mcp.w2agent.dev` | Your domain |
+| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (`wrangler deploy` again) |
+| **Directory listing** | Yes (opt-in) | No |
+| **Auth required** | Free API key | None |
+| **Best for** | Quick deploy, directory visibility | Custom domains, air-gapped, enterprise |
 
 ## Platform Adapters
 
@@ -163,13 +234,32 @@ Options:
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
 
+```
+w2agent agentize <url> [options]
+
+Options:
+  --api-key <key>    API key (alternative to `w2agent login`)
+  --slug <slug>      Custom slug (default: derived from domain)
+```
+
+```
+w2agent mcp deploy <url> [options]
+
+Options:
+  --self-host <platform>   vercel | cf (Cloudflare Workers)
+  -o, --output <dir>       Output directory (default: ./w2agent-output)
+  -m, --max-pages <n>      Max pages to crawl (default: 50)
+```
+
 See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
 
 ## Project Structure
 
 ```
-packages/core     Audit engine, generators, platform adapters (published as w2agent-core)
-packages/cli      CLI tool (published as w2agent)
+packages/core     Audit engine, generators, MCP server builder, platform adapters
+                  (published as w2agent-core)
+packages/cli      CLI tool — audit, generate, integrate, agentize, mcp
+                  (published as w2agent)
 ```
 
 ## Development
