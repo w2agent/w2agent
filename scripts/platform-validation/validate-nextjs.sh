@@ -90,6 +90,31 @@ find_port() {
   echo "$p"
 }
 
+# Detect package manager from lockfiles in app_dir
+detect_pkg_manager() {
+  local app_dir="$1"
+  if [[ -f "$app_dir/pnpm-lock.yaml" ]]; then
+    echo "pnpm"
+  elif [[ -f "$app_dir/yarn.lock" ]]; then
+    echo "yarn"
+  else
+    echo "npm"
+  fi
+}
+
+# Install deps using the detected package manager
+install_deps() {
+  local app_dir="$1"
+  local pm
+  pm=$(detect_pkg_manager "$app_dir")
+  log "  Installing deps with $pm..."
+  case "$pm" in
+    pnpm) (cd "$app_dir" && pnpm install --no-frozen-lockfile 2>&1 | tail -3) ;;
+    yarn) (cd "$app_dir" && yarn install --no-immutable 2>&1 | tail -3) ;;
+    *)    (cd "$app_dir" && npm install --prefer-offline 2>&1 | tail -3) ;;
+  esac
+}
+
 # Poll until HTTP server responds (any status counts — just needs to accept connections)
 wait_for_server() {
   local port="$1"
@@ -271,8 +296,7 @@ run_repo() {
   pass "Integrate (--install)" "files written: ${files_written:-see output}"
 
   # 3. Install deps
-  log "  npm install..."
-  if (cd "$app_dir" && npm install --prefer-offline 2>&1 | tail -3); then
+  if install_deps "$app_dir"; then
     pass "Install deps"
   else
     fail "Install deps"
@@ -283,8 +307,10 @@ run_repo() {
   fi
 
   # 4. Build
-  log "  npm run build..."
-  if (cd "$app_dir" && npm run build 2>&1 | tail -5); then
+  local pm
+  pm=$(detect_pkg_manager "$app_dir")
+  log "  Building ($pm run build || npx next build)..."
+  if (cd "$app_dir" && { $pm run build 2>/dev/null || npx next build; } 2>&1 | tail -5); then
     pass "Build"
   else
     fail "Build"
