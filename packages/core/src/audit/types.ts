@@ -90,6 +90,8 @@ export interface AuditOptions {
   categories?: CategoryId[];
   verbose: boolean;
   userAgent: string;
+  concurrency?: number; // max parallel fetches (default 3)
+  requestDelay?: number; // min ms between request starts (default 200)
 }
 
 export const DEFAULT_OPTIONS: AuditOptions = {
@@ -97,6 +99,8 @@ export const DEFAULT_OPTIONS: AuditOptions = {
   timeout: 10000,
   verbose: false,
   userAgent: "w2agent/0.1 (+https://w2agent.dev)",
+  concurrency: 3,
+  requestDelay: 200,
 };
 
 export const CATEGORY_CONFIG: Record<CategoryId, { name: string; weight: number }> = {

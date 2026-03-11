@@ -1,7 +1,10 @@
+import robotsParser from "robots-parser";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { sortUrlsByScore } from "../shared/page-scoring.js";
 import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface CrawlResult {
   pages: FetchedPage[];
@@ -52,6 +55,16 @@ export async function crawlSite(
     openapi: openapiResult ?? undefined,
   };
 
+  const crawlDelaySeconds =
+    robotsParser(`${baseUrl}/robots.txt`, metadata.robotsTxt ?? "").getCrawlDelay(
+      options.userAgent,
+    ) ?? 0;
+
+  const effectiveDelay = Math.min(
+    Math.max(options.requestDelay ?? 200, crawlDelaySeconds * 1000),
+    10_000, // cap at 10s — prevents >10 minutes for a 20-page crawl
+  );
+
   const pages: FetchedPage[] = [homepage];
   const visited = new Set<string>([url]);
 
@@ -63,20 +76,39 @@ export async function crawlSite(
 
   if (urlsToFetch.length > 0) {
     onProgress?.(`Scanning ${urlsToFetch.length} pages from sitemap...`);
-    const batchSize = 5;
-    for (let i = 0; i < urlsToFetch.length; i += batchSize) {
-      const batch = urlsToFetch.slice(i, i + batchSize);
-      const results = await Promise.all(batch.map((u) => fetchPage(u, options)));
-      for (const page of results) {
-        if (page.status > 0) {
-          pages.push(page);
-          visited.add(page.url);
+
+    const concurrency = options.concurrency ?? 3;
+    let completed = 0;
+
+    // Serialized gate: each worker chains onto the gate promise,
+    // waiting effectiveDelay ms after the previous worker started.
+    // This ensures at most one new request starts per effectiveDelay window
+    // while still allowing concurrency fetches to run in parallel.
+    let gate = Promise.resolve();
+
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (true) {
+          if (completed >= urlsToFetch.length) break;
+          const u = urlsToFetch[completed];
+          completed++;
+
+          // Acquire rate limit slot
+          const mySlot = gate.then(() => sleep(effectiveDelay));
+          gate = mySlot;
+
+          await mySlot;
+          const page = await fetchPage(u, options);
+
+          if (page.status > 0) {
+            pages.push(page);
+            visited.add(page.url);
+          }
+
+          onProgress?.(`Scanned ${pages.length - 1}/${urlsToFetch.length} pages...`);
         }
-      }
-      onProgress?.(
-        `Scanned ${Math.min(i + batchSize, urlsToFetch.length)}/${urlsToFetch.length} pages...`,
-      );
-    }
+      }),
+    );
   }
 
   return { pages, metadata, totalUrlsFound };

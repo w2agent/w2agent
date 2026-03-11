@@ -257,10 +257,7 @@ describe("probeOpenAPIPaths", () => {
 
     const result = await probeOpenAPIPaths("https://example.com", opts);
     expect(result?.title).toBe("Direct");
-    expect(mockFetchText).not.toHaveBeenCalledWith(
-      "https://example.com/internal/spec.json",
-      opts,
-    );
+    expect(mockFetchText).not.toHaveBeenCalledWith("https://example.com/internal/spec.json", opts);
   });
 
   it("detects Spring Boot spec at /v3/api-docs", async () => {
@@ -359,10 +356,7 @@ describe("probeOpenAPIPaths", () => {
     });
     const result = await probeOpenAPIPaths("https://example.com", opts, { homepageHtml });
     expect(result?.title).toBe("Direct Hit");
-    expect(mockFetchText).not.toHaveBeenCalledWith(
-      "https://example.com/custom/openapi.json",
-      opts,
-    );
+    expect(mockFetchText).not.toHaveBeenCalledWith("https://example.com/custom/openapi.json", opts);
   });
 
   it("returns null when no spec found even with homepage HTML", async () => {
