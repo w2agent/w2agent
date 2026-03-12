@@ -29,7 +29,8 @@ export type GenerateFormat =
   | "faq"
   | "mcp-server"
   | "skill-md"
-  | "webmcp";
+  | "webmcp"
+  | "openclaw";
 
 export interface GeneratedFile {
   filename: string;

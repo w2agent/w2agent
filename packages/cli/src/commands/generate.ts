@@ -25,7 +25,7 @@ export function registerGenerateCommand(program: Command): void {
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option(
       "-f, --format <format>",
-      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, all",
+      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all",
       "all",
     )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
@@ -158,6 +158,8 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} faq.json           (${size})`);
           } else if (file.filename === "skill.md") {
             console.log(`  ${chalk.green("✓")} skill.md           (${size})`);
+          } else if (file.filename === "openclaw/SKILL.md") {
+            console.log(`  ${chalk.green("✓")} openclaw/SKILL.md  (${size})`);
           } else if (file.filename.startsWith("markdown/")) {
             // Count markdown files — only print summary once
           } else if (file.filename.startsWith("webmcp/")) {
@@ -251,6 +253,7 @@ export function parseFormats(format: string): GenerateFormat[] {
     "mcp-server": "mcp-server",
     "skill-md": "skill-md",
     webmcp: "webmcp",
+    openclaw: "openclaw",
   };
   return [map[format] || "llms-txt"];
 }

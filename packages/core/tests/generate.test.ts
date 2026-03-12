@@ -10,6 +10,7 @@ import { extractSiteInfo, generateLlmsTxt } from "../src/generate/llms-txt.js";
 import { generateRobotsTxt } from "../src/generate/robots-txt.js";
 import { generateSchemaOrg } from "../src/generate/schema-org.js";
 import { generateSkillMd } from "../src/generate/skill-md.js";
+import { generateOpenClawSkillMd } from "../src/generate/skill-md-openclaw.js";
 import type { GenerateContext, PageMarkdown } from "../src/generate/types.js";
 import { parseHTML } from "../src/shared/html-parser.js";
 
@@ -850,6 +851,156 @@ describe("generateSkillMd", () => {
     const result = generateSkillMd(ctx);
 
     // Should not have unescaped quotes inside the YAML value
+    const descLine = result.split("\n").find((l) => l.startsWith("description:"));
+    expect(descLine).toBeDefined();
+    expect(descLine).not.toMatch(/description: ".*[^\\]".*[^\\]".*"/);
+  });
+});
+
+// --- OpenClaw SKILL.md generation ---
+
+describe("generateOpenClawSkillMd", () => {
+  const pages: PageMarkdown[] = [
+    {
+      url: "https://example.com/",
+      title: "Example Site",
+      description: "A great example site",
+      markdown: "Welcome to Example.",
+    },
+    {
+      url: "https://example.com/docs/getting-started",
+      title: "Getting Started",
+      description: "How to get started",
+      markdown: "First steps.",
+    },
+    {
+      url: "https://example.com/docs/api",
+      title: "API Reference",
+      description: "Complete API docs",
+      markdown: "API details.",
+    },
+    {
+      url: "https://example.com/about",
+      title: "About Us",
+      description: "",
+      markdown: "We are Example.",
+    },
+  ];
+
+  function makeOpenClawCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
+    return {
+      pages: overrides.pages ?? pages,
+      rawPages: overrides.rawPages ?? [],
+      metadata: overrides.metadata ?? {
+        baseUrl: "https://example.com",
+        wellKnown: {},
+      },
+      baseUrl: overrides.baseUrl ?? "https://example.com",
+    };
+  }
+
+  it("has YAML frontmatter with name, version, user-invocable, and homepage", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toMatch(/^---\n/);
+    expect(result).toMatch(/\nname: example-com-agent\n/);
+    expect(result).toMatch(/\nversion: 1\.0\.0\n/);
+    expect(result).toMatch(/\nuser-invocable: true\n/);
+    expect(result).toMatch(/\nhomepage: https:\/\/example\.com\n/);
+    expect(result).toContain("---\n\n#");
+  });
+
+  it("name is lowercase kebab-case with no dots", () => {
+    const ctx = makeOpenClawCtx({
+      baseUrl: "https://docs.example.com",
+      pages: [
+        { url: "https://docs.example.com/", title: "Docs", description: "", markdown: "Welcome." },
+      ],
+    });
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toContain("name: docs-example-com-agent");
+    expect(result).not.toMatch(/name:.*\./);
+  });
+
+  it("description uses trigger-phrase style mentioning site name", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx);
+
+    const descLine = result.split("\n").find((l) => l.startsWith("description:"));
+    expect(descLine).toBeDefined();
+    expect(descLine).toContain("Example Site");
+    // Trigger-phrase pattern: starts with "Use when"
+    expect(descLine).toMatch(/Use when/);
+  });
+
+  it("includes MCP endpoint when provided", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx, {
+      mcpEndpoint: "https://w2agent.dev/api/mcp/example-com",
+    });
+
+    expect(result).toContain("https://w2agent.dev/api/mcp/example-com");
+    expect(result).not.toContain("TODO");
+  });
+
+  it("uses localhost placeholder with TODO when no endpoint", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toContain("localhost:3100/mcp");
+    expect(result).toContain("TODO");
+  });
+
+  it("lists all detected tools", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toContain("### `list-pages`");
+    expect(result).toContain("### `get-page`");
+    expect(result).toContain("### `search-site`");
+  });
+
+  it("lists key pages with links", () => {
+    const ctx = makeOpenClawCtx();
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toContain("[Example Site](https://example.com/)");
+    expect(result).toContain("[Getting Started](https://example.com/docs/getting-started)");
+    expect(result).toContain("## Key Content Areas");
+  });
+
+  it("includes search-faq step when FAQ content detected", () => {
+    const faqHtml = `<html><head><title>FAQ</title></head><body>
+      <h1>Frequently Asked Questions</h1>
+      <h2>What is this?</h2>
+      <p>This is a test product for testing purposes.</p>
+      <h2>How does it work?</h2>
+      <p>It works by processing your data and returning results.</p>
+    </body></html>`;
+
+    const ctx = makeOpenClawCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", faqHtml)],
+    });
+    const result = generateOpenClawSkillMd(ctx);
+
+    expect(result).toContain("search-faq");
+  });
+
+  it("escapes double quotes in YAML description", () => {
+    const ctx = makeOpenClawCtx({
+      pages: [
+        {
+          url: "https://example.com/",
+          title: 'Site "With Quotes"',
+          description: 'A "great" site',
+          markdown: "Welcome.",
+        },
+      ],
+    });
+    const result = generateOpenClawSkillMd(ctx);
+
     const descLine = result.split("\n").find((l) => l.startsWith("description:"));
     expect(descLine).toBeDefined();
     expect(descLine).not.toMatch(/description: ".*[^\\]".*[^\\]".*"/);

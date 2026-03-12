@@ -13,6 +13,7 @@ import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
 import { generateSchemaOrg } from "./schema-org.js";
 import { generateSkillMd } from "./skill-md.js";
+import { generateOpenClawSkillMd } from "./skill-md-openclaw.js";
 import type {
   GenerateContext,
   GeneratedFile,
@@ -210,6 +211,13 @@ export async function runGenerate(
     onProgress?.("Generating skill.md...");
     const skillMd = generateSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
     files.push(makeFile("skill.md", skillMd));
+  }
+
+  // Generate OpenClaw SKILL.md
+  if (options.formats.includes("openclaw")) {
+    onProgress?.("Generating OpenClaw SKILL.md...");
+    const openClawSkillMd = generateOpenClawSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    files.push(makeFile("openclaw/SKILL.md", openClawSkillMd));
   }
 
   // Generate WebMCP declarations

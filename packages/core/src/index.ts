@@ -26,6 +26,15 @@ export type {
   TopIssue,
 } from "./audit/types.js";
 export { CATEGORY_CONFIG, DEFAULT_OPTIONS } from "./audit/types.js";
+export type { DiscoveredPage } from "./crawl/index.js";
+export {
+  discoverInternalLinks,
+  discoverPages,
+  parseSitemapWithMetadata,
+  scorePage,
+  selectPages,
+  sortPagesByScore,
+} from "./crawl/index.js";
 export { generateAgentCard } from "./generate/agent-card.js";
 export { runGenerate } from "./generate/engine.js";
 export { generateFaq } from "./generate/faq.js";
@@ -46,6 +55,10 @@ export {
 export { generateRobotsTxt } from "./generate/robots-txt.js";
 export { generateSchemaOrg } from "./generate/schema-org.js";
 export { generateSkillMd, type SkillMdOptions } from "./generate/skill-md.js";
+export {
+  generateOpenClawSkillMd,
+  type OpenClawSkillMdOptions,
+} from "./generate/skill-md-openclaw.js";
 export type {
   GenerateContext,
   GeneratedFile,
@@ -61,8 +74,6 @@ export { fetchPage, fetchText } from "./shared/fetcher.js";
 export { parseHTML } from "./shared/html-parser.js";
 export { parseOpenAPISpec, probeOpenAPIPaths } from "./shared/openapi.js";
 export { scoreUrl, sortUrlsByScore } from "./shared/page-scoring.js";
-export { discoverPages, discoverInternalLinks, parseSitemapWithMetadata, scorePage, sortPagesByScore, selectPages } from "./crawl/index.js";
-export type { DiscoveredPage } from "./crawl/index.js";
 
 // Adapters (import registers all built-in adapters)
 import "./adapters/index.js";

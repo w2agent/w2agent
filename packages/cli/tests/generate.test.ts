@@ -18,10 +18,12 @@ describe("parseFormats", () => {
     const formats = parseFormats("all");
     expect(formats).not.toContain("mcp-server");
     expect(formats).not.toContain("skill-md");
+    expect(formats).not.toContain("openclaw");
   });
 
   it("returns single format for named format", () => {
     expect(parseFormats("webmcp")).toEqual(["webmcp"]);
     expect(parseFormats("llms-txt")).toEqual(["llms-txt"]);
+    expect(parseFormats("openclaw")).toEqual(["openclaw"]);
   });
 });
