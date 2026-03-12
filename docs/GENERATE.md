@@ -13,9 +13,10 @@ npx w2agent generate <url> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
-| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `all` |
+| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `skill-md`, `webmcp`, `openclaw`, `all` |
 | `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
+| `--from-audit` | off | Run audit first, generate fixes for failed checks only |
 | `--timeout <ms>` | `10000` | Per-request timeout |
 
 ## Output Files
@@ -99,6 +100,18 @@ Auto-detected tools:
 | `search-faq` | FAQ content found | Search FAQ question/answer pairs |
 | `site-search` | SearchAction in JSON-LD | Site's native search URL |
 | `submit-form-N` | Forms with action + named inputs | One tool per detected form |
+
+#### SKILL.md (`skill-md`)
+
+Anthropic-spec agent skill file describing the site's capabilities, MCP server config, tool listing, and site overview. Designed for coding agent discovery.
+
+#### WebMCP Declarations (`webmcp`)
+
+WebMCP-compatible HTML forms with `toolname` attributes for declarative agent interaction. Generated for each platform adapter.
+
+#### OpenClaw SKILL.md (`openclaw`)
+
+OpenClaw-compatible skill file format for broader agent ecosystem compatibility.
 
 Also available via `w2agent mcp deploy`:
 

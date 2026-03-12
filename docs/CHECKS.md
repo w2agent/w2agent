@@ -1,6 +1,6 @@
 # w2agent Check Reference
 
-47 checks across 6 categories + platform-specific checks.
+41 core checks across 6 categories + 19 platform-specific checks (60 total).
 
 ## Bot Accessibility (20%)
 
@@ -60,6 +60,7 @@
 | UCP | `well-known-ucp` | /.well-known/ucp |
 | Action schemas | `action-schemas` | SearchAction, OrderAction in JSON-LD |
 | Auth discovery | `auth-discovery` | OAuth/auth endpoints discoverable |
+| WebMCP declarative | `webmcp-declarative` | Forms use `toolname` attribute for WebMCP declarative API |
 
 ## Technical Foundations (10%)
 
@@ -102,6 +103,23 @@ These checks run automatically when a platform is detected.
 | Robots.txt Customizable | `shopify-robots-editable` | Does the store use `robots.txt.liquid` (Shopify 2.0+)? |
 | Product Schema | `shopify-product-schema` | Do product pages have Product JSON-LD with price/availability? |
 | Theme App Blocks | `shopify-theme-app-blocks` | Does the theme support Online Store 2.0 app blocks? |
+
+### Nuxt (4 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| SEO Module | `nuxt-seo-module` | Is `@nuxtjs/seo` installed for sitemap + meta? |
+| LLMs Module | `nuxt-llms-module` | Is `nuxt-llms` or llms.txt detected? |
+| Schema.org Coverage | `nuxt-schema-org` | What % of pages have JSON-LD structured data? |
+| SSR Rendering | `nuxt-ssr-hints` | Are pages server-rendered (not SPA-only)? |
+
+### Astro (3 checks)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| Sitemap Integration | `astro-sitemap-integration` | Is `@astrojs/sitemap` generating a sitemap? |
+| robots.txt | `astro-robots-txt` | Does robots.txt exist and allow AI bots? |
+| Rendering Mode | `astro-ssr-mode` | Are pages fully rendered (static or SSR)? |
 
 ### Docusaurus (2 checks)
 

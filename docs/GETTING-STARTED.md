@@ -57,7 +57,8 @@ w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
+  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all (default: all)
+  --from-audit             Run audit first, generate fixes for failed checks only
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only these URL sections (comma-separated)
   --timeout <ms>           Request timeout (default: 10000)
@@ -78,6 +79,14 @@ Options:
 ```
 
 Focused command that generates only platform-specific files with deployment instructions.
+
+### `login` / `logout` / `whoami` — Authentication
+
+```bash
+w2agent login            # Authenticate with w2agent.dev (required for agentize)
+w2agent logout           # Clear stored credentials
+w2agent whoami           # Show current authenticated user
+```
 
 ### `mcp` — Generate and deploy MCP servers
 

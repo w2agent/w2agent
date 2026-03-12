@@ -81,11 +81,11 @@ Once connected, Claude can discover and query any of the 100+ sites in the direc
 
 ## Features
 
-- **47+ checks** across 6 scoring categories (35 core + 12 platform-specific)
+- **60 checks** across 6 scoring categories (41 core + 19 platform-specific)
 - **Platform detection** — auto-detects WordPress, Next.js, Shopify, Docusaurus
 - **Platform integrations** — generates native plugins, middleware, Liquid snippets
 - **Generate llms.txt + llms-full.txt** — auto-generate from any site
-- **7 output formats** — llms.txt, llms-full.txt, robots.txt, schema-org.json, agent-card.json, faq.json, markdown
+- **10 output formats** — llms.txt, llms-full.txt, robots.txt, schema-org.json, agent-card.json, faq.json, markdown, skill-md, webmcp, openclaw
 - **No API keys required** — pure HTTP/HTML analysis, no LLM dependency for audit/generate
 - **Multi-page** — crawls sitemap + discovers pages via internal links
 - **Actionable** — shows fix snippets and "points if fixed" ROI
@@ -218,9 +218,10 @@ w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, all (default: all)
+  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all (default: all)
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only include these URL sections (comma-separated)
+  --from-audit             Run audit first, generate fixes for failed checks only
   --timeout <ms>           Request timeout in ms (default: 10000)
 ```
 
