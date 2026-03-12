@@ -106,31 +106,33 @@ Unit tests run on every push. Integration tests run on PRs to `main` that touch 
 
 The integration CI uses matrix strategy with `fail-fast: false` so all platforms report independently.
 
-## Architecture
+## Architecture Overview
 
-### Audit Engine
+Detailed architecture documentation for each major component:
 
-`packages/core/src/audit/engine.ts` — `runAudit(url, options, onProgress?, checksOverride?)` orchestrates:
+- **[Audit Engine](docs/architecture/audit-engine.md)** — check registry, scoring algorithm, crawl flow, platform check merging, top issues calculation
+- **[Adapter System](docs/architecture/adapter-system.md)** — `PlatformAdapter` interface, detection logic, code generation, how to write a new adapter
+- **[Generate Pipeline](docs/architecture/generate-pipeline.md)** — `runGenerate()` flow, 10+ output formats, platform integration hooks
+- **[Crawl Discovery](docs/architecture/crawl-discovery.md)** — multi-source URL discovery, page scoring, selection strategy
+- **[Design Tradeoffs](docs/TRADEOFFS.md)** — cross-cutting design decisions and rationale
 
-1. **Crawl** — fetches `/llms.txt`, `/.well-known/agent-card.json`, `/robots.txt`, `/sitemap.xml`, plus HTML pages
-2. **Check** — runs registered checks against crawled data, each returning pass/fail/warn with score impact
-3. **Score** — aggregates check results into weighted category scores and overall grade
+### Quick Reference
 
-### Platform Adapters
+**Audit Engine** — `packages/core/src/audit/engine.ts`
 
-Each adapter in `packages/core/src/adapters/<platform>/` implements `PlatformAdapter`:
+`runAudit(url, options, onProgress?, checksOverride?)` orchestrates: crawl → detect platform → merge checks → run checks (parallel) → score → grade → top issues.
 
-- `detect(html, url)` — returns confidence 0-100
-- `checks` — platform-specific audit checks
-- `generateIntegration(ctx, coreFiles)` — returns `GeneratedFile[]` with platform-native code
+**Platform Adapters** — `packages/core/src/adapters/<platform>/`
 
-### Check Registry
+Each adapter implements `PlatformAdapter`: `detect(pages, metadata)` returns confidence 0–1, `checks` array for platform-specific auditing, `generateIntegration(ctx, coreFiles)` returns `GeneratedFile[]`.
 
-Checks are registered in `packages/core/src/audit/checks/`. Each check has:
-- `id` — unique identifier (e.g., `llms-txt-exists`)
-- `category` — scoring bucket
-- `weight` — score impact
-- `run(metadata)` — returns `CheckResult`
+**Check Registry** — `packages/core/src/audit/checks/`
+
+47 core checks across 6 categories. Each check: `id`, `category`, `weight`, `run(pages, metadata) → CheckResult`.
+
+**Generate Pipeline** — `packages/core/src/generate/engine.ts`
+
+`runGenerate(url, options, onProgress?)` produces: llms.txt, agent-card.json, FAQ, schema-org, markdown, MCP server, skill.md, WebMCP, and more.
 
 ## Code Style
 
