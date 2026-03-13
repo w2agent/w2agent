@@ -613,6 +613,17 @@ describe("Next.js integration generation", () => {
     expect(filenames).toContain("nextjs/.w2agent/llms-full.txt");
     expect(filenames).toContain("nextjs/.w2agent/agent-card.json");
   });
+
+  it("all generated TypeScript files start with eslint-disable header", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const tsFiles = files.filter((f) => f.filename.endsWith(".ts"));
+    expect(tsFiles.length).toBeGreaterThan(0);
+    for (const file of tsFiles) {
+      expect(file.content, `${file.filename} missing eslint-disable header`).toMatch(
+        /^\/\* eslint-disable \*\//,
+      );
+    }
+  });
 });
 
 describe("Shopify integration generation", () => {

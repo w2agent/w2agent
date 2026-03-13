@@ -8,7 +8,8 @@ export function generateNextjsIntegration(
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
-  const middlewareTs = `import { NextRequest, NextResponse } from "next/server";
+  const middlewareTs = `/* eslint-disable */
+import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
