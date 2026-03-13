@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { InstallPlan } from "./types.js";
 
@@ -6,12 +6,14 @@ export interface ExecuteResult {
   installed: string[];
   skipped: string[];
   manual: string[];
+  deleted: string[];
 }
 
 export function executeInstallPlan(plan: InstallPlan, projectDir: string): ExecuteResult {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
+  const deleted: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
@@ -32,10 +34,16 @@ export function executeInstallPlan(plan: InstallPlan, projectDir: string): Execu
         manual.push(msg);
         break;
       }
+      case "delete": {
+        const destPath = resolve(projectDir, action.dest);
+        rmSync(destPath, { force: true });
+        deleted.push(action.dest);
+        break;
+      }
     }
   }
 
-  return { installed, skipped, manual };
+  return { installed, skipped, manual, deleted };
 }
 
 export function formatInstallSummary(
@@ -61,6 +69,14 @@ export function formatInstallSummary(
     lines.push(dryRun ? "  Will install:" : "  Installed:");
     for (const f of result.installed) {
       lines.push(`  ✓ ${f}`);
+    }
+  }
+
+  if (result.deleted.length > 0) {
+    lines.push("");
+    lines.push(dryRun ? "  Will delete:" : "  Deleted:");
+    for (const f of result.deleted) {
+      lines.push(`  ✗ ${f}`);
     }
   }
 

@@ -195,4 +195,45 @@ describe("Next.js install resolver", () => {
     expect(skipped.length).toBe(1);
     expect(skipped[0].dest).toBe("src/app/llms.txt/route.ts");
   });
+
+  it("prepends delete action for conflicting public/llms.txt", () => {
+    mkdirSync(join(tempDir, "public"), { recursive: true });
+    writeFileSync(join(tempDir, "public", "llms.txt"), "# static llms", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    const deleteIdx = plan.actions.findIndex(
+      (a) => a.type === "delete" && a.dest === "public/llms.txt",
+    );
+    const writeIdx = plan.actions.findIndex(
+      (a) => a.type === "write" && a.dest === "app/llms.txt/route.ts",
+    );
+    expect(deleteIdx).toBeGreaterThanOrEqual(0);
+    expect(writeIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteIdx).toBeLessThan(writeIdx);
+  });
+
+  it("prepends delete action for conflicting public/llms-full.txt", () => {
+    mkdirSync(join(tempDir, "public"), { recursive: true });
+    writeFileSync(join(tempDir, "public", "llms-full.txt"), "# static llms full", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    const deleteIdx = plan.actions.findIndex(
+      (a) => a.type === "delete" && a.dest === "public/llms-full.txt",
+    );
+    const writeIdx = plan.actions.findIndex(
+      (a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts",
+    );
+    expect(deleteIdx).toBeGreaterThanOrEqual(0);
+    expect(writeIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteIdx).toBeLessThan(writeIdx);
+  });
+
+  it("does not add delete action when public/llms.txt is absent", () => {
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    const deleteAction = plan.actions.find((a) => a.type === "delete");
+    expect(deleteAction).toBeUndefined();
+  });
 });

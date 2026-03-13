@@ -202,6 +202,7 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
+  const deleted: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
@@ -218,10 +219,13 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
         manual.push(msg);
         break;
       }
+      case "delete":
+        deleted.push(action.dest);
+        break;
     }
   }
 
-  return { installed, skipped, manual };
+  return { installed, skipped, manual, deleted };
 }
 
 function formatSize(bytes: number): string {

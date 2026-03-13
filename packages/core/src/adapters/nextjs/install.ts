@@ -103,6 +103,13 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
         continue;
       }
 
+      // Detect conflicting static files in public/ that would cause Next.js 500 in dev
+      if (relPath === "app/llms.txt/route.ts" && existsSync(join(projectDir, "public", "llms.txt"))) {
+        actions.push({ type: "delete", dest: "public/llms.txt" });
+      }
+      if (relPath === "app/llms-full.txt/route.ts" && existsSync(join(projectDir, "public", "llms-full.txt"))) {
+        actions.push({ type: "delete", dest: "public/llms-full.txt" });
+      }
       actions.push({ type: "write", dest: adjustedPath, content: file.content });
       continue;
     }
