@@ -134,6 +134,90 @@ Each adapter implements `PlatformAdapter`: `detect(pages, metadata)` returns con
 
 `runGenerate(url, options, onProgress?)` produces: llms.txt, agent-card.json, FAQ, schema-org, markdown, MCP server, skill.md, WebMCP, and more.
 
+## Agentize a Site (Community)
+
+The w2agent directory grows through community contributions. If you know a site that would
+benefit from an agentized MCP server, you can document it and submit a PR.
+
+This is a documentation-only contribution — no code changes required.
+
+### What you're contributing
+
+A completed `<slug>.md` site document placed in `sites/`. Each document maps a real website's
+routes, components, and data models — the output of following the [AGENTIZE.md](AGENTIZE.md) SOP.
+
+Maintainers review accepted documents and seed them into the w2agent directory.
+
+### Prerequisites
+
+- `npx w2agent` available (no install required)
+- The target site is publicly accessible — not paywalled or login-gated
+- You've read [AGENTIZE.md](AGENTIZE.md) (the 4-phase SOP) and [SITE_TEMPLATE.md](SITE_TEMPLATE.md)
+
+### Step-by-step
+
+**1. Fork and clone the OSS repo**
+
+```bash
+git clone https://github.com/<your-fork>/w2agent
+cd w2agent
+```
+
+**2. Run the audit**
+
+```bash
+npx w2agent audit https://example.com --depth 20
+```
+
+Record the overall score, grade, platform detected, and top issues.
+
+**3. Copy and fill `SITE_TEMPLATE.md`**
+
+```bash
+cp SITE_TEMPLATE.md sites/<slug>.md
+```
+
+Use the domain as the slug (e.g., `stripe-com.md` for `stripe.com`). Fill every section
+following the four-phase [AGENTIZE.md](AGENTIZE.md) SOP:
+
+- **Phase 1** — Audit results, Route Map, Component Registry, Data Models
+- **Phase 2** — Agent Architecture decisions
+- **Phase 3** — skip (maintainers run the `agentize` command after review)
+- **Phase 4** — Quality validation: test at least one tool against the live site and record a real response
+
+**4. Open a PR**
+
+Target: `main` on the OSS repo. The only file needed is `sites/<slug>.md`.
+
+PR description should include: site name, URL, category (e.g., developer tools, e-commerce,
+documentation), audit score and grade, and one sentence on why this site is useful in an
+agent context.
+
+### PR checklist
+
+- [ ] `sites/<slug>.md` is the only file in the PR
+- [ ] Audit score and grade are recorded (Phase 1, Step 1)
+- [ ] Route Map is filled with routes you actually visited (not inferred from URL patterns)
+- [ ] Component Registry lists real interactive elements found on the live site
+- [ ] Phase 4 validation completed — at least one tool returned a real response
+- [ ] Site is publicly accessible without login
+- [ ] Slug matches the domain (e.g., `docs-anthropic-com.md` for `docs.anthropic.com`)
+
+### Acceptance criteria
+
+Maintainers verify:
+
+1. Audit was run — score is present and plausible for the site
+2. Routes were visited — Route Map is not inferred from URL patterns alone
+3. Phase 4 completed — tool test records a real live response
+4. Site is publicly accessible
+
+**Notes:**
+- Paywalled or bot-blocking sites are not accepted — the audit can't run against them
+- Slug conflicts with existing directory entries are resolved by maintainers
+- Once merged, maintainers seed the site to the w2agent directory — it won't appear
+  in the public directory immediately
+
 ## Code Style
 
 - TypeScript throughout, ESM modules
