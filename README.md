@@ -79,6 +79,31 @@ Once connected, Claude can discover and query any of the 100+ sites in the direc
 - Hosted: `https://<slug>.mcp.w2agent.dev/mcp`
 - Self-hosted: deploy the generated MCP server to Vercel or Cloudflare Workers
 
+A sample of 18 agentized sites across 6 categories (March 2026):
+
+| Site | Category | Tools | Knowledge Pages | Score |
+|------|----------|-------|----------------|-------|
+| [vercel.com](https://w2agent.dev/sites/vercel-com) | Dev Tools | 3 | 1,999 | B 63 |
+| [sentry.io](https://w2agent.dev/sites/sentry-io) | Dev Tools | 3 | 50 | B 62 |
+| [linear.app](https://w2agent.dev/sites/linear-app) | Dev Tools | 3 | 805 | B 60 |
+| [launchdarkly.com](https://w2agent.dev/sites/launchdarkly-com) | Dev Tools | 3 | 67 | B 63 |
+| [heroku.com](https://w2agent.dev/sites/heroku-com) | SaaS | 3 | 36 | B 73 |
+| [twilio.com](https://w2agent.dev/sites/twilio-com) | SaaS | 4 | 128 | B 69 |
+| [plaid.com](https://w2agent.dev/sites/plaid-com) | SaaS | 3 | 1,085 | B 68 |
+| [mailchimp.com](https://w2agent.dev/sites/mailchimp-com) | SaaS | 4 | 82 | B 69 |
+| [nextjs.org](https://w2agent.dev/sites/nextjs-org) | Docs | 3 | 612 | B 64 |
+| [nuxt.com](https://w2agent.dev/sites/nuxt-com) | Docs | 3 | 291 | C 52 |
+| [fastapi.tiangolo.com](https://w2agent.dev/sites/fastapi-tiangolo-com) | Docs | 3 | 153 | C 53 |
+| [kotlinlang.org](https://w2agent.dev/sites/kotlinlang-org) | Docs | 3 | 439 | B 62 |
+| [ikea.com](https://w2agent.dev/sites/ikea-com) | E-commerce | 4 | 142 | C 58 |
+| [zappos.com](https://w2agent.dev/sites/zappos-com) | E-commerce | 4 | 62 | C 50 |
+| [bbc.com](https://w2agent.dev/sites/bbc-com) | Content | 4 | 189 | C 52 |
+| [techcrunch.com](https://w2agent.dev/sites/techcrunch-com) | Content | 4 | 128 | C 51 |
+| [panerabread.com](https://w2agent.dev/sites/panerabread-com) | Local Biz | 3 | 17 | C 52 |
+| [subway.com](https://w2agent.dev/sites/subway-com) | Local Biz | 3 | 72 | C 48 |
+
+_Standard tools: `list-pages`, `get-page`, `search-site`. Sites with native search add `site-search` (shown as 4 tools)._
+
 [Browse the directory →](https://w2agent.dev/directory)
 
 ## Features
