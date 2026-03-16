@@ -106,6 +106,25 @@ _Standard tools: `list-pages`, `get-page`, `search-site`. Sites with native sear
 
 [Browse the directory →](https://w2agent.dev/directory)
 
+## When to Agentize
+
+w2agent works for any public website. If a human can browse it, an agent can use it.
+
+| Category | Example Sites | What agents unlock |
+|---|---|---|
+| Developer Tools | vercel.com, sentry.io, linear.app, launchdarkly.com | Answer setup questions, fetch changelogs, search issues |
+| SaaS Platforms | hubspot.com, mailchimp.com, asana.com, zendesk.com | Look up pricing, query help docs, navigate feature flags |
+| Documentation | nextjs.org, kotlinlang.org, nuxt.com, fastapi.tiangolo.com | Answer API questions, fetch code examples, resolve versions |
+| E-commerce | ikea.com, amazon.com, target.com, zappos.com | Check availability, compare specs, find return policies |
+| Restaurants & Food | starbucks.com, mcdonalds.com, chipotle.com | Get menus, hours, nutritional info, find locations |
+| News & Media | bbc.com, techcrunch.com, arstechnica.com | Summarize coverage, search archives, pull headlines |
+| Travel & Hospitality | marriott.com, hilton.com | Fetch amenities, policies, availability by property |
+| Healthcare | webmd.com, zocdoc.com | Find providers, explain conditions, surface clinic hours |
+| Real Estate | zillow.com, redfin.com | Pull listings, neighborhood stats, estimate details |
+| Finance & Fintech | plaid.com, twilio.com, gusto.com | Answer API docs questions, explain pricing, navigate guides |
+| Nonprofits | habitat.org, charitywater.org, doctorswithoutborders.org | Describe programs, locate offices, explain donation impact |
+| Local Services | angi.com, thumbtack.com | Find providers by category, surface reviews, get quotes |
+
 ## Features
 
 - **60 checks** across 6 scoring categories (41 core + 19 platform-specific)
