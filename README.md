@@ -35,6 +35,16 @@ npx w2agent agentize https://your-site.com  # deploy it as an MCP server
   ✗ No /.well-known/agent-card.json         (+8 points if fixed)
 ```
 
+## Why w2agent?
+
+Most websites are invisible to AI agents. Agents can't find your docs, hallucinate your pricing, and skip your site entirely — because there's no machine-readable contract between your content and the tools trying to use it. w2agent closes that gap.
+
+| Without w2agent | With w2agent |
+|----------------|-------------|
+| Agents hallucinate your docs — trained on stale crawl data | `agentize` serves live content; agents always query the current site |
+| No way to know you're agent-inaccessible until users complain | `audit` scores 60 checks in seconds and shows exactly what's blocking agents |
+| AI can't find your menu, hours, or booking page | Structured data + `agentize` exposes them as queryable tools |
+
 ## The Pipeline
 
 Turn any website into a queryable AI agent in four steps:
@@ -127,17 +137,15 @@ w2agent works for any public website. If a human can browse it, an agent can use
 
 ## Features
 
-- **60 checks** across 6 scoring categories (41 core + 19 platform-specific)
-- **Platform detection** — auto-detects WordPress, Next.js, Shopify, Docusaurus
-- **Platform integrations** — generates native plugins, middleware, Liquid snippets
-- **Generate llms.txt + llms-full.txt** — auto-generate from any site
-- **10 output formats** — llms.txt, llms-full.txt, robots.txt, schema-org.json, agent-card.json, faq.json, markdown, skill-md, webmcp, openclaw
-- **No API keys required** — pure HTTP/HTML analysis, no LLM dependency for audit/generate
-- **Multi-page** — crawls sitemap + discovers pages via internal links
-- **Actionable** — shows fix snippets and "points if fixed" ROI
-- **CI/CD ready** — `--ci --threshold 80` for automated quality gates
-- **Agentize** — host any site as a live MCP server at `<slug>.mcp.w2agent.dev`
-- **Meta MCP discovery** — Claude discovers 100+ agents via one endpoint
+| Without w2agent | With w2agent |
+|----------------|-------------|
+| Agents hallucinate your docs — trained on stale snapshots | `agentize` serves live content; agents always query the current site |
+| No way to know you're agent-inaccessible until users complain | `audit` scores 60 checks in seconds and shows exactly what's blocking agents |
+| Every platform needs different integration files | Auto-detected platform generates the right native files (WordPress plugin, Next.js middleware, Shopify Liquid) in one command |
+| Writing llms.txt by hand is tedious and error-prone | `generate` produces llms.txt, agent-card.json, schema-org.json, and 7 more formats automatically |
+| Deploying an MCP server requires infrastructure setup | `npx w2agent agentize` hosts your site as an MCP server — no servers to manage |
+| CI/CD pipelines can't gate on AI-readiness | `--ci --threshold 80` returns exit code 1 when scores drop — blocks the build |
+| AI frameworks expect different formats (llms.txt, OpenClaw, WebMCP, Skill.md) | 10 output formats from one crawl — generate all or just what you need |
 
 ## Install & Use
 
