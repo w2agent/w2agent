@@ -7,6 +7,7 @@ export interface DiscoveredPage {
   sitemapLastmod?: string;
   internalLinkCount: number;
   depth: number;
+  queritRank?: number;
 }
 
 export function parseSitemapWithMetadata(xml: string, baseUrl: string): DiscoveredPage[] {

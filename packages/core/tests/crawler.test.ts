@@ -222,3 +222,44 @@ describe("crawlSite rate limiting and Crawl-delay", () => {
     expect(callTimes[2] - callTimes[1]).toBeLessThan(5000);
   });
 });
+
+describe("crawlSite pageRankings enrichment", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockFetchPage.mockReset();
+    mockFetchText.mockReset();
+    mockFetchPage.mockImplementation(async (url: string) => makePageResult(url));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("pages with pageRankings are selected over unranked pages when maxPages is small", async () => {
+    // 6 pages in sitemap; /page-5 and /page-6 are top-ranked
+    const urls = Array.from({ length: 6 }, (_, i) => `${BASE_URL}/page-${i + 1}`);
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return { text: makeSitemap(urls), status: 200 };
+      return null;
+    });
+
+    const pageRankings = new Map([
+      [`${BASE_URL}/page-5`, 1],
+      [`${BASE_URL}/page-6`, 2],
+    ]);
+
+    const promise = crawlSite(BASE_URL, {
+      ...DEFAULT_OPTIONS,
+      maxPages: 3,
+      concurrency: 3,
+      pageRankings,
+    });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    const fetchedUrls = result.pages.map((p) => p.url);
+    expect(fetchedUrls).toContain(`${BASE_URL}/page-5`);
+    expect(fetchedUrls).toContain(`${BASE_URL}/page-6`);
+  });
+});

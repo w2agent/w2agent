@@ -97,6 +97,30 @@ describe("scorePage", () => {
     });
     expect(scorePage(withBadDate)).toBe(scorePage(base));
   });
+
+  it("queritRank 1 adds 10 points", () => {
+    const base = makePage({ url: "https://example.com/about" });
+    const ranked = makePage({ url: "https://example.com/about", queritRank: 1 });
+    expect(scorePage(ranked) - scorePage(base)).toBe(10);
+  });
+
+  it("queritRank 50 adds 6 points", () => {
+    const base = makePage({ url: "https://example.com/about" });
+    const ranked = makePage({ url: "https://example.com/about", queritRank: 50 });
+    expect(scorePage(ranked) - scorePage(base)).toBe(6);
+  });
+
+  it("queritRank 100 adds 1 point", () => {
+    const base = makePage({ url: "https://example.com/about" });
+    const ranked = makePage({ url: "https://example.com/about", queritRank: 100 });
+    expect(scorePage(ranked) - scorePage(base)).toBe(1);
+  });
+
+  it("queritRank undefined adds 0 points", () => {
+    const base = makePage({ url: "https://example.com/about" });
+    const noRank = makePage({ url: "https://example.com/about", queritRank: undefined });
+    expect(scorePage(noRank)).toBe(scorePage(base));
+  });
 });
 
 describe("sortPagesByScore", () => {

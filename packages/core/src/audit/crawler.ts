@@ -74,6 +74,14 @@ export async function crawlSite(
     homepage: { html: homepage.html, url },
     baseUrl,
   });
+
+  if (options.pageRankings?.size) {
+    for (const page of discovered) {
+      const rank = options.pageRankings.get(page.url);
+      if (rank !== undefined) page.queritRank = rank;
+    }
+  }
+
   const totalUrlsFound = 1 + discovered.filter((p) => !visited.has(p.url)).length;
   const selected = selectPages(discovered, options.maxPages - 1, visited);
   const urlsToFetch = selected.map((p) => p.url);

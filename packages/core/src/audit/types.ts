@@ -92,6 +92,7 @@ export interface AuditOptions {
   userAgent: string;
   concurrency?: number; // max parallel fetches (default 3)
   requestDelay?: number; // min ms between request starts (default 200)
+  pageRankings?: Map<string, number>; // url → 1-based rank from search engine
 }
 
 export const DEFAULT_OPTIONS: AuditOptions = {

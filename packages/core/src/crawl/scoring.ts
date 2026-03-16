@@ -42,6 +42,10 @@ export function scorePage(page: DiscoveredPage): number {
 
   score += Math.min(5, Math.floor(page.internalLinkCount / 3));
 
+  if (page.queritRank != null) {
+    score += Math.max(0, 11 - Math.ceil(page.queritRank / 10));
+  }
+
   return score;
 }
 
