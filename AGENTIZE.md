@@ -171,7 +171,7 @@ they may describe a product correctly on one query and incorrectly on the next.
 
 | Option | Command | Result |
 |--------|---------|--------|
-| Hosted (immediate) | `w2agent agentize` | Live at `<slug>.agent.w2agent.dev/mcp`, public, directory-listed |
+| Hosted (immediate) | `w2agent agentize` | Live at `<slug>.agent.w2agent.dev`, public, directory-listed |
 | Self-hosted (Vercel) | `w2agent mcp deploy --self-host vercel` | Custom domain, your infra |
 | Self-hosted (Cloudflare) | `w2agent mcp deploy --self-host cf` | Custom domain, edge-deployed |
 
@@ -236,7 +236,7 @@ npx w2agent generate https://example.com --sections /search,/contact --output ./
 ```bash
 npx w2agent login        # one-time auth
 npx w2agent agentize https://example.com --slug my-site
-# → live at https://my-site.agent.w2agent.dev/mcp
+# → live at https://my-site.agent.w2agent.dev
 ```
 
 **Option B — Self-hosted (Vercel):**
@@ -300,8 +300,8 @@ Re-run generate with `--max-pages` increased or `--sections` adjusted to include
 # Agent card must be reachable
 curl https://my-site.agent.w2agent.dev/.well-known/agent-card.json
 
-# MCP capability list must be returned
-curl https://my-site.agent.w2agent.dev/mcp
+# Agent capability list must be returned
+curl https://my-site.agent.w2agent.dev
 ```
 
 Both must return valid JSON. Failures here mean the agent is not discoverable by agent directories.
@@ -314,7 +314,7 @@ Both must return valid JSON. Failures here mean the agent is not discoverable by
 - [ ] MUST: Knowledge file covers all pages defined in Phase 2 knowledge scope
 - [ ] MUST: Agent can answer questions about every major entity in the Data Model Schema
 - [ ] MUST: If the site has a search form, `search_site` tool is present and returns live results
-- [ ] MUST: MCP endpoint is reachable at `<slug>.agent.w2agent.dev/mcp` (or custom domain)
+- [ ] MUST: Agent endpoint is reachable at `<slug>.agent.w2agent.dev` (or custom domain)
 - [ ] MUST: No graceful degradation — errors surface to the calling agent, not masked
 
 ---

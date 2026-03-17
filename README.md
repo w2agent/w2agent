@@ -54,26 +54,26 @@ Turn any website into a queryable AI agent in four steps:
 | **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 47+ checks. Find what's blocking agents. |
 | **2. Generate** | `npx w2agent generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
 | **3. Integrate** | `npx w2agent integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
-| **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live MCP server at `<slug>.agent.w2agent.dev`. |
+| **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live agent server at `<slug>.agent.w2agent.dev`. |
 
 For a complete step-by-step methodology — site analysis, agent architecture decisions, output verification, and quality validation — see [AGENTIZE.md](AGENTIZE.md).
 
 ## The Agent Network
 
 Every agentized site joins a shared network — discoverable via the
-[w2agent directory](https://w2agent.dev/directory) and the **Meta MCP** discovery
+[w2agent directory](https://w2agent.dev/directory) and the **Meta Agent** discovery
 server.
 
-<!-- gif: meta-mcp-discovery — Claude Desktop showing `search_websites` tool call, returning a list of 5 dev-tool agents -->
+<!-- gif: meta-agent-discovery — Claude Desktop showing `search_websites` tool call, returning a list of 5 dev-tool agents -->
 
-**Use any agent in Claude Desktop** by adding the Meta MCP endpoint:
+**Use any agent in Claude Desktop** by adding the Meta Agent endpoint:
 
 ```json
 {
   "mcpServers": {
     "w2agent-meta": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://agent.w2agent.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://agent.w2agent.dev"]
     }
   }
 }
@@ -86,7 +86,7 @@ Once connected, Claude can discover and query any of the 100+ sites in the direc
 <!-- gif: env-synthesis — Claude synthesizing a .env.example from 3 different site-agents in one response -->
 
 **Individual agents** are accessible directly:
-- Hosted: `https://<slug>.agent.w2agent.dev/mcp`
+- Hosted: `https://<slug>.agent.w2agent.dev`
 - Self-hosted: deploy the generated agent server to Vercel or Cloudflare Workers
 
 A sample of 18 agentized sites across 6 categories (March 2026):
@@ -184,7 +184,7 @@ Your agent endpoint is live immediately. Add it to Claude Desktop:
   "mcpServers": {
     "my-site": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev"]
     }
   }
 }
