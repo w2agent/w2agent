@@ -68,7 +68,7 @@ module.exports = function w2agentMcpWebhookPlugin() {
     name: "w2agent-mcp-webhook",
     async postBuild() {
       const webhookUrl = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
-      const token = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+      const token = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
       try {
         const res = await fetch(webhookUrl, {

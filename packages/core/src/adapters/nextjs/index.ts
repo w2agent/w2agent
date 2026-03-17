@@ -67,7 +67,7 @@ export const nextjsAdapter: PlatformAdapter = {
  */
 
 const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
-const WEBHOOK_TOKEN = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
 export async function POST(request: Request) {
   try {

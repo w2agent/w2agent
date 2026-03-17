@@ -96,7 +96,7 @@ shopify app webhook register --topic products/update --address https://w2agent.d
 ## Environment Variables
 
 Set these in your webhook endpoint:
-- \`W2AGENT_MCP_WEBHOOK_TOKEN\`: Your webhook token from \`w2agent mcp deploy\`
+- \`W2AGENT_WEBHOOK_TOKEN\`: Your webhook token from \`w2agent mcp deploy\`
 
 The webhook endpoint expects a \`Authorization: Bearer <token>\` header.
 `;

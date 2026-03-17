@@ -768,7 +768,7 @@ describe("WordPress MCP webhook snippet", () => {
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("save_post");
     expect(webhook?.content).toContain("wp_remote_post");
-    expect(webhook?.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });
 
   it("does not generate webhook without mcp-server files", () => {
@@ -783,7 +783,7 @@ describe("Next.js MCP webhook snippet", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
     const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
     expect(webhook).toBeDefined();
-    expect(webhook?.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });
 });
 
@@ -802,7 +802,7 @@ describe("Docusaurus MCP webhook snippet", () => {
     const webhook = files.find((f) => f.filename.includes("mcp-webhook"));
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("postBuild");
-    expect(webhook?.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });
 });
 
@@ -811,7 +811,7 @@ describe("Nuxt MCP webhook snippet", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
     const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
     expect(webhook).toBeDefined();
-    expect(webhook?.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
     expect(webhook?.content).toContain("defineEventHandler");
   });
 
@@ -828,7 +828,7 @@ describe("Astro MCP webhook snippet", () => {
     const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("astro:build:done");
-    expect(webhook?.content).toContain("W2AGENT_MCP_WEBHOOK");
+    expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });
 
   it("does not generate webhook without mcp-server files", () => {

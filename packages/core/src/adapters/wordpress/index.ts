@@ -72,7 +72,7 @@ export const wordpressAdapter: PlatformAdapter = {
  */
 
 define('W2AGENT_WEBHOOK_URL', 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG');
-define('W2AGENT_MCP_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
+define('W2AGENT_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
 
 add_action('save_post', 'w2agent_mcp_notify', 10, 3);
 add_action('delete_post', 'w2agent_mcp_notify', 10, 1);
@@ -84,7 +84,7 @@ function w2agent_mcp_notify($post_id, $post = null, $update = true) {
     wp_remote_post(W2AGENT_WEBHOOK_URL, array(
         'headers' => array(
             'Content-Type'  => 'application/json',
-            'Authorization' => 'Bearer ' . W2AGENT_MCP_WEBHOOK_TOKEN,
+            'Authorization' => 'Bearer ' . W2AGENT_WEBHOOK_TOKEN,
         ),
         'body'    => wp_json_encode(array(
             'trigger' => 'wordpress',
