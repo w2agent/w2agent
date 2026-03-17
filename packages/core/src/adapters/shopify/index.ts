@@ -73,7 +73,7 @@ Use the \`POST /admin/api/2024-01/webhooks.json\` endpoint:
 {
   "webhook": {
     "topic": "products/update",
-    "address": "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG",
+    "address": "https://w2agent.dev/api/agent/webhook/YOUR_SLUG",
     "format": "json"
   }
 }
@@ -90,7 +90,7 @@ Repeat for these topics:
 ## Via Shopify CLI
 
 \`\`\`bash
-shopify app webhook register --topic products/update --address https://w2agent.dev/api/mcp/webhook/YOUR_SLUG
+shopify app webhook register --topic products/update --address https://w2agent.dev/api/agent/webhook/YOUR_SLUG
 \`\`\`
 
 ## Environment Variables

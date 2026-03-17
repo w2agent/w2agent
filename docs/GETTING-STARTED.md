@@ -88,16 +88,16 @@ w2agent logout           # Clear stored credentials
 w2agent whoami           # Show current authenticated user
 ```
 
-### `mcp` — Generate and deploy MCP servers
+### `mcp` — Generate and deploy agent servers
 
 ```bash
-# Generate a standalone MCP server
+# Generate a standalone agent server
 w2agent mcp deploy <url>
 
-# Generate a Vercel-deployable MCP server
+# Generate a Vercel-deployable agent server
 w2agent mcp deploy <url> --self-host vercel
 
-# Generate a Cloudflare Worker MCP server
+# Generate a Cloudflare Worker agent server
 w2agent mcp deploy <url> --self-host cf
 
 # Check hosted deployment status
@@ -133,7 +133,7 @@ npx w2agent generate https://your-site.com --output ./public/
 #    - Docusaurus: add build plugin to config
 #    - Any site: copy files to site root
 
-# 4. Generate an MCP server so agents can search/read your site
+# 4. Generate an agent server so agents can search/read your site
 npx w2agent mcp deploy https://your-site.com
 
 # 5. Re-audit to confirm score improvement

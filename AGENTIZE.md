@@ -1,7 +1,7 @@
 # AGENTIZE.md — w2agent Agentize SOP
 
 > Every website is already an agent. This document is the standard operating
-> procedure for turning one into a live, queryable MCP server using w2agent.
+> procedure for turning one into a live, queryable agent server using w2agent.
 
 **Audience**: AI agents (Claude, Codex) and human developers.
 **Purpose**: Methodology-as-prompt — follow this to agentize any website consistently.
@@ -171,7 +171,7 @@ they may describe a product correctly on one query and incorrectly on the next.
 
 | Option | Command | Result |
 |--------|---------|--------|
-| Hosted (immediate) | `w2agent agentize` | Live at `<slug>.mcp.w2agent.dev/mcp`, public, directory-listed |
+| Hosted (immediate) | `w2agent agentize` | Live at `<slug>.agent.w2agent.dev/mcp`, public, directory-listed |
 | Self-hosted (Vercel) | `w2agent mcp deploy --self-host vercel` | Custom domain, your infra |
 | Self-hosted (Cloudflare) | `w2agent mcp deploy --self-host cf` | Custom domain, edge-deployed |
 
@@ -236,7 +236,7 @@ npx w2agent generate https://example.com --sections /search,/contact --output ./
 ```bash
 npx w2agent login        # one-time auth
 npx w2agent agentize https://example.com --slug my-site
-# → live at https://my-site.mcp.w2agent.dev/mcp
+# → live at https://my-site.agent.w2agent.dev/mcp
 ```
 
 **Option B — Self-hosted (Vercel):**
@@ -258,7 +258,7 @@ cd w2agent-output && wrangler deploy
 - [ ] `llms.txt` coverage matches the knowledge scope defined in Phase 2
 - [ ] `agent-card.json` name and description accurately reflect actual site capabilities
 - [ ] Generated tools match Phase 2 tool decisions (no phantom tools, no missing tools)
-- [ ] MCP endpoint is live and returns HTTP 200
+- [ ] agent endpoint is live and returns HTTP 200
 
 ---
 
@@ -298,10 +298,10 @@ Re-run generate with `--max-pages` increased or `--sections` adjusted to include
 
 ```bash
 # Agent card must be reachable
-curl https://my-site.mcp.w2agent.dev/.well-known/agent-card.json
+curl https://my-site.agent.w2agent.dev/.well-known/agent-card.json
 
 # MCP capability list must be returned
-curl https://my-site.mcp.w2agent.dev/mcp
+curl https://my-site.agent.w2agent.dev/mcp
 ```
 
 Both must return valid JSON. Failures here mean the agent is not discoverable by agent directories.
@@ -314,7 +314,7 @@ Both must return valid JSON. Failures here mean the agent is not discoverable by
 - [ ] MUST: Knowledge file covers all pages defined in Phase 2 knowledge scope
 - [ ] MUST: Agent can answer questions about every major entity in the Data Model Schema
 - [ ] MUST: If the site has a search form, `search_site` tool is present and returns live results
-- [ ] MUST: MCP endpoint is reachable at `<slug>.mcp.w2agent.dev/mcp` (or custom domain)
+- [ ] MUST: MCP endpoint is reachable at `<slug>.agent.w2agent.dev/mcp` (or custom domain)
 - [ ] MUST: No graceful degradation — errors surface to the calling agent, not masked
 
 ---

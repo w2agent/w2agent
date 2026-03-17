@@ -59,7 +59,7 @@ Agents use 5 discovery mechanisms: search APIs, .well-known endpoints, MCP regis
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 3.1 | **MCP server generation** | Auto-generate MCP server from site's API/forms/actions. Streamable HTTP transport. Standalone, Vercel, and Cloudflare Workers templates. Hosted at `<slug>.mcp.w2agent.dev` with webhook re-crawl. | ✅ Shipped |
+| 3.1 | **MCP server generation** | Auto-generate agent server from site's API/forms/actions. Streamable HTTP transport. Standalone, Vercel, and Cloudflare Workers templates. Hosted at `<slug>.agent.w2agent.dev` with webhook re-crawl. | ✅ Shipped |
 | 3.2 | **SKILL.md generation** | Generate SKILL.md files from site capabilities for coding agent discovery | ✅ Shipped |
 | 3.3 | **OpenAPI → agent actions** | Convert existing OpenAPI specs to MCP tools, GPT Actions, and agents.json flows |
 | 3.4 | **Form → tool conversion** | Detect HTML forms and convert them to structured agent-callable MCP tools |

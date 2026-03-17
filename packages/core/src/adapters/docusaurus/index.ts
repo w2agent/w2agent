@@ -67,7 +67,7 @@ module.exports = function w2agentMcpWebhookPlugin() {
   return {
     name: "w2agent-mcp-webhook",
     async postBuild() {
-      const webhookUrl = process.env.W2AGENT_MCP_WEBHOOK_URL || "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG";
+      const webhookUrl = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
       const token = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
       try {
@@ -79,9 +79,9 @@ module.exports = function w2agentMcpWebhookPlugin() {
           },
           body: JSON.stringify({ trigger: "docusaurus", event: "postBuild" }),
         });
-        console.log(\`[w2agent] MCP webhook: \${res.status}\`);
+        console.log(\`[w2agent] agent webhook: \${res.status}\`);
       } catch (err) {
-        console.warn("[w2agent] MCP webhook failed:", err.message);
+        console.warn("[w2agent] agent webhook failed:", err.message);
       }
     },
   };

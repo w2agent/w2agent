@@ -7,7 +7,7 @@
 **URL**: https://example.com
 **Slug**: example
 **Agentize date**: YYYY-MM-DD
-**Deployment**: https://example.mcp.w2agent.dev/mcp
+**Deployment**: https://example.agent.w2agent.dev/mcp
 
 ---
 

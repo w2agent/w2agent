@@ -422,7 +422,7 @@ describe("generateMcpServer", () => {
     const files = generateMcpServer(ctx);
     const readme = files.find((f) => f.filename === "mcp-server/README.md")!;
 
-    expect(readme.content).toContain("# My Site MCP Server");
+    expect(readme.content).toContain("# My Site Agent Server");
     expect(readme.content).toContain("list-pages");
     expect(readme.content).toContain("get-page");
     expect(readme.content).toContain("search-site");

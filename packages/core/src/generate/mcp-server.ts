@@ -404,7 +404,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`const PORT = process.env.PORT || 3100;`);
   lines.push(`app.listen(PORT, () => {`);
   lines.push(
-    `  console.log(\`MCP server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`,
+    `  console.log(\`Agent server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`,
   );
   lines.push(`});`);
 
@@ -419,7 +419,7 @@ function generatePackageJson(siteName: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   const pkg = {
-    name: `${slug}-mcp-server`,
+    name: `${slug}-agent-server`,
     version: "1.0.0",
     type: "module",
     scripts: {
@@ -461,9 +461,9 @@ function generateTsConfig(): string {
 
 function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: string): string {
   const lines: string[] = [];
-  lines.push(`# ${siteName} MCP Server`);
+  lines.push(`# ${siteName} Agent Server`);
   lines.push(``);
-  lines.push(`Auto-generated MCP server for [${siteName}](${baseUrl}).`);
+  lines.push(`Auto-generated agent server for [${siteName}](${baseUrl}).`);
   lines.push(``);
   lines.push(`## Tools`);
   lines.push(``);
@@ -586,7 +586,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const pkgJson = `${JSON.stringify(
     {
-      name: `${slug}-mcp-vercel`,
+      name: `${slug}-agent-vercel`,
       version: "1.0.0",
       type: "module",
       scripts: {
@@ -628,7 +628,7 @@ function generateCloudflareTemplate(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  const wranglerToml = `name = "${slug}-mcp"
+  const wranglerToml = `name = "${slug}-agent"
 main = "worker.ts"
 compatibility_date = "2024-12-01"
 
@@ -784,7 +784,7 @@ ${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path dat
 
   const pkgJson = `${JSON.stringify(
     {
-      name: `${slug}-mcp-cf`,
+      name: `${slug}-agent-cf`,
       version: "1.0.0",
       type: "module",
       scripts: {

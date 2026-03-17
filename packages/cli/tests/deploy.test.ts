@@ -51,7 +51,7 @@ interface ResultOverrides {
 function makeResultData(overrides: ResultOverrides = {}) {
   return {
     slug: "test-site",
-    mcpEndpoint: "https://mcp.w2agent.dev/test-site",
+    mcpEndpoint: "https://agent.w2agent.dev/test-site",
     pagesIndexed: 10,
     tools: [{ name: "search" }],
     webhookUrl: "https://w2agent.dev/webhooks/test-site",
@@ -225,7 +225,7 @@ describe("deploy command", () => {
   // --- Result formatting ---
 
   describe("result formatting", () => {
-    it("displays slug and MCP endpoint", async () => {
+    it("displays slug and agent endpoint", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
@@ -234,7 +234,7 @@ describe("deploy command", () => {
               type: "result",
               data: makeResultData({
                 slug: "my-site",
-                mcpEndpoint: "https://mcp.w2agent.dev/my-site",
+                mcpEndpoint: "https://agent.w2agent.dev/my-site",
               }),
             },
           ]),
@@ -245,7 +245,7 @@ describe("deploy command", () => {
 
       const allLog = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
       expect(allLog).toContain("my-site");
-      expect(allLog).toContain("https://mcp.w2agent.dev/my-site");
+      expect(allLog).toContain("https://agent.w2agent.dev/my-site");
     });
 
     it("shows tool names", async () => {

@@ -38,7 +38,7 @@ async function handleDeployAction(
 
   let response: Response;
   try {
-    response = await fetch(`${apiUrl}/api/mcp/deploy`, {
+    response = await fetch(`${apiUrl}/api/agent/deploy`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -125,7 +125,7 @@ async function handleDeployAction(
 export function registerDeployCommand(program: Command): void {
   program
     .command("deploy <url>")
-    .description("Agentize your website — host it as a live MCP server on w2agent.dev")
+    .description("Agentize your website — host it as a live agent server on w2agent.dev")
     .option("--api-key <key>", "API key for one-shot agentize (without saving credentials)")
     .option("--slug <slug>", "Custom slug for the deployment")
     .action((url, opts) => handleDeployAction(url, opts));
@@ -134,7 +134,7 @@ export function registerDeployCommand(program: Command): void {
 export function registerAgentizeCommand(program: Command): void {
   program
     .command("agentize <url>")
-    .description("Agentize your website — host it as a live MCP server on w2agent.dev")
+    .description("Agentize your website — host it as a live agent server on w2agent.dev")
     .option("--api-key <key>", "API key for one-shot agentize (without saving credentials)")
     .option("--slug <slug>", "Custom slug for the deployment")
     .action((url, opts) => handleDeployAction(url, opts));
@@ -148,7 +148,7 @@ function printResult(result: DeployResult): void {
     console.log(chalk.green("  Agentized") + chalk.gray(` → ${result.slug}`));
   }
   console.log();
-  console.log(`  ${chalk.gray("MCP endpoint")}  ${chalk.white(result.mcpEndpoint)}`);
+  console.log(`  ${chalk.gray("Agent endpoint")}  ${chalk.white(result.mcpEndpoint)}`);
   console.log(
     `  ${chalk.gray("Pages")}         ${chalk.white(result.pagesIndexed)}${result.totalPagesFound && result.totalPagesFound > result.pagesIndexed ? chalk.gray(` / ${result.totalPagesFound} found`) : ""}`,
   );

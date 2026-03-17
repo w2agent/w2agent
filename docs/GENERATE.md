@@ -77,9 +77,9 @@ Extracted FAQ content in FAQPage schema format.
 
 Individual `.md` files for each page, written to `markdown/` subdirectory.
 
-#### MCP Server (`mcp-server`)
+#### Agent Server (`mcp-server`)
 
-A standalone MCP server project generated from crawled site content. Output to `mcp-server/`:
+A standalone agent server project generated from crawled site content. Output to `mcp-server/`:
 
 | File | Description |
 |------|-------------|

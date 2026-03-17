@@ -71,7 +71,7 @@ export const wordpressAdapter: PlatformAdapter = {
  * Triggers a re-crawl of your MCP server when content changes.
  */
 
-define('W2AGENT_MCP_WEBHOOK_URL', 'https://w2agent.dev/api/mcp/webhook/YOUR_SLUG');
+define('W2AGENT_WEBHOOK_URL', 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG');
 define('W2AGENT_MCP_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
 
 add_action('save_post', 'w2agent_mcp_notify', 10, 3);
@@ -81,7 +81,7 @@ function w2agent_mcp_notify($post_id, $post = null, $update = true) {
     // Only trigger on published posts/pages
     if ($post && $post->post_status !== 'publish') return;
 
-    wp_remote_post(W2AGENT_MCP_WEBHOOK_URL, array(
+    wp_remote_post(W2AGENT_WEBHOOK_URL, array(
         'headers' => array(
             'Content-Type'  => 'application/json',
             'Authorization' => 'Bearer ' . W2AGENT_MCP_WEBHOOK_TOKEN,

@@ -132,7 +132,7 @@ Each adapter implements `PlatformAdapter`: `detect(pages, metadata)` returns con
 
 **Generate Pipeline** — `packages/core/src/generate/engine.ts`
 
-`runGenerate(url, options, onProgress?)` produces: llms.txt, agent-card.json, FAQ, schema-org, markdown, MCP server, skill.md, WebMCP, and more.
+`runGenerate(url, options, onProgress?)` produces: llms.txt, agent-card.json, FAQ, schema-org, markdown, agent server, skill.md, WebMCP, and more.
 
 ## Agentize a Site (Community)
 

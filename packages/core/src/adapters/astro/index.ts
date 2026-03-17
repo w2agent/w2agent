@@ -76,7 +76,7 @@ export default function w2agentMcpWebhook() {
     name: "w2agent-mcp-webhook",
     hooks: {
       "astro:build:done": async ({ logger }) => {
-        const webhookUrl = process.env.W2AGENT_MCP_WEBHOOK_URL || "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG";
+        const webhookUrl = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
         const token = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
         try {
@@ -88,9 +88,9 @@ export default function w2agentMcpWebhook() {
             },
             body: JSON.stringify({ trigger: "astro", event: "build:done" }),
           });
-          logger.info(\`MCP webhook: \${res.status}\`);
+          logger.info(\`agent webhook: \${res.status}\`);
         } catch (err) {
-          logger.warn("MCP webhook failed: " + (err as Error).message);
+          logger.warn("agent webhook failed: " + (err as Error).message);
         }
       },
     },

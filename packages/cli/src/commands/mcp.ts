@@ -14,12 +14,12 @@ import {
 export function registerMcpCommand(program: Command): void {
   const mcp = program
     .command("mcp")
-    .description("Generate self-hosted MCP servers for any website");
+    .description("Generate self-hosted agent servers for any website");
 
   // --- mcp deploy ---
   mcp
     .command("deploy")
-    .description("Generate a self-hosted MCP server for a website")
+    .description("Generate a self-hosted agent server for a website")
     .argument("<url>", "URL to generate MCP server for")
     .option("--self-host <platform>", "Self-host platform: vercel, cf")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
@@ -42,7 +42,7 @@ export function registerMcpCommand(program: Command): void {
         formats: ["mcp-server"],
       };
 
-      const spinner = ora("Crawling site and generating MCP server...").start();
+      const spinner = ora("Crawling site and generating agent server...").start();
 
       try {
         // Run the generate pipeline to get crawled data + context
@@ -79,7 +79,7 @@ export function registerMcpCommand(program: Command): void {
 
         // Summary
         console.log("");
-        console.log(chalk.bold("  w2agent mcp deploy — Self-Host MCP Server"));
+        console.log(chalk.bold("  w2agent mcp deploy — Self-Host Agent Server"));
         console.log(chalk.gray(`  ${"─".repeat(42)}`));
         console.log("");
         console.log(`  Source: ${chalk.cyan(url)}`);
@@ -92,7 +92,7 @@ export function registerMcpCommand(program: Command): void {
         } else if (selfHost === "cf") {
           console.log(`  Mode: ${chalk.magenta("Self-host (Cloudflare Workers)")}`);
         } else {
-          console.log(`  Mode: ${chalk.magenta("Standalone MCP server")}`);
+          console.log(`  Mode: ${chalk.magenta("Standalone agent server")}`);
         }
 
         console.log("");
@@ -136,21 +136,21 @@ export function registerMcpCommand(program: Command): void {
   // --- mcp status ---
   mcp
     .command("status")
-    .description("Check status of a hosted MCP deployment")
+    .description("Check status of a hosted agent deployment")
     .argument("[slug]", "Deployment slug")
     .action(async (slug?: string) => {
       if (!slug) {
         console.log(chalk.yellow("Usage: w2agent mcp status <slug>"));
         console.log(
-          chalk.gray("  Check health of a hosted MCP deployment at <slug>.mcp.w2agent.dev"),
+          chalk.gray("  Check health of a hosted agent deployment at <slug>.agent.w2agent.dev"),
         );
         return;
       }
 
-      const spinner = ora(`Checking status of ${slug}.mcp.w2agent.dev...`).start();
+      const spinner = ora(`Checking status of ${slug}.agent.w2agent.dev...`).start();
 
       try {
-        const res = await fetch(`https://${slug}.mcp.w2agent.dev/.well-known/mcp`, {
+        const res = await fetch(`https://${slug}.agent.w2agent.dev/.well-known/mcp`, {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -158,13 +158,13 @@ export function registerMcpCommand(program: Command): void {
         spinner.stop();
 
         if (res.ok) {
-          console.log(`  ${chalk.green("✓")} ${slug}.mcp.w2agent.dev is ${chalk.green("live")}`);
+          console.log(`  ${chalk.green("✓")} ${slug}.agent.w2agent.dev is ${chalk.green("live")}`);
         } else {
-          console.log(`  ${chalk.red("✗")} ${slug}.mcp.w2agent.dev returned ${res.status}`);
+          console.log(`  ${chalk.red("✗")} ${slug}.agent.w2agent.dev returned ${res.status}`);
         }
       } catch (err) {
         spinner.stop();
-        console.log(`  ${chalk.red("✗")} Could not reach ${slug}.mcp.w2agent.dev`);
+        console.log(`  ${chalk.red("✗")} Could not reach ${slug}.agent.w2agent.dev`);
         console.log(chalk.gray(`    ${(err as Error).message}`));
       }
     });
@@ -172,13 +172,13 @@ export function registerMcpCommand(program: Command): void {
   // --- mcp update ---
   mcp
     .command("update")
-    .description("Re-crawl and update a hosted MCP deployment")
+    .description("Re-crawl and update a hosted agent deployment")
     .argument("<slug>", "Deployment slug to update")
     .action(async (slug: string) => {
       const spinner = ora(`Triggering re-crawl for ${slug}...`).start();
 
       try {
-        const res = await fetch(`https://w2agent.dev/api/mcp/webhook/${slug}`, {
+        const res = await fetch(`https://w2agent.dev/api/agent/webhook/${slug}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });

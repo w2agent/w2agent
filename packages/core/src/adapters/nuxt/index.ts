@@ -74,7 +74,7 @@ export const nuxtAdapter: PlatformAdapter = {
  * Triggers a re-crawl when content changes.
  */
 
-const WEBHOOK_URL = process.env.W2AGENT_MCP_WEBHOOK_URL || "https://w2agent.dev/api/mcp/webhook/YOUR_SLUG";
+const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
 const WEBHOOK_TOKEN = process.env.W2AGENT_MCP_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
 export default defineEventHandler(async (event) => {
