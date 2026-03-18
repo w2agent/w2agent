@@ -113,14 +113,14 @@ WebMCP-compatible HTML forms with `toolname` attributes for declarative agent in
 
 OpenClaw-compatible skill file format for broader agent ecosystem compatibility.
 
-Also available via `w2agent mcp deploy`:
+Also available via `w2agent agent deploy`:
 
 ```bash
-w2agent mcp deploy <url>                     # Standalone MCP server
-w2agent mcp deploy <url> --self-host vercel  # Vercel-deployable project
-w2agent mcp deploy <url> --self-host cf      # Cloudflare Worker project
-w2agent mcp status <slug>                    # Check hosted deployment
-w2agent mcp update <slug>                    # Re-crawl hosted deployment
+w2agent agent deploy <url>                     # Standalone MCP server
+w2agent agent deploy <url> --self-host vercel  # Vercel-deployable project
+w2agent agent deploy <url> --self-host cf      # Cloudflare Worker project
+w2agent agent status <slug>                    # Check hosted deployment
+w2agent agent update <slug>                    # Re-crawl hosted deployment
 ```
 
 ### Platform Integration Files (auto-detected)

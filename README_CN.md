@@ -192,8 +192,8 @@ npx w2agent agentize https://example.com --slug my-docs
 
 ```bash
 # 生成可部署的 MCP 服务器项目
-npx w2agent mcp deploy https://example.com --self-host vercel
-npx w2agent mcp deploy https://example.com --self-host cf   # Cloudflare Workers
+npx w2agent agent deploy https://example.com --self-host vercel
+npx w2agent agent deploy https://example.com --self-host cf   # Cloudflare Workers
 
 # 在 ./w2agent-output/ 输出一个随时可部署的项目
 # vercel deploy ./w2agent-output/   或   wrangler deploy ./w2agent-output/
@@ -296,7 +296,7 @@ w2agent agentize <url> [options]
 ```
 
 ```
-w2agent mcp deploy <url> [options]
+w2agent agent deploy <url> [options]
 
 选项:
   --self-host <platform>   vercel | cf（Cloudflare Workers）

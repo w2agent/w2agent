@@ -92,19 +92,19 @@ w2agent whoami           # Show current authenticated user
 
 ```bash
 # Generate a standalone agent server
-w2agent mcp deploy <url>
+w2agent agent deploy <url>
 
 # Generate a Vercel-deployable agent server
-w2agent mcp deploy <url> --self-host vercel
+w2agent agent deploy <url> --self-host vercel
 
 # Generate a Cloudflare Worker agent server
-w2agent mcp deploy <url> --self-host cf
+w2agent agent deploy <url> --self-host cf
 
 # Check hosted deployment status
-w2agent mcp status <slug>
+w2agent agent status <slug>
 
 # Re-crawl and update hosted deployment
-w2agent mcp update <slug>
+w2agent agent update <slug>
 
 Options:
   --self-host <platform>   Self-host platform: vercel, cf
@@ -134,7 +134,7 @@ npx w2agent generate https://your-site.com --output ./public/
 #    - Any site: copy files to site root
 
 # 4. Generate an agent server so agents can search/read your site
-npx w2agent mcp deploy https://your-site.com
+npx w2agent agent deploy https://your-site.com
 
 # 5. Re-audit to confirm score improvement
 npx w2agent audit https://your-site.com

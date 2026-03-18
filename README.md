@@ -196,8 +196,8 @@ Your agent endpoint is live immediately. Add it to Claude Desktop:
 
 ```bash
 # Generate a deployable MCP server project
-npx w2agent mcp deploy https://example.com --self-host vercel
-npx w2agent mcp deploy https://example.com --self-host cf   # Cloudflare Workers
+npx w2agent agent deploy https://example.com --self-host vercel
+npx w2agent agent deploy https://example.com --self-host cf   # Cloudflare Workers
 
 # Outputs a ready-to-deploy project in ./w2agent-output/
 # vercel deploy ./w2agent-output/   or   wrangler deploy ./w2agent-output/
@@ -300,7 +300,7 @@ Options:
 ```
 
 ```
-w2agent mcp deploy <url> [options]
+w2agent agent deploy <url> [options]
 
 Options:
   --self-host <platform>   vercel | cf (Cloudflare Workers)

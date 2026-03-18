@@ -13,7 +13,7 @@ import {
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program
-    .command("mcp")
+    .command("agent")
     .description("Generate self-hosted agent servers for any website");
 
   // --- mcp deploy ---
@@ -79,7 +79,7 @@ export function registerMcpCommand(program: Command): void {
 
         // Summary
         console.log("");
-        console.log(chalk.bold("  w2agent mcp deploy — Self-Host Agent Server"));
+        console.log(chalk.bold("  w2agent agent deploy — Self-Host Agent Server"));
         console.log(chalk.gray(`  ${"─".repeat(42)}`));
         console.log("");
         console.log(`  Source: ${chalk.cyan(url)}`);
@@ -128,7 +128,7 @@ export function registerMcpCommand(program: Command): void {
           console.log(`  Platform detected: ${chalk.magenta(result.platform.platform)}`);
         }
       } catch (err) {
-        spinner.fail(`MCP server generation failed: ${(err as Error).message}`);
+        spinner.fail(`Agent server generation failed: ${(err as Error).message}`);
         process.exit(1);
       }
     });
@@ -140,7 +140,7 @@ export function registerMcpCommand(program: Command): void {
     .argument("[slug]", "Deployment slug")
     .action(async (slug?: string) => {
       if (!slug) {
-        console.log(chalk.yellow("Usage: w2agent mcp status <slug>"));
+        console.log(chalk.yellow("Usage: w2agent agent status <slug>"));
         console.log(
           chalk.gray("  Check health of a hosted agent deployment at <slug>.agent.w2agent.dev"),
         );

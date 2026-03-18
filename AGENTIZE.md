@@ -172,8 +172,8 @@ they may describe a product correctly on one query and incorrectly on the next.
 | Option | Command | Result |
 |--------|---------|--------|
 | Hosted (immediate) | `w2agent agentize` | Live at `<slug>.agent.w2agent.dev`, public, directory-listed |
-| Self-hosted (Vercel) | `w2agent mcp deploy --self-host vercel` | Custom domain, your infra |
-| Self-hosted (Cloudflare) | `w2agent mcp deploy --self-host cf` | Custom domain, edge-deployed |
+| Self-hosted (Vercel) | `w2agent agent deploy --self-host vercel` | Custom domain, your infra |
+| Self-hosted (Cloudflare) | `w2agent agent deploy --self-host cf` | Custom domain, edge-deployed |
 
 Hosted is the default — fastest path to a working agent.
 
@@ -241,13 +241,13 @@ npx w2agent agentize https://example.com --slug my-site
 
 **Option B — Self-hosted (Vercel):**
 ```bash
-npx w2agent mcp deploy https://example.com --self-host vercel
+npx w2agent agent deploy https://example.com --self-host vercel
 cd w2agent-output && vercel deploy
 ```
 
 **Option C — Self-hosted (Cloudflare):**
 ```bash
-npx w2agent mcp deploy https://example.com --self-host cf
+npx w2agent agent deploy https://example.com --self-host cf
 cd w2agent-output && wrangler deploy
 ```
 
