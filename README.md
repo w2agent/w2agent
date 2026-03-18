@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README_CN.md)
+
 # w2agent
 
 **Every website is already an agent.** w2agent audits, generates, and deploys
