@@ -29,7 +29,8 @@ export function generateFaq(ctx: GenerateContext): FaqPageSchema | null {
     allEntries.push(...entries);
   }
 
-  const deduped = deduplicateByQuestion(allEntries);
+  const filtered = filterLowQualityEntries(allEntries);
+  const deduped = deduplicateByQuestion(filtered);
 
   if (deduped.length === 0) return null;
 
@@ -135,6 +136,10 @@ function extractFromJsonLd(jsonLdItems: unknown[]): FaqEntry[] {
   }
 
   return entries;
+}
+
+function filterLowQualityEntries(entries: FaqEntry[]): FaqEntry[] {
+  return entries.filter((e) => e.question.length > 10 && e.answer.length > 20);
 }
 
 function deduplicateByQuestion(entries: FaqEntry[]): FaqEntry[] {

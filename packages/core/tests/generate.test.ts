@@ -644,7 +644,7 @@ describe("generateFaq", () => {
       <script type="application/ld+json">{
         "@type": "FAQPage",
         "mainEntity": [
-          {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, it is free."}}
+          {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, it is completely free to use."}}
         ]
       }</script>
     </head><body><p>Here are our frequently asked questions and answers.</p></body></html>`;
@@ -656,15 +656,15 @@ describe("generateFaq", () => {
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
     expect(result?.mainEntity[0].name).toBe("Is it free?");
-    expect(result?.mainEntity[0].acceptedAnswer.text).toBe("Yes, it is free.");
+    expect(result?.mainEntity[0].acceptedAnswer.text).toBe("Yes, it is completely free to use.");
   });
 
   it("deduplicates questions by text", () => {
     const html = `<html><head><title>FAQ</title></head><body>
       <dl>
-        <dt>What is this?</dt><dd>Answer one.</dd>
-        <dt>What is this?</dt><dd>Answer two.</dd>
-        <dt>How does it work?</dt><dd>It just works.</dd>
+        <dt>What is this product?</dt><dd>Answer one: it is a comprehensive testing framework.</dd>
+        <dt>What is this product?</dt><dd>Answer two: it is a comprehensive testing framework.</dd>
+        <dt>How does it work exactly?</dt><dd>It processes your input and returns the computed result.</dd>
       </dl>
     </body></html>`;
 
@@ -675,7 +675,79 @@ describe("generateFaq", () => {
     const result = generateFaq(ctx);
     expect(result).not.toBeNull();
     const questions = result?.mainEntity.map((e) => e.name);
-    expect(questions.filter((q) => q === "What is this?")).toHaveLength(1);
+    expect(questions.filter((q) => q === "What is this product?")).toHaveLength(1);
+  });
+
+  it("filters entries with question <= 10 chars", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <dl>
+        <dt>Resources</dt><dd>Links to documentation, tutorials, and community support resources.</dd>
+        <dt>What browsers are officially supported by this library?</dt><dd>All modern browsers including Chrome, Firefox, Safari, and Edge are supported.</dd>
+      </dl>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    const questions = result?.mainEntity.map((e) => e.name);
+    expect(questions).not.toContain("Resources");
+    expect(questions).toContain("What browsers are officially supported by this library?");
+  });
+
+  it("filters entries with answer <= 20 chars", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <dl>
+        <dt>What is the license type?</dt><dd>MIT</dd>
+        <dt>How do I install this package?</dt><dd>Run npm install to add this package to your project dependencies.</dd>
+      </dl>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    const questions = result?.mainEntity.map((e) => e.name);
+    expect(questions).not.toContain("What is the license type?");
+    expect(questions).toContain("How do I install this package?");
+  });
+
+  it("preserves entries where question > 10 and answer > 20 chars", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <dl>
+        <dt>What is the pricing model?</dt><dd>We offer a free tier plus paid plans starting at ten dollars per month.</dd>
+        <dt>Where can I find documentation?</dt><dd>Full documentation is available on our official website and GitHub repository.</dd>
+      </dl>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).not.toBeNull();
+    expect(result?.mainEntity).toHaveLength(2);
+    expect(result?.mainEntity[0].name).toBe("What is the pricing model?");
+  });
+
+  it("returns null when all entries fail quality threshold", () => {
+    const html = `<html><head><title>FAQ</title></head><body>
+      <dl>
+        <dt>Price</dt><dd>Free</dd>
+        <dt>Docs</dt><dd>See site</dd>
+      </dl>
+    </body></html>`;
+
+    const ctx = makeCtx({
+      rawPages: [makeFetchedPage("https://example.com/faq", html)],
+    });
+
+    const result = generateFaq(ctx);
+    expect(result).toBeNull();
   });
 
   it("returns null when no FAQ content found", () => {
