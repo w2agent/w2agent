@@ -150,7 +150,8 @@ install_deps() {
   case "$pm" in
     pnpm) (cd "$app_dir" && pnpm install --no-frozen-lockfile 2>&1 | tail -3) ;;
     yarn) (cd "$app_dir" && yarn install --no-immutable 2>&1 | tail -3) ;;
-    *)    (cd "$app_dir" && npm install 2>&1 | tail -3) ;;
+    *)    (cd "$app_dir" && npm install 2>&1 | tail -3) || \
+          (cd "$app_dir" && npm install --legacy-peer-deps 2>&1 | tail -3) ;;
   esac
 }
 
@@ -215,8 +216,8 @@ declare -a REPOS=(
   "astrowind|Marketing site (onwidget)|static|clone|onwidget/astrowind:"
   "astro-blog-template|Minimal blog (Charca)|static|clone|Charca/astro-blog-template:"
   "withastro-blog-example|Official blog example|static|clone|withastro/astro:examples/blog"
-  "accessible-astro|Accessibility starter|static|clone|markteekman/accessible-astro-starter:"
-  "astroship|Landing page starter|static|clone|mickasmt/astroship:"
+  "accessible-astro|Accessibility starter|static|clone|incluud/accessible-astro-starter:"
+  "astroship|Landing page starter|static|clone|surjithctly/astroship:"
 )
 
 # --- Per-repo runner ---
