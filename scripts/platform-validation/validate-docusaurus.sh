@@ -141,16 +141,25 @@ detect_pkg_manager() {
   fi
 }
 
-# Install deps using the detected package manager
+# Install deps using the detected package manager (two-pass: retry with relaxed flags on failure)
 install_deps() {
   local app_dir="$1"
   local pm
   pm=$(detect_pkg_manager "$app_dir")
   log "  Installing deps with $pm..."
   case "$pm" in
-    pnpm) (cd "$app_dir" && pnpm install --no-frozen-lockfile 2>&1 | tail -3) ;;
-    yarn) (cd "$app_dir" && yarn install --no-immutable 2>&1 | tail -3) ;;
-    *)    (cd "$app_dir" && npm install 2>&1 | tail -3) ;;
+    pnpm)
+      (cd "$app_dir" && pnpm install --no-frozen-lockfile 2>&1 | tail -3) && return 0
+      log "  Retrying with --shamefully-hoist..."
+      (cd "$app_dir" && pnpm install --no-frozen-lockfile --shamefully-hoist 2>&1 | tail -3) ;;
+    yarn)
+      (cd "$app_dir" && yarn install --no-immutable 2>&1 | tail -3) && return 0
+      log "  Retrying with --ignore-engines..."
+      (cd "$app_dir" && yarn install --no-immutable --ignore-engines 2>&1 | tail -3) ;;
+    *)
+      (cd "$app_dir" && npm install 2>&1 | tail -3) && return 0
+      log "  Retrying with --legacy-peer-deps..."
+      (cd "$app_dir" && npm install --legacy-peer-deps 2>&1 | tail -3) ;;
   esac
 }
 
@@ -161,11 +170,10 @@ setup_docusaurus_create() {
   local template="$1"   # "classic" or "classic-typescript"
   local dir="$2"
   mkdir -p "$dir"
-  if [[ "$template" == "classic-typescript" ]]; then
-    echo '' | npx create-docusaurus@latest "$dir/app" classic --typescript 2>&1 | tail -5
-  else
-    echo '' | npx create-docusaurus@latest "$dir/app" classic 2>&1 | tail -5
-  fi
+  local create_args=("$dir/app" classic)
+  [[ "$template" == "classic-typescript" ]] && create_args+=(--typescript)
+  printf '\n\n\n\n\n' | npx create-docusaurus@latest "${create_args[@]}" 2>&1 | tail -5
+  [[ -d "$dir/app" ]]
 }
 
 # repo_spec format: "owner/repo:optional/subdir"

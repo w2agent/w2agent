@@ -19,7 +19,12 @@ export function generateDocusaurusIntegration(
  */
 const fs = require("fs");
 const path = require("path");
-const matter = require("gray-matter");
+let matter;
+try {
+  matter = require("gray-matter");
+} catch {
+  console.warn("[w2agent] gray-matter not installed — dynamic llms.txt generation disabled, using static fallback");
+}
 
 module.exports = function w2agentPlugin(context) {
   return {
@@ -63,6 +68,7 @@ module.exports = function w2agentPlugin(context) {
 };
 
 function generateFromDocs(context, siteUrl, siteName, siteDesc) {
+  if (!matter) return null;
   const docsDir = path.join(context.siteDir, "docs");
   if (!fs.existsSync(docsDir)) return null;
 
