@@ -80,7 +80,7 @@ na() {
 # Format: "name|description|setup_type|clone_url_or_empty"
 declare -a CONFIGS=(
   "shopify-dawn|Dawn OS 2.0 theme (official clone)|clone|https://github.com/Shopify/dawn.git"
-  "shopify-debut|Debut theme (classic clone)|clone|https://github.com/Shopify/debut.git"
+  "shopify-skeleton|Skeleton theme (minimal scaffold)|clone|https://github.com/Shopify/skeleton-theme.git"
   "shopify-mock-fresh|Mock theme — fresh install|mock-fresh|"
   "shopify-mock-existing-robots|Mock theme — pre-existing robots.txt.liquid|mock-existing-robots|"
   "shopify-non-theme-dir|Empty dir — non-theme warning|non-theme-dir|"
