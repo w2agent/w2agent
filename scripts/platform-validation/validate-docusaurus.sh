@@ -157,15 +157,14 @@ install_deps() {
 # --- Setup functions ---
 
 # Create a generated Docusaurus project from the classic template
-# --no-install skips npm install (we run it ourselves later)
 setup_docusaurus_create() {
   local template="$1"   # "classic" or "classic-typescript"
   local dir="$2"
   mkdir -p "$dir"
   if [[ "$template" == "classic-typescript" ]]; then
-    echo '' | npx create-docusaurus@latest "$dir/app" classic --typescript --no-install 2>&1 | tail -5
+    echo '' | npx create-docusaurus@latest "$dir/app" classic --typescript 2>&1 | tail -5
   else
-    echo '' | npx create-docusaurus@latest "$dir/app" classic --no-install 2>&1 | tail -5
+    echo '' | npx create-docusaurus@latest "$dir/app" classic 2>&1 | tail -5
   fi
 }
 
@@ -191,14 +190,14 @@ do_clone() {
 declare -a REPOS=(
   "docusaurus-classic|Classic generated|static|docusaurus_create|classic"
   "docusaurus-classic-ts|Classic TypeScript generated|static|docusaurus_create|classic-typescript"
-  "docusaurus-official|Official Docusaurus website|static|clone|facebook/docusaurus:website"
-  "jest-docs|Jest website|static|clone|jestjs/jest:website"
   "ionic-docs|Ionic framework docs|static|clone|ionic-team/ionic-docs:"
-  "react-native-website|React Native website|static|clone|facebook/react-native:website"
-  "openapi-demo|Docusaurus OpenAPI docs demo|static|clone|PaloAltoNetworks/docusaurus-openapi-docs:website"
   "dyte-docs|Dyte API docs|static|clone|dyte-io/docs:"
-  "nx-docs|NX framework docs|static|clone|nrwl/nx:docs"
-  "supabase-docs|Supabase docs|static|clone|supabase/supabase:apps/docs"
+  "react-native-site|React Native standalone site|static|clone|facebook/react-native-website:website"
+  "lerna-docs|Lerna framework docs|static|clone|lerna/lerna:website"
+  "lexical-docs|Lexical editor docs|static|clone|facebook/lexical:packages/lexical-website"
+  "refine-docs|Refine framework docs|static|clone|refinedev/refine:documentation"
+  "testing-library-docs|Testing Library docs|static|clone|testing-library/testing-library-docs:"
+  "twir-website|This Week in React website|static|clone|slorber/this-week-in-react:website"
 )
 
 # --- Per-repo runner ---
