@@ -109,6 +109,7 @@ add_action('template_redirect', function() {
     $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
     if ($uri === '/llms.txt') {
+        http_response_code(200);
         header('Content-Type: text/plain; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
 
@@ -122,6 +123,7 @@ add_action('template_redirect', function() {
     }
 
     if ($uri === '/.well-known/agent-card.json') {
+        http_response_code(200);
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
 

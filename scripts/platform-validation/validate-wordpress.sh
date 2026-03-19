@@ -256,19 +256,14 @@ run_config() {
   fi
 
   # Write .wp-env.json for this config
-  local extra_plugins_json=""
-  if [[ -n "$extra_plugins" ]]; then
-    for slug in $extra_plugins; do
-      extra_plugins_json+="\"$slug\", "
-    done
-  fi
-
+  # Only include the local w2agent plugin — themes/extra plugins are installed via WP-CLI
+  # after startup to avoid wp-env source format limitations with WordPress.org slugs
   cat > "$wp_root/.wp-env.json" << JSON
 {
   "core": null,
   "port": $WP_ENV_PORT,
-  "themes": ["$theme"],
-  "plugins": [${extra_plugins_json}"./wp-content/plugins/w2agent"]
+  "plugins": ["./wp-content/plugins/w2agent"],
+  "testsEnvironment": false
 }
 JSON
 
@@ -300,19 +295,20 @@ JSON
     return
   fi
 
-  # 5. Activate theme and plugins via wp-cli inside wp-env
-  log "  Activating theme ($theme) and w2agent plugin..."
+  # 5. Install and activate theme and extra plugins via WP-CLI
+  # wp theme/plugin install accepts WordPress.org slugs directly
+  log "  Installing and activating theme ($theme)..."
   local activate_ok=1
 
-  if ! (cd "$wp_root" && npx @wordpress/env run cli wp theme activate "$theme" 2>&1 | tail -3); then
-    log "  Warning: theme activate may have failed (theme might need download)"
+  if ! (cd "$wp_root" && npx @wordpress/env run cli wp theme install "$theme" --activate 2>&1 | tail -3); then
+    log "  Warning: theme install/activate failed for $theme"
     activate_ok=0
   fi
 
   if [[ -n "$extra_plugins" ]]; then
     for slug in $extra_plugins; do
-      if ! (cd "$wp_root" && npx @wordpress/env run cli wp plugin activate "$slug" 2>&1 | tail -3); then
-        log "  Warning: plugin activate failed for $slug"
+      if ! (cd "$wp_root" && npx @wordpress/env run cli wp plugin install "$slug" --activate 2>&1 | tail -3); then
+        log "  Warning: plugin install/activate failed for $slug"
         activate_ok=0
       fi
     done
@@ -331,6 +327,11 @@ JSON
     fail "Theme + plugin activate" "one or more activate commands failed"
     r_activate="❌"
   fi
+
+  # Flush rewrite rules so .htaccess routes /llms.txt and /.well-known/ through WP
+  log "  Flushing rewrite rules..."
+  (cd "$wp_root" && npx @wordpress/env run cli wp rewrite structure '/%postname%/' --hard 2>&1 | tail -2 || true)
+  (cd "$wp_root" && npx @wordpress/env run cli wp rewrite flush --hard 2>&1 | tail -2 || true)
 
   # 6–7. Endpoint checks
   local endpoint_fail_before=$FAIL_COUNT
