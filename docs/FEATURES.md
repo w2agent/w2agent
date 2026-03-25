@@ -213,6 +213,7 @@ Each module pre-configures the right mix of features for a specific site type.
 
 ### Local Business Module
 - **Detection**: Implemented (confidence-scored heuristics: LocalBusiness JSON-LD, booking embeds, NAP microdata, map embeds, business hours, menu/services URLs, phone links)
+- **Generators**: Implemented — LocalBusiness + Speakable JSON-LD, business-info.md table, MCP tools: `get-hours`, `get-menu`, `get-services`, `book-appointment`
 - NAP + hours + services → LocalBusiness JSON-LD
 - Menu/services → structured data
 - Booking/reservation → MCP tool (agent-callable)
