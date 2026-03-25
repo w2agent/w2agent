@@ -212,6 +212,7 @@ Each module pre-configures the right mix of features for a specific site type.
 - Coding agent optimization: raw markdown, API examples, build steps
 
 ### Local Business Module
+- **Detection**: Implemented (confidence-scored heuristics: LocalBusiness JSON-LD, booking embeds, NAP microdata, map embeds, business hours, menu/services URLs, phone links)
 - NAP + hours + services → LocalBusiness JSON-LD
 - Menu/services → structured data
 - Booking/reservation → MCP tool (agent-callable)

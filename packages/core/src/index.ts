@@ -99,5 +99,6 @@ export type { InstallAction, InstallActionType, InstallPlan } from "./install/ty
 export type { SiteTypeCheckAdapter } from "./site-types/checks.js";
 export { getSiteTypeChecks, registerSiteTypeChecks } from "./site-types/checks.js";
 export { ecommerceDetector } from "./site-types/ecommerce.js";
+export { localBusinessDetector } from "./site-types/local-business.js";
 export { detectSiteType, registerSiteTypeDetector } from "./site-types/registry.js";
 export type { SiteType, SiteTypeDetectionResult, SiteTypeDetector } from "./site-types/types.js";

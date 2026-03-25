@@ -1,6 +1,6 @@
 import type { FetchedPage, SiteMetadata } from "../audit/types.js";
 
-export type SiteType = "ecommerce";
+export type SiteType = "ecommerce" | "local-business";
 
 export interface SiteTypeDetectionResult {
   siteType: SiteType;
