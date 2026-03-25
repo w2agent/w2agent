@@ -197,6 +197,10 @@ Each module pre-configures the right mix of features for a specific site type.
 - Comparison-optimized product tables
 - Shopping agent optimization: structured data fields, valid GTINs, solution-oriented descriptions
 - Agent journey optimization: browse (87%) → evaluate → authenticate (4%) → checkout (2%)
+- **E-commerce audit checks** ✅ Shipped — 3 checks run automatically when e-commerce site detected:
+  - `ecommerce-product-schema`: % of product pages with complete Product JSON-LD (name + price + availability)
+  - `ecommerce-gtin-valid`: GS1 check digit validation for products with GTIN fields (skips sites without GTINs)
+  - `ecommerce-checkout-accessible`: verifies cart/checkout URLs are not blocked by robots.txt
 
 ### Documentation Module
 - API reference → llms.txt with endpoint summaries

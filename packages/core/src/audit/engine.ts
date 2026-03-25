@@ -1,4 +1,5 @@
 import { detectPlatform, getAdapter } from "../adapters/registry.js";
+import { getSiteTypeChecks } from "../site-types/checks.js";
 import { detectSiteType } from "../site-types/index.js";
 import { crawlSite } from "./crawler.js";
 import type {
@@ -67,6 +68,11 @@ export async function runAudit(
   if (detected) {
     const adapter = getAdapter(detected.platform);
     if (adapter) allChecks.push(...adapter.checks);
+  }
+
+  // Merge site-type-specific checks
+  if (detectedSiteType) {
+    allChecks.push(...getSiteTypeChecks(detectedSiteType.siteType));
   }
 
   // Filter checks by selected categories

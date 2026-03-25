@@ -96,6 +96,8 @@ import "./site-types/index.js";
 export { executeInstallPlan, formatInstallSummary } from "./install/executor.js";
 export { planInstall } from "./install/planner.js";
 export type { InstallAction, InstallActionType, InstallPlan } from "./install/types.js";
+export type { SiteTypeCheckAdapter } from "./site-types/checks.js";
+export { getSiteTypeChecks, registerSiteTypeChecks } from "./site-types/checks.js";
 export { ecommerceDetector } from "./site-types/ecommerce.js";
 export { detectSiteType, registerSiteTypeDetector } from "./site-types/registry.js";
 export type { SiteType, SiteTypeDetectionResult, SiteTypeDetector } from "./site-types/types.js";
