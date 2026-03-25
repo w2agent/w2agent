@@ -1,4 +1,5 @@
 import { detectPlatform, getAdapter } from "../adapters/registry.js";
+import { detectSiteType } from "../site-types/index.js";
 import { crawlSite } from "./crawler.js";
 import type {
   AuditOptions,
@@ -50,6 +51,14 @@ export async function runAudit(
     );
   }
 
+  // Detect site type
+  const detectedSiteType = detectSiteType(pages, metadata);
+  if (detectedSiteType) {
+    onProgress?.(
+      `Detected site type: ${detectedSiteType.siteType} (${Math.round(detectedSiteType.confidence * 100)}% confidence)`,
+    );
+  }
+
   // Use provided checks or fall back to registry
   const sourceChecks = checksOverride ?? checkRegistry;
 
@@ -93,6 +102,7 @@ export async function runAudit(
     categories,
     topIssues,
     ...(detected && { platform: detected }),
+    ...(detectedSiteType && { siteType: detectedSiteType }),
   };
 }
 

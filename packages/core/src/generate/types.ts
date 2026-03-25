@@ -5,6 +5,11 @@ export interface GenerateContext {
   rawPages: FetchedPage[];
   metadata: SiteMetadata;
   baseUrl: string;
+  siteType?: {
+    siteType: string;
+    confidence: number;
+    signals: string[];
+  };
 }
 
 export interface GenerateOptions {
@@ -53,6 +58,11 @@ export interface GenerateResult {
     confidence: number;
     version?: string;
     details: Record<string, string>;
+  };
+  siteType?: {
+    siteType: string;
+    confidence: number;
+    signals: string[];
   };
 }
 

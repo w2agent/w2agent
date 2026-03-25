@@ -89,7 +89,13 @@ export {
 export { allAdapters, detectPlatform, getAdapter, registerAdapter } from "./adapters/registry.js";
 export type { PlatformAdapter, PlatformDetectionResult, PlatformId } from "./adapters/types.js";
 
+// Site Types (import registers all built-in detectors)
+import "./site-types/index.js";
+
 // Install
 export { executeInstallPlan, formatInstallSummary } from "./install/executor.js";
 export { planInstall } from "./install/planner.js";
 export type { InstallAction, InstallActionType, InstallPlan } from "./install/types.js";
+export { ecommerceDetector } from "./site-types/ecommerce.js";
+export { detectSiteType, registerSiteTypeDetector } from "./site-types/registry.js";
+export type { SiteType, SiteTypeDetectionResult, SiteTypeDetector } from "./site-types/types.js";

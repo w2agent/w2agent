@@ -56,6 +56,11 @@ export interface AuditReport {
     version?: string;
     details: Record<string, string>;
   };
+  siteType?: {
+    siteType: string;
+    confidence: number;
+    signals: string[];
+  };
 }
 
 export interface FetchedPage {

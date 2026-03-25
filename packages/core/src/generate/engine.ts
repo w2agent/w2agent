@@ -4,6 +4,7 @@ import type { AuditOptions, FetchedPage } from "../audit/types.js";
 import { fetchPage } from "../shared/fetcher.js";
 import { parseHTML } from "../shared/html-parser.js";
 import { sortUrlsByScore } from "../shared/page-scoring.js";
+import { detectSiteType } from "../site-types/index.js";
 import { generateAgentCard } from "./agent-card.js";
 import { generateFaq } from "./faq.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
@@ -159,12 +160,21 @@ export async function runGenerate(
     }
   }
 
+  // Detect site type
+  const detectedSiteType = detectSiteType(pages, metadata);
+  if (detectedSiteType) {
+    onProgress?.(
+      `Detected site type: ${detectedSiteType.siteType} (${Math.round(detectedSiteType.confidence * 100)}% confidence)`,
+    );
+  }
+
   // Build GenerateContext for new generators
   const ctx: GenerateContext = {
     pages: filteredPages,
     rawPages: pages,
     metadata,
     baseUrl,
+    ...(detectedSiteType && { siteType: detectedSiteType }),
   };
 
   // Generate robots.txt
@@ -251,6 +261,7 @@ export async function runGenerate(
     files,
     sections: sectionNames,
     ...(detected && { platform: detected }),
+    ...(detectedSiteType && { siteType: detectedSiteType }),
   };
 }
 
