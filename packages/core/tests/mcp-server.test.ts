@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FetchedPage } from "../src/audit/types.js";
+import type { EcommerceArtifacts } from "../src/generate/ecommerce.js";
 import { detectTools, generateMcpServer } from "../src/generate/mcp-server.js";
 import type { GenerateContext, PageMarkdown } from "../src/generate/types.js";
 
@@ -581,5 +582,135 @@ describe("tool annotations", () => {
     // The tools/list response is a JS object literal inside JSON.stringify() —
     // in generated source code, annotations appear as JS syntax, not serialized JSON
     expect(workerFile.content).toContain("annotations: { readOnlyHint: true");
+  });
+});
+
+// --- E-commerce tools ---
+
+const mockArtifacts: EcommerceArtifacts = {
+  products: [
+    {
+      productId: "p_abc123",
+      name: "Test Widget",
+      description: "A great widget",
+      url: "https://example.com/products/widget",
+      price: 29.99,
+      currency: "USD",
+      availability: "InStock",
+      brand: "Acme",
+      sku: "WIDGET-001",
+      source: "json-ld",
+    },
+    {
+      productId: "p_def456",
+      name: "Another Product",
+      url: "https://example.com/products/another",
+      price: 49.99,
+      currency: "USD",
+      availability: "OutOfStock",
+      rating: 4.2,
+      reviewCount: 55,
+      bestRating: 5,
+      source: "microdata",
+    },
+  ],
+};
+
+describe("e-commerce tools", () => {
+  it("adds commerce tools when artifacts have products", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Welcome" }],
+    });
+    const result = detectTools(ctx, mockArtifacts);
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("search-products");
+    expect(names).toContain("get-product");
+    expect(names).toContain("check-inventory");
+    expect(names).toContain("get-reviews");
+    expect(result.hasProducts).toBe(true);
+  });
+
+  it("does not add commerce tools without artifacts", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Home", description: "", markdown: "Hello" }],
+    });
+    const result = detectTools(ctx);
+    const names = result.tools.map((t) => t.name);
+    expect(names).not.toContain("search-products");
+    expect(result.hasProducts).toBe(false);
+  });
+
+  it("does not add commerce tools when artifacts have no products", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Home", description: "", markdown: "Hello" }],
+    });
+    const result = detectTools(ctx, { products: [] });
+    expect(result.hasProducts).toBe(false);
+  });
+
+  it("generates products.json when artifacts have products", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Welcome" }],
+    });
+    const files = generateMcpServer(ctx, undefined, mockArtifacts);
+    const productsFile = files.find((f) => f.filename === "mcp-server/data/products.json");
+    expect(productsFile).toBeDefined();
+    const data = JSON.parse(productsFile!.content);
+    expect(data).toHaveLength(2);
+    expect(data[0].productId).toBe("p_abc123");
+  });
+
+  it("does not generate products.json without artifacts", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Home", description: "", markdown: "Hello" }],
+    });
+    const files = generateMcpServer(ctx);
+    expect(files.some((f) => f.filename === "mcp-server/data/products.json")).toBe(false);
+  });
+
+  it("standalone server.ts includes commerce tools when products exist", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Content" }],
+    });
+    const files = generateMcpServer(ctx, undefined, mockArtifacts);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    expect(serverFile.content).toContain('server.tool("search-products"');
+    expect(serverFile.content).toContain('server.tool("get-product"');
+    expect(serverFile.content).toContain('server.tool("check-inventory"');
+    expect(serverFile.content).toContain('server.tool("get-reviews"');
+    expect(serverFile.content).toContain("searchProducts");
+    expect(serverFile.content).toContain("data/products.json");
+  });
+
+  it("vercel api/mcp.ts includes commerce tools when products exist", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Content" }],
+    });
+    const files = generateMcpServer(ctx, "vercel", mockArtifacts);
+    const apiFile = files.find((f) => f.filename === "mcp-server/api/mcp.ts")!;
+    expect(apiFile.content).toContain('server.tool("search-products"');
+    expect(apiFile.content).toContain("products.json");
+  });
+
+  it("cf worker.ts includes commerce tools and setup.sh uploads products", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Content" }],
+    });
+    const files = generateMcpServer(ctx, "cf", mockArtifacts);
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    expect(workerFile.content).toContain("search-products");
+    const setupFile = files.find((f) => f.filename === "mcp-server/setup.sh")!;
+    expect(setupFile.content).toContain('"products"');
+  });
+
+  it("commerce tools have readOnly annotations in standalone template", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "Shop", description: "", markdown: "Content" }],
+    });
+    const files = generateMcpServer(ctx, undefined, mockArtifacts);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    const searchIdx = serverFile.content.indexOf('"search-products"');
+    const afterSearch = serverFile.content.slice(searchIdx, searchIdx + 300);
+    expect(afterSearch).toContain("readOnlyHint: true");
   });
 });

@@ -1,4 +1,6 @@
 import { parseHTML } from "../shared/html-parser.js";
+import type { EcommerceArtifacts } from "./ecommerce.js";
+import { generateCommerceToolHandlers } from "./ecommerce.js";
 import { generateFaq } from "./faq.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
@@ -15,6 +17,7 @@ export interface McpDetectedTools {
   tools: McpTool[];
   hasFaq: boolean;
   hasSearchAction: boolean;
+  hasProducts: boolean;
   forms: DetectedForm[];
 }
 
@@ -34,10 +37,11 @@ export type SelfHostPlatform = "vercel" | "cf";
 export function generateMcpServer(
   ctx: GenerateContext,
   selfHost?: SelfHostPlatform,
+  artifacts?: EcommerceArtifacts | null,
 ): GeneratedFile[] {
   const { siteName } = extractSiteInfo(ctx.pages, ctx.baseUrl);
-  const detected = detectTools(ctx);
-  const dataFiles = generateDataFiles(ctx);
+  const detected = detectTools(ctx, artifacts);
+  const dataFiles = generateDataFiles(ctx, artifacts);
 
   if (selfHost === "vercel") {
     return generateVercelTemplate(siteName, ctx.baseUrl, detected, dataFiles);
@@ -104,7 +108,10 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
   return deduped;
 }
 
-export function detectTools(ctx: GenerateContext): McpDetectedTools {
+export function detectTools(
+  ctx: GenerateContext,
+  artifacts?: EcommerceArtifacts | null,
+): McpDetectedTools {
   const tools: McpTool[] = [];
   let hasFaq = false;
   let hasSearchAction = false;
@@ -183,12 +190,39 @@ export function detectTools(ctx: GenerateContext): McpDetectedTools {
     });
   });
 
-  return { tools, hasFaq, hasSearchAction, forms };
+  const hasProducts = !!artifacts && artifacts.products.length > 0;
+  if (hasProducts) {
+    tools.push({
+      name: "search-products",
+      description: "Search products by name, category, or description",
+      condition: "hasProducts",
+    });
+    tools.push({
+      name: "get-product",
+      description: "Get full product details by product ID",
+      condition: "hasProducts",
+    });
+    tools.push({
+      name: "check-inventory",
+      description: "Check product availability and price by product ID",
+      condition: "hasProducts",
+    });
+    tools.push({
+      name: "get-reviews",
+      description: "Get aggregate rating and review count for a product",
+      condition: "hasProducts",
+    });
+  }
+
+  return { tools, hasFaq, hasSearchAction, hasProducts, forms };
 }
 
 // --- Data File Generation ---
 
-export function generateDataFiles(ctx: GenerateContext): GeneratedFile[] {
+export function generateDataFiles(
+  ctx: GenerateContext,
+  artifacts?: EcommerceArtifacts | null,
+): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
   // pages.json
@@ -213,6 +247,13 @@ export function generateDataFiles(ctx: GenerateContext): GeneratedFile[] {
         "mcp-server/data/openapi.json",
         `${JSON.stringify(ctx.metadata.openapi, null, 2)}\n`,
       ),
+    );
+  }
+
+  // products.json (if e-commerce)
+  if (artifacts && artifacts.products.length > 0) {
+    files.push(
+      makeFile("mcp-server/data/products.json", `${JSON.stringify(artifacts.products, null, 2)}\n`),
     );
   }
 
@@ -244,6 +285,12 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   if (detected.hasFaq) {
     lines.push(
       `const faq = JSON.parse(readFileSync(resolve(__dirname, "data/faq.json"), "utf-8"));`,
+    );
+  }
+
+  if (detected.hasProducts) {
+    lines.push(
+      `const products = JSON.parse(readFileSync(resolve(__dirname, "data/products.json"), "utf-8"));`,
     );
   }
 
@@ -372,6 +419,57 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(`});`);
     lines.push(``);
   });
+
+  // Commerce tools
+  if (detected.hasProducts) {
+    lines.push(`// E-commerce tool handlers`);
+    lines.push(generateCommerceToolHandlers());
+    lines.push(``);
+
+    lines.push(`// Tool: search-products`);
+    lines.push(
+      `server.tool("search-products", "Search products by name, category, or description", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
+    );
+    lines.push(`  const results = searchProducts(query, products);`);
+    lines.push(
+      `  if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };`,
+    );
+    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };`);
+    lines.push(`});`);
+    lines.push(``);
+
+    lines.push(`// Tool: get-product`);
+    lines.push(
+      `server.tool("get-product", "Get full product details by product ID", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
+    );
+    lines.push(`  const product = getProduct(productId, products);`);
+    lines.push(
+      `  if (!product) return { content: [{ type: "text", text: "Product not found" }] };`,
+    );
+    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };`);
+    lines.push(`});`);
+    lines.push(``);
+
+    lines.push(`// Tool: check-inventory`);
+    lines.push(
+      `server.tool("check-inventory", "Check product availability and price", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
+    );
+    lines.push(`  const result = checkInventory(productId, products);`);
+    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
+    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
+    lines.push(`});`);
+    lines.push(``);
+
+    lines.push(`// Tool: get-reviews`);
+    lines.push(
+      `server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
+    );
+    lines.push(`  const result = getReviews(productId, products);`);
+    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
+    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
+    lines.push(`});`);
+    lines.push(``);
+  }
 
   // Page resources
   lines.push(`// Resources: expose pages as MCP resources`);
@@ -525,7 +623,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import pages from "../data/pages.json" with { type: "json" };
-${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}
+${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}
 function createServer() {
   const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
@@ -568,6 +666,36 @@ ${
     if (matches.length === 0) return { content: [{ type: "text", text: "No FAQ matches" }] };
     const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");
     return { content: [{ type: "text", text: result }] };
+  });
+`
+    : ""
+}${
+  detected.hasProducts
+    ? `
+${generateCommerceToolHandlers()}
+
+  server.tool("search-products", "Search products by name, category, or description", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
+    const results = searchProducts(query, products as any);
+    if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };
+    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+  });
+
+  server.tool("get-product", "Get full product details by product ID", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+    const product = getProduct(productId, products as any);
+    if (!product) return { content: [{ type: "text", text: "Product not found" }] };
+    return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };
+  });
+
+  server.tool("check-inventory", "Check product availability and price", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+    const result = checkInventory(productId, products as any);
+    if (!result) return { content: [{ type: "text", text: "Product not found" }] };
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  });
+
+  server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+    const result = getReviews(productId, products as any);
+    if (!result) return { content: [{ type: "text", text: "Product not found" }] };
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   });
 `
     : ""
@@ -668,7 +796,7 @@ export default {
     // Load data from KV
     const pagesStr = await env.MCP_DATA.get("pages");
     const pages = pagesStr ? JSON.parse(pagesStr) : [];
-${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    const faq = faqStr ? JSON.parse(faqStr) : null;\n' : ""}
+${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    const faq = faqStr ? JSON.parse(faqStr) : null;\n' : ""}${detected.hasProducts ? '    const productsStr = await env.MCP_DATA.get("products");\n    const products = productsStr ? JSON.parse(productsStr) : [];\n' : ""}
     // Create stateless MCP server
     const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
@@ -699,6 +827,37 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
       return { content: [{ type: "text", text: results }] };
     });
 
+${
+  detected.hasProducts
+    ? `
+${generateCommerceToolHandlers()}
+
+    server.tool("search-products", "Search products by name, category, or description", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
+      const results = searchProducts(query, products);
+      if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };
+      return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+    });
+
+    server.tool("get-product", "Get full product details by product ID", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+      const product = getProduct(productId, products);
+      if (!product) return { content: [{ type: "text", text: "Product not found" }] };
+      return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };
+    });
+
+    server.tool("check-inventory", "Check product availability and price", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+      const result = checkInventory(productId, products);
+      if (!result) return { content: [{ type: "text", text: "Product not found" }] };
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    });
+
+    server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
+      const result = getReviews(productId, products);
+      if (!result) return { content: [{ type: "text", text: "Product not found" }] };
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    });
+`
+    : ""
+}
     // Simple JSON-RPC handler since CF Workers doesn't support StreamableHTTP easily
     const body = await request.json() as any;
     if (body.method === "initialize") {
@@ -722,6 +881,14 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
             { name: "list-pages", description: "List all pages", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
             { name: "get-page", description: "Get page content", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
             { name: "search-site", description: "Search site content", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            ${
+              detected.hasProducts
+                ? `{ name: "search-products", description: "Search products by name, category, or description", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            { name: "get-product", description: "Get full product details by product ID", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            { name: "check-inventory", description: "Check product availability and price", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+            { name: "get-reviews", description: "Get aggregate rating for a product", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },`
+                : ""
+            }
           ],
         },
       }), { headers: { "content-type": "application/json" } });
@@ -755,6 +922,30 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
           ? "No results"
           : scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 200)}...\`).join("\\n\\n");
         result = { content: [{ type: "text", text }] };
+      }${
+        detected.hasProducts
+          ? ` else if (toolName === "search-products") {
+        const results = searchProducts(args.query || "", products);
+        result = results.length === 0
+          ? { content: [{ type: "text", text: "No products found" }] }
+          : { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+      } else if (toolName === "get-product") {
+        const product = getProduct(args.productId || "", products);
+        result = product
+          ? { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] }
+          : { content: [{ type: "text", text: "Product not found" }] };
+      } else if (toolName === "check-inventory") {
+        const inv = checkInventory(args.productId || "", products);
+        result = inv
+          ? { content: [{ type: "text", text: JSON.stringify(inv, null, 2) }] }
+          : { content: [{ type: "text", text: "Product not found" }] };
+      } else if (toolName === "get-reviews") {
+        const rev = getReviews(args.productId || "", products);
+        result = rev
+          ? { content: [{ type: "text", text: JSON.stringify(rev, null, 2) }] }
+          : { content: [{ type: "text", text: "Product not found" }] };
+      }`
+          : ""
       } else {
         return new Response(JSON.stringify({
           jsonrpc: "2.0", id: body.id,
@@ -779,7 +970,7 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
 # Upload data to Cloudflare KV
 # First, update wrangler.toml with your KV namespace ID
 npx wrangler kv key put --binding MCP_DATA "pages" --path data/pages.json
-${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path data/faq.json\n' : ""}echo "Data uploaded. Deploy with: npx wrangler deploy"
+${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path data/faq.json\n' : ""}${detected.hasProducts ? 'npx wrangler kv key put --binding MCP_DATA "products" --path data/products.json\n' : ""}echo "Data uploaded. Deploy with: npx wrangler deploy"
 `;
 
   const pkgJson = `${JSON.stringify(

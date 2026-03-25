@@ -12,6 +12,7 @@ import { generateLlmsFullTxt } from "./llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "./llms-txt.js";
 import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
+import { buildEcommerceArtifacts, generateProductCatalog } from "./ecommerce.js";
 import { generateSchemaOrg } from "./schema-org.js";
 import { generateSkillMd } from "./skill-md.js";
 import { generateOpenClawSkillMd } from "./skill-md-openclaw.js";
@@ -177,6 +178,9 @@ export async function runGenerate(
     ...(detectedSiteType && { siteType: detectedSiteType }),
   };
 
+  // Build e-commerce artifacts once (compute-once pattern)
+  const ecommerceArtifacts = buildEcommerceArtifacts(ctx);
+
   // Generate robots.txt
   if (options.formats.includes("robots-txt")) {
     onProgress?.("Generating robots.txt...");
@@ -187,7 +191,7 @@ export async function runGenerate(
   // Generate schema-org.json
   if (options.formats.includes("schema-org")) {
     onProgress?.("Generating schema-org.json...");
-    const schemaOrg = generateSchemaOrg(ctx);
+    const schemaOrg = generateSchemaOrg(ctx, ecommerceArtifacts?.products);
     if (schemaOrg) {
       files.push(makeFile("schema-org.json", `${JSON.stringify(schemaOrg, null, 2)}\n`));
     }
@@ -212,8 +216,15 @@ export async function runGenerate(
   // Generate MCP server
   if (options.formats.includes("mcp-server")) {
     onProgress?.("Generating MCP server...");
-    const mcpFiles = generateMcpServer(ctx);
+    const mcpFiles = generateMcpServer(ctx, undefined, ecommerceArtifacts);
     files.push(...mcpFiles);
+  }
+
+  // Generate product-catalog.md
+  if (ecommerceArtifacts) {
+    onProgress?.("Generating product catalog...");
+    const catalog = generateProductCatalog(ecommerceArtifacts.products);
+    files.push(makeFile("product-catalog.md", `${catalog}\n`));
   }
 
   // Generate SKILL.md
