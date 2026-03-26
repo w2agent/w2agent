@@ -1,13 +1,54 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+*.tsbuildinfo
+
+# Environment / secrets
 .env
-.env.local
-*.log
+.env.*
+!.env.example
+
+# OS files
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+*.un~
+*.swp
+*.swo
+*.bak
+*.orig
+*.tmp
+*~
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# AI agent / tool state
 .claude/
 .serena/
+
+# Turbo
 .turbo/
+
+# Test / coverage
+coverage/
+
+# Generated output
 w2agent-output/
 .data/
-*.tsbuildinfo
-coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Claude research docs (internal)
+claudedocs/
+
+# Platform validation results (generated)
+scripts/platform-validation/results-*.md
