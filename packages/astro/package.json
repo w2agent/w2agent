@@ -1,0 +1,57 @@
+{
+  "name": "@w2agent/astro",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./routes/llms-txt": {
+      "types": "./dist/routes/llms-txt.d.ts",
+      "import": "./dist/routes/llms-txt.js",
+      "default": "./dist/routes/llms-txt.js"
+    },
+    "./routes/llms-full-txt": {
+      "types": "./dist/routes/llms-full-txt.d.ts",
+      "import": "./dist/routes/llms-full-txt.js",
+      "default": "./dist/routes/llms-full-txt.js"
+    },
+    "./routes/agent-card": {
+      "types": "./dist/routes/agent-card.d.ts",
+      "import": "./dist/routes/agent-card.js",
+      "default": "./dist/routes/agent-card.js"
+    },
+    "./routes/webhook": {
+      "types": "./dist/routes/webhook.d.ts",
+      "import": "./dist/routes/webhook.js",
+      "default": "./dist/routes/webhook.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3"
+  },
+  "peerDependencies": {
+    "astro": "^4.0.0 || ^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "astro": "^5.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
