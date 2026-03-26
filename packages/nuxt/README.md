@@ -1,0 +1,43 @@
+# @w2agent/nuxt
+
+Nuxt module for [w2agent](https://w2agent.dev) — auto-registers Nitro routes for `llms.txt`, agent card, and webhooks.
+
+## Install
+
+```bash
+npx nuxi module add @w2agent/nuxt
+# or
+npm install @w2agent/nuxt
+```
+
+## Setup
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ['@w2agent/nuxt'],
+  w2agent: {
+    siteUrl: 'https://your-site.com',   // optional: used in fallback content
+    webhookEnabled: true,               // default: true
+  }
+})
+```
+
+## Generate content files
+
+```bash
+npx w2agent generate https://your-site.com --output ./public/
+```
+
+This populates `public/llms.txt`, `public/llms-full.txt`, and `public/.well-known/agent-card.json`.
+
+## Routes registered
+
+| Route | Description |
+|-------|-------------|
+| `GET /llms.txt` | AI content index |
+| `GET /llms-full.txt` | Full content dump |
+| `GET /.well-known/agent-card.json` | Agent metadata |
+| `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
+
+Content-negotiation middleware is also added: AI bots requesting `Accept: text/markdown` at `/` are redirected to `/llms.txt`.

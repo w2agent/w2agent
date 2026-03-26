@@ -1,0 +1,13 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
+  setResponseHeader(event, "Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  const filePath = join(process.cwd(), "public", "llms.txt");
+  if (existsSync(filePath)) {
+    return readFileSync(filePath, "utf-8");
+  }
+  return "# AI Content Index\n\n> Run: npx w2agent generate <your-site-url> --output ./public/\n";
+});
