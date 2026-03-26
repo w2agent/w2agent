@@ -25,20 +25,57 @@ jobs:
           url: https://example.com
           threshold: '0'
           output-dir: .w2agent-test/
+          max-pages: '5'
 
       - name: Verify outputs
         env:
           SCORE: ${{ steps.w2agent.outputs.score }}
           GRADE: ${{ steps.w2agent.outputs.grade }}
+          BADGE_URL: ${{ steps.w2agent.outputs.badge-url }}
         shell: bash
         run: |
           echo "score=$SCORE"
           echo "grade=$GRADE"
+          echo "badge-url=$BADGE_URL"
           [[ -n "$SCORE" ]] || { echo "ERROR: score output not set"; exit 1; }
           [[ -n "$GRADE" ]] || { echo "ERROR: grade output not set"; exit 1; }
+          [[ -n "$BADGE_URL" ]] || { echo "ERROR: badge-url output not set"; exit 1; }
 
       - name: Verify generated files
         if: github.event_name == 'push'
         shell: bash
         run: |
           ls -la .w2agent-test/ || { echo "ERROR: no files in output dir"; exit 1; }
+
+  audit-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run w2agent action (audit only, no generate)
+        id: w2agent
+        uses: ./
+        with:
+          url: https://example.com
+          threshold: '0'
+          generate: 'false'
+          max-pages: '5'
+
+      - name: Verify outputs (audit-only)
+        env:
+          SCORE: ${{ steps.w2agent.outputs.score }}
+          GRADE: ${{ steps.w2agent.outputs.grade }}
+          BADGE_URL: ${{ steps.w2agent.outputs.badge-url }}
+        shell: bash
+        run: |
+          echo "score=$SCORE"
+          echo "grade=$GRADE"
+          echo "badge-url=$BADGE_URL"
+          [[ -n "$SCORE" ]] || { echo "ERROR: score output not set"; exit 1; }
+          [[ -n "$GRADE" ]] || { echo "ERROR: grade output not set"; exit 1; }
+          [[ -n "$BADGE_URL" ]] || { echo "ERROR: badge-url output not set"; exit 1; }
+
+      - name: Verify no files generated
+        shell: bash
+        run: |
+          [[ ! -d ".w2agent/" ]] || { echo "ERROR: files generated despite generate:false"; exit 1; }

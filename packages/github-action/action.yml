@@ -24,6 +24,18 @@ inputs:
     description: 'Node.js version'
     required: false
     default: '20'
+  formats:
+    description: 'Comma-separated generate formats (llms-txt, robots-txt, schema-org, agent-card, faq, markdown, full, webmcp, all)'
+    required: false
+    default: 'all'
+  max-pages:
+    description: 'Maximum pages to scan during audit (also used for generate)'
+    required: false
+    default: '20'
+  generate:
+    description: 'Whether to generate agent files (set to false for audit-only)'
+    required: false
+    default: 'true'
 
 outputs:
   score:
@@ -32,6 +44,9 @@ outputs:
   grade:
     description: 'Audit grade (A–F)'
     value: ${{ steps.parse.outputs.grade }}
+  badge-url:
+    description: 'URL to the w2agent.dev badge SVG for this site'
+    value: ${{ steps.parse.outputs.badge-url }}
 
 runs:
   using: composite
@@ -50,17 +65,38 @@ runs:
       shell: bash
       env:
         URL: ${{ inputs.url }}
+        MAX_PAGES: ${{ inputs.max-pages }}
       run: |
-        w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json
+        if ! w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json --depth "$MAX_PAGES"; then
+          echo "::error::w2agent audit failed for $URL. Ensure the URL is reachable and w2agent is installed (npm install -g w2agent)."
+          exit 1
+        fi
 
     - name: Parse audit results
       id: parse
       shell: bash
+      env:
+        URL: ${{ inputs.url }}
       run: |
-        SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json)
+        if ! SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json 2>/dev/null) || [[ "$SCORE" == "null" || -z "$SCORE" ]]; then
+          echo "::error::Failed to parse audit results — /tmp/w2agent-audit.json is missing, malformed, or lacks overallScore."
+          exit 1
+        fi
         GRADE=$(jq -r '.grade' /tmp/w2agent-audit.json)
+        if [[ "$GRADE" == "null" || -z "$GRADE" ]]; then
+          echo "::error::Failed to parse audit grade from /tmp/w2agent-audit.json."
+          exit 1
+        fi
         echo "score=$SCORE" >> $GITHUB_OUTPUT
         echo "grade=$GRADE" >> $GITHUB_OUTPUT
+
+        # Derive badge URL — extract hostname via the same logic as w2agent.dev generateSlug()
+        # Uses node to match platform's new URL().hostname behavior (strips port, auth, lowercases)
+        HOSTNAME=$(node -e "try { const h = new URL(process.env.URL).hostname; process.stdout.write(h) } catch { process.exit(1) }")
+        SLUG=$(echo "$HOSTNAME" | sed 's/^www\.//' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')
+        echo "badge-url=https://w2agent.dev/api/sites/$SLUG/badge.svg" >> $GITHUB_OUTPUT
+
+        echo "::notice::w2agent audit complete — score: $SCORE/100, grade: $GRADE"
 
     - name: Post PR comment
       if: github.event_name == 'pull_request'
@@ -71,12 +107,24 @@ runs:
           const fs = require('fs');
           const report = JSON.parse(fs.readFileSync('/tmp/w2agent-audit.json', 'utf8'));
           const emoji = ['A', 'B'].includes(report.grade) ? '✅' : report.grade === 'C' ? '⚠️' : '❌';
-          const rows = report.categories.map(c => `| ${c.name} | ${c.score} |`).join('\n');
-          const issues = report.topIssues.slice(0, 5)
+          const categories = Array.isArray(report.categories) ? report.categories : [];
+          const topIssues = Array.isArray(report.topIssues) ? report.topIssues : [];
+          const rows = categories.map(c => `| ${c.name} | ${c.score} |`).join('\n');
+          const issues = topIssues.slice(0, 5)
             .map((issue, i) => `${i + 1}. **${issue.message}** (+${issue.pointsIfFixed} pts)`)
             .join('\n');
+
+          // Derive slug for badge and leaderboard link (matches platform generateSlug)
+          const reportUrl = report.url || '${{ inputs.url }}';
+          const domain = new URL(reportUrl).hostname.replace(/^www\./, '');
+          const slug = domain.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const badgeUrl = `https://w2agent.dev/api/sites/${slug}/badge.svg`;
+          const leaderboardUrl = `https://w2agent.dev/leaderboard/${domain}`;
+
           const body = [
             '<!-- w2agent-audit -->',
+            `[![w2agent score](${badgeUrl})](${leaderboardUrl})`,
+            '',
             `## ${emoji} w2agent Audit: ${report.overallScore}/100 (${report.grade})`,
             '',
             '| Category | Score |',
@@ -86,7 +134,7 @@ runs:
             '### Top Issues',
             issues || '_No issues found._',
             '',
-            `_Audited: ${report.url} · ${new Date(report.timestamp).toUTCString()}_`,
+            `_Audited: ${report.url} · ${new Date(report.timestamp).toUTCString()} · [Full report on w2agent.dev](${leaderboardUrl})_`,
           ].join('\n');
 
           const { data: comments } = await github.rest.issues.listComments({
@@ -112,13 +160,15 @@ runs:
           }
 
     - name: Generate agent assets
-      if: github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request' && inputs.generate != 'false'
       shell: bash
       env:
         URL: ${{ inputs.url }}
         OUTPUT_DIR: ${{ inputs.output-dir }}
+        FORMATS: ${{ inputs.formats }}
+        MAX_PAGES: ${{ inputs.max-pages }}
       run: |
-        w2agent generate "$URL" --output "$OUTPUT_DIR"
+        w2agent generate "$URL" --output "$OUTPUT_DIR" --format "$FORMATS" --max-pages "$MAX_PAGES"
 
     - name: Commit generated files
       if: github.event_name == 'push'
