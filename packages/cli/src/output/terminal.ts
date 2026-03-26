@@ -85,6 +85,18 @@ export function formatReport(report: AuditReport): string {
     }
   }
 
+  if (report.warnings && report.warnings.length > 0) {
+    lines.push("");
+    lines.push(chalk.bold("  Warnings:"));
+    for (const warning of report.warnings) {
+      lines.push(`  ${chalk.yellow("⚠")} ${chalk.yellow(warning.title)}`);
+      lines.push(`    ${chalk.gray(warning.message)}`);
+      if (warning.details) {
+        lines.push(`    ${chalk.gray(warning.details)}`);
+      }
+    }
+  }
+
   lines.push("");
   lines.push(chalk.gray("  Fix these with: ") + chalk.cyan("w2agent generate <url>"));
   lines.push("");
