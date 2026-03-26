@@ -121,6 +121,24 @@ try {
 
   const installMd = `# w2agent Astro Integration — Installation
 
+## Recommended: npm integration
+
+\`\`\`bash
+npx astro add @w2agent/astro
+\`\`\`
+
+Then configure in \`astro.config.mjs\`:
+\`\`\`js
+import w2agent from '@w2agent/astro';
+export default defineConfig({
+  integrations: [w2agent({ siteUrl: '${siteUrl}' })],
+});
+\`\`\`
+
+---
+
+## Alternative: Manual file setup (below)
+
 ## Architecture
 
 Astro's static-first approach is ideal for AI content. This integration provides:

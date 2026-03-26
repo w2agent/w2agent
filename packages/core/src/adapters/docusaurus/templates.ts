@@ -158,6 +158,21 @@ function walkDir(dir, callback) {
 
   const installMd = `# w2agent Docusaurus Integration — Installation
 
+## Recommended: npm plugin
+
+\`\`\`bash
+npm install @w2agent/docusaurus
+\`\`\`
+
+Then add to \`docusaurus.config.js\`:
+\`\`\`js
+plugins: [['@w2agent/docusaurus', { siteUrl: '${siteUrl}' }]],
+\`\`\`
+
+---
+
+## Alternative: Manual file setup (below)
+
 ## How It Works
 
 The build plugin **generates llms.txt dynamically from your docs directory** at build time:

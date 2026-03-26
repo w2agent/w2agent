@@ -12,6 +12,12 @@ import {
   runGenerate,
 } from "w2agent-core";
 
+const NPM_PACKAGES: Partial<Record<PlatformId, string>> = {
+  nuxt: "@w2agent/nuxt",
+  astro: "@w2agent/astro",
+  docusaurus: "@w2agent/docusaurus",
+};
+
 const PLATFORM_NAMES: Record<PlatformId, string> = {
   wordpress: "WordPress",
   nextjs: "Next.js",
@@ -176,6 +182,18 @@ export function registerIntegrateCommand(program: Command): void {
           console.log("");
           console.log(`  Output: ${chalk.cyan(outputDir)}`);
           console.log("");
+
+          const npmPkg = NPM_PACKAGES[platformId];
+          if (npmPkg) {
+            console.log(chalk.bold(`  Recommended: use the npm package`));
+            console.log(`    ${chalk.cyan(`npm install ${npmPkg}`)}`);
+            console.log(
+              chalk.gray(
+                `  The generated files above are an alternative for manual setup.`,
+              ),
+            );
+            console.log("");
+          }
 
           console.log(
             chalk.gray(

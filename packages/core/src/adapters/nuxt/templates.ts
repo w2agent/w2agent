@@ -112,6 +112,28 @@ try {
 
   const installMd = `# w2agent Nuxt Integration — Installation
 
+## Recommended: npm package
+
+The easiest way to add w2agent to your Nuxt app is the npm module:
+
+\`\`\`bash
+npm install @w2agent/nuxt
+\`\`\`
+
+Then add to \`nuxt.config.ts\`:
+\`\`\`ts
+export default defineNuxtConfig({
+  modules: ['@w2agent/nuxt'],
+  w2agent: { siteUrl: '${siteUrl}' },
+})
+\`\`\`
+
+The module auto-registers all Nitro routes. No manual file copying needed.
+
+---
+
+## Alternative: Manual file setup (below)
+
 ## Architecture
 
 This integration uses **Nitro cached event handlers** for dynamic content
