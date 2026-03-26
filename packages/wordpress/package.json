@@ -1,0 +1,17 @@
+{
+  "name": "@w2agent/wordpress",
+  "version": "1.0.0",
+  "license": "GPL-2.0-or-later",
+  "description": "WordPress plugin for w2agent — AI agent discoverability via llms.txt and agent-card.json",
+  "files": [
+    "w2agent-plugin.php",
+    "readme.txt",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo 'No build step — pure PHP'",
+    "test": "echo 'No JS tests — PHP plugin'",
+    "lint": "echo 'No JS lint — PHP plugin'",
+    "clean": "echo 'Nothing to clean'"
+  }
+}
