@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchPage, fetchText } from "../src/shared/fetcher.js";
+import { fetchPage, fetchText, MAX_HTML_BYTES, MAX_TEXT_BYTES } from "../src/shared/fetcher.js";
 
 const opts = { timeout: 5000, userAgent: "test" };
 
@@ -106,6 +106,15 @@ describe("fetchPage", () => {
     expect(sleepCalls.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("truncates HTML response body to MAX_HTML_BYTES when response is oversized", async () => {
+    const oversized = "x".repeat(MAX_HTML_BYTES + 100_000);
+    vi.mocked(fetch).mockResolvedValue(mockResponse(200, oversized));
+    const result = await fetchPage("https://example.com", opts);
+    expect(result.status).toBe(200);
+    expect(result.html.length).toBeLessThanOrEqual(MAX_HTML_BYTES);
+    expect(result.html.length).toBeGreaterThan(0);
+  });
+
   it("ignores Retry-After header values over 30s (uses normal backoff)", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(mockResponse(429, "", { "retry-after": "60" })) // 60s > 30s cap
@@ -161,6 +170,15 @@ describe("fetchText", () => {
     const result = await promise;
     expect(result).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("truncates text response body to MAX_TEXT_BYTES when response is oversized", async () => {
+    const oversized = "x".repeat(MAX_TEXT_BYTES + 50_000);
+    vi.mocked(fetch).mockResolvedValue(mockResponse(200, oversized));
+    const result = await fetchText("https://example.com/sitemap.xml", opts);
+    expect(result).not.toBeNull();
+    expect(result?.text.length).toBeLessThanOrEqual(MAX_TEXT_BYTES);
+    expect(result?.text.length).toBeGreaterThan(0);
   });
 
   it("returns null on network error after all retries", async () => {

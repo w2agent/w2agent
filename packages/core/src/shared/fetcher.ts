@@ -1,5 +1,43 @@
 import type { AuditOptions, FetchedPage } from "../audit/types.js";
 
+export const MAX_HTML_BYTES = 2 * 1024 * 1024; // 2 MB
+export const MAX_TEXT_BYTES = 1 * 1024 * 1024; // 1 MB
+
+async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return response.text();
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+
+      const space = maxBytes - total;
+      if (value.length >= space) {
+        chunks.push(value.slice(0, space));
+        total += space;
+        break;
+      }
+
+      chunks.push(value);
+      total += value.length;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function retryableFetch(
@@ -83,7 +121,7 @@ export async function fetchPage(
     return { url, status: 0, html: "", headers: {}, responseTime: Date.now() - start };
   }
 
-  const html = await response.text();
+  const html = await readBodyCapped(response, MAX_HTML_BYTES);
   const responseTime = Date.now() - start;
 
   const headers: Record<string, string> = {};
@@ -109,7 +147,7 @@ export async function fetchText(
 
   if (!response) return null;
 
-  const text = await response.text();
+  const text = await readBodyCapped(response, MAX_TEXT_BYTES);
   return { text, status: response.status };
 }
 
