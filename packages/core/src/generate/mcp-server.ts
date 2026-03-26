@@ -402,7 +402,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     `  if (scored.length === 0) return { content: [{ type: "text", text: "No results found" }] };`,
   );
   lines.push(`  const results = scored.map((p: any) => {`);
-  lines.push(`    const snippet = p.markdown?.slice(0, 200) || "";`);
+  lines.push(`    const snippet = p.markdown?.slice(0, 3000) || "";`);
   lines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
   lines.push(`  }).join("\\n\\n");`);
   lines.push(`  return { content: [{ type: "text", text: results }] };`);
@@ -755,7 +755,7 @@ function createServer() {
       return { ...p, score };
     }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);
     if (scored.length === 0) return { content: [{ type: "text", text: "No results" }] };
-    const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 200)}...\`).join("\\n\\n");
+    const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
     return { content: [{ type: "text", text: results }] };
   });
 ${
@@ -928,7 +928,7 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
         return { ...p, score };
       }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);
       if (scored.length === 0) return { content: [{ type: "text", text: "No results" }] };
-      const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 200)}...\`).join("\\n\\n");
+      const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
       return { content: [{ type: "text", text: results }] };
     });
 
@@ -1025,7 +1025,7 @@ ${generateCommerceToolHandlers()}
         }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);
         const text = scored.length === 0
           ? "No results"
-          : scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 200)}...\`).join("\\n\\n");
+          : scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
         result = { content: [{ type: "text", text }] };
       }${
         detected.hasProducts
