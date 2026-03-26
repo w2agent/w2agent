@@ -317,6 +317,10 @@ packages/core     Audit engine, generators, MCP server builder, platform adapter
                   (published as w2agent-core)
 packages/cli      CLI tool — audit, generate, integrate, agentize, mcp
                   (published as w2agent)
+packages/nuxt      Installable Nuxt module — auto-serves llms.txt, agent-card.json, webhook
+                   (published as @w2agent/nuxt)
+packages/docusaurus  Installable Docusaurus plugin — generates llms.txt at build time from docs/
+                     (published as @w2agent/docusaurus)
 ```
 
 ## Development
