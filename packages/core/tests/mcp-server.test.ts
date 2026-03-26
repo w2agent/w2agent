@@ -709,6 +709,126 @@ describe("tool annotations", () => {
   });
 });
 
+// --- OpenAPI tools ---
+
+describe("detectTools — OpenAPI endpoints", () => {
+  it("sets hasOpenapi=false when no openapi in metadata", () => {
+    const ctx = makeCtx();
+    const result = detectTools(ctx);
+    expect(result.hasOpenapi).toBe(false);
+    expect(result.openapiEndpoints).toHaveLength(0);
+  });
+
+  it("detects openapi endpoints and adds tools", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "https://api.example.com/openapi.json",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets",
+              method: "get",
+              operationId: "listPets",
+              summary: "List all pets",
+              parameters: [{ name: "limit", in: "query", required: false, type: "integer" }],
+            },
+            {
+              path: "/pets/{petId}",
+              method: "get",
+              operationId: "showPetById",
+              summary: "Get a pet by ID",
+              parameters: [{ name: "petId", in: "path", required: true, type: "string" }],
+            },
+          ],
+        } as any,
+      },
+    });
+    const result = detectTools(ctx);
+    expect(result.hasOpenapi).toBe(true);
+    expect(result.openapiEndpoints).toHaveLength(2);
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("list-pets");
+    expect(names).toContain("show-pet-by-id");
+  });
+
+  it("caps endpoints at 20", () => {
+    const endpoints = Array.from({ length: 25 }, (_, i) => ({
+      path: `/resource/${i}`,
+      method: "get",
+      parameters: [],
+    }));
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: { specUrl: "...", version: "3.0.0", endpoints } as any,
+      },
+    });
+    const result = detectTools(ctx);
+    expect(result.openapiEndpoints).toHaveLength(20);
+    expect(result.tools.filter((t) => t.condition === "hasOpenapi")).toHaveLength(20);
+  });
+});
+
+describe("generateMcpServer — OpenAPI tools in output", () => {
+  it("generated server.ts includes openapi tool handler", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "https://api.example.com/openapi.json",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets",
+              method: "get",
+              operationId: "listPets",
+              summary: "List all pets",
+              parameters: [],
+            },
+          ],
+        } as any,
+      },
+    });
+    const files = generateMcpServer(ctx);
+    const serverTs = files.find((f) => f.filename === "mcp-server/server.ts");
+    expect(serverTs?.content).toContain('"list-pets"');
+    expect(serverTs?.content).toContain("fetch(");
+  });
+
+  it("generated server.ts includes path param substitution", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "...",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets/{petId}",
+              method: "get",
+              operationId: "getPet",
+              parameters: [{ name: "petId", in: "path", required: true, type: "string" }],
+            },
+          ],
+        } as any,
+      },
+    });
+    const files = generateMcpServer(ctx);
+    const serverTs = files.find((f) => f.filename === "mcp-server/server.ts");
+    expect(serverTs?.content).toContain("{petId}");
+    expect(serverTs?.content).toContain("params.petId");
+  });
+});
+
 // --- E-commerce tools ---
 
 const mockArtifacts: EcommerceArtifacts = {

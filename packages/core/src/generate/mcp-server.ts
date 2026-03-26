@@ -1,3 +1,4 @@
+import type { OpenAPIEndpoint } from "../audit/types.js";
 import { parseHTML } from "../shared/html-parser.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
@@ -21,6 +22,9 @@ export interface McpDetectedTools {
   hasSearchAction: boolean;
   hasProducts: boolean;
   hasLocalBusiness: boolean;
+  hasOpenapi: boolean;
+  openapiEndpoints: OpenAPIEndpoint[];
+  openapiServerUrl?: string;
   forms: DetectedForm[];
 }
 
@@ -108,6 +112,32 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
   let counter = 2;
   while (usedNames.has(`${sanitized}-${counter}`)) counter++;
   const deduped = `${sanitized}-${counter}`;
+  usedNames.add(deduped);
+  return deduped;
+}
+
+function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): string {
+  let base = ep.operationId
+    ? ep.operationId
+        .replace(/([a-z])([A-Z])/g, "$1-$2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 50)
+    : `${ep.method.toLowerCase()}-${ep.path
+        .replace(/[{}]/g, "")
+        .replace(/[^a-z0-9/]+/g, "-")
+        .replace(/\/+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 45)}`;
+  if (!usedNames.has(base)) {
+    usedNames.add(base);
+    return base;
+  }
+  let counter = 2;
+  while (usedNames.has(`${base}-${counter}`)) counter++;
+  const deduped = `${base}-${counter}`;
   usedNames.add(deduped);
   return deduped;
 }
@@ -250,7 +280,32 @@ export function detectTools(
     }
   }
 
-  return { tools, hasFaq, hasSearchAction, hasProducts, hasLocalBusiness, forms };
+  // OpenAPI endpoint tools (cap at 20)
+  let hasOpenapi = false;
+  const openapiEndpoints: OpenAPIEndpoint[] = [];
+  if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0) {
+    hasOpenapi = true;
+    const usedOpenapiNames = new Set<string>();
+    const capped = ctx.metadata.openapi.endpoints.slice(0, 20);
+    for (const ep of capped) {
+      openapiEndpoints.push(ep);
+      const toolName = inferOpenapiToolName(ep, usedOpenapiNames);
+      const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
+      tools.push({ name: toolName, description: desc, condition: "hasOpenapi" });
+    }
+  }
+
+  return {
+    tools,
+    hasFaq,
+    hasSearchAction,
+    hasProducts,
+    hasLocalBusiness,
+    hasOpenapi,
+    openapiEndpoints,
+    openapiServerUrl: ctx.metadata.openapi?.serverUrl,
+    forms,
+  };
 }
 
 // --- Data File Generation ---
@@ -305,6 +360,100 @@ export function generateDataFiles(
   }
 
   return files;
+}
+
+// --- OpenAPI Tool Handler Generation ---
+
+function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: string): string[] {
+  const lines: string[] = [];
+  const usedNames = new Set<string>();
+
+  for (const ep of endpoints) {
+    const toolName = inferOpenapiToolName(ep, usedNames);
+    const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
+    const pathParams = ep.parameters.filter((p) => p.in === "path");
+    const queryParams = ep.parameters.filter((p) => p.in === "query");
+    const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+
+    const schemaLines: string[] = [];
+    for (const p of [...pathParams, ...queryParams]) {
+      const zodType = p.type === "integer" || p.type === "number" ? "z.number()" : "z.string()";
+      schemaLines.push(
+        `  ${p.name}: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
+      );
+    }
+    for (const [propName, propDef] of bodyProps) {
+      const zodType =
+        propDef.type === "integer" || propDef.type === "number" ? "z.number()" : "z.string()";
+      schemaLines.push(
+        `  ${propName}: ${zodType}.optional().describe(${JSON.stringify(propDef.description || propName)})`,
+      );
+    }
+
+    const isReadOnly = ep.method.toLowerCase() === "get";
+    const hints = isReadOnly
+      ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
+      : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
+
+    lines.push(`// Tool: ${toolName}`);
+    lines.push(`server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(desc)}, {`);
+    if (schemaLines.length > 0) lines.push(schemaLines.join(",\n"));
+    lines.push(`}, ${hints}, async (params) => {`);
+
+    let urlExpr = JSON.stringify(serverUrl + ep.path);
+    for (const p of pathParams) {
+      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(params.${p.name}))`;
+    }
+    lines.push(`  let _url = ${urlExpr};`);
+
+    if (queryParams.length > 0) {
+      lines.push(`  const _query = new URLSearchParams();`);
+      for (const p of queryParams) {
+        if (p.required) {
+          lines.push(`  _query.set(${JSON.stringify(p.name)}, String(params.${p.name}));`);
+        } else {
+          lines.push(
+            `  if (params.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(params.${p.name}));`,
+          );
+        }
+      }
+      lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
+    }
+
+    lines.push(`  const _controller = new AbortController();`);
+    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
+    lines.push(`  try {`);
+    if (bodyProps.length > 0) {
+      lines.push(`    const _body: Record<string, unknown> = {};`);
+      for (const [propName] of bodyProps) {
+        lines.push(
+          `    if (params.${propName} !== undefined) _body[${JSON.stringify(propName)}] = params.${propName};`,
+        );
+      }
+      lines.push(
+        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body), signal: _controller.signal });`,
+      );
+    } else {
+      lines.push(
+        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Accept": "application/json" }, signal: _controller.signal });`,
+      );
+    }
+    lines.push(`    clearTimeout(_timer);`);
+    lines.push(`    const _text = await _res.text();`);
+    lines.push(`    const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;`);
+    lines.push(
+      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };`,
+    );
+    lines.push(`  } catch (err) {`);
+    lines.push(`    clearTimeout(_timer);`);
+    lines.push(
+      `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
+    );
+    lines.push(`  }`);
+    lines.push(`});`);
+    lines.push(``);
+  }
+  return lines;
 }
 
 // --- Server Template ---
@@ -591,6 +740,13 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     }
   }
 
+  // OpenAPI endpoint tools
+  if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
+    const apiBase = detected.openapiServerUrl || baseUrl;
+    lines.push(`// OpenAPI endpoint tools`);
+    lines.push(...generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase));
+  }
+
   // Page resources
   lines.push(`// Resources: expose pages as MCP resources`);
   lines.push(`for (const page of pages) {`);
@@ -855,6 +1011,16 @@ ${fieldSchemas.join(",\n")}
     }
   });`;
         })
+        .join("\n")
+    : ""
+}${
+  detected.hasOpenapi && detected.openapiEndpoints.length > 0
+    ? "\n" +
+      generateOpenapiToolHandlers(
+        detected.openapiEndpoints,
+        detected.openapiServerUrl || baseUrl,
+      )
+        .map((l) => (l ? `  ${l}` : l))
         .join("\n")
     : ""
 }
