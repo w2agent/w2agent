@@ -96,8 +96,7 @@ function detectLocalBusiness(
 
     // Signal 3: NAP microdata — address or phone structured data (0.6)
     if (
-      ($('[itemprop="streetAddress"]').length > 0 ||
-        $('[itemprop="telephone"]').length > 0) &&
+      ($('[itemprop="streetAddress"]').length > 0 || $('[itemprop="telephone"]').length > 0) &&
       !matchedSignals.find((s) => s.label === "NAP microdata")
     ) {
       matchedSignals.push({ label: "NAP microdata", weight: 0.6 });
@@ -105,8 +104,7 @@ function detectLocalBusiness(
 
     // Signal 4: Map embed (0.5)
     if (
-      (html.includes("maps.google.com/maps?") ||
-        html.includes("google.com/maps/embed")) &&
+      (html.includes("maps.google.com/maps?") || html.includes("google.com/maps/embed")) &&
       !matchedSignals.find((s) => s.label === "Map embed")
     ) {
       matchedSignals.push({ label: "Map embed", weight: 0.5 });

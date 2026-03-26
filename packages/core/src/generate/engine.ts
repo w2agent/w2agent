@@ -6,13 +6,14 @@ import { parseHTML } from "../shared/html-parser.js";
 import { sortUrlsByScore } from "../shared/page-scoring.js";
 import { detectSiteType } from "../site-types/index.js";
 import { generateAgentCard } from "./agent-card.js";
+import { buildEcommerceArtifacts, generateProductCatalog } from "./ecommerce.js";
 import { generateFaq } from "./faq.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
 import { generateLlmsFullTxt } from "./llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "./llms-txt.js";
+import { buildLocalBusinessArtifacts, generateBusinessInfoTable } from "./local-business.js";
 import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
-import { buildEcommerceArtifacts, generateProductCatalog } from "./ecommerce.js";
 import { generateSchemaOrg } from "./schema-org.js";
 import { generateSkillMd } from "./skill-md.js";
 import { generateOpenClawSkillMd } from "./skill-md-openclaw.js";
@@ -181,6 +182,9 @@ export async function runGenerate(
   // Build e-commerce artifacts once (compute-once pattern)
   const ecommerceArtifacts = buildEcommerceArtifacts(ctx);
 
+  // Build local business artifacts once (compute-once pattern)
+  const localBusinessArtifacts = buildLocalBusinessArtifacts(ctx);
+
   // Generate robots.txt
   if (options.formats.includes("robots-txt")) {
     onProgress?.("Generating robots.txt...");
@@ -191,7 +195,11 @@ export async function runGenerate(
   // Generate schema-org.json
   if (options.formats.includes("schema-org")) {
     onProgress?.("Generating schema-org.json...");
-    const schemaOrg = generateSchemaOrg(ctx, ecommerceArtifacts?.products);
+    const schemaOrg = generateSchemaOrg(
+      ctx,
+      ecommerceArtifacts?.products,
+      localBusinessArtifacts?.business,
+    );
     if (schemaOrg) {
       files.push(makeFile("schema-org.json", `${JSON.stringify(schemaOrg, null, 2)}\n`));
     }
@@ -216,7 +224,7 @@ export async function runGenerate(
   // Generate MCP server
   if (options.formats.includes("mcp-server")) {
     onProgress?.("Generating MCP server...");
-    const mcpFiles = generateMcpServer(ctx, undefined, ecommerceArtifacts);
+    const mcpFiles = generateMcpServer(ctx, undefined, ecommerceArtifacts, localBusinessArtifacts);
     files.push(...mcpFiles);
   }
 
@@ -225,6 +233,13 @@ export async function runGenerate(
     onProgress?.("Generating product catalog...");
     const catalog = generateProductCatalog(ecommerceArtifacts.products);
     files.push(makeFile("product-catalog.md", `${catalog}\n`));
+  }
+
+  // Generate business-info.md
+  if (localBusinessArtifacts) {
+    onProgress?.("Generating business info...");
+    const table = generateBusinessInfoTable(localBusinessArtifacts.business);
+    files.push(makeFile("business-info.md", `${table}\n`));
   }
 
   // Generate SKILL.md

@@ -1,6 +1,8 @@
 import { parseHTML } from "../shared/html-parser.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
+import type { LocalBusinessArtifacts } from "./local-business.js";
+import { generateLocalBusinessToolHandlers } from "./local-business.js";
 import { generateFaq } from "./faq.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
@@ -18,6 +20,7 @@ export interface McpDetectedTools {
   hasFaq: boolean;
   hasSearchAction: boolean;
   hasProducts: boolean;
+  hasLocalBusiness: boolean;
   forms: DetectedForm[];
 }
 
@@ -38,10 +41,11 @@ export function generateMcpServer(
   ctx: GenerateContext,
   selfHost?: SelfHostPlatform,
   artifacts?: EcommerceArtifacts | null,
+  localBusinessArtifacts?: LocalBusinessArtifacts | null,
 ): GeneratedFile[] {
   const { siteName } = extractSiteInfo(ctx.pages, ctx.baseUrl);
-  const detected = detectTools(ctx, artifacts);
-  const dataFiles = generateDataFiles(ctx, artifacts);
+  const detected = detectTools(ctx, artifacts, localBusinessArtifacts);
+  const dataFiles = generateDataFiles(ctx, artifacts, localBusinessArtifacts);
 
   if (selfHost === "vercel") {
     return generateVercelTemplate(siteName, ctx.baseUrl, detected, dataFiles);
@@ -111,6 +115,7 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
 export function detectTools(
   ctx: GenerateContext,
   artifacts?: EcommerceArtifacts | null,
+  localBusinessArtifacts?: LocalBusinessArtifacts | null,
 ): McpDetectedTools {
   const tools: McpTool[] = [];
   let hasFaq = false;
@@ -214,7 +219,38 @@ export function detectTools(
     });
   }
 
-  return { tools, hasFaq, hasSearchAction, hasProducts, forms };
+  const hasLocalBusiness = !!localBusinessArtifacts;
+  if (hasLocalBusiness) {
+    const { business } = localBusinessArtifacts;
+    tools.push({
+      name: "get-hours",
+      description: "Get business hours and opening times",
+      condition: "hasLocalBusiness",
+    });
+    if (business.menu) {
+      tools.push({
+        name: "get-menu",
+        description: "Get the menu URL for this business",
+        condition: "hasLocalBusiness",
+      });
+    }
+    if (business.services) {
+      tools.push({
+        name: "get-services",
+        description: "Get the services page URL for this business",
+        condition: "hasLocalBusiness",
+      });
+    }
+    if (business.bookingUrl) {
+      tools.push({
+        name: "book-appointment",
+        description: "Get booking URL and instructions for scheduling an appointment",
+        condition: "hasLocalBusiness",
+      });
+    }
+  }
+
+  return { tools, hasFaq, hasSearchAction, hasProducts, hasLocalBusiness, forms };
 }
 
 // --- Data File Generation ---
@@ -222,6 +258,7 @@ export function detectTools(
 export function generateDataFiles(
   ctx: GenerateContext,
   artifacts?: EcommerceArtifacts | null,
+  localBusinessArtifacts?: LocalBusinessArtifacts | null,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
@@ -254,6 +291,16 @@ export function generateDataFiles(
   if (artifacts && artifacts.products.length > 0) {
     files.push(
       makeFile("mcp-server/data/products.json", `${JSON.stringify(artifacts.products, null, 2)}\n`),
+    );
+  }
+
+  // business.json (if local business)
+  if (localBusinessArtifacts) {
+    files.push(
+      makeFile(
+        "mcp-server/data/business.json",
+        `${JSON.stringify(localBusinessArtifacts.business, null, 2)}\n`,
+      ),
     );
   }
 
@@ -291,6 +338,12 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   if (detected.hasProducts) {
     lines.push(
       `const products = JSON.parse(readFileSync(resolve(__dirname, "data/products.json"), "utf-8"));`,
+    );
+  }
+
+  if (detected.hasLocalBusiness) {
+    lines.push(
+      `const business = JSON.parse(readFileSync(resolve(__dirname, "data/business.json"), "utf-8"));`,
     );
   }
 
@@ -469,6 +522,58 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
     lines.push(`});`);
     lines.push(``);
+  }
+
+  // Local business tool handlers
+  if (detected.hasLocalBusiness) {
+    lines.push(`// Local business tool handlers`);
+    lines.push(generateLocalBusinessToolHandlers());
+    lines.push(``);
+
+    lines.push(`// Tool: get-hours`);
+    lines.push(
+      `server.tool("get-hours", "Get business hours and opening times", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
+    );
+    lines.push(`  const result = getHours(business);`);
+    lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+    lines.push(`});`);
+    lines.push(``);
+
+    const menuTool = detected.tools.find((t) => t.name === "get-menu");
+    if (menuTool) {
+      lines.push(`// Tool: get-menu`);
+      lines.push(
+        `server.tool("get-menu", "Get the menu URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
+      );
+      lines.push(`  const result = getMenu(business);`);
+      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(`});`);
+      lines.push(``);
+    }
+
+    const servicesTool = detected.tools.find((t) => t.name === "get-services");
+    if (servicesTool) {
+      lines.push(`// Tool: get-services`);
+      lines.push(
+        `server.tool("get-services", "Get the services page URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
+      );
+      lines.push(`  const result = getServices(business);`);
+      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(`});`);
+      lines.push(``);
+    }
+
+    const bookingTool = detected.tools.find((t) => t.name === "book-appointment");
+    if (bookingTool) {
+      lines.push(`// Tool: book-appointment`);
+      lines.push(
+        `server.tool("book-appointment", "Get booking URL and instructions for scheduling", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
+      );
+      lines.push(`  const result = bookAppointment(business);`);
+      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(`});`);
+      lines.push(``);
+    }
   }
 
   // Page resources

@@ -92,6 +92,18 @@ export type { PlatformAdapter, PlatformDetectionResult, PlatformId } from "./ada
 // Site Types (import registers all built-in detectors)
 import "./site-types/index.js";
 
+export {
+  buildLocalBusinessArtifacts,
+  type ExtractedLocalBusiness,
+  extractLocalBusiness,
+  extractLocalBusinessFromHtml,
+  extractLocalBusinessFromJsonLd,
+  extractLocalBusinessFromMicrodata,
+  generateBusinessInfoTable,
+  generateLocalBusinessToolHandlers,
+  type LocalBusinessArtifacts,
+  type OpeningHours,
+} from "./generate/local-business.js";
 // Install
 export { executeInstallPlan, formatInstallSummary } from "./install/executor.js";
 export { planInstall } from "./install/planner.js";

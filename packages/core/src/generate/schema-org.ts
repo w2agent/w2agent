@@ -1,5 +1,6 @@
 import { parseHTML } from "../shared/html-parser.js";
 import type { ExtractedProduct } from "./ecommerce.js";
+import type { ExtractedLocalBusiness } from "./local-business.js";
 import type { GenerateContext } from "./types.js";
 
 interface SchemaOrgEntry {
@@ -10,6 +11,7 @@ interface SchemaOrgEntry {
 export function generateSchemaOrg(
   ctx: GenerateContext,
   products?: ExtractedProduct[],
+  localBusiness?: ExtractedLocalBusiness | null,
 ): SchemaOrgEntry[] | null {
   const entries: SchemaOrgEntry[] = [];
 
@@ -27,7 +29,10 @@ export function generateSchemaOrg(
 
     const hasExistingJsonLd = parsed.jsonLd.length > 0;
     const hasProductJsonLd = parsed.jsonLd.some(
-      (item) => item && typeof item === "object" && (item as Record<string, unknown>)["@type"] === "Product",
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        (item as Record<string, unknown>)["@type"] === "Product",
     );
 
     // If this is a product page (from microdata/OG extraction) and no Product JSON-LD exists, generate Product schema
@@ -103,6 +108,73 @@ export function generateSchemaOrg(
     }
 
     entries.push({ url: page.url, jsonLd });
+  }
+
+  // Generate LocalBusiness JSON-LD if we have extracted business data
+  if (localBusiness) {
+    // Check if homepage already has LocalBusiness JSON-LD (avoid duplicating)
+    const homepageAlreadyHasIt = ctx.rawPages.some((page) => {
+      if (normalizeUrl(page.url) !== normalizeUrl(ctx.baseUrl)) return false;
+      if (!page.html) return false;
+      const parsed = parseHTML(page.html);
+      return parsed.jsonLd.some((item) => {
+        const type = (item as Record<string, unknown>)["@type"];
+        if (!type) return false;
+        const types = Array.isArray(type) ? type : [type];
+        return types.some(
+          (t) =>
+            typeof t === "string" &&
+            (t.includes("LocalBusiness") ||
+              t.includes("Restaurant") ||
+              t.includes("Dentist") ||
+              t.includes("MedicalBusiness") ||
+              t.includes("Store")),
+        );
+      });
+    });
+
+    if (!homepageAlreadyHasIt) {
+      const lb: Record<string, unknown> = {
+        "@context": "https://schema.org",
+        "@type": localBusiness.type,
+        name: localBusiness.name,
+        url: localBusiness.url,
+      };
+      if (localBusiness.address) {
+        const addr: Record<string, unknown> = { "@type": "PostalAddress" };
+        if (localBusiness.address.street) addr.streetAddress = localBusiness.address.street;
+        if (localBusiness.address.city) addr.addressLocality = localBusiness.address.city;
+        if (localBusiness.address.state) addr.addressRegion = localBusiness.address.state;
+        if (localBusiness.address.zip) addr.postalCode = localBusiness.address.zip;
+        if (localBusiness.address.country) addr.addressCountry = localBusiness.address.country;
+        lb.address = addr;
+      }
+      if (localBusiness.phone) lb.telephone = localBusiness.phone;
+      if (localBusiness.email) lb.email = localBusiness.email;
+      if (localBusiness.geo) {
+        lb.geo = {
+          "@type": "GeoCoordinates",
+          latitude: localBusiness.geo.lat,
+          longitude: localBusiness.geo.lng,
+        };
+      }
+      if (localBusiness.priceRange) lb.priceRange = localBusiness.priceRange;
+      if (localBusiness.image) lb.image = localBusiness.image;
+      if (localBusiness.menu) lb.hasMenu = localBusiness.menu;
+      if (localBusiness.hours && localBusiness.hours.length > 0) {
+        lb.openingHoursSpecification = localBusiness.hours.map((h) => ({
+          "@type": "OpeningHoursSpecification",
+          dayOfWeek: h.days.map((d) => `https://schema.org/${d}`),
+          opens: h.opens,
+          closes: h.closes,
+        }));
+      }
+      lb.speakable = {
+        "@type": "SpeakableSpecification",
+        cssSelector: ["[itemprop='name']", "[itemprop='description']", "[itemprop='address']"],
+      };
+      entries.push({ url: ctx.baseUrl, jsonLd: lb });
+    }
   }
 
   return entries.length > 0 ? entries : null;
