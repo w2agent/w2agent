@@ -41,6 +41,13 @@ export interface TopIssue {
   fixSnippet?: string;
 }
 
+export interface AuditWarning {
+  id: string;
+  title: string;
+  message: string;
+  details?: string;
+}
+
 export interface AuditReport {
   url: string;
   timestamp: string;
@@ -50,6 +57,7 @@ export interface AuditReport {
   grade: LetterGrade;
   categories: CategoryResult[];
   topIssues: TopIssue[];
+  warnings: AuditWarning[];
   platform?: {
     platform: string;
     confidence: number;

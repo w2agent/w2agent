@@ -107,3 +107,39 @@ describe("check coverage", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("JS-heavy site warning heuristic", () => {
+  // Mirror the heuristic from computeWarnings()
+  function isJsHeavy(noJsScore: number, tokenScore: number): boolean {
+    return noJsScore <= 30 || (noJsScore <= 50 && tokenScore <= 30);
+  }
+
+  it("detects pure SPA (no-js=0)", () => {
+    expect(isJsHeavy(0, 0)).toBe(true);
+  });
+
+  it("detects SPA with no-js ≤ 30", () => {
+    expect(isJsHeavy(20, 80)).toBe(true);
+  });
+
+  it("detects partial SSR with no-js ≤ 50 and token ≤ 30", () => {
+    expect(isJsHeavy(40, 20)).toBe(true);
+  });
+
+  it("no warning when no-js is fine", () => {
+    expect(isJsHeavy(80, 60)).toBe(false);
+  });
+
+  it("no warning when no-js is borderline but token-efficiency is fine", () => {
+    expect(isJsHeavy(45, 60)).toBe(false);
+  });
+
+  it("boundary: no-js=30 triggers warning", () => {
+    expect(isJsHeavy(30, 80)).toBe(true);
+  });
+
+  it("boundary: no-js=31 does not trigger via first condition", () => {
+    // only triggered if tokenScore ≤ 30 too
+    expect(isJsHeavy(31, 60)).toBe(false);
+  });
+});

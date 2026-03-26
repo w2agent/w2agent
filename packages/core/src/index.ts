@@ -10,6 +10,7 @@ export {
 export type {
   AuditOptions,
   AuditReport,
+  AuditWarning,
   CategoryId,
   CategoryResult,
   Check,

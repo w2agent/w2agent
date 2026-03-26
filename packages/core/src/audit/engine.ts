@@ -5,6 +5,7 @@ import { crawlSite } from "./crawler.js";
 import type {
   AuditOptions,
   AuditReport,
+  AuditWarning,
   CategoryId,
   CategoryResult,
   Check,
@@ -95,6 +96,7 @@ export async function runAudit(
 
   // Top issues
   const topIssues = computeTopIssues(results, categories, overallScore);
+  const warnings = computeWarnings(results);
 
   const duration = Date.now() - start;
 
@@ -107,9 +109,34 @@ export async function runAudit(
     grade,
     categories,
     topIssues,
+    warnings,
     ...(detected && { platform: detected }),
     ...(detectedSiteType && { siteType: detectedSiteType }),
   };
+}
+
+function computeWarnings(results: CheckResult[]): AuditWarning[] {
+  const warnings: AuditWarning[] = [];
+
+  const noJsResult = results.find((r) => r.id === "no-js-dependency");
+  const tokenResult = results.find((r) => r.id === "token-efficiency");
+
+  const noJsScore = noJsResult?.score ?? 100;
+  const tokenScore = tokenResult?.score ?? 100;
+
+  const isJsHeavy = noJsScore <= 30 || (noJsScore <= 50 && tokenScore <= 30);
+
+  if (isJsHeavy) {
+    warnings.push({
+      id: "js-heavy-site",
+      title: "JavaScript-dependent content detected",
+      message:
+        "Most pages on this site require JavaScript to render content. AI crawlers and agents that don't execute JavaScript will see empty or minimal pages. Consider server-side rendering (SSR) or pre-rendering to make content accessible.",
+      details: noJsResult?.message,
+    });
+  }
+
+  return warnings;
 }
 
 function computeCategories(results: CheckResult[]): CategoryResult[] {
