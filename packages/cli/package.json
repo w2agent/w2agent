@@ -2,6 +2,21 @@
   "name": "w2agent",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "CLI tool for w2agent — generate llms.txt, agent cards, and MCP declarations for any website",
+  "author": "w2agent",
+  "homepage": "https://w2agent.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/interskh/w2agent.git",
+    "directory": "packages/cli"
+  },
+  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "cli", "openapi"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "files": [
     "dist",

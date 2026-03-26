@@ -2,6 +2,21 @@
   "name": "w2agent-core",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "Core crawl and MCP generation engine for w2agent",
+  "author": "w2agent",
+  "homepage": "https://w2agent.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/interskh/w2agent.git",
+    "directory": "packages/core"
+  },
+  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "crawler", "openapi"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "files": [
     "dist",

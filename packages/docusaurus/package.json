@@ -2,6 +2,21 @@
   "name": "@w2agent/docusaurus",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "Docusaurus plugin for w2agent — generates llms.txt and serves agent-card.json at build time",
+  "author": "w2agent",
+  "homepage": "https://w2agent.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/interskh/w2agent.git",
+    "directory": "packages/docusaurus"
+  },
+  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "docusaurus", "docusaurus-plugin"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
     "README.md"

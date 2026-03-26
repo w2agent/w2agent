@@ -2,6 +2,21 @@
   "name": "@w2agent/nuxt",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "Nuxt module for w2agent — auto-registers llms.txt, agent-card.json, and webhook routes",
+  "author": "w2agent",
+  "homepage": "https://w2agent.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/interskh/w2agent.git",
+    "directory": "packages/nuxt"
+  },
+  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "nuxt", "nuxt-module"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "files": [
     "dist",
