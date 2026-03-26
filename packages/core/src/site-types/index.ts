@@ -18,3 +18,8 @@ import { ecommerceChecks } from "../audit/checks/ecommerce.js";
 import { registerSiteTypeChecks } from "./checks.js";
 
 registerSiteTypeChecks({ siteType: "ecommerce", checks: ecommerceChecks });
+
+// Register local business checks
+import { localBusinessChecks } from "../audit/checks/local-business.js";
+
+registerSiteTypeChecks({ siteType: "local-business", checks: localBusinessChecks });
