@@ -559,6 +559,64 @@ describe("tool annotations", () => {
     const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
     expect(serverFile.content).toContain("destructiveHint: true");
     expect(serverFile.content).toContain("idempotentHint: false");
+    // Verify stub is gone, real fetch present
+    expect(serverFile.content).not.toContain("Form submission stub");
+    expect(serverFile.content).toContain("fetch(");
+  });
+
+  it("standalone form tools use resolved absolute action URL", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Hi",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const files = generateMcpServer(ctx);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    // Action URL resolved at generation time to absolute
+    expect(serverFile.content).toContain('"https://example.com/contact"');
+    // Not the raw relative path
+    expect(serverFile.content).not.toContain('fetch("/contact"');
+  });
+
+  it("standalone form tools include timeout and error handling", () => {
+    const ctx = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Hi",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const files = generateMcpServer(ctx);
+    const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+    expect(serverFile.content).toContain("AbortController");
+    expect(serverFile.content).toContain("10000");
+    expect(serverFile.content).toContain("isError: true");
+    expect(serverFile.content).toContain("application/x-www-form-urlencoded");
+    expect(serverFile.content).toContain("URLSearchParams");
+    // Response truncation at 2000 chars
+    expect(serverFile.content).toContain("2000");
   });
 
   it("vercel api/mcp.ts includes readOnlyHint annotations", () => {
@@ -582,6 +640,72 @@ describe("tool annotations", () => {
     // The tools/list response is a JS object literal inside JSON.stringify() —
     // in generated source code, annotations appear as JS syntax, not serialized JSON
     expect(workerFile.content).toContain("annotations: { readOnlyHint: true");
+  });
+
+  it("vercel api/mcp.ts includes form submission tools when forms detected", () => {
+    const ctxWithForm = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Hi",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const files = generateMcpServer(ctxWithForm, "vercel");
+    const apiFile = files.find((f) => f.filename === "mcp-server/api/mcp.ts")!;
+    // Real fetch, not a stub
+    expect(apiFile.content).toContain("fetch(");
+    expect(apiFile.content).toContain("AbortController");
+    expect(apiFile.content).toContain("10000");
+    expect(apiFile.content).toContain("isError: true");
+    expect(apiFile.content).toContain("application/x-www-form-urlencoded");
+    // Write annotations
+    expect(apiFile.content).toContain("destructiveHint: true");
+    expect(apiFile.content).toContain("idempotentHint: false");
+    // Action URL resolved at generation time
+    expect(apiFile.content).toContain('"https://example.com/contact"');
+  });
+
+  it("cloudflare worker.ts includes form submission tools when forms detected", () => {
+    const ctxWithForm = makeCtx({
+      pages: [
+        {
+          url: "https://example.com/contact",
+          title: "Contact",
+          description: "",
+          markdown: "Hi",
+          forms: [
+            {
+              action: "/contact",
+              method: "POST",
+              fields: [{ name: "email", type: "email", required: true }],
+            },
+          ],
+        },
+      ],
+    });
+    const files = generateMcpServer(ctxWithForm, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    // Real fetch in tools/call handler
+    expect(workerFile.content).toContain("fetch(");
+    expect(workerFile.content).toContain("AbortController");
+    expect(workerFile.content).toContain("10000");
+    expect(workerFile.content).toContain("isError: true");
+    expect(workerFile.content).toContain("application/x-www-form-urlencoded");
+    // Write annotations present in tools/list response
+    expect(workerFile.content).toContain("destructiveHint: true");
+    expect(workerFile.content).toContain("idempotentHint: false");
+    // Action URL resolved at generation time
+    expect(workerFile.content).toContain('"https://example.com/contact"');
   });
 });
 

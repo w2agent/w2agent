@@ -466,9 +466,24 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(
       `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
     );
-    lines.push(
-      `  return { content: [{ type: "text", text: "Form submission stub. Action: ${form.method} ${form.action}\\nFields: " + JSON.stringify(params) }] };`,
-    );
+    const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+    lines.push(`  const _controller = new AbortController();`);
+    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
+    lines.push(`  try {`);
+    lines.push(`    const _res = await fetch(${actionUrl}, {`);
+    lines.push(`      method: "POST",`);
+    lines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
+    lines.push(`      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`);
+    lines.push(`      signal: _controller.signal,`);
+    lines.push(`    });`);
+    lines.push(`    clearTimeout(_timer);`);
+    lines.push(`    const _text = await _res.text();`);
+    lines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
+    lines.push(`    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`);
+    lines.push(`  } catch (err) {`);
+    lines.push(`    clearTimeout(_timer);`);
+    lines.push(`    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`);
+    lines.push(`  }`);
     lines.push(`});`);
     lines.push(``);
   });
@@ -805,6 +820,44 @@ ${generateCommerceToolHandlers()}
 `
     : ""
 }
+${
+  detected.forms.length > 0
+    ? detected.forms
+        .map((form, i) => {
+          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
+          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
+          const fieldSchemas = form.fields.map((f) => {
+            const zodType = f.type === "number" ? "z.number()" : "z.string()";
+            const desc = f.label || f.name;
+            return `    ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
+          });
+          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+          return `
+  server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
+${fieldSchemas.join(",\n")}
+  }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
+    const _controller = new AbortController();
+    const _timer = setTimeout(() => _controller.abort(), 10000);
+    try {
+      const _res = await fetch(${actionUrl}, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
+        signal: _controller.signal,
+      });
+      clearTimeout(_timer);
+      const _text = await _res.text();
+      const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
+      return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+    } catch (err) {
+      clearTimeout(_timer);
+      return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+    }
+  });`;
+        })
+        .join("\n")
+    : ""
+}
   return server;
 }
 
@@ -963,6 +1016,44 @@ ${generateCommerceToolHandlers()}
 `
     : ""
 }
+${
+  detected.forms.length > 0
+    ? detected.forms
+        .map((form, i) => {
+          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
+          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
+          const fieldSchemas = form.fields.map((f) => {
+            const zodType = f.type === "number" ? "z.number()" : "z.string()";
+            const desc = f.label || f.name;
+            return `      ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
+          });
+          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+          return `
+    server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
+${fieldSchemas.join(",\n")}
+    }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
+      const _controller = new AbortController();
+      const _timer = setTimeout(() => _controller.abort(), 10000);
+      try {
+        const _res = await fetch(${actionUrl}, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
+          signal: _controller.signal,
+        });
+        clearTimeout(_timer);
+        const _text = await _res.text();
+        const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
+        return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+      } catch (err) {
+        clearTimeout(_timer);
+        return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+      }
+    });`;
+        })
+        .join("\n")
+    : ""
+}
     // Simple JSON-RPC handler since CF Workers doesn't support StreamableHTTP easily
     const body = await request.json() as any;
     if (body.method === "initialize") {
@@ -994,6 +1085,21 @@ ${generateCommerceToolHandlers()}
             { name: "get-reviews", description: "Get aggregate rating for a product", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },`
                 : ""
             }
+${
+  detected.forms.length > 0
+    ? detected.forms
+        .map((form, i) => {
+          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
+          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
+          const properties = Object.fromEntries(
+            form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }])
+          );
+          const required = form.fields.filter((f) => f.required).map((f) => f.name);
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
+        })
+        .join("\n")
+    : ""
+}
           ],
         },
       }), { headers: { "content-type": "application/json" } });
@@ -1051,7 +1157,36 @@ ${generateCommerceToolHandlers()}
           : { content: [{ type: "text", text: "Product not found" }] };
       }`
           : ""
-      } else {
+      }${
+  detected.forms.length > 0
+    ? detected.forms
+        .map((form, i) => {
+          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
+          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
+          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+          return ` else if (toolName === ${JSON.stringify(toolName)}) {
+        const _controller = new AbortController();
+        const _timer = setTimeout(() => _controller.abort(), 10000);
+        try {
+          const _res = await fetch(${actionUrl}, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString(),
+            signal: _controller.signal,
+          });
+          clearTimeout(_timer);
+          const _text = await _res.text();
+          const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
+          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+        } catch (err) {
+          clearTimeout(_timer);
+          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+        }
+      }`;
+        })
+        .join("")
+    : ""
+} else {
         return new Response(JSON.stringify({
           jsonrpc: "2.0", id: body.id,
           error: { code: -32601, message: "Unknown tool: " + toolName },
