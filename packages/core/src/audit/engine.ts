@@ -131,8 +131,8 @@ function computeWarnings(results: CheckResult[]): AuditWarning[] {
       id: "js-heavy-site",
       title: "JavaScript-dependent content detected",
       message:
-        "Most pages on this site require JavaScript to render content. AI crawlers and agents that don't execute JavaScript will see empty or minimal pages. Consider server-side rendering (SSR) or pre-rendering to make content accessible.",
-      details: noJsResult?.message,
+        "This site appears to use client-side rendering. Audit scores may be lower than actual quality — AI crawlers that don't execute JavaScript will see minimal content. Consider server-side rendering (SSR) or pre-rendering.",
+      details: noJsResult?.details,
     });
   }
 

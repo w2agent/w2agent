@@ -117,4 +117,29 @@ describe("no-js-dependency", () => {
     );
     expect(result.score).toBe(0);
   });
+
+  it("fails for Next.js app with low content (JS marker + low word count)", () => {
+    const html = `<html><body><div id="__next"></div><script id="__NEXT_DATA__" type="application/json">{}</script></body></html>`;
+    const result = noJsDependency.run([{ ...basePage, html }], baseMeta);
+    expect(result.score).toBe(0);
+    expect(result.details).toContain("Next.js");
+  });
+
+  it("fails for Angular app with moderate content below raised threshold", () => {
+    // 60 words but ng-app present → threshold is 100, so marked as JS-heavy
+    const words = Array(60).fill("word").join(" ");
+    const html = `<html><body ng-app="myApp"><p>${words}</p></body></html>`;
+    const result = noJsDependency.run([{ ...basePage, html }], baseMeta);
+    expect(result.score).toBe(0);
+    expect(result.details).toContain("Angular");
+  });
+
+  it("passes for Next.js app with substantial SSR content", () => {
+    // 120 words with Next.js marker → above 100-word threshold for framework pages
+    const words = Array(120).fill("word").join(" ");
+    const html = `<html><body><div id="__next"><p>${words}</p></div><script id="__NEXT_DATA__" type="application/json">{}</script></body></html>`;
+    const result = noJsDependency.run([{ ...basePage, html }], baseMeta);
+    expect(result.score).toBe(100);
+    expect(result.details).toContain("Next.js");
+  });
 });

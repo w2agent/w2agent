@@ -1,6 +1,25 @@
 import { parseHTML } from "../../shared/html-parser.js";
 import type { Check } from "../types.js";
 
+const JS_FRAMEWORK_MARKERS: { marker: string; name: string }[] = [
+  { marker: "__NEXT_DATA__", name: "Next.js" },
+  { marker: "window.__nuxt__", name: "Nuxt.js" },
+  { marker: "ng-app", name: "Angular" },
+  { marker: "ng-version", name: "Angular" },
+  { marker: "data-reactroot", name: "React" },
+  { marker: "data-v-app", name: "Vue" },
+  { marker: "__svelte", name: "Svelte" },
+  { marker: "ember-application", name: "Ember" },
+];
+
+function detectJsFrameworks(html: string): string[] {
+  const detected = new Set<string>();
+  for (const { marker, name } of JS_FRAMEWORK_MARKERS) {
+    if (html.includes(marker)) detected.add(name);
+  }
+  return [...detected];
+}
+
 export const httpsCheck: Check = {
   id: "https",
   name: "HTTPS",
@@ -175,17 +194,23 @@ export const noJsDependency: Check = {
   severity: "warning",
   run: (pages) => {
     let goodPages = 0;
+    const frameworksFound = new Set<string>();
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
-      // If we can extract meaningful text via cheerio (no JS execution),
-      // the content is at least partially accessible without JS
-      if (parsed.wordCount >= 50) {
-        goodPages++;
-      }
+      const frameworks = detectJsFrameworks(page.html);
+      for (const f of frameworks) frameworksFound.add(f);
+
+      // A page is accessible without JS if it has substantial content.
+      // Raise the threshold when JS framework markers are present —
+      // frameworks often inject minimal SSR fallback but most content
+      // is client-rendered, so 50 words isn't enough.
+      const threshold = frameworks.length > 0 ? 100 : 50;
+      if (parsed.wordCount >= threshold) goodPages++;
     }
 
     const score = pages.length > 0 ? Math.round((goodPages / pages.length) * 100) : 0;
+    const frameworkList = [...frameworksFound].join(", ");
 
     return {
       id: "no-js-dependency",
@@ -199,6 +224,7 @@ export const noJsDependency: Check = {
         score >= 70
           ? "Content is accessible without JavaScript"
           : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering`,
+      details: frameworkList ? `Detected JS frameworks: ${frameworkList}` : undefined,
       severity: score < 50 ? "warning" : "info",
     };
   },
