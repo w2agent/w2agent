@@ -35,8 +35,8 @@ const SHOP_QUERY = `#graphql
 `;
 
 const PRODUCTS_QUERY = `#graphql
-  query Products($first: Int!) {
-    products(first: $first, query: "status:active") {
+  query Products($first: Int!, $after: String) {
+    products(first: $first, after: $after, query: "status:active") {
       edges {
         node {
           title
@@ -44,13 +44,17 @@ const PRODUCTS_QUERY = `#graphql
           descriptionHtml
         }
       }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `;
 
 const PAGES_QUERY = `#graphql
-  query Pages($first: Int!) {
-    pages(first: $first) {
+  query Pages($first: Int!, $after: String) {
+    pages(first: $first, after: $after) {
       edges {
         node {
           title
@@ -58,21 +62,62 @@ const PAGES_QUERY = `#graphql
           body
         }
       }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `;
 
+const PAGE_SIZE = 250;
+const MAX_ITEMS = 2000;
+
+async function fetchAll<T>(
+  admin: AdminClient,
+  query: string,
+  rootField: string,
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+
+  while (items.length < MAX_ITEMS) {
+    const variables: Record<string, unknown> = { first: PAGE_SIZE };
+    if (cursor) variables.after = cursor;
+
+    const res = await admin.graphql(query, { variables });
+    const data = await res.json();
+    const connection = data.data[rootField];
+    for (const { node } of connection.edges) {
+      items.push(node);
+    }
+    if (!connection.pageInfo.hasNextPage) break;
+    cursor = connection.pageInfo.endCursor;
+  }
+
+  return items;
+}
+
+interface Product {
+  title: string;
+  handle: string;
+  descriptionHtml: string;
+}
+
+interface Page {
+  title: string;
+  handle: string;
+  body: string;
+}
+
 export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
-  const [shopRes, productsRes, pagesRes] = await Promise.all([
+  const [shopRes, products, pages] = await Promise.all([
     admin.graphql(SHOP_QUERY),
-    admin.graphql(PRODUCTS_QUERY, { variables: { first: 100 } }),
-    admin.graphql(PAGES_QUERY, { variables: { first: 100 } }),
+    fetchAll<Product>(admin, PRODUCTS_QUERY, "products"),
+    fetchAll<Page>(admin, PAGES_QUERY, "pages"),
   ]);
 
   const shopData = await shopRes.json();
-  const productsData = await productsRes.json();
-  const pagesData = await pagesRes.json();
-
   const shop = shopData.data.shop;
   const baseUrl = shop.primaryDomain.url;
 
@@ -81,10 +126,9 @@ export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
     output += `> ${shop.description}\n\n`;
   }
 
-  const products = productsData.data.products.edges;
   if (products.length > 0) {
     output += "## Products\n\n";
-    for (const { node } of products) {
+    for (const node of products) {
       const desc = node.descriptionHtml
         ? truncate(stripHtml(node.descriptionHtml), 25)
         : "";
@@ -96,10 +140,9 @@ export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
     output += "\n";
   }
 
-  const pages = pagesData.data.pages.edges;
   if (pages.length > 0) {
     output += "## Pages\n\n";
-    for (const { node } of pages) {
+    for (const node of pages) {
       const desc = node.body ? truncate(stripHtml(node.body), 25) : "";
       const url = `${baseUrl}/pages/${node.handle}`;
       output += desc

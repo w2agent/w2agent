@@ -68,8 +68,8 @@ All other app proxy paths return 404.
 ## Data Scope
 
 - **Shop**: name, description, primary domain
-- **Products**: first 100 active products (title, handle, description)
-- **Pages**: first 100 pages (title, handle, body)
+- **Products**: all active products (title, handle, description) — paginated, up to 2,000
+- **Pages**: all pages (title, handle, body) — paginated, up to 2,000
 
 ## Canonical URL
 
