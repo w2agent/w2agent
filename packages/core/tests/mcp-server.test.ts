@@ -827,6 +827,105 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
     expect(serverTs?.content).toContain("{petId}");
     expect(serverTs?.content).toContain("params.petId");
   });
+
+  it("cloudflare worker.ts includes openapi tool in sdk section and tools/list", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "https://api.example.com/openapi.json",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets",
+              method: "get",
+              operationId: "listPets",
+              summary: "List all pets",
+              parameters: [{ name: "limit", in: "query", required: false, type: "integer" }],
+            },
+          ],
+        } as any,
+      },
+    });
+    const files = generateMcpServer(ctx, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    expect(workerFile).toBeDefined();
+    // SDK section
+    expect(workerFile.content).toContain('"list-pets"');
+    // tools/list entry
+    expect(workerFile.content).toContain('name: "list-pets"');
+    // readOnly annotations (GET endpoint)
+    expect(workerFile.content).toContain("readOnlyHint: true");
+    expect(workerFile.content).toContain("destructiveHint: false");
+  });
+
+  it("cloudflare worker.ts tools/call dispatches openapi tool with fetch", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "https://api.example.com/openapi.json",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets/{petId}",
+              method: "get",
+              operationId: "getPet",
+              summary: "Get a pet",
+              parameters: [{ name: "petId", in: "path", required: true, type: "string" }],
+            },
+          ],
+        } as any,
+      },
+    });
+    const files = generateMcpServer(ctx, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    // tools/call: else if dispatch
+    expect(workerFile.content).toContain('"get-pet"');
+    expect(workerFile.content).toContain("fetch(");
+    expect(workerFile.content).toContain("AbortController");
+    expect(workerFile.content).toContain("10000");
+    expect(workerFile.content).toContain("isError: true");
+    // Path param substitution baked in (the generated URL expression contains the path)
+    expect(workerFile.content).toContain("{petId}");
+  });
+
+  it("cloudflare worker.ts openapi POST tool uses write annotations and body", () => {
+    const ctx = makeCtx({
+      metadata: {
+        baseUrl: "https://api.example.com",
+        wellKnown: {},
+        openapi: {
+          specUrl: "https://api.example.com/openapi.json",
+          version: "3.0.0",
+          serverUrl: "https://api.example.com",
+          endpoints: [
+            {
+              path: "/pets",
+              method: "post",
+              operationId: "createPet",
+              summary: "Create a pet",
+              parameters: [],
+              requestBody: { properties: { name: { type: "string" }, age: { type: "integer" } } },
+            },
+          ],
+        } as any,
+      },
+    });
+    const files = generateMcpServer(ctx, "cf");
+    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+    expect(workerFile.content).toContain('"create-pet"');
+    // Write annotations in tools/list
+    expect(workerFile.content).toContain("destructiveHint: true");
+    expect(workerFile.content).toContain("idempotentHint: false");
+    // Body construction
+    expect(workerFile.content).toContain("application/json");
+    expect(workerFile.content).toContain("JSON.stringify");
+  });
 });
 
 // --- E-commerce tools ---

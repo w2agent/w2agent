@@ -1080,6 +1080,15 @@ function generateCloudflareTemplate(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+  const apiBase = detected.openapiServerUrl || baseUrl;
+  const openapiTools: Array<{ toolName: string; ep: (typeof detected.openapiEndpoints)[0] }> = [];
+  if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
+    const usedNames = new Set<string>();
+    for (const ep of detected.openapiEndpoints) {
+      openapiTools.push({ toolName: inferOpenapiToolName(ep, usedNames), ep });
+    }
+  }
+
   const wranglerToml = `name = "${slug}-agent"
 main = "worker.ts"
 compatibility_date = "2024-12-01"
@@ -1220,6 +1229,14 @@ ${fieldSchemas.join(",\n")}
         .join("\n")
     : ""
 }
+${
+  openapiTools.length > 0
+    ? "\n" +
+      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase)
+        .map((l) => (l ? `    ${l}` : l))
+        .join("\n")
+    : ""
+}
     // Simple JSON-RPC handler since CF Workers doesn't support StreamableHTTP easily
     const body = await request.json() as any;
     if (body.method === "initialize") {
@@ -1262,6 +1279,41 @@ ${
           );
           const required = form.fields.filter((f) => f.required).map((f) => f.name);
           return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
+        })
+        .join("\n")
+    : ""
+}
+${
+  openapiTools.length > 0
+    ? openapiTools
+        .map(({ toolName, ep }) => {
+          const pathParams = ep.parameters.filter((p) => p.in === "path");
+          const queryParams = ep.parameters.filter((p) => p.in === "query");
+          const bodyProps = ep.requestBody
+            ? Object.entries(ep.requestBody.properties)
+            : [];
+          const properties: Record<string, { type: string }> = {};
+          for (const p of [...pathParams, ...queryParams]) {
+            properties[p.name] = {
+              type: p.type === "integer" || p.type === "number" ? "number" : "string",
+            };
+          }
+          for (const [name, def] of bodyProps) {
+            properties[name] = {
+              type: def.type === "integer" || def.type === "number" ? "number" : "string",
+            };
+          }
+          const required = [
+            ...pathParams.filter((p) => p.required),
+            ...queryParams.filter((p) => p.required),
+          ].map((p) => p.name);
+          const isReadOnly = ep.method.toLowerCase() === "get";
+          const annotations = isReadOnly
+            ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
+            : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
+          const desc =
+            ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
         })
         .join("\n")
     : ""
@@ -1344,6 +1396,77 @@ ${
           const _text = await _res.text();
           const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
           result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+        } catch (err) {
+          clearTimeout(_timer);
+          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+        }
+      }`;
+        })
+        .join("")
+    : ""
+}${
+  openapiTools.length > 0
+    ? openapiTools
+        .map(({ toolName, ep }) => {
+          const pathParams = ep.parameters.filter((p) => p.in === "path");
+          const queryParams = ep.parameters.filter((p) => p.in === "query");
+          const bodyProps = ep.requestBody
+            ? Object.entries(ep.requestBody.properties)
+            : [];
+
+          let urlExpr = JSON.stringify(apiBase + ep.path);
+          for (const p of pathParams) {
+            urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args.${p.name}))`;
+          }
+
+          const queryLines: string[] = [];
+          if (queryParams.length > 0) {
+            queryLines.push(`          const _query = new URLSearchParams();`);
+            for (const p of queryParams) {
+              if (p.required) {
+                queryLines.push(
+                  `          _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                );
+              } else {
+                queryLines.push(
+                  `          if (args.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                );
+              }
+            }
+            queryLines.push(
+              `          const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`,
+            );
+          }
+
+          const bodyLines: string[] = [];
+          let fetchExtra: string;
+          if (bodyProps.length > 0) {
+            bodyLines.push(`          const _body: Record<string, unknown> = {};`);
+            for (const [propName] of bodyProps) {
+              bodyLines.push(
+                `          if (args.${propName} !== undefined) _body[${JSON.stringify(propName)}] = args.${propName};`,
+              );
+            }
+            fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
+          } else {
+            fetchExtra = `, headers: { "Accept": "application/json" }`;
+          }
+
+          const innerLines = [
+            ...queryLines,
+            ...bodyLines,
+          ].join("\n");
+
+          return ` else if (toolName === ${JSON.stringify(toolName)}) {
+        const _controller = new AbortController();
+        const _timer = setTimeout(() => _controller.abort(), 10000);
+        try {
+          let _url = ${urlExpr};
+${innerLines ? innerLines + "\n" : ""}          const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra}, signal: _controller.signal });
+          clearTimeout(_timer);
+          const _text = await _res.text();
+          const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;
+          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };
         } catch (err) {
           clearTimeout(_timer);
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
