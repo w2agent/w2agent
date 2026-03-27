@@ -21,7 +21,7 @@ interface SseMessage {
 
 async function handleDeployAction(
   url: string,
-  opts: { apiKey?: string; slug?: string },
+  opts: { apiKey?: string; slug?: string; showToken?: boolean },
 ): Promise<void> {
   const apiUrl = getApiUrl();
   const authHeaders = opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : getAuthHeaders();
@@ -108,7 +108,7 @@ async function handleDeployAction(
       } else if (msg.type === "result") {
         spinner.succeed("Agentize complete");
         const result = msg.data as DeployResult;
-        printResult(result);
+        printResult(result, opts.showToken ?? false);
         return;
       } else if (msg.type === "error") {
         spinner.fail("Agentize failed");
@@ -128,6 +128,7 @@ export function registerDeployCommand(program: Command): void {
     .description("Agentize your website — host it as a live agent server on w2agent.dev")
     .option("--api-key <key>", "API key for one-shot agentize (without saving credentials)")
     .option("--slug <slug>", "Custom slug for the deployment")
+    .option("--show-token", "Print the webhook token in plaintext")
     .action((url, opts) => handleDeployAction(url, opts));
 }
 
@@ -137,10 +138,16 @@ export function registerAgentizeCommand(program: Command): void {
     .description("Agentize your website — host it as a live agent server on w2agent.dev")
     .option("--api-key <key>", "API key for one-shot agentize (without saving credentials)")
     .option("--slug <slug>", "Custom slug for the deployment")
+    .option("--show-token", "Print the webhook token in plaintext")
     .action((url, opts) => handleDeployAction(url, opts));
 }
 
-function printResult(result: DeployResult): void {
+function maskToken(token: string): string {
+  const idx = token.indexOf("_");
+  return idx !== -1 ? `${token.slice(0, idx + 1)}****` : "****";
+}
+
+function printResult(result: DeployResult, showToken: boolean): void {
   console.log();
   if (result.isRedeploy) {
     console.log(chalk.yellow("  Re-agentized") + chalk.gray(` → ${result.slug}`));
@@ -159,7 +166,8 @@ function printResult(result: DeployResult): void {
     );
   }
 
+  const displayToken = showToken ? result.webhookToken : maskToken(result.webhookToken);
   console.log(`  ${chalk.gray("Webhook")}       ${chalk.white(result.webhookUrl)}`);
-  console.log(`  ${chalk.gray("Webhook token")} ${chalk.gray(result.webhookToken)}`);
+  console.log(`  ${chalk.gray("Webhook token")} ${chalk.gray(displayToken)}`);
   console.log();
 }

@@ -268,6 +268,41 @@ describe("deploy command", () => {
       expect(allLog).toContain("get_page");
     });
 
+    it("masks webhook token by default", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          makeSseResponse([{ type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) }]),
+        ),
+      );
+
+      await buildProgram().parseAsync(["node", "w2agent", "deploy", "https://example.com"]);
+
+      const allLog = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(allLog).toContain("w2wh_****");
+      expect(allLog).not.toContain("abc123xyz");
+    });
+
+    it("shows full token with --show-token flag", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          makeSseResponse([{ type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) }]),
+        ),
+      );
+
+      await buildProgram().parseAsync([
+        "node",
+        "w2agent",
+        "deploy",
+        "https://example.com",
+        "--show-token",
+      ]);
+
+      const allLog = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(allLog).toContain("w2wh_abc123xyz");
+    });
+
     it("shows 'Redeployed' label for redeployments", async () => {
       vi.stubGlobal(
         "fetch",
