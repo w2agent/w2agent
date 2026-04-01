@@ -10,7 +10,9 @@ import type {
   CategoryResult,
   Check,
   CheckResult,
+  FetchedPage,
   LetterGrade,
+  SiteMetadata,
   TopIssue,
 } from "./types.js";
 import { CATEGORY_CONFIG as CATEGORIES, DEFAULT_OPTIONS } from "./types.js";
@@ -43,7 +45,16 @@ export async function runAudit(
   const start = Date.now();
 
   // Crawl
-  const { pages, metadata } = await crawlSite(url, options, onProgress);
+  let pages: FetchedPage[];
+  let metadata: SiteMetadata;
+  if (options.prefetchedPages?.length && options.prefetchedMetadata) {
+    pages = options.prefetchedPages;
+    metadata = options.prefetchedMetadata;
+  } else {
+    const crawled = await crawlSite(url, options, onProgress);
+    pages = crawled.pages;
+    metadata = crawled.metadata;
+  }
 
   // Detect platform
   const detected = detectPlatform(pages, metadata);

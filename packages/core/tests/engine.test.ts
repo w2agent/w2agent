@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
-import { clearChecks, getRegisteredChecks, registerChecks } from "../src/audit/engine.js";
+import { clearChecks, getRegisteredChecks, registerChecks, runAudit } from "../src/audit/engine.js";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 function loadFixture(name: string): string {
@@ -141,5 +141,34 @@ describe("JS-heavy site warning heuristic", () => {
   it("boundary: no-js=31 does not trigger via first condition", () => {
     // only triggered if tokenScore ≤ 30 too
     expect(isJsHeavy(31, 60)).toBe(false);
+  });
+});
+
+describe("runAudit prefetch bypass", () => {
+  it("skips crawlSite when prefetchedPages and prefetchedMetadata are provided", async () => {
+    const crawlerModule = await import("../src/audit/crawler.js");
+    const crawlSpy = vi.spyOn(crawlerModule, "crawlSite");
+
+    const pages: FetchedPage[] = [
+      makePage("<html><head><title>Test</title></head><body><p>hello</p></body></html>"),
+    ];
+    const metadata: SiteMetadata = {
+      baseUrl: "https://example.com",
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapXml:
+        '<?xml version="1.0"?><urlset><url><loc>https://example.com/</loc></url></urlset>',
+      wellKnown: {},
+    };
+
+    const report = await runAudit(
+      "https://example.com",
+      { prefetchedPages: pages, prefetchedMetadata: metadata },
+      undefined,
+      allChecks,
+    );
+
+    expect(crawlSpy).not.toHaveBeenCalled();
+    expect(report.pagesScanned).toBe(1);
+    crawlSpy.mockRestore();
   });
 });

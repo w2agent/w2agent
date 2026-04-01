@@ -106,6 +106,8 @@ export interface AuditOptions {
   concurrency?: number; // max parallel fetches (default 3)
   requestDelay?: number; // min ms between request starts (default 200)
   pageRankings?: Map<string, number>; // url → 1-based rank from search engine
+  prefetchedPages?: FetchedPage[];
+  prefetchedMetadata?: SiteMetadata;
 }
 
 export const DEFAULT_OPTIONS: AuditOptions = {
