@@ -707,6 +707,55 @@ describe("tool annotations", () => {
     // Action URL resolved at generation time
     expect(workerFile.content).toContain('"https://example.com/contact"');
   });
+
+  // Security: hostile form field names must be emitted as quoted bracket keys,
+  // never as bare JS identifiers, or an attacker-controlled site can inject
+  // arbitrary code into the generated MCP server.
+  describe("form field name injection (security)", () => {
+    const HOSTILE = '}); injected(); ({ q';
+    const ctxWithHostile = () =>
+      makeCtx({
+        pages: [
+          {
+            url: "https://example.com/contact",
+            title: "Contact",
+            description: "",
+            markdown: "Hi",
+            forms: [
+              {
+                action: "/contact",
+                method: "POST",
+                fields: [{ name: HOSTILE, type: "text", required: false }],
+              },
+            ],
+          },
+        ],
+      });
+
+    const quotedKey = `[${JSON.stringify(HOSTILE)}]`;
+    const bareKey = `${HOSTILE}:`;
+
+    it("standalone server.ts emits hostile field name as bracket-quoted key", () => {
+      const files = generateMcpServer(ctxWithHostile());
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).toContain(`${quotedKey}: z.`);
+      expect(serverFile.content).not.toContain(bareKey);
+    });
+
+    it("vercel api/mcp.ts emits hostile field name as bracket-quoted key", () => {
+      const files = generateMcpServer(ctxWithHostile(), "vercel");
+      const apiFile = files.find((f) => f.filename === "mcp-server/api/mcp.ts")!;
+      expect(apiFile.content).toContain(`${quotedKey}: z.`);
+      expect(apiFile.content).not.toContain(bareKey);
+    });
+
+    it("cloudflare worker.ts emits hostile field name as bracket-quoted key", () => {
+      const files = generateMcpServer(ctxWithHostile(), "cf");
+      const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+      expect(workerFile.content).toContain(`${quotedKey}: z.`);
+      expect(workerFile.content).not.toContain(bareKey);
+    });
+  });
 });
 
 // --- OpenAPI tools ---

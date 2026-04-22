@@ -604,7 +604,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     const fieldSchemas = form.fields.map((f) => {
       const zodType = f.type === "number" ? "z.number()" : "z.string()";
       const desc = f.label || f.name;
-      return `    ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
+      return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
     });
 
     lines.push(`// Tool: ${toolName}`);
@@ -985,7 +985,7 @@ ${
           const fieldSchemas = form.fields.map((f) => {
             const zodType = f.type === "number" ? "z.number()" : "z.string()";
             const desc = f.label || f.name;
-            return `    ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
+            return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
           });
           const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
           return `
@@ -1200,7 +1200,7 @@ ${
           const fieldSchemas = form.fields.map((f) => {
             const zodType = f.type === "number" ? "z.number()" : "z.string()";
             const desc = f.label || f.name;
-            return `      ${f.name}: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
+            return `      [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
           });
           const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
           return `
