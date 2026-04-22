@@ -874,7 +874,99 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
     const files = generateMcpServer(ctx);
     const serverTs = files.find((f) => f.filename === "mcp-server/server.ts");
     expect(serverTs?.content).toContain("{petId}");
-    expect(serverTs?.content).toContain("params.petId");
+    expect(serverTs?.content).toContain('params["petId"]');
+  });
+
+  // Security: hostile OpenAPI parameter / property names must never land in
+  // generated code as bare identifiers. Attacker publishes a malicious
+  // openapi.json; generator must not let its names become executable JS.
+  describe("OpenAPI parameter/property name injection (security)", () => {
+    const HOSTILE = '"]; injected(); params["q';
+    const ctxWithHostileParam = () =>
+      makeCtx({
+        metadata: {
+          baseUrl: "https://api.example.com",
+          wellKnown: {},
+          openapi: {
+            specUrl: "https://api.example.com/openapi.json",
+            version: "3.0.0",
+            serverUrl: "https://api.example.com",
+            endpoints: [
+              {
+                path: "/x",
+                method: "get",
+                operationId: "getX",
+                parameters: [
+                  { name: HOSTILE, in: "query", required: true, type: "string" },
+                ],
+              },
+            ],
+          } as any,
+        },
+      });
+
+    const ctxWithHostileBodyProp = () =>
+      makeCtx({
+        metadata: {
+          baseUrl: "https://api.example.com",
+          wellKnown: {},
+          openapi: {
+            specUrl: "https://api.example.com/openapi.json",
+            version: "3.0.0",
+            serverUrl: "https://api.example.com",
+            endpoints: [
+              {
+                path: "/x",
+                method: "post",
+                operationId: "postX",
+                parameters: [],
+                requestBody: { properties: { [HOSTILE]: { type: "string" } } },
+              },
+            ],
+          } as any,
+        },
+      });
+
+    const quotedKey = `[${JSON.stringify(HOSTILE)}]`;
+    const quotedAccess = `params[${JSON.stringify(HOSTILE)}]`;
+    const badSchemaKey = `${HOSTILE}:`;
+    const badMember = `params.${HOSTILE}`;
+
+    it("query param: standalone server.ts quotes hostile name in schema and access", () => {
+      const files = generateMcpServer(ctxWithHostileParam());
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).toContain(`${quotedKey}: z.`);
+      expect(serverFile.content).toContain(quotedAccess);
+      expect(serverFile.content).not.toContain(badSchemaKey);
+      expect(serverFile.content).not.toContain(badMember);
+    });
+
+    it("query param: vercel api/mcp.ts quotes hostile name in schema and access", () => {
+      const files = generateMcpServer(ctxWithHostileParam(), "vercel");
+      const apiFile = files.find((f) => f.filename === "mcp-server/api/mcp.ts")!;
+      expect(apiFile.content).toContain(`${quotedKey}: z.`);
+      expect(apiFile.content).toContain(quotedAccess);
+      expect(apiFile.content).not.toContain(badSchemaKey);
+      expect(apiFile.content).not.toContain(badMember);
+    });
+
+    it("query param: cloudflare worker.ts quotes hostile name in schema and access", () => {
+      const files = generateMcpServer(ctxWithHostileParam(), "cf");
+      const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
+      expect(workerFile.content).toContain(`${quotedKey}: z.`);
+      expect(workerFile.content).toContain(quotedAccess);
+      expect(workerFile.content).not.toContain(badSchemaKey);
+      expect(workerFile.content).not.toContain(badMember);
+    });
+
+    it("body property: standalone server.ts quotes hostile name in schema and access", () => {
+      const files = generateMcpServer(ctxWithHostileBodyProp());
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).toContain(`${quotedKey}: z.`);
+      expect(serverFile.content).toContain(quotedAccess);
+      expect(serverFile.content).not.toContain(badSchemaKey);
+      expect(serverFile.content).not.toContain(badMember);
+    });
   });
 
   it("cloudflare worker.ts includes openapi tool in sdk section and tools/list", () => {

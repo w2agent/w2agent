@@ -379,14 +379,14 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
     for (const p of [...pathParams, ...queryParams]) {
       const zodType = p.type === "integer" || p.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  ${p.name}: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
+        `  [${JSON.stringify(p.name)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
       );
     }
     for (const [propName, propDef] of bodyProps) {
       const zodType =
         propDef.type === "integer" || propDef.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  ${propName}: ${zodType}.optional().describe(${JSON.stringify(propDef.description || propName)})`,
+        `  [${JSON.stringify(propName)}]: ${zodType}.optional().describe(${JSON.stringify(propDef.description || propName)})`,
       );
     }
 
@@ -402,18 +402,19 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
 
     let urlExpr = JSON.stringify(serverUrl + ep.path);
     for (const p of pathParams) {
-      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(params.${p.name}))`;
+      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(params[${JSON.stringify(p.name)}]))`;
     }
     lines.push(`  let _url = ${urlExpr};`);
 
     if (queryParams.length > 0) {
       lines.push(`  const _query = new URLSearchParams();`);
       for (const p of queryParams) {
+        const access = `params[${JSON.stringify(p.name)}]`;
         if (p.required) {
-          lines.push(`  _query.set(${JSON.stringify(p.name)}, String(params.${p.name}));`);
+          lines.push(`  _query.set(${JSON.stringify(p.name)}, String(${access}));`);
         } else {
           lines.push(
-            `  if (params.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(params.${p.name}));`,
+            `  if (${access} !== undefined) _query.set(${JSON.stringify(p.name)}, String(${access}));`,
           );
         }
       }
@@ -426,8 +427,9 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
     if (bodyProps.length > 0) {
       lines.push(`    const _body: Record<string, unknown> = {};`);
       for (const [propName] of bodyProps) {
+        const access = `params[${JSON.stringify(propName)}]`;
         lines.push(
-          `    if (params.${propName} !== undefined) _body[${JSON.stringify(propName)}] = params.${propName};`,
+          `    if (${access} !== undefined) _body[${JSON.stringify(propName)}] = ${access};`,
         );
       }
       lines.push(
