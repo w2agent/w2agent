@@ -10,7 +10,14 @@
     "url": "https://github.com/interskh/w2agent.git",
     "directory": "packages/astro"
   },
-  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "astro", "astro-integration"],
+  "keywords": [
+    "llms.txt",
+    "mcp",
+    "ai-agent",
+    "w2agent",
+    "astro",
+    "astro-integration"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
