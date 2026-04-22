@@ -442,3 +442,82 @@ describe("field-to-schema mapping", () => {
     expect(js.content).toContain('"enum"');
   });
 });
+
+// Security: hostile field names / form.action must never land in generated JS
+// as bare identifiers, or in declarative HTML as unescaped attribute values.
+describe("generateWebMcp — injection defenses (security)", () => {
+  const HOSTILE_NAME = '"]); evil(); ([x';
+  const HOSTILE_ACTION = '"><script>evil()</script>';
+
+  const ctxWithHostileName = () =>
+    ({
+      pages: [
+        {
+          url: "https://example.com/form",
+          title: "Form",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: "/form",
+              method: "POST",
+              fields: [{ name: HOSTILE_NAME, type: "text", required: false }],
+            },
+          ],
+        },
+      ],
+      rawPages: [],
+      metadata: { baseUrl: "https://example.com", wellKnown: {} },
+      baseUrl: "https://example.com",
+    }) satisfies GenerateContext;
+
+  const ctxWithHostileAction = () =>
+    ({
+      pages: [
+        {
+          url: "https://example.com/form",
+          title: "Form",
+          description: "",
+          markdown: "",
+          forms: [
+            {
+              action: HOSTILE_ACTION,
+              method: "POST",
+              fields: [{ name: "email", type: "text", required: false }],
+            },
+          ],
+        },
+      ],
+      rawPages: [],
+      metadata: { baseUrl: "https://example.com", wellKnown: {} },
+      baseUrl: "https://example.com",
+    }) satisfies GenerateContext;
+
+  it("webmcp.js never emits hostile field name as bare JS identifier", () => {
+    const js = generateWebMcp(ctxWithHostileName()).find((f) => f.filename === "webmcp/webmcp.js")!;
+    // Bare-identifier patterns that would let an attacker break out
+    expect(js.content).not.toContain(`const ${HOSTILE_NAME}Field`);
+    expect(js.content).not.toContain(`params.${HOSTILE_NAME}`);
+    // Safe access must use bracket notation with the quoted name
+    expect(js.content).toContain(`params[${JSON.stringify(HOSTILE_NAME)}]`);
+  });
+
+  it("declarative.html escapes hostile form action in attribute position", () => {
+    const html = generateWebMcp(ctxWithHostileAction()).find(
+      (f) => f.filename === "webmcp/declarative.html",
+    )!;
+    // Attacker content must not close the attribute or open a script tag
+    expect(html.content).not.toContain(HOSTILE_ACTION);
+    // Escaped form should preserve the data but neutralize it
+    expect(html.content).toContain("&quot;");
+    expect(html.content).toContain("&lt;script&gt;");
+  });
+
+  it("declarative.html escapes hostile field name in attribute position", () => {
+    const html = generateWebMcp(ctxWithHostileName()).find(
+      (f) => f.filename === "webmcp/declarative.html",
+    )!;
+    expect(html.content).not.toContain(`name="${HOSTILE_NAME}"`);
+    expect(html.content).toContain("&quot;");
+  });
+});

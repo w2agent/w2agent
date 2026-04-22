@@ -63,6 +63,15 @@ function toolDescription(name: string, method: string): string {
   return `Submit the ${name} form`;
 }
 
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function fieldDescription(field: ExtractedFormField): string {
   return field.label ?? field.name;
 }
@@ -81,11 +90,11 @@ function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string
     const desc = toolDescription(name, form.method);
     const visibleFields = form.fields.filter((f) => f.type?.toLowerCase() !== "hidden");
 
-    lines.push(`<!-- Form: ${name} (from ${form.action}) -->`);
+    lines.push(`<!-- Form: ${name} (from ${escapeAttr(form.action)}) -->`);
 
     const autosubmit = isGet ? " toolautosubmit" : "";
     lines.push(
-      `<form action="${form.action}" method="${form.method}" toolname="${name}" tooldescription="${desc}"${autosubmit}>`,
+      `<form action="${escapeAttr(form.action)}" method="${escapeAttr(form.method)}" toolname="${escapeAttr(name)}" tooldescription="${escapeAttr(desc)}"${autosubmit}>`,
     );
 
     for (const field of visibleFields) {
@@ -93,11 +102,11 @@ function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string
       const tag = field.type === "textarea" ? "textarea" : "input";
       if (tag === "textarea") {
         lines.push(
-          `  <textarea name="${field.name}" toolparamdescription="${paramDesc}"></textarea>`,
+          `  <textarea name="${escapeAttr(field.name)}" toolparamdescription="${escapeAttr(paramDesc)}"></textarea>`,
         );
       } else {
         lines.push(
-          `  <input name="${field.name}" type="${field.type}" toolparamdescription="${paramDesc}" />`,
+          `  <input name="${escapeAttr(field.name)}" type="${escapeAttr(field.type)}" toolparamdescription="${escapeAttr(paramDesc)}" />`,
         );
       }
     }
@@ -157,14 +166,18 @@ function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: s
     );
     lines.push(`    annotations: { readOnlyHint: ${isGet}, destructiveHint: ${!isGet} },`);
     lines.push(`    async execute(params) {`);
-    lines.push(`      const form = document.querySelector('form[action="${actionSelector}"]');`);
+    lines.push(
+      `      const form = document.querySelector('form[action=' + CSS.escape(${JSON.stringify(actionSelector)}) + ']');`,
+    );
     lines.push(`      if (!form) return { type: "text", text: "Form not found" };`);
 
     for (const field of visibleFields) {
       const schema = fieldToJsonSchema(field);
       if (!schema) continue;
-      lines.push(`      const ${field.name}Field = form.querySelector('[name="${field.name}"]');`);
-      lines.push(`      if (${field.name}Field) ${field.name}Field.value = params.${field.name};`);
+      const n = JSON.stringify(field.name);
+      lines.push(
+        `      { const _f = form.querySelector('[name=' + CSS.escape(${n}) + ']'); if (_f) _f.value = params[${n}]; }`,
+      );
     }
 
     lines.push(`      form.submit();`);
