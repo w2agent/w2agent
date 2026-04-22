@@ -1,17 +1,29 @@
 import type { APIRoute } from "astro";
 
-const WEBHOOK_URL =
-  process.env.W2AGENT_WEBHOOK_URL ?? "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
-const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN ?? "";
+const unauthorized = (message: string) =>
+  new Response(JSON.stringify({ error: message }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
 
 export const POST: APIRoute = async ({ request }) => {
+  const expected = process.env.W2AGENT_INBOUND_TOKEN;
+  if (!expected) return unauthorized("W2AGENT_INBOUND_TOKEN not configured");
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (presented !== expected) return unauthorized("unauthorized");
+
+  const webhookUrl =
+    process.env.W2AGENT_WEBHOOK_URL ?? "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
+  const webhookToken = process.env.W2AGENT_WEBHOOK_TOKEN ?? "";
+
   try {
     const body = await request.json().catch(() => ({}));
-    await fetch(WEBHOOK_URL, {
+    await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(WEBHOOK_TOKEN ? { Authorization: `Bearer ${WEBHOOK_TOKEN}` } : {}),
+        ...(webhookToken ? { Authorization: `Bearer ${webhookToken}` } : {}),
       },
       body: JSON.stringify({ trigger: "astro", ...body }),
     });

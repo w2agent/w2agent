@@ -49,8 +49,9 @@ w2agent({
 
 | Variable | Description |
 |----------|-------------|
-| `W2AGENT_WEBHOOK_URL` | Webhook URL to notify on build (optional) |
-| `W2AGENT_WEBHOOK_TOKEN` | Bearer token for webhook auth (optional) |
+| `W2AGENT_WEBHOOK_URL` | Upstream webhook URL to notify on build (optional) |
+| `W2AGENT_WEBHOOK_TOKEN` | Bearer token attached to the outbound upstream call (optional) |
+| `W2AGENT_INBOUND_TOKEN` | Required for the `/api/w2agent-webhook` relay route. Callers must send `Authorization: Bearer <token>`. When unset, the route returns 401. |
 
 ## Generate agent files
 

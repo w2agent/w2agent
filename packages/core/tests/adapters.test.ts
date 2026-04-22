@@ -785,6 +785,14 @@ describe("Next.js MCP webhook snippet", () => {
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });
+
+  it("requires W2AGENT_INBOUND_TOKEN and enforces Bearer auth", () => {
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook?.content).toContain("W2AGENT_INBOUND_TOKEN");
+    expect(webhook?.content).toContain('status: 401');
+    expect(webhook?.content).toContain("Bearer ");
+  });
 });
 
 describe("Shopify MCP webhook snippet", () => {
@@ -813,6 +821,14 @@ describe("Nuxt MCP webhook snippet", () => {
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
     expect(webhook?.content).toContain("defineEventHandler");
+  });
+
+  it("requires W2AGENT_INBOUND_TOKEN and enforces Bearer auth", () => {
+    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
+    const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
+    expect(webhook?.content).toContain("W2AGENT_INBOUND_TOKEN");
+    expect(webhook?.content).toContain("statusCode: 401");
+    expect(webhook?.content).toContain("Bearer ");
   });
 
   it("does not generate webhook without mcp-server files", () => {

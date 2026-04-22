@@ -63,13 +63,30 @@ export const nextjsAdapter: PlatformAdapter = {
  * w2agent MCP Webhook — Next.js Integration
  *
  * Place at: app/api/w2agent-mcp-webhook/route.ts
- * Triggers a re-crawl when content changes via revalidateTag or on-demand.
+ * Triggers a re-crawl when content changes.
+ *
+ * Requires W2AGENT_INBOUND_TOKEN; callers must present it as a Bearer token.
+ * Without this check the route is a confused deputy — unauthenticated callers
+ * would otherwise receive authenticated upstream webhook calls for free.
  */
 
 const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
 const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
 export async function POST(request: Request) {
+  const expected = process.env.W2AGENT_INBOUND_TOKEN;
+  if (!expected) {
+    return NextResponse.json(
+      { error: "W2AGENT_INBOUND_TOKEN not configured" },
+      { status: 401 },
+    );
+  }
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (presented !== expected) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
 

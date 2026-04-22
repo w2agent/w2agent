@@ -41,3 +41,11 @@ This populates `public/llms.txt`, `public/llms-full.txt`, and `public/.well-know
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
 
 Content-negotiation middleware is also added: AI bots requesting `Accept: text/markdown` at `/` are redirected to `/llms.txt`.
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `W2AGENT_WEBHOOK_URL` | Upstream webhook URL forwarded to when the relay route is called. |
+| `W2AGENT_WEBHOOK_TOKEN` | Bearer token attached to the outbound upstream call (optional). |
+| `W2AGENT_INBOUND_TOKEN` | Required for the `/api/w2agent-webhook` relay route. Callers must send `Authorization: Bearer <token>`. When unset, the route returns 401. |

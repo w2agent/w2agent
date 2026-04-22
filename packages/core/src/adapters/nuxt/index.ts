@@ -65,19 +65,33 @@ export const nuxtAdapter: PlatformAdapter = {
     const files = generateNuxtIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
 
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
-      const webhookRoute = `import { defineEventHandler, readBody } from "h3";
+      const webhookRoute = `import { createError, defineEventHandler, getHeader, readBody } from "h3";
 
 /**
  * w2agent MCP Webhook — Nuxt/Nitro Integration
  *
  * Place at: server/routes/api/w2agent-mcp-webhook.post.ts
  * Triggers a re-crawl when content changes.
+ *
+ * Requires W2AGENT_INBOUND_TOKEN; callers must present it as a Bearer token.
+ * Without this check the route is a confused deputy — unauthenticated callers
+ * would otherwise receive authenticated upstream webhook calls for free.
  */
 
 const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
 const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
 
 export default defineEventHandler(async (event) => {
+  const expected = process.env.W2AGENT_INBOUND_TOKEN;
+  if (!expected) {
+    throw createError({ statusCode: 401, statusMessage: "W2AGENT_INBOUND_TOKEN not configured" });
+  }
+  const header = getHeader(event, "authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (presented !== expected) {
+    throw createError({ statusCode: 401, statusMessage: "unauthorized" });
+  }
+
   try {
     const body = await readBody(event);
 
