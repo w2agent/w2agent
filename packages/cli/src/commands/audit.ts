@@ -27,16 +27,25 @@ export function registerAuditCommand(program: Command): void {
     .option("--ci", "CI mode: exit with code based on grade")
     .option("--threshold <score>", "Minimum score threshold for CI mode", "70")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option(
+      "--allow-host <host>",
+      "Allow off-origin host when discovering OpenAPI/Swagger specs (repeatable)",
+      (value: string, acc: string[] = []) => acc.concat(value),
+      [] as string[],
+    )
     .action(async (url: string, opts) => {
       const config = loadConfig();
 
       const categories = opts.category ? [opts.category as CategoryId] : undefined;
+      const allowedOffOriginHosts: string[] | undefined =
+        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
 
       const auditOptions = mergeConfigWithOptions(config, {
         maxPages: parseInt(opts.depth, 10),
         timeout: parseInt(opts.timeout, 10),
         categories,
         verbose: opts.verbose ?? false,
+        ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
       }) as AuditOptions;
 
       // Ensure URL has protocol

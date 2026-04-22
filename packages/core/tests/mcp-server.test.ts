@@ -16,6 +16,9 @@ function makeCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
     rawPages: overrides.rawPages ?? [],
     metadata: overrides.metadata ?? { baseUrl: "https://example.com", wellKnown: {} },
     baseUrl: overrides.baseUrl ?? "https://example.com",
+    ...(overrides.allowedOffOriginHosts
+      ? { allowedOffOriginHosts: overrides.allowedOffOriginHosts }
+      : {}),
   };
 }
 
@@ -706,6 +709,81 @@ describe("tool annotations", () => {
     expect(workerFile.content).toContain("idempotentHint: false");
     // Action URL resolved at generation time
     expect(workerFile.content).toContain('"https://example.com/contact"');
+  });
+
+  // Security: forms whose action resolves off-origin must be skipped so the
+  // generated server cannot be steered into SSRF / proxy behavior.
+  describe("off-origin form action policy (security)", () => {
+    it("skips form tool when action resolves to a different origin", () => {
+      const ctx = makeCtx({
+        pages: [
+          {
+            url: "https://example.com/contact",
+            title: "Contact",
+            description: "",
+            markdown: "Hi",
+            forms: [
+              {
+                action: "https://evil.example/submit",
+                method: "POST",
+                fields: [{ name: "email", type: "text", required: true }],
+              },
+            ],
+          },
+        ],
+      });
+      const files = generateMcpServer(ctx);
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).not.toContain("evil.example");
+      expect(serverFile.content).not.toContain("submit-contact");
+    });
+
+    it("skips form tool when action resolves to a private IP", () => {
+      const ctx = makeCtx({
+        pages: [
+          {
+            url: "https://example.com/contact",
+            title: "Contact",
+            description: "",
+            markdown: "Hi",
+            forms: [
+              {
+                action: "http://169.254.169.254/",
+                method: "POST",
+                fields: [{ name: "email", type: "text", required: true }],
+              },
+            ],
+          },
+        ],
+      });
+      const files = generateMcpServer(ctx);
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).not.toContain("169.254.169.254");
+    });
+
+    it("keeps off-origin form when host is in allowedOffOriginHosts", () => {
+      const ctx = makeCtx({
+        pages: [
+          {
+            url: "https://example.com/contact",
+            title: "Contact",
+            description: "",
+            markdown: "Hi",
+            forms: [
+              {
+                action: "https://forms.partner.com/submit",
+                method: "POST",
+                fields: [{ name: "email", type: "text", required: true }],
+              },
+            ],
+          },
+        ],
+        allowedOffOriginHosts: ["forms.partner.com"],
+      });
+      const files = generateMcpServer(ctx);
+      const serverFile = files.find((f) => f.filename === "mcp-server/server.ts")!;
+      expect(serverFile.content).toContain("https://forms.partner.com/submit");
+    });
   });
 
   // Security: hostile form field names must be emitted as quoted bracket keys,

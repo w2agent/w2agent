@@ -32,6 +32,12 @@ export function registerGenerateCommand(program: Command): void {
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--mcp-endpoint <url>", "MCP server endpoint URL (for skill-md format)")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option(
+      "--allow-host <host>",
+      "Allow off-origin host for generated-tool fetch targets (repeatable)",
+      (value: string, acc: string[] = []) => acc.concat(value),
+      [] as string[],
+    )
     .option("--from-audit", "Run audit first, then generate fixes for failed checks only")
     .action(async (url: string, opts) => {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -44,12 +50,16 @@ export function registerGenerateCommand(program: Command): void {
         : undefined;
       let unfixableChecks: Array<{ id: string; message: string }> = [];
 
+      const allowedOffOriginHosts: string[] | undefined =
+        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
+
       const generateOptions: Partial<GenerateOptions> = {
         maxPages: parseInt(opts.maxPages, 10),
         timeout: parseInt(opts.timeout, 10),
         formats,
         sections,
         mcpEndpoint: opts.mcpEndpoint,
+        ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
       };
 
       const spinner = ora("Starting generation...").start();
@@ -65,6 +75,7 @@ export function registerGenerateCommand(program: Command): void {
             {
               maxPages: parseInt(opts.maxPages, 10),
               timeout: parseInt(opts.timeout, 10),
+              ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
             } as AuditOptions,
             (status) => {
               spinner.text = status;

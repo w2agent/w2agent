@@ -108,6 +108,12 @@ export interface AuditOptions {
   pageRankings?: Map<string, number>; // url → 1-based rank from search engine
   prefetchedPages?: FetchedPage[];
   prefetchedMetadata?: SiteMetadata;
+  /**
+   * Off-origin hostnames allowed for generated-tool fetch targets (OpenAPI
+   * servers[].url, form actions, Swagger-UI spec URLs). Private-IP hosts are
+   * always rejected even when allowlisted.
+   */
+  allowedOffOriginHosts?: string[];
 }
 
 export const DEFAULT_OPTIONS: AuditOptions = {

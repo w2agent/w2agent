@@ -10,6 +10,8 @@ export interface GenerateContext {
     confidence: number;
     signals: string[];
   };
+  /** Off-origin hosts allowed for generated-tool fetch targets. */
+  allowedOffOriginHosts?: string[];
 }
 
 export interface GenerateOptions {
@@ -22,6 +24,8 @@ export interface GenerateOptions {
   sections?: string[];
   /** MCP server endpoint URL for SKILL.md generation */
   mcpEndpoint?: string;
+  /** Off-origin hosts allowed for generated-tool fetch targets. */
+  allowedOffOriginHosts?: string[];
 }
 
 export type GenerateFormat =

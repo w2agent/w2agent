@@ -455,3 +455,61 @@ describe("generateDataFiles with OpenAPI", () => {
     expect(parsed.endpoints).toHaveLength(1);
   });
 });
+
+// Security: origin policy on serverUrl — reject off-origin hosts that would
+// turn the generated MCP server into an SSRF / proxy surface.
+describe("parseOpenAPISpec — origin policy", () => {
+  const makeSpec = (serverUrl: string) => ({
+    openapi: "3.0.0",
+    info: { title: "Test" },
+    servers: [{ url: serverUrl }],
+    paths: { "/x": { get: { operationId: "getX", parameters: [] } } },
+  });
+
+  it("drops spec when serverUrl is off-origin and not allowlisted", () => {
+    const result = parseOpenAPISpec(
+      makeSpec("https://attacker.example/api"),
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com", allowedHosts: [] },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("keeps spec when serverUrl is same-origin", () => {
+    const result = parseOpenAPISpec(
+      makeSpec("https://example.com/api"),
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com" },
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps spec when off-origin serverUrl host is allowlisted", () => {
+    const result = parseOpenAPISpec(
+      makeSpec("https://api.partner.com"),
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com", allowedHosts: ["api.partner.com"] },
+    );
+    expect(result).not.toBeNull();
+    expect(result?.serverUrl).toBe("https://api.partner.com");
+  });
+
+  it("drops spec whose serverUrl resolves to a private IP even if allowlisted", () => {
+    const result = parseOpenAPISpec(
+      makeSpec("http://169.254.169.254/meta-data"),
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com", allowedHosts: ["169.254.169.254"] },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("accepts relative serverUrl (resolves against baseUrl)", () => {
+    const result = parseOpenAPISpec(
+      makeSpec("/v1/api"),
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com" },
+    );
+    expect(result).not.toBeNull();
+    expect(result?.serverUrl).toBe("/v1/api");
+  });
+});

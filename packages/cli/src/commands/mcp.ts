@@ -25,6 +25,12 @@ export function registerMcpCommand(program: Command): void {
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "50")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option(
+      "--allow-host <host>",
+      "Allow off-origin host for generated-tool fetch targets (repeatable)",
+      (value: string, acc: string[] = []) => acc.concat(value),
+      [] as string[],
+    )
     .action(async (url: string, opts) => {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
@@ -36,10 +42,14 @@ export function registerMcpCommand(program: Command): void {
         process.exit(1);
       }
 
+      const allowedOffOriginHosts: string[] | undefined =
+        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
+
       const generateOptions: Partial<GenerateOptions> = {
         maxPages: parseInt(opts.maxPages, 10),
         timeout: parseInt(opts.timeout, 10),
         formats: ["mcp-server"],
+        ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
       };
 
       const spinner = ora("Crawling site and generating agent server...").start();

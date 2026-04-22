@@ -38,6 +38,12 @@ export function registerIntegrateCommand(program: Command): void {
     .option("-p, --platform <platform>", "Force platform: wordpress, nextjs, shopify, docusaurus")
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option(
+      "--allow-host <host>",
+      "Allow off-origin host for generated-tool fetch targets (repeatable)",
+      (value: string, acc: string[] = []) => acc.concat(value),
+      [] as string[],
+    )
     .option("--install", "Install files directly into your project instead of an output directory")
     .option("--project-dir <dir>", "Project root for --install (default: current directory)", ".")
     .option("--dry-run", "Show what --install would do without writing files")
@@ -45,6 +51,9 @@ export function registerIntegrateCommand(program: Command): void {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
       }
+
+      const allowedOffOriginHosts: string[] | undefined =
+        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
 
       const spinner = ora("Starting integration generation...").start();
 
@@ -55,6 +64,7 @@ export function registerIntegrateCommand(program: Command): void {
             maxPages: parseInt(opts.maxPages, 10),
             timeout: parseInt(opts.timeout, 10),
             formats: ["llms-txt", "full", "robots-txt", "agent-card", "webmcp"],
+            ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
           },
           (status) => {
             spinner.text = status;

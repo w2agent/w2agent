@@ -1,5 +1,6 @@
 import type { OpenAPIEndpoint } from "../audit/types.js";
 import { parseHTML } from "../shared/html-parser.js";
+import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
 import type { LocalBusinessArtifacts } from "./local-business.js";
@@ -202,10 +203,28 @@ export function detectTools(
     if (hasSearchAction) break;
   }
 
-  // Collect pre-extracted forms from pages
+  // Collect pre-extracted forms from pages. Filter out forms whose resolved
+  // action would steer the generated server off-origin or to a private IP,
+  // unless the operator allowlisted the target host. Without this check, a
+  // crawled page with `<form action="http://169.254.169.254/…">` would let an
+  // attacker turn the generated MCP server into an SSRF / proxy surface.
+  const baseOrigin = (() => {
+    try {
+      return new URL(ctx.baseUrl).origin;
+    } catch {
+      return ctx.baseUrl;
+    }
+  })();
   for (const page of ctx.pages) {
     if (page.forms) {
       for (const form of page.forms) {
+        let resolved: URL | null = null;
+        try {
+          resolved = new URL(form.action, page.url);
+        } catch {
+          continue;
+        }
+        if (!isOriginAllowed(resolved.href, baseOrigin, ctx.allowedOffOriginHosts)) continue;
         forms.push({
           ...form,
           pageUrl: page.url,

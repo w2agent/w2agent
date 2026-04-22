@@ -47,6 +47,9 @@ export async function runGenerate(
     timeout: options.timeout,
     userAgent: options.userAgent,
     verbose: false,
+    ...(options.allowedOffOriginHosts
+      ? { allowedOffOriginHosts: options.allowedOffOriginHosts }
+      : {}),
   };
 
   onProgress?.("Crawling site...");
@@ -177,6 +180,9 @@ export async function runGenerate(
     metadata,
     baseUrl,
     ...(detectedSiteType && { siteType: detectedSiteType }),
+    ...(options.allowedOffOriginHosts
+      ? { allowedOffOriginHosts: options.allowedOffOriginHosts }
+      : {}),
   };
 
   // Build e-commerce artifacts once (compute-once pattern)

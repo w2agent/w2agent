@@ -6,6 +6,12 @@ import type {
   ParsedOpenAPISpec,
 } from "../audit/types.js";
 import { fetchText } from "./fetcher.js";
+import { isOriginAllowed } from "./url-policy.js";
+
+export interface OpenAPIOriginPolicy {
+  baseUrl?: string;
+  allowedHosts?: string[];
+}
 
 export const OPENAPI_PROBE_PATHS = [
   "/openapi.json",
@@ -64,10 +70,14 @@ function extractSwaggerUISpecUrl(html: string, pageUrl: string): string | null {
 
 export async function probeOpenAPIPaths(
   baseUrl: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent">,
+  options: Pick<AuditOptions, "timeout" | "userAgent" | "allowedOffOriginHosts">,
   htmlHints?: { homepageHtml?: string },
 ): Promise<ParsedOpenAPISpec | null> {
   const swaggerUISpecUrls: string[] = [];
+  const policy: OpenAPIOriginPolicy = {
+    baseUrl,
+    allowedHosts: options.allowedOffOriginHosts,
+  };
 
   const results = await Promise.all(
     OPENAPI_PROBE_PATHS.map(async (path) => {
@@ -77,11 +87,13 @@ export async function probeOpenAPIPaths(
       try {
         const json = JSON.parse(result.text);
         if (!json.openapi && !json.swagger) return null;
-        return parseOpenAPISpec(json, url);
+        return parseOpenAPISpec(json, url, policy);
       } catch {
         // JSON parse failed — check if it's Swagger UI HTML with embedded spec URL
         const specUrl = extractSwaggerUISpecUrl(result.text, url);
-        if (specUrl) swaggerUISpecUrls.push(specUrl);
+        if (specUrl && isOriginAllowed(specUrl, baseUrl, options.allowedOffOriginHosts)) {
+          swaggerUISpecUrls.push(specUrl);
+        }
         return null;
       }
     }),
@@ -97,7 +109,7 @@ export async function probeOpenAPIPaths(
     try {
       const json = JSON.parse(result.text);
       if (!json.openapi && !json.swagger) continue;
-      return parseOpenAPISpec(json, specUrl);
+      return parseOpenAPISpec(json, specUrl, policy);
     } catch {
       continue;
     }
@@ -105,14 +117,16 @@ export async function probeOpenAPIPaths(
 
   // Phase 2: scan homepage HTML for OpenAPI/Swagger links
   if (htmlHints?.homepageHtml) {
-    const candidateUrls = extractOpenAPILinksFromHTML(htmlHints.homepageHtml, baseUrl);
+    const candidateUrls = extractOpenAPILinksFromHTML(htmlHints.homepageHtml, baseUrl).filter(
+      (u) => isOriginAllowed(u, baseUrl, options.allowedOffOriginHosts),
+    );
     for (const candidateUrl of candidateUrls) {
       const result = await fetchText(candidateUrl, options);
       if (!result || result.status !== 200) continue;
       try {
         const json = JSON.parse(result.text);
         if (!json.openapi && !json.swagger) continue;
-        return parseOpenAPISpec(json, candidateUrl);
+        return parseOpenAPISpec(json, candidateUrl, policy);
       } catch {
         continue;
       }
@@ -122,7 +136,11 @@ export async function probeOpenAPIPaths(
   return null;
 }
 
-export function parseOpenAPISpec(json: unknown, specUrl: string): ParsedOpenAPISpec | null {
+export function parseOpenAPISpec(
+  json: unknown,
+  specUrl: string,
+  policy?: OpenAPIOriginPolicy,
+): ParsedOpenAPISpec | null {
   if (!json || typeof json !== "object") return null;
   const obj = json as Record<string, unknown>;
   const version = obj.openapi || obj.swagger;
@@ -135,6 +153,25 @@ export function parseOpenAPISpec(json: unknown, specUrl: string): ParsedOpenAPIS
   const serverUrl = isV2
     ? (obj.basePath as string | undefined) || undefined
     : (obj.servers as Array<{ url: string }> | undefined)?.[0]?.url || undefined;
+
+  // Origin policy: reject specs whose absolute serverUrl would steer the
+  // generated MCP server to off-origin / private-IP hosts that the operator
+  // didn't allowlist. Relative serverUrl values always resolve against baseUrl
+  // and are therefore safe.
+  if (policy?.baseUrl && serverUrl) {
+    let resolved: URL | null = null;
+    try {
+      resolved = new URL(serverUrl, policy.baseUrl);
+    } catch {
+      // fall through — treat unparseable as safe-but-useless
+    }
+    const isAbsolute = /^https?:\/\//i.test(serverUrl);
+    if (resolved && isAbsolute) {
+      if (!isOriginAllowed(resolved.href, policy.baseUrl, policy.allowedHosts)) {
+        return null;
+      }
+    }
+  }
 
   const endpoints: OpenAPIEndpoint[] = [];
   const methods = ["get", "post", "put", "patch", "delete", "head", "options"];
