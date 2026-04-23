@@ -54,6 +54,12 @@ export async function runAudit(
     const crawled = await crawlSite(url, options, onProgress);
     pages = crawled.pages;
     metadata = crawled.metadata;
+
+    if (pages[0]?.status === 0) {
+      throw new Error(
+        `Could not reach ${new URL(url).host}. Check the URL or your network connection.`,
+      );
+    }
   }
 
   // Detect platform

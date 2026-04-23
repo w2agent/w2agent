@@ -83,8 +83,9 @@ async function retryableFetch(
       await response.body?.cancel();
       await sleep(delayMs);
     } catch (err) {
-      const isRetryable =
-        (err instanceof DOMException && err.name === "AbortError") || err instanceof TypeError; // ECONNRESET, ECONNREFUSED, ETIMEDOUT
+      // Only retry timeouts. TypeError (DNS fail, ECONNREFUSED, host unreachable)
+      // almost never recovers on retry and burns ~4× timeout for nothing.
+      const isRetryable = err instanceof DOMException && err.name === "AbortError";
 
       if (!isRetryable || attempt >= MAX_RETRIES) {
         return null; // exhausted or non-retryable — callers treat null as failure

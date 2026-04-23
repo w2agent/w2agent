@@ -14,6 +14,19 @@ import {
 import { formatJson } from "../output/json.js";
 import { formatReport, formatVerboseReport } from "../output/terminal.js";
 
+function isPlausibleUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  // Forgiving: anything with structure passes. Custom TLDs (.internal, .corp,
+  // .local), IPv4 (dots), IPv6 (colons), and localhost are all accepted.
+  // Only bare words like "not-a-url" or "foo" are rejected.
+  return host.includes(".") || host.includes(":") || host === "localhost";
+}
+
 export function registerAuditCommand(program: Command): void {
   program
     .command("audit")
@@ -51,6 +64,11 @@ export function registerAuditCommand(program: Command): void {
       // Ensure URL has protocol
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
+      }
+
+      if (!isPlausibleUrl(url)) {
+        console.error(`Invalid URL: "${url}". Please provide a full URL like https://example.com.`);
+        process.exit(1);
       }
 
       clearChecks();

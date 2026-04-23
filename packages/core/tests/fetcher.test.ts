@@ -68,15 +68,13 @@ describe("fetchPage", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("retries on TypeError (network error) and succeeds on retry", async () => {
-    vi.mocked(fetch)
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValueOnce(mockResponse(200, "<html>ok</html>"));
+  it("does NOT retry on TypeError (DNS/connection failure) — fails fast", async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError("fetch failed"));
     const promise = fetchPage("https://example.com", opts);
     await vi.runAllTimersAsync();
     const result = await promise;
-    expect(result.status).toBe(200);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("returns status 0 after exhausting all 4 attempts on 429", async () => {
@@ -181,12 +179,12 @@ describe("fetchText", () => {
     expect(result?.text.length).toBeGreaterThan(0);
   });
 
-  it("returns null on network error after all retries", async () => {
+  it("returns null immediately on network error — no retry", async () => {
     vi.mocked(fetch).mockRejectedValue(new TypeError("ECONNRESET"));
     const promise = fetchText("https://example.com/robots.txt", opts);
     await vi.runAllTimersAsync();
     const result = await promise;
     expect(result).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
