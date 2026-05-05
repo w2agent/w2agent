@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FetchedPage } from "../src/audit/types.js";
 import { generateAgentCard } from "../src/generate/agent-card.js";
+import { generateAgentsMd } from "../src/generate/agents-md.js";
 import { generateFaq } from "../src/generate/faq.js";
 import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
 import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
@@ -1076,5 +1077,82 @@ describe("generateOpenClawSkillMd", () => {
     const descLine = result.split("\n").find((l) => l.startsWith("description:"));
     expect(descLine).toBeDefined();
     expect(descLine).not.toMatch(/description: ".*[^\\]".*[^\\]".*"/);
+  });
+});
+
+// --- generateAgentsMd ---
+
+describe("generateAgentsMd", () => {
+  const baseCtx: GenerateContext = {
+    pages: [
+      { url: "https://example.com/", title: "Example Site", description: "A test site", markdown: "Welcome." },
+      { url: "https://example.com/docs", title: "Docs", description: "Documentation", markdown: "Read the docs." },
+    ],
+    rawPages: [],
+    metadata: {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+    },
+    baseUrl: "https://example.com",
+  };
+
+  it("includes site name as H1", () => {
+    const result = generateAgentsMd(baseCtx);
+    expect(result).toMatch(/^# Example Site/m);
+  });
+
+  it("includes base URL in overview", () => {
+    const result = generateAgentsMd(baseCtx);
+    expect(result).toContain("https://example.com");
+  });
+
+  it("includes page count", () => {
+    const result = generateAgentsMd(baseCtx);
+    expect(result).toContain("**Pages indexed:** 2");
+  });
+
+  it("mentions llms.txt capability when present in metadata", () => {
+    const ctx = { ...baseCtx, metadata: { ...baseCtx.metadata, llmsTxt: "# Example" } };
+    const result = generateAgentsMd(ctx);
+    expect(result).toContain("llms.txt");
+  });
+
+  it("mentions OpenAPI when spec present", () => {
+    const ctx = {
+      ...baseCtx,
+      metadata: {
+        ...baseCtx.metadata,
+        openapi: { title: "API", version: "1.0", endpoints: [{ path: "/v1/data", method: "GET", summary: "", parameters: [], responses: {} }] },
+      },
+    };
+    const result = generateAgentsMd(ctx);
+    expect(result).toContain("OpenAPI spec with 1 endpoint");
+  });
+
+  it("notes OAuth server when well-known present", () => {
+    const ctx = {
+      ...baseCtx,
+      metadata: { ...baseCtx.metadata, wellKnown: { "oauth-authorization-server": '{"issuer":"https://example.com"}' } },
+    };
+    const result = generateAgentsMd(ctx);
+    expect(result).toContain("OAuth 2.0 authorization server");
+  });
+
+  it("includes AI bot permissions from robots.txt when AI bots have explicit entries", () => {
+    const ctx = {
+      ...baseCtx,
+      metadata: {
+        ...baseCtx.metadata,
+        robotsTxt: "User-agent: GPTBot\nAllow: /\n\nUser-agent: ClaudeBot\nAllow: /\n",
+      },
+    };
+    const result = generateAgentsMd(ctx);
+    expect(result).toContain("GPTBot");
+    expect(result).toContain("ClaudeBot");
+  });
+
+  it("handles empty pages gracefully", () => {
+    const ctx = { ...baseCtx, pages: [] };
+    expect(() => generateAgentsMd(ctx)).not.toThrow();
   });
 });

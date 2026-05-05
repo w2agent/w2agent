@@ -37,6 +37,7 @@ export {
   sortPagesByScore,
 } from "./crawl/index.js";
 export { generateAgentCard } from "./generate/agent-card.js";
+export { generateAgentsMd } from "./generate/agents-md.js";
 export { runGenerate } from "./generate/engine.js";
 export { generateFaq } from "./generate/faq.js";
 export {

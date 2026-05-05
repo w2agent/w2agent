@@ -6,6 +6,7 @@ import { parseHTML } from "../shared/html-parser.js";
 import { sortUrlsByScore } from "../shared/page-scoring.js";
 import { detectSiteType } from "../site-types/index.js";
 import { generateAgentCard } from "./agent-card.js";
+import { generateAgentsMd } from "./agents-md.js";
 import { buildEcommerceArtifacts, generateProductCatalog } from "./ecommerce.js";
 import { generateFaq } from "./faq.js";
 import { htmlToMarkdown } from "./html-to-markdown.js";
@@ -216,6 +217,13 @@ export async function runGenerate(
     onProgress?.("Generating agent-card.json...");
     const agentCard = generateAgentCard(ctx);
     files.push(makeFile("agent-card.json", `${JSON.stringify(agentCard, null, 2)}\n`));
+  }
+
+  // Generate agents.md
+  if (options.formats.includes("agents-md")) {
+    onProgress?.("Generating agents.md...");
+    const agentsMd = generateAgentsMd(ctx);
+    files.push(makeFile("agents.md", agentsMd));
   }
 
   // Generate faq.json

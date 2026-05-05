@@ -39,7 +39,8 @@ export type GenerateFormat =
   | "mcp-server"
   | "skill-md"
   | "webmcp"
-  | "openclaw";
+  | "openclaw"
+  | "agents-md";
 
 export interface GeneratedFile {
   filename: string;
@@ -102,5 +103,5 @@ export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   maxPages: 100,
   timeout: 10000,
   userAgent: "w2agent/0.1 (+https://w2agent.dev)",
-  formats: ["llms-txt", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"],
+  formats: ["llms-txt", "agents-md", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"],
 };
