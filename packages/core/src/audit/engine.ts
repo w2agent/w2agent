@@ -103,6 +103,7 @@ export async function runAudit(
   const results: CheckResult[] = await Promise.all(
     checks.map((check) => check.run(pages, metadata)),
   );
+  applyNaCascade(results);
 
   // Group by category
   const categories = computeCategories(results);
@@ -131,6 +132,38 @@ export async function runAudit(
     ...(detected && { platform: detected }),
     ...(detectedSiteType && { siteType: detectedSiteType }),
   };
+}
+
+function isFailOrNa(r: CheckResult | undefined): boolean {
+  if (!r) return true;
+  return r.status === "fail" || r.status === "skip";
+}
+
+export function applyNaCascade(results: CheckResult[]): CheckResult[] {
+  const byId = new Map(results.map((r) => [r.id, r]));
+  // §5.6 cascade — order matches §3 dependency graph (acyclic; references only earlier checks).
+  const cascade: Array<{ id: string; naWhen: (m: Map<string, CheckResult>) => boolean }> = [
+    { id: "openapi-spec",             naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "developer-portal",         naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "agent-auth-docs",          naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
+    { id: "oauth-support",            naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "oauth-protected-resource", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "scoped-permissions",       naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
+    { id: "pkce-s256",                naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")) },
+    { id: "mcp-pkce-s256",            naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
+    { id: "api-catalog-rfc9727",      naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "mcp-server-card",          naWhen: (m) => isFailOrNa(m.get("public-api")) },
+  ];
+  for (const { id, naWhen } of cascade) {
+    const r = byId.get(id);
+    if (!r) continue;
+    if (r.status === "pass" || r.status === "partial") continue;
+    if (naWhen(byId)) {
+      r.status = "skip";
+      r.message = `Not applicable — dependency unmet (${id} cascade)`;
+    }
+  }
+  return results;
 }
 
 function computeWarnings(results: CheckResult[]): AuditWarning[] {

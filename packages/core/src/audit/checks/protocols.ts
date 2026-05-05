@@ -7,8 +7,7 @@ export const mcpDiscovery: Check = {
   category: "agent-protocols",
   weight: 1.5,
   severity: "info",
-  run: async (_pages, metadata) => {
-    const wellKnownContent = metadata.wellKnown.mcp;
+  run: (_pages, metadata) => {
     const base = {
       id: "mcp-discovery" as const,
       name: "MCP endpoint",
@@ -18,134 +17,45 @@ export const mcpDiscovery: Check = {
       severity: "info" as const,
     };
 
-    if (!wellKnownContent) {
+    if (!metadata.wellKnown.mcp) {
+      return { ...base, status: "fail", score: 0, message: "No /.well-known/mcp endpoint found" };
+    }
+    const init = metadata.mcpInit;
+    if (init?.success && init.serverInfo) {
+      const details = `Server: ${init.serverInfo.name} v${init.serverInfo.version || "?"}`;
       return {
         ...base,
-        status: "fail",
-        score: 0,
-        message: "No /.well-known/mcp endpoint found",
+        status: "pass",
+        score: 100,
+        message: `MCP server found: ${init.serverInfo.name} with 0 tool(s)`,
+        details,
       };
     }
-
-    // Endpoint exists — try to send an MCP initialize request
-    try {
-      const mcpUrl = `${metadata.baseUrl}/.well-known/mcp`;
-      const initRequest = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-03-26",
-          capabilities: {},
-          clientInfo: { name: "w2agent-audit", version: "0.1.0" },
-        },
+    if (init?.status !== undefined && !init.success && init.status >= 400) {
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: `MCP endpoint found but returned ${init.status} on initialize`,
+        details: `POST ${init.mcpEndpointUrl} → ${init.status}`,
       };
-
-      const response = await fetch(mcpUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify(initRequest),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!response.ok) {
-        return {
-          ...base,
-          status: "partial",
-          score: 50,
-          message: `MCP endpoint found but returned ${response.status} on initialize`,
-          details: `POST /.well-known/mcp → ${response.status} ${response.statusText}`,
-        };
-      }
-
-      const contentType = response.headers.get("content-type") || "";
-      const body = await response.text();
-
-      // Try to parse as JSON-RPC response
-      const parsed = tryParseJsonRpc(body, contentType);
-
-      if (parsed?.serverInfo) {
-        const tools = parsed.tools || [];
-        const resources = parsed.resources || [];
-        const details = [
-          `Server: ${parsed.serverInfo.name} v${parsed.serverInfo.version || "?"}`,
-          tools.length > 0 ? `Tools: ${tools.join(", ")}` : "No tools listed",
-          resources.length > 0 ? `Resources: ${resources.length}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-
-        return {
-          ...base,
-          status: "pass",
-          score: 100,
-          message: `MCP server found: ${parsed.serverInfo.name} with ${tools.length} tool(s)`,
-          details,
-        };
-      }
-
-      // Got a response but couldn't parse it as valid MCP
+    }
+    if (init?.status !== undefined) {
       return {
         ...base,
         status: "partial",
         score: 50,
         message: "MCP endpoint found but returned invalid MCP response",
-        details: `Content-Type: ${contentType}, body length: ${body.length}`,
-      };
-    } catch {
-      // Endpoint exists but initialize request failed (timeout, network, etc.)
-      return {
-        ...base,
-        status: "partial",
-        score: 50,
-        message: "MCP endpoint found but could not complete initialize handshake",
       };
     }
+    return {
+      ...base,
+      status: "partial",
+      score: 50,
+      message: "MCP endpoint found but could not complete initialize handshake",
+    };
   },
 };
-
-interface McpParsedResponse {
-  serverInfo: { name: string; version?: string };
-  tools: string[];
-  resources: string[];
-}
-
-function tryParseJsonRpc(body: string, contentType: string): McpParsedResponse | null {
-  try {
-    // Handle SSE format (text/event-stream)
-    let jsonStr = body;
-    if (contentType.includes("text/event-stream")) {
-      const lines = body.split("\n");
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          jsonStr = line.slice(6);
-          break;
-        }
-      }
-    }
-
-    const json = JSON.parse(jsonStr);
-    const result = json.result;
-    if (!result?.serverInfo?.name) return null;
-
-    const tools: string[] = [];
-    if (result.capabilities?.tools) {
-      // Tools are listed in capabilities; names come from a tools/list call
-      // For now just note that tools capability exists
-    }
-
-    return {
-      serverInfo: result.serverInfo,
-      tools,
-      resources: [],
-    };
-  } catch {
-    return null;
-  }
-}
 
 export const apiEndpoints: Check = {
   id: "api-endpoints",
@@ -334,58 +244,6 @@ export const actionSchemas: Check = {
   },
 };
 
-export const authDiscovery: Check = {
-  id: "auth-discovery",
-  name: "Auth discovery",
-  category: "agent-protocols",
-  weight: 0.5,
-  severity: "info",
-  run: (pages, _metadata) => {
-    const indicators: string[] = [];
-
-    // Check headers for auth-related info
-    for (const page of pages) {
-      if (page.headers["www-authenticate"]) indicators.push("WWW-Authenticate header");
-      if (page.headers.link?.includes("oauth")) indicators.push("OAuth link header");
-    }
-
-    // Check for OAuth/auth links in pages
-    for (const page of pages) {
-      const parsed = parseHTML(page.html);
-      for (const link of parsed.links) {
-        if (
-          link.href.includes("oauth") ||
-          link.href.includes("authorize") ||
-          link.href.includes("openid-configuration")
-        ) {
-          indicators.push(link.href);
-          break;
-        }
-      }
-    }
-
-    // Check .well-known for OpenID
-    // This is a lightweight check — just see if any auth-related .well-known hints exist
-
-    const score = indicators.length > 0 ? 100 : 0;
-
-    return {
-      id: "auth-discovery",
-      name: "Auth discovery",
-      category: "agent-protocols",
-      status: score > 0 ? "pass" : "fail",
-      score,
-      maxScore: 100,
-      weight: 0.5,
-      message:
-        score > 0
-          ? "Authentication discovery mechanism found"
-          : "No discoverable authentication mechanism",
-      severity: "info",
-    };
-  },
-};
-
 export const webmcpDeclarative: Check = {
   id: "webmcp-declarative",
   name: "WebMCP declarative API",
@@ -508,7 +366,6 @@ export const protocolChecks: Check[] = [
   formsStructured,
   wellKnownUcp,
   actionSchemas,
-  authDiscovery,
   webmcpDeclarative,
   webmcpImperative,
 ];

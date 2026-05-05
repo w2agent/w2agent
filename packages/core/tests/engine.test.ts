@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
 import {
+  applyNaCascade,
   clearChecks,
   computeCategoryScore,
   computeOverallScore,
@@ -257,5 +258,194 @@ describe("runAudit prefetch bypass", () => {
     expect(crawlSpy).not.toHaveBeenCalled();
     expect(report.pagesScanned).toBe(1);
     crawlSpy.mockRestore();
+  });
+});
+
+function r(id: string, status: CheckResult["status"], category = "agent-auth"): CheckResult {
+  return {
+    id,
+    name: id,
+    category: category as CheckResult["category"],
+    status,
+    score: status === "pass" ? 100 : status === "partial" ? 50 : 0,
+    maxScore: 100,
+    weight: 1,
+    message: "x",
+    severity: "info",
+  };
+}
+
+describe("applyNaCascade (§5.6)", () => {
+  it("A1 fail → openapi-spec/developer-portal/oauth-support/oauth-protected-resource/api-catalog/mcp-server-card become skip", () => {
+    const results = [
+      r("public-api", "fail"),
+      r("openapi-spec", "fail"),
+      r("developer-portal", "fail"),
+      r("oauth-support", "fail"),
+      r("oauth-protected-resource", "fail"),
+      r("api-catalog-rfc9727", "fail"),
+      r("mcp-server-card", "fail"),
+    ];
+    applyNaCascade(results);
+    for (const id of [
+      "openapi-spec",
+      "developer-portal",
+      "oauth-support",
+      "oauth-protected-resource",
+      "api-catalog-rfc9727",
+      "mcp-server-card",
+    ]) {
+      expect(results.find((x) => x.id === id)?.status).toBe("skip");
+    }
+  });
+
+  it("A3 fail (developer-portal) → agent-auth-docs/scoped-permissions become skip", () => {
+    const results = [
+      r("public-api", "pass"),
+      r("developer-portal", "fail"),
+      r("agent-auth-docs", "fail"),
+      r("scoped-permissions", "fail"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "agent-auth-docs")?.status).toBe("skip");
+    expect(results.find((x) => x.id === "scoped-permissions")?.status).toBe("skip");
+  });
+
+  it("does not override pass or partial", () => {
+    const results = [
+      r("public-api", "fail"),
+      r("openapi-spec", "pass"),
+      r("developer-portal", "partial"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "openapi-spec")?.status).toBe("pass");
+    expect(results.find((x) => x.id === "developer-portal")?.status).toBe("partial");
+  });
+
+  it("B5 (pkce-s256) requires BOTH oauth-support AND developer-portal to fail before skipping", () => {
+    // oauth-support pass alone → pkce-s256 stays fail (not skipped)
+    const r1 = [
+      r("oauth-support", "pass"),
+      r("developer-portal", "fail"),
+      r("pkce-s256", "fail"),
+    ];
+    applyNaCascade(r1);
+    expect(r1.find((x) => x.id === "pkce-s256")?.status).toBe("fail");
+
+    // both fail → skip
+    const r2 = [
+      r("oauth-support", "fail"),
+      r("developer-portal", "fail"),
+      r("pkce-s256", "fail"),
+    ];
+    applyNaCascade(r2);
+    expect(r2.find((x) => x.id === "pkce-s256")?.status).toBe("skip");
+  });
+
+  it("C3 (mcp-pkce-s256) cascades off C2 (mcp-oauth-metadata)", () => {
+    const results = [
+      r("mcp-oauth-metadata", "fail"),
+      r("mcp-pkce-s256", "fail"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("skip");
+  });
+
+  it("C3 does not cascade when mcp-oauth-metadata passes", () => {
+    const results = [
+      r("mcp-oauth-metadata", "pass"),
+      r("mcp-pkce-s256", "fail"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("fail");
+  });
+
+  it("skip in byId is treated as NA (already cascaded checks propagate further)", () => {
+    // developer-portal starts fail → cascade marks it skip (it's in cascade list as downstream of public-api)
+    // agent-auth-docs depends on developer-portal → should also skip
+    const results = [
+      r("public-api", "fail"),
+      r("developer-portal", "fail"),
+      r("agent-auth-docs", "fail"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "developer-portal")?.status).toBe("skip");
+    expect(results.find((x) => x.id === "agent-auth-docs")?.status).toBe("skip");
+  });
+
+  it("all-skip agent-auth category → category score null + overallScore is finite", async () => {
+    const pages: FetchedPage[] = [makePage("<html><body><p>hi</p></body></html>")];
+    const metadata: SiteMetadata = {
+      baseUrl: "https://example.com",
+      robotsTxt: "User-agent: *\nAllow: /",
+      wellKnown: {},
+    };
+    const report = await runAudit(
+      "https://example.com",
+      { prefetchedPages: pages, prefetchedMetadata: metadata },
+      undefined,
+      allChecks,
+    );
+    const authCat = report.categories.find((c) => c.id === "agent-auth");
+    expect(authCat).toBeDefined();
+    expect(authCat!.checks.length).toBe(16);
+    expect(Number.isFinite(report.overallScore)).toBe(true);
+  });
+
+  it("integration: Stripe-shaped fixture (api links + OpenAPI + oauth metadata) → agent-auth scores ≥60", async () => {
+    const html = `<html><body>
+      <a href="/api/">API docs</a><a href="/api/charges">Charges</a>
+      <a href="/api/customers">Customers</a><a href="/developers">Developer portal</a>
+    </body></html>`;
+    const pages: FetchedPage[] = [makePage(html, "https://stripe.test")];
+    const metadata: SiteMetadata = {
+      baseUrl: "https://stripe.test",
+      robotsTxt:
+        "User-agent: GPTBot\nAllow: /\nUser-agent: ClaudeBot\nAllow: /\nUser-agent: PerplexityBot\nAllow: /",
+      wellKnown: {
+        "oauth-authorization-server": JSON.stringify({
+          issuer: "https://stripe.test",
+          authorization_endpoint: "https://stripe.test/oauth/authorize",
+          token_endpoint: "https://stripe.test/oauth/token",
+          code_challenge_methods_supported: ["S256"],
+          scopes_supported: ["read:charges", "write:customers"],
+        }),
+        "oauth-protected-resource": JSON.stringify({ resource: "https://stripe.test/api" }),
+      },
+      openapi: {
+        url: "https://stripe.test/openapi.json",
+        endpoints: [{ path: "/charges", method: "GET" }],
+      } as any,
+    };
+    // Mock fetch: portal paths return content (for A3/A4/B4/B5), all others 404
+    const portalContent = "API key for agent bot AI rate limit OAuth scope permission ".repeat(50);
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const u = url.toString();
+      if (u.includes("/developers") || u.includes("/developer") || u.includes("/api-docs") || u.includes("/docs/api")) {
+        return new Response(`<html><body>${portalContent}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (u.includes("/api/") || u.endsWith("/api")) {
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response("", { status: 404 });
+    });
+    globalThis.fetch = fetchMock;
+    try {
+      const report = await runAudit(
+        "https://stripe.test",
+        { prefetchedPages: pages, prefetchedMetadata: metadata },
+        undefined,
+        allChecks,
+      );
+      const auth = report.categories.find((c) => c.id === "agent-auth")!;
+      expect(auth).toBeDefined();
+      expect(auth.score).not.toBeNull();
+      expect(auth.score!).toBeGreaterThanOrEqual(60);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
