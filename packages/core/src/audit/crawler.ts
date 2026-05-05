@@ -3,7 +3,8 @@ import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
-import type { AuditOptions, FetchedPage, SiteMetadata } from "./types.js";
+import { parseMcpResourceLink } from "./shared/oauth-parser.js";
+import type { AuditOptions, FetchedPage, McpInitResult, SiteMetadata } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -34,7 +35,15 @@ export async function crawlSite(
   ]);
 
   onProgress?.("Fetching .well-known files...");
-  const wellKnownPaths = ["agent-card.json", "agents.json", "ara/manifest.json", "mcp", "ucp"];
+  const wellKnownPaths = [
+    "agent-card.json",
+    "agents.json",
+    "ara/manifest.json",
+    "mcp",
+    "ucp",
+    "oauth-authorization-server",
+    "oauth-protected-resource",
+  ];
   const wellKnownResults = await Promise.all(
     wellKnownPaths.map(async (path) => {
       const result = await fetchText(`${baseUrl}/.well-known/${path}`, options);
@@ -55,6 +64,10 @@ export async function crawlSite(
     wellKnown,
     openapi: openapiResult ?? undefined,
   };
+
+  if (wellKnown.mcp) {
+    metadata.mcpInit = await probeMcpInit(`${baseUrl}/.well-known/mcp`, options);
+  }
 
   const crawlDelaySeconds =
     robotsParser(`${baseUrl}/robots.txt`, metadata.robotsTxt ?? "").getCrawlDelay(
@@ -124,4 +137,76 @@ export async function crawlSite(
   }
 
   return { pages, metadata, totalUrlsFound };
+}
+
+async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpInitResult> {
+  const result: McpInitResult = { mcpEndpointUrl: url, success: false };
+  try {
+    const initRequest = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "w2agent-audit", version: "0.1.0" },
+      },
+    };
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify(initRequest),
+      signal: AbortSignal.timeout(5000),
+    });
+    result.status = response.status;
+    const headers: Record<string, string> = {};
+    response.headers.forEach((v, k) => {
+      headers[k.toLowerCase()] = v;
+    });
+    result.rawHeaders = headers;
+    result.linkHeader = headers.link;
+    if (headers.link) {
+      const parsed = parseMcpResourceLink(headers.link);
+      result.oauthResourceMetadataUrl = parsed.resourceMetadataUrl;
+    }
+    if (!response.ok) return result;
+    const contentType = headers["content-type"] || "";
+    const body = await response.text();
+    const parsed = tryParseJsonRpcInit(body, contentType);
+    if (parsed?.serverInfo?.name) {
+      result.success = true;
+      result.serverInfo = {
+        name: parsed.serverInfo.name,
+        version: parsed.serverInfo.version,
+        authMechanism: parsed.authMechanism,
+      };
+    }
+    return result;
+  } catch {
+    return result;
+  }
+}
+
+function tryParseJsonRpcInit(
+  body: string,
+  contentType: string,
+): { serverInfo?: { name: string; version?: string }; authMechanism?: string } | null {
+  try {
+    let jsonStr = body;
+    if (contentType.includes("text/event-stream")) {
+      for (const line of body.split("\n")) {
+        if (line.startsWith("data: ")) {
+          jsonStr = line.slice(6);
+          break;
+        }
+      }
+    }
+    const json = JSON.parse(jsonStr);
+    const result = json.result;
+    if (!result?.serverInfo?.name) return null;
+    const authMechanism = result.capabilities?.auth?.type ?? result._meta?.auth?.type;
+    return { serverInfo: result.serverInfo, authMechanism };
+  } catch {
+    return null;
+  }
 }

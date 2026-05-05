@@ -244,7 +244,7 @@ function computeTopIssues(
   _overallScore: number,
 ): TopIssue[] {
   const failedChecks = results
-    .filter((r) => r.score < 100)
+    .filter((r) => r.score < 100 && r.status !== "skip")
     .sort((a, b) => {
       // Sort by potential impact (how many overall points fixing would add)
       const aImpact = estimateImpact(a, categories);
@@ -265,10 +265,11 @@ function estimateImpact(check: CheckResult, categories: CategoryResult[]): numbe
   if (!category) return 0;
 
   const categoryWeight = category.weight;
-  const checksInCategory = category.checks.length;
-  if (checksInCategory === 0) return 0;
+  const applicableChecks = category.checks.filter((c) => c.status !== "skip");
+  if (applicableChecks.length === 0) return 0;
 
-  const totalCheckWeight = category.checks.reduce((sum, c) => sum + c.weight, 0);
+  const totalCheckWeight = applicableChecks.reduce((sum, c) => sum + c.weight, 0);
+  if (totalCheckWeight === 0) return 0;
   const pointsGained = (100 - check.score) * (check.weight / totalCheckWeight);
   return pointsGained * categoryWeight;
 }

@@ -263,3 +263,138 @@ describe("crawlSite pageRankings enrichment", () => {
     expect(fetchedUrls).toContain(`${BASE_URL}/page-6`);
   });
 });
+
+describe("crawlSite well-known paths and MCP init probe", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockFetchPage.mockReset();
+    mockFetchText.mockReset();
+    mockFetchPage.mockImplementation(async (url: string) => makePageResult(url));
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return null;
+      return null;
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.fetch = originalFetch;
+  });
+
+  it("fetches oauth-authorization-server and oauth-protected-resource well-known paths", async () => {
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return null;
+      if (url.endsWith("/.well-known/oauth-authorization-server"))
+        return { text: '{"issuer":"https://example.com"}', status: 200 };
+      if (url.endsWith("/.well-known/oauth-protected-resource"))
+        return { text: '{"resource":"https://example.com"}', status: 200 };
+      return null;
+    });
+
+    const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.metadata.wellKnown["oauth-authorization-server"]).toBe(
+      '{"issuer":"https://example.com"}',
+    );
+    expect(result.metadata.wellKnown["oauth-protected-resource"]).toBe(
+      '{"resource":"https://example.com"}',
+    );
+  });
+
+  it("skips MCP init probe when wellKnown.mcp is absent", async () => {
+    const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.metadata.mcpInit).toBeUndefined();
+  });
+
+  it("populates mcpInit on successful POST when wellKnown.mcp is present", async () => {
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return null;
+      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      return null;
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { serverInfo: { name: "test", version: "1.0" }, capabilities: {} },
+          }),
+        ),
+    });
+
+    const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.metadata.mcpInit?.success).toBe(true);
+    expect(result.metadata.mcpInit?.serverInfo?.name).toBe("test");
+  });
+
+  it("captures Link header into mcpInit.oauthResourceMetadataUrl", async () => {
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return null;
+      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      return null;
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "content-type": "application/json",
+        link: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+      }),
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { serverInfo: { name: "test", version: "1.0" }, capabilities: {} },
+          }),
+        ),
+    });
+
+    const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.metadata.mcpInit?.linkHeader).toContain("resource_metadata");
+    expect(result.metadata.mcpInit?.oauthResourceMetadataUrl).toBe(
+      "https://example.com/.well-known/oauth-protected-resource",
+    );
+  });
+
+  it("sets mcpInit.success=false on network error", async () => {
+    mockFetchText.mockImplementation(async (url: string) => {
+      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/sitemap.xml")) return null;
+      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      return null;
+    });
+
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network error"));
+
+    const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.metadata.mcpInit?.success).toBe(false);
+    expect(result.metadata.mcpInit?.status).toBeUndefined();
+  });
+});

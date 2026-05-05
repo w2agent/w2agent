@@ -83,6 +83,16 @@ export interface FetchedPage {
   responseTime: number; // ms
 }
 
+export interface McpInitResult {
+  mcpEndpointUrl: string;
+  success: boolean;
+  status?: number;
+  serverInfo?: { name: string; version?: string; authMechanism?: string };
+  rawHeaders?: Record<string, string>;
+  linkHeader?: string;
+  oauthResourceMetadataUrl?: string;
+}
+
 export interface SiteMetadata {
   baseUrl: string;
   robotsTxt?: string;
@@ -90,6 +100,7 @@ export interface SiteMetadata {
   llmsTxt?: string;
   wellKnown: Record<string, string | undefined>;
   openapi?: ParsedOpenAPISpec;
+  mcpInit?: McpInitResult;
 }
 
 export interface Check {

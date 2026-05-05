@@ -10,13 +10,29 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+const MAX_PROBE_BYTES = 64 * 1024;
+
 async function probeUrl(
   url: string,
 ): Promise<{ status: number; text: string; contentType: string } | null> {
   try {
     const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
-    const text = await res.text();
-    return { status: res.status, text, contentType: res.headers.get("content-type") ?? "" };
+    const contentType = res.headers.get("content-type") ?? "";
+    const reader = res.body?.getReader();
+    if (!reader) return { status: res.status, text: "", contentType };
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      totalBytes += value.length;
+      if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+    }
+    const buf = new Uint8Array(totalBytes);
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.length; }
+    return { status: res.status, text: new TextDecoder().decode(buf), contentType };
   } catch {
     return null;
   }
@@ -36,6 +52,15 @@ async function probeDeveloperPortal(
     }),
   );
   return results.find((p): p is { url: string; text: string } => p !== null) ?? null;
+}
+
+const portalCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();
+
+function cachedPortal(pages: object, baseUrl: string): Promise<{ url: string; text: string } | null> {
+  if (!portalCache.has(pages)) {
+    portalCache.set(pages, probeDeveloperPortal(baseUrl));
+  }
+  return portalCache.get(pages)!;
 }
 
 function extractApiHrefCount(html: string, host: string): number {
@@ -130,10 +155,12 @@ const a1: Check = {
   run: async (pages, metadata) => {
     const base = mk("public-api", "Public API surface", 2.0);
     const host = new URL(metadata.baseUrl).hostname;
+    const hostParts = host.split(".");
+    const registeredDomain = hostParts.length > 2 ? hostParts.slice(-2).join(".") : host;
 
     const [r1, r2] = await Promise.all([
       probeUrl(`${metadata.baseUrl}/api/`),
-      probeUrl(`https://api.${host}/`),
+      probeUrl(`https://api.${registeredDomain}/`),
     ]);
 
     const isJsonOrYaml = (p: typeof r1) =>
@@ -167,9 +194,9 @@ const a2: Check = {
 
 const a3: Check = {
   ...mk("developer-portal", "Developer portal", 2.0),
-  run: async (_pages, metadata) => {
+  run: async (pages, metadata) => {
     const base = mk("developer-portal", "Developer portal", 2.0);
-    const portal = await probeDeveloperPortal(metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl);
     if (!portal) return res(base, "fail", 0, "No developer portal found");
     if (portal.text.length >= 1000)
       return res(base, "pass", 100, `Developer portal at ${portal.url}`);
@@ -186,7 +213,7 @@ const a4: Check = {
   ...mk("agent-auth-docs", "Agent/bot auth documentation", 2.0),
   run: async (pages, metadata) => {
     const base = mk("agent-auth-docs", "Agent/bot auth documentation", 2.0);
-    const portal = await probeDeveloperPortal(metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl);
     const homepageText = stripHtml(pages[0]?.html ?? "");
     const combined = [portal?.text ?? "", homepageText].join(" ");
 
@@ -248,22 +275,21 @@ const b3: Check = {
     const mcpInit = metadata.mcpInit;
     if (!mcpInit?.linkHeader)
       return res(base, "fail", 0, "No Link header in MCP initialization response");
-    if (mcpInit.oauthResourceMetadataUrl && metadata.wellKnown["oauth-protected-resource"])
-      return res(base, "pass", 100, "RFC 9728 Link header present and resource metadata reachable");
-    return res(
-      base,
-      "partial",
-      50,
-      "Link header present but resource_metadata target not reachable or missing",
-    );
+    if (mcpInit.oauthResourceMetadataUrl) {
+      const ownUrl = `${new URL(metadata.baseUrl).origin}/.well-known/oauth-protected-resource`;
+      if (mcpInit.oauthResourceMetadataUrl === ownUrl && metadata.wellKnown["oauth-protected-resource"])
+        return res(base, "pass", 100, "RFC 9728 Link header present and resource metadata reachable");
+      return res(base, "partial", 50, "Link header present but resource_metadata URL not verified (external or unreachable)");
+    }
+    return res(base, "partial", 50, "Link header present but no resource_metadata relation found");
   },
 };
 
 const b4: Check = {
   ...mk("scoped-permissions", "Scoped API permissions", 1.5),
-  run: async (_pages, metadata) => {
+  run: async (pages, metadata) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
-    const portal = await probeDeveloperPortal(metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl);
     if (!portal) return res(base, "fail", 0, "No developer portal to scan for scope patterns");
 
     const text = portal.text;
@@ -280,13 +306,13 @@ const b4: Check = {
 
 const b5: Check = {
   ...mk("pkce-s256", "PKCE S256 support", 1.5),
-  run: async (_pages, metadata) => {
+  run: async (pages, metadata) => {
     const base = mk("pkce-s256", "PKCE S256 support", 1.5);
     const parsed = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
     if (parsed?.codeChallengeMethodsSupported?.includes("S256"))
       return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
 
-    const portal = await probeDeveloperPortal(metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl);
     if (portal && /PKCE/i.test(portal.text) && /S256/i.test(portal.text))
       return res(
         base,
@@ -335,6 +361,18 @@ const c3: Check = {
     const linkParsed = parseMcpResourceLink(metadata.mcpInit?.linkHeader);
     if (!linkParsed.resourceMetadataUrl)
       return res(base, "fail", 0, "No MCP resource metadata link — cannot verify PKCE support");
+    const prRaw = metadata.wellKnown["oauth-protected-resource"];
+    if (prRaw) {
+      try {
+        const pr = JSON.parse(prRaw) as Record<string, unknown>;
+        const asList = pr.authorization_servers;
+        if (Array.isArray(asList) && asList.length > 0) {
+          const baseOrigin = new URL(metadata.baseUrl).origin;
+          if (!String(asList[0]).startsWith(baseOrigin))
+            return res(base, "partial", 50, "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it");
+        }
+      } catch { /* ignore parse errors */ }
+    }
     const oauthMeta = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
     if (oauthMeta?.codeChallengeMethodsSupported?.includes("S256"))
       return res(base, "pass", 100, "PKCE S256 supported via OAuth AS linked from MCP");

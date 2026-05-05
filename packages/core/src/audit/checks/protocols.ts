@@ -31,6 +31,15 @@ export const mcpDiscovery: Check = {
         details,
       };
     }
+    if (init?.status === 401) {
+      return {
+        ...base,
+        status: "pass",
+        score: 75,
+        message: "MCP endpoint requires auth (401 — OAuth or other auth expected)",
+        details: `POST ${init.mcpEndpointUrl} → 401`,
+      };
+    }
     if (init?.status !== undefined && !init.success && init.status >= 400) {
       return {
         ...base,
