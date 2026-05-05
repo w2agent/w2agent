@@ -1,4 +1,5 @@
 import type { Check } from "../types.js";
+import { agentAuthChecks } from "./agent-auth.js";
 import { botAccessibilityChecks } from "./bot-accessibility.js";
 import { contentQualityChecks } from "./content-quality.js";
 import { discoveryChecks } from "./discovery.js";
@@ -13,9 +14,11 @@ export const allChecks: Check[] = [
   ...discoveryChecks,
   ...protocolChecks,
   ...technicalChecks,
+  ...agentAuthChecks,
 ];
 
 export {
+  agentAuthChecks,
   botAccessibilityChecks,
   structuredDataChecks,
   contentQualityChecks,

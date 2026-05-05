@@ -15,7 +15,7 @@ import type {
   SiteMetadata,
   TopIssue,
 } from "./types.js";
-import { CATEGORY_CONFIG as CATEGORIES, DEFAULT_OPTIONS } from "./types.js";
+import { CATEGORY_CONFIG as CATEGORIES, DEFAULT_OPTIONS, RUBRIC_VERSION } from "./types.js";
 
 const checkRegistry: Check[] = [];
 
@@ -124,6 +124,7 @@ export async function runAudit(
     pagesScanned: pages.length,
     overallScore: Math.round(overallScore),
     grade,
+    rubricVersion: RUBRIC_VERSION,
     categories,
     topIssues,
     warnings,
@@ -173,7 +174,7 @@ function computeCategories(results: CheckResult[]): CategoryResult[] {
       id: catId,
       name: config.name,
       weight: config.weight,
-      score: Math.round(score),
+      score: score === null ? null : Math.round(score),
       checks,
     });
   }
@@ -181,15 +182,19 @@ function computeCategories(results: CheckResult[]): CategoryResult[] {
   return categories;
 }
 
-function computeCategoryScore(checks: CheckResult[]): number {
-  if (checks.length === 0) return 0;
-  const totalWeight = checks.reduce((sum, c) => sum + c.weight, 0);
-  if (totalWeight === 0) return 0;
-  return checks.reduce((sum, c) => sum + (c.score * c.weight) / totalWeight, 0);
+export function computeCategoryScore(checks: CheckResult[]): number | null {
+  const applicable = checks.filter((c) => c.status !== "skip");
+  if (applicable.length === 0) return null;
+  const totalWeight = applicable.reduce((sum, c) => sum + c.weight, 0);
+  if (totalWeight === 0) return null;
+  return applicable.reduce((sum, c) => sum + (c.score * c.weight) / totalWeight, 0);
 }
 
-function computeOverallScore(categories: CategoryResult[]): number {
-  return categories.reduce((sum, cat) => sum + cat.score * cat.weight, 0);
+export function computeOverallScore(categories: CategoryResult[]): number {
+  const scored = categories.filter((c) => c.score !== null);
+  if (scored.length === 0) return 0;
+  const totalWeight = scored.reduce((sum, c) => sum + c.weight, 0);
+  return scored.reduce((sum, c) => sum + (c.score as number) * (c.weight / totalWeight), 0);
 }
 
 function computeGrade(score: number): LetterGrade {

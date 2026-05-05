@@ -2,8 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
-import { clearChecks, getRegisteredChecks, registerChecks, runAudit } from "../src/audit/engine.js";
-import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
+import {
+  clearChecks,
+  computeCategoryScore,
+  computeOverallScore,
+  getRegisteredChecks,
+  registerChecks,
+  runAudit,
+} from "../src/audit/engine.js";
+import type { CategoryResult, CheckResult, FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
@@ -87,15 +94,16 @@ describe("individual check execution", () => {
 });
 
 describe("check coverage", () => {
-  it("has checks for all 6 categories", () => {
+  it("has checks for all 7 categories", () => {
     const categories = new Set(allChecks.map((c) => c.category));
-    expect(categories.size).toBe(6);
+    expect(categories.size).toBe(7);
     expect(categories).toContain("bot-accessibility");
     expect(categories).toContain("structured-data");
     expect(categories).toContain("content-quality");
     expect(categories).toContain("agent-discovery");
     expect(categories).toContain("agent-protocols");
     expect(categories).toContain("technical");
+    expect(categories).toContain("agent-auth");
   });
 
   it("has at least 35 checks total", () => {
@@ -141,6 +149,85 @@ describe("JS-heavy site warning heuristic", () => {
   it("boundary: no-js=31 does not trigger via first condition", () => {
     // only triggered if tokenScore ≤ 30 too
     expect(isJsHeavy(31, 60)).toBe(false);
+  });
+});
+
+function makeCheck(
+  overrides: Partial<CheckResult> & { status: CheckResult["status"] },
+): CheckResult {
+  return {
+    id: "test-check",
+    name: "Test Check",
+    category: "bot-accessibility",
+    status: overrides.status,
+    score: overrides.status === "pass" ? 100 : overrides.status === "fail" ? 0 : 50,
+    maxScore: 100,
+    weight: 1,
+    message: "test",
+    severity: "info",
+    ...overrides,
+  };
+}
+
+function makeCategoryResult(score: number | null, weight: number): CategoryResult {
+  return {
+    id: "bot-accessibility",
+    name: "Bot Accessibility",
+    weight,
+    score,
+    checks: [],
+  };
+}
+
+describe("NA semantics", () => {
+  it("computeCategoryScore returns null when all checks are skip", () => {
+    const checks = [
+      makeCheck({ status: "skip" }),
+      makeCheck({ status: "skip" }),
+    ];
+    expect(computeCategoryScore(checks)).toBeNull();
+  });
+
+  it("computeCategoryScore excludes skip from denominator", () => {
+    const checks = [
+      makeCheck({ status: "pass", score: 80, weight: 1 }),
+      makeCheck({ status: "skip", score: 50, weight: 1 }),
+    ];
+    // Only the pass check is applicable; score should be exactly 80
+    expect(computeCategoryScore(checks)).toBe(80);
+  });
+
+  it("computeOverallScore re-normalizes when one category is null", () => {
+    // agent-auth (weight 0.20) is null; remaining 6 categories sum to 0.80
+    // Each gets score = 100; re-normalized weights sum to 1.0, so overall = 100
+    const categories: CategoryResult[] = [
+      makeCategoryResult(100, 0.15),
+      makeCategoryResult(100, 0.15),
+      makeCategoryResult(100, 0.15),
+      makeCategoryResult(100, 0.12),
+      makeCategoryResult(100, 0.13),
+      makeCategoryResult(100, 0.10),
+      makeCategoryResult(null, 0.20),
+    ];
+    expect(computeOverallScore(categories)).toBe(100);
+  });
+
+  it("runAudit stamps rubricVersion='2.0' on report", async () => {
+    const pages: FetchedPage[] = [
+      makePage("<html><head><title>Test</title></head><body><p>hello</p></body></html>"),
+    ];
+    const metadata: SiteMetadata = {
+      baseUrl: "https://example.com",
+      robotsTxt: "User-agent: *\nAllow: /",
+      wellKnown: {},
+    };
+    const report = await runAudit(
+      "https://example.com",
+      { prefetchedPages: pages, prefetchedMetadata: metadata },
+      undefined,
+      allChecks,
+    );
+    expect(report.rubricVersion).toBe("2.0");
   });
 });
 

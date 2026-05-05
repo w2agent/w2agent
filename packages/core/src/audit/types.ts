@@ -22,13 +22,14 @@ export type CategoryId =
   | "content-quality"
   | "agent-discovery"
   | "agent-protocols"
-  | "technical";
+  | "technical"
+  | "agent-auth";
 
 export interface CategoryResult {
   id: CategoryId;
   name: string;
   weight: number;
-  score: number; // 0-100
+  score: number | null; // 0-100, or null when all checks are skipped
   checks: CheckResult[];
 }
 
@@ -48,6 +49,8 @@ export interface AuditWarning {
   details?: string;
 }
 
+export const RUBRIC_VERSION = "2.0";
+
 export interface AuditReport {
   url: string;
   timestamp: string;
@@ -55,6 +58,7 @@ export interface AuditReport {
   pagesScanned: number;
   overallScore: number;
   grade: LetterGrade;
+  rubricVersion: string;
   categories: CategoryResult[];
   topIssues: TopIssue[];
   warnings: AuditWarning[];
@@ -126,12 +130,13 @@ export const DEFAULT_OPTIONS: AuditOptions = {
 };
 
 export const CATEGORY_CONFIG: Record<CategoryId, { name: string; weight: number }> = {
-  "bot-accessibility": { name: "Bot Accessibility", weight: 0.2 },
-  "structured-data": { name: "Structured Data", weight: 0.2 },
-  "content-quality": { name: "Content Quality", weight: 0.2 },
-  "agent-discovery": { name: "Agent Discovery", weight: 0.15 },
-  "agent-protocols": { name: "Agent Protocols", weight: 0.15 },
+  "bot-accessibility": { name: "Bot Accessibility", weight: 0.15 },
+  "structured-data": { name: "Structured Data", weight: 0.15 },
+  "content-quality": { name: "Content Quality", weight: 0.15 },
+  "agent-discovery": { name: "Agent Discovery", weight: 0.12 },
+  "agent-protocols": { name: "Agent Protocols", weight: 0.13 },
   technical: { name: "Technical Foundations", weight: 0.1 },
+  "agent-auth": { name: "Auth & Access", weight: 0.2 },
 };
 
 export interface OpenAPIParameter {
