@@ -62,6 +62,7 @@ export interface AuditReport {
   categories: CategoryResult[];
   topIssues: TopIssue[];
   warnings: AuditWarning[];
+  summary?: string;
   platform?: {
     platform: string;
     confidence: number;
