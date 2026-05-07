@@ -163,10 +163,11 @@ const a1: Check = {
       probeUrl(`https://api.${registeredDomain}/`),
     ]);
 
+    // Accept 2xx (open) and 4xx (auth-required) JSON/YAML as evidence the API exists.
+    // A real API correctly returns 4xx with a structured JSON body when called without auth.
     const isJsonOrYaml = (p: typeof r1) =>
       p &&
-      p.status >= 200 &&
-      p.status < 300 &&
+      ((p.status >= 200 && p.status < 300) || (p.status >= 400 && p.status < 500)) &&
       (p.contentType.includes("json") || p.contentType.includes("yaml"));
 
     if (isJsonOrYaml(r1) || isJsonOrYaml(r2))
