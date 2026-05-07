@@ -155,7 +155,51 @@ export async function crawlSite(
     );
   }
 
+  if (sitemapResult?.status === 200) {
+    await fillFromSitemap(pages, sitemapResult.text, url, options);
+  }
+
   return { pages, metadata, totalUrlsFound };
+}
+
+function parseSitemapUrls(xml: string): string[] {
+  const matches = xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi);
+  return Array.from(matches, (m) => m[1].trim());
+}
+
+async function fillFromSitemap(
+  pages: FetchedPage[],
+  sitemapXml: string,
+  baseUrl: string,
+  options: AuditOptions,
+): Promise<void> {
+  const MIN_PAGES = 3;
+  if (pages.length >= MIN_PAGES) return;
+  const remaining = Math.min(options.maxPages - pages.length, 5);
+  if (remaining <= 0) return;
+
+  const urls = parseSitemapUrls(sitemapXml);
+  const seen = new Set(pages.map((p) => p.url));
+  const baseHost = new URL(baseUrl).hostname.replace(/^www\./, "");
+
+  const candidates = urls
+    .filter((u) => {
+      try {
+        const h = new URL(u).hostname;
+        return (h === baseHost || h.endsWith("." + baseHost)) && !seen.has(u);
+      } catch {
+        return false;
+      }
+    })
+    .filter((u) => new URL(u).pathname.length > 1)
+    .slice(0, remaining);
+
+  for (const u of candidates) {
+    const page = await fetchPage(u, options);
+    if (page.status >= 200 && page.status < 300) {
+      pages.push(page);
+    }
+  }
 }
 
 async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpInitResult> {

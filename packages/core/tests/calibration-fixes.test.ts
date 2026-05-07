@@ -359,6 +359,140 @@ describe("probeUrl retry behaviour (A5)", () => {
   });
 });
 
+// --- A2: crawler sitemap fallback when link-starvation occurs ---
+const SPA_SHELL_HTML = "<html><body><div id='__next'></div></body></html>";
+const CONTENT_PAGE_HTML = "<html><body><main><h1>Product</h1>" + "word ".repeat(300) + "</main></body></html>";
+// Sitemap with www. prefix — parseSitemapWithMetadata (exact origin) will skip these,
+// but fillFromSitemap (subdomain-aware) will pick them up, triggering the fallback.
+function makeSitemapXml(host: string, count: number): string {
+  const locs = Array.from({ length: count }, (_, i) => `<url><loc>https://${host}/page${i + 1}</loc></url>`).join("\n");
+  return `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locs}\n</urlset>`;
+}
+
+describe("crawler sitemap fallback (A2)", () => {
+  it("triggers when homepage has no internal links and sitemap has 5 URLs", async () => {
+    // Sitemap uses www.spa.example.com — exact-origin parse skips them, fallback picks them up
+    const sitemapXml = makeSitemapXml("www.spa.example.com", 5);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://spa.example.com/") {
+        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      if (u === "https://spa.example.com/sitemap.xml") {
+        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+      }
+      if (u.startsWith("https://www.spa.example.com/page")) {
+        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const out = await crawlSite("https://spa.example.com/", {
+      maxPages: 6,
+      timeout: 5000,
+      requestDelay: 0,
+      concurrency: 1,
+      userAgent: "test-agent",
+      verbose: false,
+    });
+    fetchSpy.mockRestore();
+
+    expect(out.pages.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("no-op when homepage has many internal links (pages.length >= 3 after main loop)", async () => {
+    const homepageHtml = `<html><body>
+      <a href="/about">About</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/blog">Blog</a>
+      <a href="/contact">Contact</a>
+    </body></html>`;
+    const sitemapXml = makeSitemapXml("www.example.com", 5);
+    const fetchedUrls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      fetchedUrls.push(u);
+      if (u === "https://example.com/") {
+        return new Response(homepageHtml, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      if (u === "https://example.com/sitemap.xml") {
+        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+      }
+      if (u.startsWith("https://example.com/")) {
+        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    await crawlSite("https://example.com/", {
+      maxPages: 6,
+      timeout: 5000,
+      requestDelay: 0,
+      concurrency: 1,
+      userAgent: "test-agent",
+      verbose: false,
+    });
+    fetchSpy.mockRestore();
+
+    // Sitemap-only URLs (www.example.com) should never be fetched — fallback not triggered
+    const sitemapOnlyCalls = fetchedUrls.filter((u) => u.startsWith("https://www.example.com/page"));
+    expect(sitemapOnlyCalls).toHaveLength(0);
+  });
+
+  it("no-op when no sitemap (sitemap.xml is 404)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://spa.example.com/") {
+        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const out = await crawlSite("https://spa.example.com/", {
+      maxPages: 6,
+      timeout: 5000,
+      requestDelay: 0,
+      concurrency: 1,
+      userAgent: "test-agent",
+      verbose: false,
+    });
+    fetchSpy.mockRestore();
+
+    expect(out.pages.length).toBe(1);
+  });
+
+  it("respects maxPages cap during fallback", async () => {
+    const sitemapXml = makeSitemapXml("www.spa.example.com", 5);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://spa.example.com/") {
+        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      if (u === "https://spa.example.com/sitemap.xml") {
+        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+      }
+      if (u.startsWith("https://www.spa.example.com/page")) {
+        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const out = await crawlSite("https://spa.example.com/", {
+      maxPages: 2,
+      timeout: 5000,
+      requestDelay: 0,
+      concurrency: 1,
+      userAgent: "test-agent",
+      verbose: false,
+    });
+    fetchSpy.mockRestore();
+
+    // homepage (1) + 1 from sitemap fallback = 2
+    expect(out.pages.length).toBe(2);
+  });
+});
+
 // Body-cancel on 5xx retry path is verified by code inspection in agent-auth.ts —
 // driving it through a unit test requires patching native Response.body in a way
 // that fights with vitest's fake-timers + the chunked-body-read code path.
