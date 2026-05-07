@@ -163,7 +163,7 @@ export async function crawlSite(
 }
 
 function parseSitemapUrls(xml: string): string[] {
-  const matches = xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi);
+  const matches = xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?([\s\S]+?)(?:\]\]>)?\s*<\/loc>/gi);
   return Array.from(matches, (m) => m[1].trim());
 }
 
@@ -173,6 +173,8 @@ async function fillFromSitemap(
   baseUrl: string,
   options: AuditOptions,
 ): Promise<void> {
+  // Fewer than 3 crawled pages signals a link-starved crawl (typical of SPA shells).
+  // Most multi-page checks (e.g., "X/N pages have JSON-LD") degrade meaningfully when N < 3.
   const MIN_PAGES = 3;
   if (pages.length >= MIN_PAGES) return;
   const remaining = Math.min(options.maxPages - pages.length, 5);
@@ -194,7 +196,10 @@ async function fillFromSitemap(
     .filter((u) => new URL(u).pathname.length > 1)
     .slice(0, remaining);
 
+  const fallbackBudget = Math.min((options.timeout ?? 5000) * 3, 15000);
+  const start = Date.now();
   for (const u of candidates) {
+    if (Date.now() - start > fallbackBudget) break;
     const page = await fetchPage(u, options);
     if (page.status >= 200 && page.status < 300) {
       pages.push(page);

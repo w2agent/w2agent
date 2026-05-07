@@ -462,6 +462,30 @@ describe("crawler sitemap fallback (A2)", () => {
     expect(out.pages.length).toBe(1);
   });
 
+  it("parses CDATA-wrapped <loc> URLs from sitemap (WordPress-style)", async () => {
+    const cdataSitemap = `<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc><![CDATA[https://spa.example.com/article-cdata]]></loc></url>
+    </urlset>`;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://spa.example.com/" || u === "https://spa.example.com")
+        return new Response('<html><body><div id="__next"></div></body></html>',
+          { status: 200, headers: { "content-type": "text/html" } });
+      if (u.endsWith("/sitemap.xml"))
+        return new Response(cdataSitemap, { status: 200, headers: { "content-type": "application/xml" } });
+      if (u.endsWith("/robots.txt")) return new Response("", { status: 404 });
+      if (u === "https://spa.example.com/article-cdata")
+        return new Response("<html><body><h1>article</h1>" + "x".repeat(2000) + "</body></html>",
+          { status: 200, headers: { "content-type": "text/html" } });
+      return new Response("", { status: 404 });
+    });
+    const out = await crawlSite("https://spa.example.com/", { maxPages: 6, timeout: 5000, verbose: false, userAgent: "test" });
+    fetchSpy.mockRestore();
+    // The CDATA-wrapped URL should have been fetched as part of the fallback.
+    expect(out.pages.some((p) => p.url === "https://spa.example.com/article-cdata")).toBe(true);
+  });
+
   it("respects maxPages cap during fallback", async () => {
     const sitemapXml = makeSitemapXml("www.spa.example.com", 5);
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
