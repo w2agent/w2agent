@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
+import { wellKnownAiPlugin } from "../src/audit/checks/discovery.js";
 import { crawlSite } from "../src/audit/crawler.js";
 
 const publicApi = agentAuthChecks.find((c) => c.id === "public-api")!;
@@ -623,5 +624,67 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
     expect(result.status).toBe("pass");
     expect(probedUrls.some((u) => u === "https://developers.example.com/")).toBe(false);
     expect(probedUrls.some((u) => u === "https://developer.example.com/")).toBe(false);
+  });
+});
+
+describe("ai-plugin.json well-known probe (D2a)", () => {
+  const meta: SiteMetadata = { baseUrl: "https://example.com", wellKnown: {} };
+  const page: FetchedPage = { url: "https://example.com", status: 200, html: "<html></html>", headers: {}, responseTime: 100 };
+
+  it("200 + valid manifest with schema_version → pass", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
+        return new Response(
+          JSON.stringify({
+            schema_version: "v1",
+            name_for_model: "example",
+            name_for_human: "Example",
+            description_for_model: "An example plugin",
+            api: { type: "openapi", url: "https://example.com/openapi.yaml" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await wellKnownAiPlugin.run([page], meta);
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("pass");
+  });
+
+  it("200 + JSON missing schema_version → partial", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
+        return new Response(JSON.stringify({ name: "thing" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await wellKnownAiPlugin.run([page], meta);
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("partial");
+  });
+
+  it("200 + invalid JSON → partial", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
+        return new Response("not json", { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await wellKnownAiPlugin.run([page], meta);
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("partial");
+  });
+
+  it("404 → fail", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response("", { status: 404 });
+    });
+    const result = await wellKnownAiPlugin.run([page], meta);
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("fail");
   });
 });

@@ -1,6 +1,6 @@
 import { fetchText } from "../../shared/fetcher.js";
 import { parseHTML } from "../../shared/html-parser.js";
-import type { Check } from "../types.js";
+import type { Check, SiteMetadata } from "../types.js";
 
 export const llmsTxtExists: Check = {
   id: "llms-txt-exists",
@@ -230,6 +230,80 @@ export const wellKnownAra: Check = {
   },
 };
 
+export const wellKnownAiPlugin: Check = {
+  id: "well-known-ai-plugin",
+  name: "/.well-known/ai-plugin.json",
+  category: "agent-discovery",
+  weight: 1,
+  severity: "info",
+  run: async (_pages, metadata: SiteMetadata) => {
+    const url = `${metadata.baseUrl}/.well-known/ai-plugin.json`;
+    const result = await fetchText(url, { timeout: 5000, userAgent: "w2agent/0.1" });
+
+    if (!result || result.status < 200 || result.status >= 300) {
+      return {
+        id: "well-known-ai-plugin",
+        name: "/.well-known/ai-plugin.json",
+        category: "agent-discovery",
+        status: "fail",
+        score: 0,
+        maxScore: 100,
+        weight: 1,
+        message: "No /.well-known/ai-plugin.json found",
+        severity: "info",
+      };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch {
+      return {
+        id: "well-known-ai-plugin",
+        name: "/.well-known/ai-plugin.json",
+        category: "agent-discovery",
+        status: "partial",
+        score: 50,
+        maxScore: 100,
+        weight: 1,
+        message: "/.well-known/ai-plugin.json found but contains invalid JSON",
+        severity: "info",
+      };
+    }
+
+    const hasSchemaVersion =
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "schema_version" in (parsed as object);
+
+    if (!hasSchemaVersion) {
+      return {
+        id: "well-known-ai-plugin",
+        name: "/.well-known/ai-plugin.json",
+        category: "agent-discovery",
+        status: "partial",
+        score: 50,
+        maxScore: 100,
+        weight: 1,
+        message: "/.well-known/ai-plugin.json found but missing required schema_version field",
+        severity: "info",
+      };
+    }
+
+    return {
+      id: "well-known-ai-plugin",
+      name: "/.well-known/ai-plugin.json",
+      category: "agent-discovery",
+      status: "pass",
+      score: 100,
+      maxScore: 100,
+      weight: 1,
+      message: "ai-plugin.json found and valid",
+      severity: "info",
+    };
+  },
+};
+
 export const markdownAlternate: Check = {
   id: "markdown-alternate",
   name: "Markdown alternate links",
@@ -275,5 +349,6 @@ export const discoveryChecks: Check[] = [
   wellKnownAgentCard,
   wellKnownAgentsJson,
   wellKnownAra,
+  wellKnownAiPlugin,
   markdownAlternate,
 ];
