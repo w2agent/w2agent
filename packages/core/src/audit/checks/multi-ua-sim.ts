@@ -27,6 +27,12 @@ function makeSimCheck(
       if (!resp) {
         return res(id, name, "skip", 0, "No multi-UA simulation data available");
       }
+      if (resp.outcome === "blocked-by-robots") {
+        return res(id, name, "fail", 0, `${uaKey} disallowed by robots.txt`);
+      }
+      if (resp.outcome !== "ok") {
+        return res(id, name, "skip", 0, `${uaKey} could not be measured (${resp.outcome})`);
+      }
       if (!resp.reachable) {
         return res(id, name, "fail", 0, `${uaKey} cannot reach the homepage (status=${resp.status})`);
       }

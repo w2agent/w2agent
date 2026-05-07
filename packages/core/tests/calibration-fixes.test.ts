@@ -629,63 +629,47 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
 });
 
 describe("ai-plugin.json well-known probe (D2a)", () => {
-  const meta: SiteMetadata = { baseUrl: "https://example.com", wellKnown: {} };
   const page: FetchedPage = { url: "https://example.com", status: 200, html: "<html></html>", headers: {}, responseTime: 100 };
 
-  it("200 + valid manifest with schema_version → pass", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
-        return new Response(
-          JSON.stringify({
-            schema_version: "v1",
-            name_for_model: "example",
-            name_for_human: "Example",
-            description_for_model: "An example plugin",
-            api: { type: "openapi", url: "https://example.com/openapi.yaml" },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response("", { status: 404 });
-    });
-    const result = await wellKnownAiPlugin.run([page], meta);
-    fetchSpy.mockRestore();
-    expect(result.status).toBe("pass");
+  it("valid manifest with schema_version in metadata → pass", () => {
+    const meta: SiteMetadata = {
+      baseUrl: "https://example.com",
+      wellKnown: {
+        "ai-plugin.json": JSON.stringify({
+          schema_version: "v1",
+          name_for_model: "example",
+          name_for_human: "Example",
+          description_for_model: "An example plugin",
+          api: { type: "openapi", url: "https://example.com/openapi.yaml" },
+        }),
+      },
+    };
+    const result = wellKnownAiPlugin.run([page], meta);
+    expect(result).not.toBeInstanceOf(Promise);
+    expect((result as import("../src/audit/types.js").CheckResult).status).toBe("pass");
   });
 
-  it("200 + JSON missing schema_version → partial", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
-        return new Response(JSON.stringify({ name: "thing" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response("", { status: 404 });
-    });
-    const result = await wellKnownAiPlugin.run([page], meta);
-    fetchSpy.mockRestore();
+  it("JSON missing schema_version in metadata → partial", () => {
+    const meta: SiteMetadata = {
+      baseUrl: "https://example.com",
+      wellKnown: { "ai-plugin.json": JSON.stringify({ name: "thing" }) },
+    };
+    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("partial");
   });
 
-  it("200 + invalid JSON → partial", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      if (String(url) === "https://example.com/.well-known/ai-plugin.json") {
-        return new Response("not json", { status: 200, headers: { "content-type": "application/json" } });
-      }
-      return new Response("", { status: 404 });
-    });
-    const result = await wellKnownAiPlugin.run([page], meta);
-    fetchSpy.mockRestore();
+  it("invalid JSON in metadata → partial", () => {
+    const meta: SiteMetadata = {
+      baseUrl: "https://example.com",
+      wellKnown: { "ai-plugin.json": "not json" },
+    };
+    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("partial");
   });
 
-  it("404 → fail", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      return new Response("", { status: 404 });
-    });
-    const result = await wellKnownAiPlugin.run([page], meta);
-    fetchSpy.mockRestore();
+  it("absent from metadata → fail", () => {
+    const meta: SiteMetadata = { baseUrl: "https://example.com", wellKnown: {} };
+    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("fail");
   });
 });
@@ -699,7 +683,7 @@ describe("multi-UA simulation (D1)", () => {
       ...makeMeta("https://example.com"),
       llmsTxt: "# llms.txt\n",
       multiUaResponses: {
-        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -707,12 +691,12 @@ describe("multi-UA simulation (D1)", () => {
     expect(result.score).toBe(100);
   });
 
-  // Test 2: fail when UA can't reach
-  it("sim-claude fails when claude UA is blocked (reachable=false)", async () => {
+  // Test 2: fail when UA got a real response but site is unreachable (4xx empty body)
+  it("sim-claude fails when claude UA is blocked (outcome=ok, reachable=false)", async () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 403, contentLength: 0, finalUrl: "https://example.com/", reachable: false },
+        claude: { status: 403, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "ok" },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -725,7 +709,7 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -748,6 +732,31 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = makeMeta("https://example.com");
     const result = await simClaude.run([page], meta);
     expect(result.status).toBe("skip");
+  });
+
+  // Test 4c: skip when outcome is fetch-error (instrumentation noise, not a real measurement)
+  it("sim-claude skips when outcome is fetch-error (was previously fail — confirms fix)", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        claude: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "fetch-error" },
+      },
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("skip");
+  });
+
+  // Test 4d: fail when outcome is blocked-by-robots (real measurement result)
+  it("sim-claude fails when outcome is blocked-by-robots", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        claude: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "blocked-by-robots" },
+      },
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("fail");
+    expect(result.message).toContain("robots.txt");
   });
 
   // Test 5: fetchUnderUas populates all 5 keys
@@ -781,8 +790,30 @@ describe("multi-UA simulation (D1)", () => {
       expect.arrayContaining(["claude", "chatgpt", "gemini", "perplexity", "deepseek"]),
     );
     expect(result.claude.reachable).toBe(true);
+    expect(result.claude.outcome).toBe("ok");
     expect(result.gemini.reachable).toBe(false);
     expect(result.gemini.status).toBe(403);
+    expect(result.gemini.outcome).toBe("ok");
+  });
+
+  // Test 5b: fetchUnderUas sets blocked-by-robots when robots.txt disallows a bot
+  it("fetchUnderUas sets outcome=blocked-by-robots when robots.txt disallows ClaudeBot", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response("<html>ok</html>", { status: 200 });
+    });
+
+    const robotsTxt = "User-agent: ClaudeBot\nDisallow: /\n";
+    const result = await fetchUnderUas(
+      "https://example.com/",
+      { timeout: 5000 } as import("../src/audit/types.js").AuditOptions,
+      robotsTxt,
+    );
+    fetchSpy.mockRestore();
+
+    expect(result.claude.outcome).toBe("blocked-by-robots");
+    expect(result.claude.reachable).toBe(false);
+    // Other bots not blocked should still fetch
+    expect(result.chatgpt.outcome).toBe("ok");
   });
 
   it("sim-chatgpt passes when ai-plugin.json is present in wellKnown (post-fix)", async () => {
@@ -790,7 +821,7 @@ describe("multi-UA simulation (D1)", () => {
       baseUrl: "https://example.com",
       wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
       multiUaResponses: {
-        chatgpt: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+        chatgpt: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
       },
     } as any;
     const result = await simChatgpt.run([{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }], meta);

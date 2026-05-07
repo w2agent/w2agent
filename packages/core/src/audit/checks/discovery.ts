@@ -236,11 +236,9 @@ export const wellKnownAiPlugin: Check = {
   category: "agent-discovery",
   weight: 1,
   severity: "info",
-  run: async (_pages, metadata: SiteMetadata) => {
-    const url = `${metadata.baseUrl}/.well-known/ai-plugin.json`;
-    const result = await fetchText(url, { timeout: 5000, userAgent: "w2agent/0.1" });
-
-    if (!result || result.status < 200 || result.status >= 300) {
+  run: (_pages, metadata: SiteMetadata) => {
+    const content = metadata.wellKnown["ai-plugin.json"];
+    if (!content) {
       return {
         id: "well-known-ai-plugin",
         name: "/.well-known/ai-plugin.json",
@@ -256,7 +254,7 @@ export const wellKnownAiPlugin: Check = {
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(result.text);
+      parsed = JSON.parse(content);
     } catch {
       return {
         id: "well-known-ai-plugin",

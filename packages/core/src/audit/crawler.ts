@@ -8,17 +8,18 @@ import type { AuditOptions, FetchedPage, McpInitResult, MultiUaResponse, SiteMet
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const AGENT_UAS: { key: string; ua: string }[] = [
-  { key: "claude",     ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)" },
-  { key: "chatgpt",    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)" },
-  { key: "gemini",     ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)" },
-  { key: "perplexity", ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)" },
-  { key: "deepseek",   ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)" },
+const AGENT_UAS: { key: string; ua: string; robotsName: string }[] = [
+  { key: "claude",     ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)",       robotsName: "ClaudeBot" },
+  { key: "chatgpt",    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",                  robotsName: "ChatGPT-User" },
+  { key: "gemini",     ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)",                                        robotsName: "Google-Extended" },
+  { key: "perplexity", ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)", robotsName: "PerplexityBot" },
+  { key: "deepseek",   ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)",                                            robotsName: "DeepSeekBot" },
 ];
 
 export async function fetchUnderUas(
   homepageUrl: string,
   options: AuditOptions,
+  robotsTxt?: string,
 ): Promise<Record<string, MultiUaResponse>> {
   const responses: Record<string, MultiUaResponse> = {};
   // Wall-clock budget for the entire multi-UA pass. Checked between fetches —
@@ -27,11 +28,24 @@ export async function fetchUnderUas(
   // since per-fetch timeout is small (5s default).
   const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
   const start = Date.now();
-  for (const { key, ua } of AGENT_UAS) {
+
+  const robotsRulesUrl = (() => {
+    try { return `${new URL(homepageUrl).origin}/robots.txt`; } catch { return `${homepageUrl}/robots.txt`; }
+  })();
+  const robots = robotsParser(robotsRulesUrl, robotsTxt ?? "");
+
+  for (const { key, ua, robotsName } of AGENT_UAS) {
     if (Date.now() - start > budget) {
-      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false };
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "budget-skipped" };
       continue;
     }
+
+    // Check robots.txt before fetching
+    if (robotsTxt && robots.isAllowed(homepageUrl, robotsName) === false) {
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "blocked-by-robots" };
+      continue;
+    }
+
     try {
       const res = await fetch(homepageUrl, {
         headers: { "User-Agent": ua },
@@ -53,9 +67,11 @@ export async function fetchUnderUas(
         contentLength,
         finalUrl: res.url,
         reachable: res.status < 500 && contentLength > 0,
+        outcome: "ok",
       };
-    } catch {
-      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false };
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === "TimeoutError";
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: isTimeout ? "timeout" : "fetch-error" };
     }
   }
   return responses;
@@ -214,7 +230,7 @@ export async function crawlSite(
   }
 
   onProgress?.("Simulating agent user-agents...");
-  metadata.multiUaResponses = await fetchUnderUas(url, options);
+  metadata.multiUaResponses = await fetchUnderUas(url, options, metadata.robotsTxt);
 
   return { pages, metadata, totalUrlsFound };
 }

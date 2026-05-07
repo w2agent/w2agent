@@ -98,8 +98,10 @@ export interface MultiUaResponse {
   status: number;
   contentLength: number;
   finalUrl: string;
-  /** True when fetch returned without throwing AND status < 500. */
+  /** True when fetch returned a non-5xx response with a non-empty body. */
   reachable: boolean;
+  /** Why this entry was produced. "ok" = real fetch landed; others = measurement skipped. */
+  outcome: "ok" | "fetch-error" | "budget-skipped" | "timeout" | "blocked-by-robots";
 }
 
 export interface SiteMetadata {

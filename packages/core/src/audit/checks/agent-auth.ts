@@ -59,19 +59,24 @@ async function probeUrl(
 const PORTAL_PATHS = ["/developers", "/developer", "/api", "/docs/api", "/api-docs"];
 const PORTAL_SUBDOMAINS = ["docs", "developers", "developer"];
 
-async function probeDeveloperPortal(
-  baseUrl: string,
-): Promise<{ url: string; text: string } | null> {
+type PortalResult =
+  | { found: true; url: string; text: string }
+  | { found: false; probeFailed: boolean };
+
+async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
+  let anyResponseReceived = false;
+
   const canonicalProbes = await Promise.all(
     PORTAL_PATHS.map(async (p) => {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url);
+      if (probe !== null) anyResponseReceived = true;
       if (probe && probe.status >= 200 && probe.status < 300) return { url, text: stripHtml(probe.text) };
       return null;
     }),
   );
   const canonical = canonicalProbes.find((p): p is { url: string; text: string } => p !== null);
-  if (canonical) return canonical;
+  if (canonical) return { found: true, ...canonical };
 
   // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
   // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
@@ -80,16 +85,18 @@ async function probeDeveloperPortal(
   for (const sub of PORTAL_SUBDOMAINS) {
     const url = `${u.protocol}//${sub}.${stripWww(u.hostname)}/`;
     const probe = await probeUrl(url);
+    if (probe !== null) anyResponseReceived = true;
     if (probe && probe.status >= 200 && probe.status < 300) {
-      return { url, text: stripHtml(probe.text) };
+      return { found: true, url, text: stripHtml(probe.text) };
     }
   }
-  return null;
+
+  return { found: false, probeFailed: !anyResponseReceived };
 }
 
-const portalCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();
+const portalCache = new WeakMap<object, Promise<PortalResult>>();
 
-function cachedPortal(pages: object, baseUrl: string): Promise<{ url: string; text: string } | null> {
+function cachedPortal(pages: object, baseUrl: string): Promise<PortalResult> {
   if (!portalCache.has(pages)) {
     portalCache.set(pages, probeDeveloperPortal(baseUrl));
   }
@@ -231,7 +238,10 @@ const a3: Check = {
   run: async (pages, metadata) => {
     const base = mk("developer-portal", "Developer portal", 2.0);
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (!portal) return res(base, "fail", 0, "No developer portal found");
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No developer portal found");
+    }
     if (portal.text.length >= 1000)
       return res(base, "pass", 100, `Developer portal at ${portal.url}`);
     return res(
@@ -247,9 +257,11 @@ const a4: Check = {
   ...mk("agent-auth-docs", "Agent/bot auth documentation", 2.0),
   run: async (pages, metadata) => {
     const base = mk("agent-auth-docs", "Agent/bot auth documentation", 2.0);
-    const portal = await cachedPortal(pages, metadata.baseUrl);
+    const portalResult = await cachedPortal(pages, metadata.baseUrl);
+    if (!portalResult.found && portalResult.probeFailed)
+      return res(base, "skip", 0, "Could not verify portal (network unreachable)");
     const homepageText = stripHtml(pages[0]?.html ?? "");
-    const combined = [portal?.text ?? "", homepageText].join(" ");
+    const combined = [portalResult.found ? portalResult.text : "", homepageText].join(" ");
 
     const pairs = countNearbyPairs(
       combined,
@@ -324,7 +336,10 @@ const b4: Check = {
   run: async (pages, metadata) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (!portal) return res(base, "fail", 0, "No developer portal to scan for scope patterns");
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No developer portal to scan for scope patterns");
+    }
 
     const text = portal.text;
     const scopePatterns = (text.match(/\b(read|write|admin|delete|update):\w+/g) ?? []).length;
@@ -347,7 +362,11 @@ const b5: Check = {
       return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
 
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (portal && /PKCE/i.test(portal.text) && /S256/i.test(portal.text))
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No PKCE S256 support detected");
+    }
+    if (/PKCE/i.test(portal.text) && /S256/i.test(portal.text))
       return res(
         base,
         "partial",
