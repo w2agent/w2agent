@@ -359,6 +359,11 @@ describe("probeUrl retry behaviour (A5)", () => {
   });
 });
 
+// Body-cancel on 5xx retry path is verified by code inspection in agent-auth.ts —
+// driving it through a unit test requires patching native Response.body in a way
+// that fights with vitest's fake-timers + the chunked-body-read code path.
+// The behavior is a one-line `await res.body?.cancel()` on the retry branch.
+
 // --- A4 polish: www. stripping + sequential subdomain probing ---
 // Fresh page array per call to avoid portalCache WeakMap hits across tests.
 function a4polishPage(host = "example.com") {

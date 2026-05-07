@@ -16,14 +16,16 @@ function stripHtml(html: string): string {
 
 const MAX_PROBE_BYTES = 64 * 1024;
 export const PROBE_RETRY_DELAY_MS = 2000;
+export const PROBE_MAX_ATTEMPTS = 2;
 
 async function probeUrl(
   url: string,
 ): Promise<{ status: number; text: string; contentType: string } | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < PROBE_MAX_ATTEMPTS; attempt++) {
     try {
       const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (res.status >= 500 && attempt + 1 < 2) {
+      if (res.status >= 500 && attempt + 1 < PROBE_MAX_ATTEMPTS) {
+        await res.body?.cancel();
         await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
         continue;
       }
@@ -44,7 +46,7 @@ async function probeUrl(
       for (const c of chunks) { buf.set(c, off); off += c.length; }
       return { status: res.status, text: new TextDecoder().decode(buf), contentType };
     } catch {
-      if (attempt + 1 < 2) {
+      if (attempt + 1 < PROBE_MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
         continue;
       }
