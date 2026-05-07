@@ -11,31 +11,43 @@ function stripHtml(html: string): string {
 }
 
 const MAX_PROBE_BYTES = 64 * 1024;
+export const PROBE_RETRY_DELAY_MS = 2000;
 
 async function probeUrl(
   url: string,
 ): Promise<{ status: number; text: string; contentType: string } | null> {
-  try {
-    const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
-    const contentType = res.headers.get("content-type") ?? "";
-    const reader = res.body?.getReader();
-    if (!reader) return { status: res.status, text: "", contentType };
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      chunks.push(value);
-      totalBytes += value.length;
-      if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (res.status >= 500 && attempt + 1 < 2) {
+        await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
+        continue;
+      }
+      const contentType = res.headers.get("content-type") ?? "";
+      const reader = res.body?.getReader();
+      if (!reader) return { status: res.status, text: "", contentType };
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+        chunks.push(value);
+        totalBytes += value.length;
+        if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+      }
+      const buf = new Uint8Array(totalBytes);
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.length; }
+      return { status: res.status, text: new TextDecoder().decode(buf), contentType };
+    } catch {
+      if (attempt + 1 < 2) {
+        await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
+        continue;
+      }
+      return null;
     }
-    const buf = new Uint8Array(totalBytes);
-    let off = 0;
-    for (const c of chunks) { buf.set(c, off); off += c.length; }
-    return { status: res.status, text: new TextDecoder().decode(buf), contentType };
-  } catch {
-    return null;
   }
+  return null;
 }
 
 const PORTAL_PATHS = ["/developers", "/developer", "/api", "/docs/api", "/api-docs"];

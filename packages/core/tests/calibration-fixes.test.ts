@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
 import { crawlSite } from "../src/audit/crawler.js";
@@ -237,5 +237,124 @@ describe("llms.txt subdomain fallback (A4)", () => {
     const result = await crawlSite("https://example.com/", BASE_AUDIT_OPTIONS);
     fetchSpy.mockRestore();
     expect(result.metadata.llmsTxt).toContain("Docs LLMs");
+  });
+});
+
+// --- A5: probeUrl one-retry with 2s back-off ---
+const portalCheck = agentAuthChecks.find((c) => c.id === "developer-portal")!;
+const A5_BIG_CONTENT = "Welcome to the developer API " + "x".repeat(1000);
+// Fresh page array per call to avoid portalCache WeakMap hits across tests.
+function a5Page() {
+  return [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }];
+}
+const A5_META = { baseUrl: "https://example.com", wellKnown: {} };
+
+describe("probeUrl retry behaviour (A5)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("network error on attempt 1, 200 on attempt 2 → pass (≥2 fetch calls)", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/api") {
+        callCount++;
+        if (callCount === 1) throw new Error("ECONNRESET");
+        return new Response(`<html><body>${A5_BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const resultPromise = portalCheck.run(a5Page(), A5_META);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(result.status).toBe("pass");
+  });
+
+  it("503 on attempt 1, 200 on attempt 2 → pass (≥2 fetch calls)", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/api") {
+        callCount++;
+        if (callCount === 1) {
+          return new Response("", { status: 503, headers: { "content-type": "text/plain" } });
+        }
+        return new Response(`<html><body>${A5_BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const resultPromise = portalCheck.run(a5Page(), A5_META);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(result.status).toBe("pass");
+  });
+
+  it("503 on both attempts → developer-portal fails (all canonical/subdomain paths give up)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response("", { status: 503, headers: { "content-type": "text/plain" } });
+    });
+
+    const resultPromise = portalCheck.run(a5Page(), A5_META);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe("fail");
+  });
+
+  it("404 is NOT retried — exactly 1 fetch call for /api path", async () => {
+    let apiCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/api") {
+        apiCallCount++;
+        return new Response("", { status: 404 });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const resultPromise = portalCheck.run(a5Page(), A5_META);
+    await vi.runAllTimersAsync();
+    await resultPromise;
+
+    expect(apiCallCount).toBe(1);
+  });
+
+  it("200 is NOT retried — exactly 1 fetch call for /api path", async () => {
+    let apiCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/api") {
+        apiCallCount++;
+        return new Response(`<html><body>${A5_BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const resultPromise = portalCheck.run(a5Page(), A5_META);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(apiCallCount).toBe(1);
+    expect(result.status).toBe("pass");
   });
 });
