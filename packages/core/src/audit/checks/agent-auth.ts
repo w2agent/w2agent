@@ -1,6 +1,10 @@
 import { parseOAuthMetadata, parseMcpResourceLink } from "../shared/oauth-parser.js";
 import type { Check, CheckResult, SiteMetadata } from "../types.js";
 
+function stripWww(hostname: string): string {
+  return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -67,16 +71,18 @@ async function probeDeveloperPortal(
   const canonical = canonicalProbes.find((p): p is { url: string; text: string } => p !== null);
   if (canonical) return canonical;
 
+  // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
+  // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
+  // Fallback: subdomain probes (sequential, gentle on remote servers).
   const u = new URL(baseUrl);
-  const subdomainProbes = await Promise.all(
-    PORTAL_SUBDOMAINS.map(async (sub) => {
-      const url = `${u.protocol}//${sub}.${u.hostname}/`;
-      const probe = await probeUrl(url);
-      if (probe && probe.status >= 200 && probe.status < 300) return { url, text: stripHtml(probe.text) };
-      return null;
-    }),
-  );
-  return subdomainProbes.find((p): p is { url: string; text: string } => p !== null) ?? null;
+  for (const sub of PORTAL_SUBDOMAINS) {
+    const url = `${u.protocol}//${sub}.${stripWww(u.hostname)}/`;
+    const probe = await probeUrl(url);
+    if (probe && probe.status >= 200 && probe.status < 300) {
+      return { url, text: stripHtml(probe.text) };
+    }
+  }
+  return null;
 }
 
 const portalCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();

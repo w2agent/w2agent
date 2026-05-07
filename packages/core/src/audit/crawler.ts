@@ -8,6 +8,12 @@ import type { AuditOptions, FetchedPage, McpInitResult, SiteMetadata } from "./t
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function stripWww(hostname: string): string {
+  return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+}
+
+const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
+
 export interface CrawlResult {
   pages: FetchedPage[];
   metadata: SiteMetadata;
@@ -27,8 +33,6 @@ export async function crawlSite(
   const homepage = await fetchPage(url, options);
 
   onProgress?.("Fetching robots.txt...");
-  const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
-
   const [robotsResult, sitemapResult, llmsResult, openapiResult] = await Promise.all([
     fetchText(`${baseUrl}/robots.txt`, options),
     fetchText(`${baseUrl}/sitemap.xml`, options),
@@ -38,8 +42,10 @@ export async function crawlSite(
 
   let llmsTxtFallback: string | undefined;
   if (!llmsResult || llmsResult.status !== 200) {
+    // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
+    // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
     for (const sub of LLMS_SUBDOMAINS) {
-      const r = await fetchText(`${base.protocol}//${sub}.${base.hostname}/llms.txt`, options);
+      const r = await fetchText(`${base.protocol}//${sub}.${stripWww(base.hostname)}/llms.txt`, options);
       if (r && r.status === 200) {
         llmsTxtFallback = r.text;
         break;

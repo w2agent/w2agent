@@ -358,3 +358,63 @@ describe("probeUrl retry behaviour (A5)", () => {
     expect(result.status).toBe("pass");
   });
 });
+
+// --- A4 polish: www. stripping + sequential subdomain probing ---
+// Fresh page array per call to avoid portalCache WeakMap hits across tests.
+function a4polishPage(host = "example.com") {
+  return [{ url: `https://${host}/`, status: 200, html: "<html></html>", headers: {}, responseTime: 100 }];
+}
+const PORTAL_BIG = "Welcome to the API docs " + "x".repeat(1000);
+
+describe("A4 polish: www. stripping and sequential subdomain probing", () => {
+  it("www. is stripped before subdomain probe — probes docs.example.com not docs.www.example.com", async () => {
+    const probedUrls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      probedUrls.push(String(url));
+      return new Response("", { status: 404 });
+    });
+    await developerPortal.run(
+      a4polishPage("www.example.com"),
+      { baseUrl: "https://www.example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    const subdomainCalls = probedUrls.filter((u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."));
+    expect(subdomainCalls.some((u) => u.includes("docs.www.example.com"))).toBe(false);
+    expect(subdomainCalls.some((u) => u === "https://docs.example.com/")).toBe(true);
+  });
+
+  it("stripWww is a no-op on apex domain — probes docs.example.com correctly", async () => {
+    const probedUrls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      probedUrls.push(String(url));
+      return new Response("", { status: 404 });
+    });
+    await developerPortal.run(
+      a4polishPage("example.com"),
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    const subdomainCalls = probedUrls.filter((u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."));
+    expect(subdomainCalls.some((u) => u === "https://docs.example.com/")).toBe(true);
+  });
+
+  it("sequential subdomain probing stops on first hit — developers and developer not called after docs 200", async () => {
+    const probedUrls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      probedUrls.push(u);
+      if (u === "https://docs.example.com/") {
+        return new Response(`<html><body>${PORTAL_BIG}</body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await developerPortal.run(
+      a4polishPage(),
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("pass");
+    expect(probedUrls.some((u) => u === "https://developers.example.com/")).toBe(false);
+    expect(probedUrls.some((u) => u === "https://developer.example.com/")).toBe(false);
+  });
+});
