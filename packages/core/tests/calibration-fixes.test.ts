@@ -2,7 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
 import { wellKnownAiPlugin } from "../src/audit/checks/discovery.js";
-import { crawlSite } from "../src/audit/crawler.js";
+import { simClaude, simChatgpt, simGemini, simPerplexity, simDeepseek } from "../src/audit/checks/multi-ua-sim.js";
+import { crawlSite, fetchUnderUas } from "../src/audit/crawler.js";
 
 const publicApi = agentAuthChecks.find((c) => c.id === "public-api")!;
 
@@ -686,5 +687,101 @@ describe("ai-plugin.json well-known probe (D2a)", () => {
     const result = await wellKnownAiPlugin.run([page], meta);
     fetchSpy.mockRestore();
     expect(result.status).toBe("fail");
+  });
+});
+
+describe("multi-UA simulation (D1)", () => {
+  const page = makePage("<html><body>content</body></html>", "https://example.com/");
+
+  // Test 1: pass when reachable + expectations met
+  it("sim-claude passes when reachable and llmsTxt present", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      llmsTxt: "# llms.txt\n",
+      multiUaResponses: {
+        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+      },
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("pass");
+    expect(result.score).toBe(100);
+  });
+
+  // Test 2: fail when UA can't reach
+  it("sim-claude fails when claude UA is blocked (reachable=false)", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        claude: { status: 403, contentLength: 0, finalUrl: "https://example.com/", reachable: false },
+      },
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("fail");
+    expect(result.score).toBe(0);
+  });
+
+  // Test 3: partial when reachable but expectations missing
+  it("sim-claude returns partial when reachable but no llmsTxt/openapi/mcpInit", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+      },
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("partial");
+    expect(result.score).toBe(50);
+  });
+
+  // Test 4: skip when no multiUaResponses key for that UA
+  it("sim-claude skips when multiUaResponses has no claude key", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {},
+    };
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("skip");
+  });
+
+  // Test 4b: skip when multiUaResponses is absent entirely
+  it("sim-claude skips when multiUaResponses is undefined", async () => {
+    const meta: SiteMetadata = makeMeta("https://example.com");
+    const result = await simClaude.run([page], meta);
+    expect(result.status).toBe("skip");
+  });
+
+  // Test 5: fetchUnderUas populates all 5 keys
+  it("fetchUnderUas populates all 5 UA keys with varied results", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => {
+      const ua = (init?.headers as Record<string, string>)?.["User-Agent"] ?? "";
+      if (ua.includes("ClaudeBot")) {
+        return new Response("<html>allowed</html>", { status: 200 });
+      }
+      if (ua.includes("ChatGPT")) {
+        return new Response("<html>allowed</html>", { status: 200 });
+      }
+      if (ua.includes("Google-Extended")) {
+        return new Response("", { status: 403 });
+      }
+      if (ua.includes("PerplexityBot")) {
+        return new Response("<html>long content here for perplexity bot testing purposes to exceed threshold</html>", {
+          status: 200,
+        });
+      }
+      if (ua.includes("DeepSeekBot")) {
+        return new Response("<html>ok</html>", { status: 200 });
+      }
+      return new Response("", { status: 404 });
+    });
+
+    const result = await fetchUnderUas("https://example.com/", { timeout: 5000 } as import("../src/audit/types.js").AuditOptions);
+    fetchSpy.mockRestore();
+
+    expect(Object.keys(result)).toEqual(
+      expect.arrayContaining(["claude", "chatgpt", "gemini", "perplexity", "deepseek"]),
+    );
+    expect(result.claude.reachable).toBe(true);
+    expect(result.gemini.reachable).toBe(false);
+    expect(result.gemini.status).toBe(403);
   });
 });

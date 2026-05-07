@@ -94,6 +94,14 @@ export interface McpInitResult {
   oauthResourceMetadataUrl?: string;
 }
 
+export interface MultiUaResponse {
+  status: number;
+  contentLength: number;
+  finalUrl: string;
+  /** True when fetch returned without throwing AND status < 500. */
+  reachable: boolean;
+}
+
 export interface SiteMetadata {
   baseUrl: string;
   robotsTxt?: string;
@@ -102,6 +110,7 @@ export interface SiteMetadata {
   wellKnown: Record<string, string | undefined>;
   openapi?: ParsedOpenAPISpec;
   mcpInit?: McpInitResult;
+  multiUaResponses?: Record<string, MultiUaResponse>;
 }
 
 export interface Check {

@@ -3,6 +3,7 @@ import { agentAuthChecks } from "./agent-auth.js";
 import { botAccessibilityChecks } from "./bot-accessibility.js";
 import { contentQualityChecks } from "./content-quality.js";
 import { discoveryChecks } from "./discovery.js";
+import { multiUaSimChecks } from "./multi-ua-sim.js";
 import { protocolChecks } from "./protocols.js";
 import { structuredDataChecks } from "./structured-data.js";
 import { technicalChecks } from "./technical.js";
@@ -15,6 +16,7 @@ export const allChecks: Check[] = [
   ...protocolChecks,
   ...technicalChecks,
   ...agentAuthChecks,
+  ...multiUaSimChecks,
 ];
 
 export {
@@ -23,6 +25,7 @@ export {
   structuredDataChecks,
   contentQualityChecks,
   discoveryChecks,
+  multiUaSimChecks,
   protocolChecks,
   technicalChecks,
 };

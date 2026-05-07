@@ -4,9 +4,58 @@ import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { parseMcpResourceLink } from "./shared/oauth-parser.js";
-import type { AuditOptions, FetchedPage, McpInitResult, SiteMetadata } from "./types.js";
+import type { AuditOptions, FetchedPage, McpInitResult, MultiUaResponse, SiteMetadata } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const AGENT_UAS: { key: string; ua: string }[] = [
+  { key: "claude",     ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)" },
+  { key: "chatgpt",    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)" },
+  { key: "gemini",     ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)" },
+  { key: "perplexity", ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)" },
+  { key: "deepseek",   ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)" },
+];
+
+export async function fetchUnderUas(
+  homepageUrl: string,
+  options: AuditOptions,
+): Promise<Record<string, MultiUaResponse>> {
+  const responses: Record<string, MultiUaResponse> = {};
+  const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
+  const start = Date.now();
+  for (const { key, ua } of AGENT_UAS) {
+    if (Date.now() - start > budget) {
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false };
+      continue;
+    }
+    try {
+      const res = await fetch(homepageUrl, {
+        headers: { "User-Agent": ua },
+        signal: AbortSignal.timeout(options.timeout ?? 5000),
+      });
+      let contentLength = 0;
+      if (res.body) {
+        const reader = res.body.getReader();
+        const cap = 64 * 1024;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || !value) break;
+          contentLength += value.length;
+          if (contentLength >= cap) { await reader.cancel(); break; }
+        }
+      }
+      responses[key] = {
+        status: res.status,
+        contentLength,
+        finalUrl: res.url,
+        reachable: res.status < 500 && contentLength > 0,
+      };
+    } catch {
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false };
+    }
+  }
+  return responses;
+}
 
 function stripWww(hostname: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
@@ -158,6 +207,9 @@ export async function crawlSite(
   if (sitemapResult?.status === 200) {
     await fillFromSitemap(pages, sitemapResult.text, url, options);
   }
+
+  onProgress?.("Simulating agent user-agents...");
+  metadata.multiUaResponses = await fetchUnderUas(url, options);
 
   return { pages, metadata, totalUrlsFound };
 }
