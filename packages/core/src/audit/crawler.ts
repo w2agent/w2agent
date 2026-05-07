@@ -27,12 +27,25 @@ export async function crawlSite(
   const homepage = await fetchPage(url, options);
 
   onProgress?.("Fetching robots.txt...");
+  const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
+
   const [robotsResult, sitemapResult, llmsResult, openapiResult] = await Promise.all([
     fetchText(`${baseUrl}/robots.txt`, options),
     fetchText(`${baseUrl}/sitemap.xml`, options),
     fetchText(`${baseUrl}/llms.txt`, options),
     probeOpenAPIPaths(baseUrl, options, { homepageHtml: homepage.html }),
   ]);
+
+  let llmsTxtFallback: string | undefined;
+  if (!llmsResult || llmsResult.status !== 200) {
+    for (const sub of LLMS_SUBDOMAINS) {
+      const r = await fetchText(`${base.protocol}//${sub}.${base.hostname}/llms.txt`, options);
+      if (r && r.status === 200) {
+        llmsTxtFallback = r.text;
+        break;
+      }
+    }
+  }
 
   onProgress?.("Fetching .well-known files...");
   const wellKnownPaths = [
@@ -60,7 +73,7 @@ export async function crawlSite(
     baseUrl,
     robotsTxt: robotsResult?.status === 200 ? robotsResult.text : undefined,
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
-    llmsTxt: llmsResult?.status === 200 ? llmsResult.text : undefined,
+    llmsTxt: llmsResult?.status === 200 ? llmsResult.text : llmsTxtFallback,
     wellKnown,
     openapi: openapiResult ?? undefined,
   };

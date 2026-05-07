@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
+import { crawlSite } from "../src/audit/crawler.js";
 
 const publicApi = agentAuthChecks.find((c) => c.id === "public-api")!;
 
@@ -73,5 +74,168 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
     fetchSpy.mockRestore();
     expect(result.status).toBe("pass");
     expect(result.score).toBe(100);
+  });
+});
+
+// --- A4: probeDeveloperPortal subdomain fallback ---
+const developerPortal = agentAuthChecks.find((c) => c.id === "developer-portal")!;
+const BIG_CONTENT = "Welcome to the API " + "x".repeat(1000);
+
+describe("developer-portal subdomain fallback (A4)", () => {
+  it("canonical path hits → no subdomain probe fired", async () => {
+    const urls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      urls.push(u);
+      if (u === "https://example.com/api") {
+        return new Response(`<html><body>${BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await developerPortal.run(
+      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("https://example.com/api");
+    // No subdomain URLs should have been attempted
+    const subdomainCalls = urls.filter(
+      (u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."),
+    );
+    expect(subdomainCalls).toHaveLength(0);
+  });
+
+  it("all canonical fail → docs.<host>/ returns 200 → pass", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://docs.example.com/") {
+        return new Response(`<html><body>${BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await developerPortal.run(
+      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("docs.example.com");
+  });
+
+  it("all canonical and all subdomain fail → fail", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response("", { status: 404 });
+    });
+    const result = await developerPortal.run(
+      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("fail");
+  });
+
+  it("docs.<host>/ 404 → developers.<host>/ 200 → pass", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://developers.example.com/") {
+        return new Response(`<html><body>${BIG_CONTENT}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await developerPortal.run(
+      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      { baseUrl: "https://example.com", wellKnown: {} },
+    );
+    fetchSpy.mockRestore();
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("developers.example.com");
+  });
+});
+
+// --- A4: llms.txt subdomain fallback ---
+const BASE_AUDIT_OPTIONS = {
+  maxPages: 1,
+  timeout: 5000,
+  requestDelay: 0,
+  concurrency: 1,
+  userAgent: "test-agent",
+};
+
+function makeCrawlFetch(overrides: Record<string, { status: number; body: string; ct?: string }>) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    const u = String(url);
+    for (const [pattern, resp] of Object.entries(overrides)) {
+      if (u === pattern || u.startsWith(pattern)) {
+        return new Response(resp.body, {
+          status: resp.status,
+          headers: { "content-type": resp.ct ?? "text/plain" },
+        });
+      }
+    }
+    return new Response("", { status: 404 });
+  });
+}
+
+describe("llms.txt subdomain fallback (A4)", () => {
+  it("canonical <host>/llms.txt 200 → metadata.llmsTxt set, no subdomain probe", async () => {
+    const urls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      urls.push(u);
+      if (u === "https://example.com/") {
+        return new Response("<html><body>homepage</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (u === "https://example.com/llms.txt") {
+        return new Response("# LLMs\nModel: gpt-4", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await crawlSite("https://example.com/", BASE_AUDIT_OPTIONS);
+    fetchSpy.mockRestore();
+    expect(result.metadata.llmsTxt).toContain("LLMs");
+    const subdomainLlmsCalls = urls.filter(
+      (u) =>
+        (u.includes("docs.example.com") || u.includes("developers.example.com") || u.includes("developer.example.com")) &&
+        u.includes("llms.txt"),
+    );
+    expect(subdomainLlmsCalls).toHaveLength(0);
+  });
+
+  it("canonical <host>/llms.txt 404 → docs.<host>/llms.txt 200 → metadata.llmsTxt set", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/") {
+        return new Response("<html><body>homepage</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (u === "https://docs.example.com/llms.txt") {
+        return new Response("# Docs LLMs\nModel: claude-3", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      return new Response("", { status: 404 });
+    });
+    const result = await crawlSite("https://example.com/", BASE_AUDIT_OPTIONS);
+    fetchSpy.mockRestore();
+    expect(result.metadata.llmsTxt).toContain("Docs LLMs");
   });
 });

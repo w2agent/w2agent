@@ -39,11 +39,12 @@ async function probeUrl(
 }
 
 const PORTAL_PATHS = ["/developers", "/developer", "/api", "/docs/api", "/api-docs"];
+const PORTAL_SUBDOMAINS = ["docs", "developers", "developer"];
 
 async function probeDeveloperPortal(
   baseUrl: string,
 ): Promise<{ url: string; text: string } | null> {
-  const results = await Promise.all(
+  const canonicalProbes = await Promise.all(
     PORTAL_PATHS.map(async (p) => {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url);
@@ -51,7 +52,19 @@ async function probeDeveloperPortal(
       return null;
     }),
   );
-  return results.find((p): p is { url: string; text: string } => p !== null) ?? null;
+  const canonical = canonicalProbes.find((p): p is { url: string; text: string } => p !== null);
+  if (canonical) return canonical;
+
+  const u = new URL(baseUrl);
+  const subdomainProbes = await Promise.all(
+    PORTAL_SUBDOMAINS.map(async (sub) => {
+      const url = `${u.protocol}//${sub}.${u.hostname}/`;
+      const probe = await probeUrl(url);
+      if (probe && probe.status >= 200 && probe.status < 300) return { url, text: stripHtml(probe.text) };
+      return null;
+    }),
+  );
+  return subdomainProbes.find((p): p is { url: string; text: string } => p !== null) ?? null;
 }
 
 const portalCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();
