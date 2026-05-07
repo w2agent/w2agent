@@ -186,21 +186,35 @@ export const charsetUtf8: Check = {
   },
 };
 
+// Empty mount points used by SPA frameworks. The trailing `\s*</div>` requires
+// an empty div in the source, so SSR pages that pre-hydrate content into the
+// root are NOT classified as shells (they have content the agent can read).
 const ROOT_MOUNT_RE = /<div[^>]*id=["'](?:__next|root|app|__nuxt)["'][^>]*>\s*<\/div>/i;
 const REACTROOT_RE = /<div[^>]*data-reactroot[^>]*>\s*<\/div>/i;
 
+// SPA-shell detection thresholds. All three signals must agree (AND).
+// Calibrated against openai.com / anthropic.com / perplexity.ai homepages
+// (true positives) and a sampling of mainstream tech-doc pages (true negatives).
+const SHELL_MAX_ANCHORS = 5;          // < 5 in-domain anchors → link-starved homepage
+const SHELL_MAX_TEXT_RATIO = 0.2;     // body-text-bytes / script-bytes < 0.2 → script-dominated
+const TEXT_BYTES_PER_WORD = 5;        // ~4.5 chars + 1 space; close enough for ratio purposes
+
 function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean {
+  // Signal 1 (cheap): empty SPA mount point present?
   const hasRootMount = ROOT_MOUNT_RE.test(html) || REACTROOT_RE.test(html);
   if (!hasRootMount) return false;
 
+  // Signal 2 (cheap): too few anchors to navigate without JS?
   const anchorCount = (html.match(/<a\s+[^>]*href=/gi) ?? []).length;
-  if (anchorCount >= 5) return false;
+  if (anchorCount >= SHELL_MAX_ANCHORS) return false;
 
+  // Signal 3: script weight dominates the page?
+  // We compare wordCount-derived body text against full <script>...</script>
+  // tag bytes. The wrapper ~18 bytes per tag is noise vs typical 5KB+ payloads.
   const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
-  const bodyTextBytes = parsed.wordCount * 5;
+  const bodyTextBytes = parsed.wordCount * TEXT_BYTES_PER_WORD;
   if (scriptBytes === 0) return false;
-  const textToScriptRatio = bodyTextBytes / scriptBytes;
-  return textToScriptRatio < 0.2;
+  return bodyTextBytes / scriptBytes < SHELL_MAX_TEXT_RATIO;
 }
 
 export const noJsDependency: Check = {
