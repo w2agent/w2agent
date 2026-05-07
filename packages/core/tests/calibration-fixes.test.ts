@@ -309,7 +309,9 @@ describe("probeUrl retry behaviour (A5)", () => {
   });
 
   it("503 on both attempts → developer-portal fails (all canonical/subdomain paths give up)", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url) === "https://example.com/api") callCount++;
       return new Response("", { status: 503, headers: { "content-type": "text/plain" } });
     });
 
@@ -318,6 +320,7 @@ describe("probeUrl retry behaviour (A5)", () => {
     const result = await resultPromise;
 
     expect(result.status).toBe("fail");
+    expect(callCount).toBeGreaterThanOrEqual(2); // confirms retry actually fired
   });
 
   it("404 is NOT retried — exactly 1 fetch call for /api path", async () => {
@@ -816,15 +819,91 @@ describe("multi-UA simulation (D1)", () => {
     expect(result.chatgpt.outcome).toBe("ok");
   });
 
-  it("sim-chatgpt passes when ai-plugin.json is present in wellKnown (post-fix)", async () => {
-    const meta = {
-      baseUrl: "https://example.com",
-      wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
+  it("crawler populates wellKnown['ai-plugin.json'] (regression for D1 polish)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "https://example.com/" || u === "https://example.com")
+        return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
+      if (u === "https://example.com/.well-known/ai-plugin.json")
+        return new Response('{"schema_version":"v1"}', { status: 200, headers: { "content-type": "application/json" } });
+      if (u.endsWith("/robots.txt") || u.endsWith("/sitemap.xml") || u.endsWith("/llms.txt"))
+        return new Response("", { status: 404 });
+      return new Response("", { status: 404 });
+    });
+    const out = await crawlSite("https://example.com/", { maxPages: 1, timeout: 5000, verbose: false, userAgent: "test", requestDelay: 0, concurrency: 1 });
+    fetchSpy.mockRestore();
+    expect(out.metadata.wellKnown["ai-plugin.json"]).toBeTruthy();
+  });
+
+  it("sim-gemini passes when page HTML has JSON-LD script tag", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
       multiUaResponses: {
-        chatgpt: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        gemini: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
       },
-    } as any;
-    const result = await simChatgpt.run([{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }], meta);
+    };
+    const pageWithJsonLd = makePage('<html><head><script type="application/ld+json">{}</script></head></html>', "https://example.com/");
+    const result = await simGemini.run([pageWithJsonLd], meta);
     expect(result.status).toBe("pass");
+    expect(result.score).toBe(100);
+  });
+
+  it("sim-gemini returns partial when reachable but no JSON-LD", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        gemini: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+      },
+    };
+    const result = await simGemini.run([makePage("<html><body>no json-ld here</body></html>")], meta);
+    expect(result.status).toBe("partial");
+    expect(result.score).toBe(50);
+  });
+
+  it("sim-perplexity passes when contentLength > 1000", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        perplexity: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+      },
+    };
+    const result = await simPerplexity.run([makePage()], meta);
+    expect(result.status).toBe("pass");
+    expect(result.score).toBe(100);
+  });
+
+  it("sim-perplexity returns partial when contentLength <= 1000 but reachable", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        perplexity: { status: 200, contentLength: 100, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+      },
+    };
+    const result = await simPerplexity.run([makePage()], meta);
+    expect(result.status).toBe("partial");
+    expect(result.score).toBe(50);
+  });
+
+  it("sim-deepseek passes when reachable", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        deepseek: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+      },
+    };
+    const result = await simDeepseek.run([makePage()], meta);
+    expect(result.status).toBe("pass");
+    expect(result.score).toBe(100);
+  });
+
+  it("sim-deepseek skips when outcome is fetch-error", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      multiUaResponses: {
+        deepseek: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "fetch-error" },
+      },
+    };
+    const result = await simDeepseek.run([makePage()], meta);
+    expect(result.status).toBe("skip");
   });
 });

@@ -24,8 +24,7 @@ export async function fetchUnderUas(
   const responses: Record<string, MultiUaResponse> = {};
   // Wall-clock budget for the entire multi-UA pass. Checked between fetches —
   // a single fetch can still take up to options.timeout ms, so worst-case
-  // budget overshoot is one full per-fetch timeout. Adequate for our purposes
-  // since per-fetch timeout is small (5s default).
+  // budget overshoot is one per-fetch timeout (DEFAULT_OPTIONS.timeout = 10s).
   const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
   const start = Date.now();
 

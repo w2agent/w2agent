@@ -195,7 +195,7 @@ const REACTROOT_RE = /<div[^>]*data-reactroot[^>]*>\s*<\/div>/i;
 // SPA-shell detection thresholds. All three signals must agree (AND).
 // Calibrated against openai.com / anthropic.com / perplexity.ai homepages
 // (true positives) and a sampling of mainstream tech-doc pages (true negatives).
-const SHELL_MAX_ANCHORS = 5;          // < 5 in-domain anchors → link-starved homepage
+const SHELL_MAX_ANCHORS = 5;          // < 5 anchors with href → link-starved homepage
 const SHELL_MAX_TEXT_RATIO = 0.2;     // body-text-bytes / script-bytes < 0.2 → script-dominated
 const TEXT_BYTES_PER_WORD = 5;        // ~4.5 chars + 1 space; close enough for ratio purposes
 
@@ -204,7 +204,7 @@ function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean
   const hasRootMount = ROOT_MOUNT_RE.test(html) || REACTROOT_RE.test(html);
   if (!hasRootMount) return false;
 
-  // Signal 2 (cheap): too few anchors to navigate without JS?
+  // Signal 2 (cheap): too few anchors with href to navigate without JS?
   const anchorCount = (html.match(/<a\s+[^>]*href=/gi) ?? []).length;
   if (anchorCount >= SHELL_MAX_ANCHORS) return false;
 
