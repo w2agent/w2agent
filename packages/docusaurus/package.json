@@ -10,7 +10,14 @@
     "url": "https://github.com/interskh/w2agent.git",
     "directory": "packages/docusaurus"
   },
-  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "docusaurus", "docusaurus-plugin"],
+  "keywords": [
+    "llms.txt",
+    "mcp",
+    "ai-agent",
+    "w2agent",
+    "docusaurus",
+    "docusaurus-plugin"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },

@@ -22,8 +22,8 @@ function setupContentMd(content: string) {
     const s = String(p);
     return s.endsWith("/src/content") || s.endsWith("intro.md");
   });
-  mockFs.readdirSync.mockReturnValue([{ name: "intro.md", isDirectory: () => false }] as any);
-  mockFs.readFileSync.mockReturnValue(content as any);
+  mockFs.readdirSync.mockReturnValue([{ name: "intro.md", isDirectory: () => false }] as never);
+  mockFs.readFileSync.mockReturnValue(content as never);
   mockFs.mkdirSync.mockReturnValue(undefined);
   mockFs.writeFileSync.mockReturnValue(undefined);
   mockFs.copyFileSync.mockReturnValue(undefined);
