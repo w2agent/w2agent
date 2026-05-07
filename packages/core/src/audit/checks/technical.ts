@@ -186,6 +186,23 @@ export const charsetUtf8: Check = {
   },
 };
 
+const ROOT_MOUNT_RE = /<div[^>]*id=["'](?:__next|root|app|__nuxt)["'][^>]*>\s*<\/div>/i;
+const REACTROOT_RE = /<div[^>]*data-reactroot[^>]*>\s*<\/div>/i;
+
+function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean {
+  const hasRootMount = ROOT_MOUNT_RE.test(html) || REACTROOT_RE.test(html);
+  if (!hasRootMount) return false;
+
+  const anchorCount = (html.match(/<a\s+[^>]*href=/gi) ?? []).length;
+  if (anchorCount >= 5) return false;
+
+  const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
+  const bodyTextBytes = parsed.wordCount * 5;
+  if (scriptBytes === 0) return false;
+  const textToScriptRatio = bodyTextBytes / scriptBytes;
+  return textToScriptRatio < 0.2;
+}
+
 export const noJsDependency: Check = {
   id: "no-js-dependency",
   name: "Content accessible without JS",
@@ -195,22 +212,28 @@ export const noJsDependency: Check = {
   run: (pages) => {
     let goodPages = 0;
     const frameworksFound = new Set<string>();
+    let shellPages = 0;
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
       const frameworks = detectJsFrameworks(page.html);
       for (const f of frameworks) frameworksFound.add(f);
 
-      // A page is accessible without JS if it has substantial content.
-      // Raise the threshold when JS framework markers are present —
-      // frameworks often inject minimal SSR fallback but most content
-      // is client-rendered, so 50 words isn't enough.
+      const isShell = looksLikeSpaShell(page.html, parsed);
+      if (isShell) {
+        shellPages++;
+        continue;
+      }
+
       const threshold = frameworks.length > 0 ? 100 : 50;
       if (parsed.wordCount >= threshold) goodPages++;
     }
 
     const score = pages.length > 0 ? Math.round((goodPages / pages.length) * 100) : 0;
     const frameworkList = [...frameworksFound].join(", ");
+    const shellNote = shellPages > 0
+      ? ` (${shellPages}/${pages.length} pages are JS-only shells)`
+      : "";
 
     return {
       id: "no-js-dependency",
@@ -223,7 +246,7 @@ export const noJsDependency: Check = {
       message:
         score >= 70
           ? "Content is accessible without JavaScript"
-          : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering`,
+          : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering${shellNote}`,
       details: frameworkList ? `Detected JS frameworks: ${frameworkList}` : undefined,
       severity: score < 50 ? "warning" : "info",
     };

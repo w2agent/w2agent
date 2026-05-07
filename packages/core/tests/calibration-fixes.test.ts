@@ -522,6 +522,50 @@ describe("crawler sitemap fallback (A2)", () => {
 // that fights with vitest's fake-timers + the chunked-body-read code path.
 // The behavior is a one-line `await res.body?.cancel()` on the retry branch.
 
+// --- A1: no-js-dependency SPA shell detection ---
+import { noJsDependency } from "../src/audit/checks/technical.js";
+
+function makeJsPage(html: string, url = "https://example.com/"): FetchedPage {
+  return { url, status: 200, html, headers: {}, responseTime: 100 };
+}
+
+describe("no-js-dependency SPA detection (A1)", () => {
+  // This page has 55+ words from nav/meta text so it PASSES word-count alone,
+  // but the SPA shell signals (root mount + 0 anchors + script >> body text) must catch it.
+  it("SPA shell with __next root marker, 0 anchors, lots of script → fail even when word count clears 50", () => {
+    const navWords = "Home About Pricing Contact Blog Support Docs Sign in Get started Try now Demo Features Enterprise ".repeat(5);
+    const html = `<html>
+  <head><title>OpenAI</title><meta name="description" content="${"great platform ".repeat(5)}"/></head>
+  <body>
+    <div id="__next"></div>
+    <p>${navWords}</p>
+    <script>const data = "${"x".repeat(5000)}";</script>
+  </body>
+</html>`;
+    const result = noJsDependency.run([makeJsPage(html)]);
+    expect(result.status).toBe("fail");
+    expect(result.score).toBe(0);
+  });
+
+  it("real article page with substantial body text and root marker → pass (5 anchors + high word count)", () => {
+    const html = `<html><body><div id="root"></div><h1>Article Title</h1>${"<p>" + "Lorem ipsum dolor sit amet ".repeat(100) + "</p>"}<a href="/x">link 1</a><a href="/y">link 2</a><a href="/z">link 3</a><a href="/q">link 4</a><a href="/r">link 5</a></body></html>`;
+    const result = noJsDependency.run([makeJsPage(html)]);
+    expect(result.status).toBe("pass");
+  });
+
+  it("no root marker, low word count → word-count fail (regression)", () => {
+    const html = `<html><body>short page</body></html>`;
+    const result = noJsDependency.run([makeJsPage(html)]);
+    expect(result.status).toBe("fail");
+  });
+
+  it("no root marker, high word count → pass (regression)", () => {
+    const html = `<html><body>${"long content ".repeat(50)}</body></html>`;
+    const result = noJsDependency.run([makeJsPage(html)]);
+    expect(result.status).toBe("pass");
+  });
+});
+
 // --- A4 polish: www. stripping + sequential subdomain probing ---
 // Fresh page array per call to avoid portalCache WeakMap hits across tests.
 function a4polishPage(host = "example.com") {
