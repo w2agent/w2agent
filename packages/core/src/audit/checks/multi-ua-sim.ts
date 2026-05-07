@@ -60,6 +60,9 @@ const simPerplexity = makeSimCheck(
   },
 );
 
+// DeepSeek expectations are reachability-only for now — no DeepSeek-specific
+// signals are well-defined yet. The `partial` status path is unreachable for
+// this check; future iterations may add bot-policy detection or content checks.
 const simDeepseek = makeSimCheck("sim-deepseek", "DeepSeek can use this site", "deepseek", () => {
   return true;
 });

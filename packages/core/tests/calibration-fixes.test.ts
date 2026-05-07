@@ -784,4 +784,16 @@ describe("multi-UA simulation (D1)", () => {
     expect(result.gemini.reachable).toBe(false);
     expect(result.gemini.status).toBe(403);
   });
+
+  it("sim-chatgpt passes when ai-plugin.json is present in wellKnown (post-fix)", async () => {
+    const meta = {
+      baseUrl: "https://example.com",
+      wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
+      multiUaResponses: {
+        chatgpt: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true },
+      },
+    } as any;
+    const result = await simChatgpt.run([{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }], meta);
+    expect(result.status).toBe("pass");
+  });
 });
