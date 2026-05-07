@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
 import {
   applyNaCascade,
@@ -26,6 +26,20 @@ function makePage(html: string, url = "https://example.com"): FetchedPage {
     responseTime: 100,
   };
 }
+
+// Mock fetch globally so checks that probe remote URLs don't make real network
+// calls (and don't hang on AbortSignal.timeout delays). Use mockImplementation
+// (not mockResolvedValue) so each call gets a fresh Response body — a shared
+// Response body is only readable once, which causes concurrent reads to hang.
+let fetchMock: ReturnType<typeof vi.spyOn> | undefined;
+beforeEach(() => {
+  fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () => new Response("", { status: 404 }),
+  );
+});
+afterEach(() => {
+  fetchMock?.mockRestore();
+});
 
 describe("check registry", () => {
   beforeEach(() => {

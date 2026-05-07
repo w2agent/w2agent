@@ -4,9 +4,83 @@ import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { parseMcpResourceLink } from "./shared/oauth-parser.js";
-import type { AuditOptions, FetchedPage, McpInitResult, SiteMetadata } from "./types.js";
+import type { AuditOptions, FetchedPage, McpInitResult, MultiUaResponse, SiteMetadata } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const AGENT_UAS: { key: string; ua: string; robotsName: string }[] = [
+  { key: "claude",     ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)",       robotsName: "ClaudeBot" },
+  { key: "chatgpt",    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",                  robotsName: "ChatGPT-User" },
+  { key: "gemini",     ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)",                                        robotsName: "Google-Extended" },
+  { key: "perplexity", ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)", robotsName: "PerplexityBot" },
+  { key: "deepseek",   ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)",                                            robotsName: "DeepSeekBot" },
+];
+
+export async function fetchUnderUas(
+  homepageUrl: string,
+  options: AuditOptions,
+  robotsTxt?: string,
+): Promise<Record<string, MultiUaResponse>> {
+  const responses: Record<string, MultiUaResponse> = {};
+  // Wall-clock budget for the entire multi-UA pass. Checked between fetches —
+  // a single fetch can still take up to options.timeout ms, so worst-case
+  // budget overshoot is one per-fetch timeout (DEFAULT_OPTIONS.timeout = 10s).
+  const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
+  const start = Date.now();
+
+  const robotsRulesUrl = (() => {
+    try { return `${new URL(homepageUrl).origin}/robots.txt`; } catch { return `${homepageUrl}/robots.txt`; }
+  })();
+  const robots = robotsParser(robotsRulesUrl, robotsTxt ?? "");
+
+  for (const { key, ua, robotsName } of AGENT_UAS) {
+    if (Date.now() - start > budget) {
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "budget-skipped" };
+      continue;
+    }
+
+    // Check robots.txt before fetching
+    if (robotsTxt && robots.isAllowed(homepageUrl, robotsName) === false) {
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "blocked-by-robots" };
+      continue;
+    }
+
+    try {
+      const res = await fetch(homepageUrl, {
+        headers: { "User-Agent": ua },
+        signal: AbortSignal.timeout(options.timeout ?? 5000),
+      });
+      let contentLength = 0;
+      if (res.body) {
+        const reader = res.body.getReader();
+        const cap = 64 * 1024;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || !value) break;
+          contentLength += value.length;
+          if (contentLength >= cap) { await reader.cancel(); break; }
+        }
+      }
+      responses[key] = {
+        status: res.status,
+        contentLength,
+        finalUrl: res.url,
+        reachable: res.status < 500 && contentLength > 0,
+        outcome: "ok",
+      };
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === "TimeoutError";
+      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: isTimeout ? "timeout" : "fetch-error" };
+    }
+  }
+  return responses;
+}
+
+function stripWww(hostname: string): string {
+  return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+}
+
+const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
 
 export interface CrawlResult {
   pages: FetchedPage[];
@@ -34,10 +108,24 @@ export async function crawlSite(
     probeOpenAPIPaths(baseUrl, options, { homepageHtml: homepage.html }),
   ]);
 
+  let llmsTxtFallback: string | undefined;
+  if (!llmsResult || llmsResult.status !== 200) {
+    // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
+    // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
+    for (const sub of LLMS_SUBDOMAINS) {
+      const r = await fetchText(`${base.protocol}//${sub}.${stripWww(base.hostname)}/llms.txt`, options);
+      if (r && r.status === 200) {
+        llmsTxtFallback = r.text;
+        break;
+      }
+    }
+  }
+
   onProgress?.("Fetching .well-known files...");
   const wellKnownPaths = [
     "agent-card.json",
     "agents.json",
+    "ai-plugin.json",
     "ara/manifest.json",
     "mcp",
     "ucp",
@@ -60,7 +148,7 @@ export async function crawlSite(
     baseUrl,
     robotsTxt: robotsResult?.status === 200 ? robotsResult.text : undefined,
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
-    llmsTxt: llmsResult?.status === 200 ? llmsResult.text : undefined,
+    llmsTxt: llmsResult?.status === 200 ? llmsResult.text : llmsTxtFallback,
     wellKnown,
     openapi: openapiResult ?? undefined,
   };
@@ -136,7 +224,59 @@ export async function crawlSite(
     );
   }
 
+  if (sitemapResult?.status === 200) {
+    await fillFromSitemap(pages, sitemapResult.text, url, options);
+  }
+
+  onProgress?.("Simulating agent user-agents...");
+  metadata.multiUaResponses = await fetchUnderUas(url, options, metadata.robotsTxt);
+
   return { pages, metadata, totalUrlsFound };
+}
+
+function parseSitemapUrls(xml: string): string[] {
+  const matches = xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?([\s\S]+?)(?:\]\]>)?\s*<\/loc>/gi);
+  return Array.from(matches, (m) => m[1].trim());
+}
+
+async function fillFromSitemap(
+  pages: FetchedPage[],
+  sitemapXml: string,
+  baseUrl: string,
+  options: AuditOptions,
+): Promise<void> {
+  // Fewer than 3 crawled pages signals a link-starved crawl (typical of SPA shells).
+  // Most multi-page checks (e.g., "X/N pages have JSON-LD") degrade meaningfully when N < 3.
+  const MIN_PAGES = 3;
+  if (pages.length >= MIN_PAGES) return;
+  const remaining = Math.min(options.maxPages - pages.length, 5);
+  if (remaining <= 0) return;
+
+  const urls = parseSitemapUrls(sitemapXml);
+  const seen = new Set(pages.map((p) => p.url));
+  const baseHost = new URL(baseUrl).hostname.replace(/^www\./, "");
+
+  const candidates = urls
+    .filter((u) => {
+      try {
+        const h = new URL(u).hostname;
+        return (h === baseHost || h.endsWith("." + baseHost)) && !seen.has(u);
+      } catch {
+        return false;
+      }
+    })
+    .filter((u) => new URL(u).pathname.length > 1)
+    .slice(0, remaining);
+
+  const fallbackBudget = Math.min((options.timeout ?? 5000) * 3, 15000);
+  const start = Date.now();
+  for (const u of candidates) {
+    if (Date.now() - start > fallbackBudget) break;
+    const page = await fetchPage(u, options);
+    if (page.status >= 200 && page.status < 300) {
+      pages.push(page);
+    }
+  }
 }
 
 async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpInitResult> {

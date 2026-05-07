@@ -186,6 +186,37 @@ export const charsetUtf8: Check = {
   },
 };
 
+// Empty mount points used by SPA frameworks. The trailing `\s*</div>` requires
+// an empty div in the source, so SSR pages that pre-hydrate content into the
+// root are NOT classified as shells (they have content the agent can read).
+const ROOT_MOUNT_RE = /<div[^>]*id=["'](?:__next|root|app|__nuxt)["'][^>]*>\s*<\/div>/i;
+const REACTROOT_RE = /<div[^>]*data-reactroot[^>]*>\s*<\/div>/i;
+
+// SPA-shell detection thresholds. All three signals must agree (AND).
+// Calibrated against openai.com / anthropic.com / perplexity.ai homepages
+// (true positives) and a sampling of mainstream tech-doc pages (true negatives).
+const SHELL_MAX_ANCHORS = 5;          // < 5 anchors with href → link-starved homepage
+const SHELL_MAX_TEXT_RATIO = 0.2;     // body-text-bytes / script-bytes < 0.2 → script-dominated
+const TEXT_BYTES_PER_WORD = 5;        // ~4.5 chars + 1 space; close enough for ratio purposes
+
+function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean {
+  // Signal 1 (cheap): empty SPA mount point present?
+  const hasRootMount = ROOT_MOUNT_RE.test(html) || REACTROOT_RE.test(html);
+  if (!hasRootMount) return false;
+
+  // Signal 2 (cheap): too few anchors with href to navigate without JS?
+  const anchorCount = (html.match(/<a\s+[^>]*href=/gi) ?? []).length;
+  if (anchorCount >= SHELL_MAX_ANCHORS) return false;
+
+  // Signal 3: script weight dominates the page?
+  // We compare wordCount-derived body text against full <script>...</script>
+  // tag bytes. The wrapper ~18 bytes per tag is noise vs typical 5KB+ payloads.
+  const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
+  const bodyTextBytes = parsed.wordCount * TEXT_BYTES_PER_WORD;
+  if (scriptBytes === 0) return false;
+  return bodyTextBytes / scriptBytes < SHELL_MAX_TEXT_RATIO;
+}
+
 export const noJsDependency: Check = {
   id: "no-js-dependency",
   name: "Content accessible without JS",
@@ -195,22 +226,28 @@ export const noJsDependency: Check = {
   run: (pages) => {
     let goodPages = 0;
     const frameworksFound = new Set<string>();
+    let shellPages = 0;
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
       const frameworks = detectJsFrameworks(page.html);
       for (const f of frameworks) frameworksFound.add(f);
 
-      // A page is accessible without JS if it has substantial content.
-      // Raise the threshold when JS framework markers are present —
-      // frameworks often inject minimal SSR fallback but most content
-      // is client-rendered, so 50 words isn't enough.
+      const isShell = looksLikeSpaShell(page.html, parsed);
+      if (isShell) {
+        shellPages++;
+        continue;
+      }
+
       const threshold = frameworks.length > 0 ? 100 : 50;
       if (parsed.wordCount >= threshold) goodPages++;
     }
 
     const score = pages.length > 0 ? Math.round((goodPages / pages.length) * 100) : 0;
     const frameworkList = [...frameworksFound].join(", ");
+    const shellNote = shellPages > 0
+      ? ` (${shellPages}/${pages.length} pages are JS-only shells)`
+      : "";
 
     return {
       id: "no-js-dependency",
@@ -223,7 +260,7 @@ export const noJsDependency: Check = {
       message:
         score >= 70
           ? "Content is accessible without JavaScript"
-          : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering`,
+          : `Only ${goodPages}/${pages.length} pages have substantial content without JS rendering${shellNote}`,
       details: frameworkList ? `Detected JS frameworks: ${frameworkList}` : undefined,
       severity: score < 50 ? "warning" : "info",
     };

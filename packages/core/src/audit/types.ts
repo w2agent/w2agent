@@ -94,6 +94,16 @@ export interface McpInitResult {
   oauthResourceMetadataUrl?: string;
 }
 
+export interface MultiUaResponse {
+  status: number;
+  contentLength: number;
+  finalUrl: string;
+  /** True when fetch returned a non-5xx response with a non-empty body. */
+  reachable: boolean;
+  /** Why this entry was produced. "ok" = real fetch landed; others = measurement skipped. */
+  outcome: "ok" | "fetch-error" | "budget-skipped" | "timeout" | "blocked-by-robots";
+}
+
 export interface SiteMetadata {
   baseUrl: string;
   robotsTxt?: string;
@@ -102,6 +112,7 @@ export interface SiteMetadata {
   wellKnown: Record<string, string | undefined>;
   openapi?: ParsedOpenAPISpec;
   mcpInit?: McpInitResult;
+  multiUaResponses?: Record<string, MultiUaResponse>;
 }
 
 export interface Check {

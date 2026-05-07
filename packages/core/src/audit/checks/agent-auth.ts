@@ -1,6 +1,10 @@
 import { parseOAuthMetadata, parseMcpResourceLink } from "../shared/oauth-parser.js";
 import type { Check, CheckResult, SiteMetadata } from "../types.js";
 
+function stripWww(hostname: string): string {
+  return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -11,52 +15,88 @@ function stripHtml(html: string): string {
 }
 
 const MAX_PROBE_BYTES = 64 * 1024;
+export const PROBE_RETRY_DELAY_MS = 2000;
+export const PROBE_MAX_ATTEMPTS = 2;
 
 async function probeUrl(
   url: string,
 ): Promise<{ status: number; text: string; contentType: string } | null> {
-  try {
-    const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
-    const contentType = res.headers.get("content-type") ?? "";
-    const reader = res.body?.getReader();
-    if (!reader) return { status: res.status, text: "", contentType };
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      chunks.push(value);
-      totalBytes += value.length;
-      if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+  for (let attempt = 0; attempt < PROBE_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (res.status >= 500 && attempt + 1 < PROBE_MAX_ATTEMPTS) {
+        await res.body?.cancel();
+        await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
+        continue;
+      }
+      const contentType = res.headers.get("content-type") ?? "";
+      const reader = res.body?.getReader();
+      if (!reader) return { status: res.status, text: "", contentType };
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+        chunks.push(value);
+        totalBytes += value.length;
+        if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+      }
+      const buf = new Uint8Array(totalBytes);
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.length; }
+      return { status: res.status, text: new TextDecoder().decode(buf), contentType };
+    } catch {
+      if (attempt + 1 < PROBE_MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
+        continue;
+      }
+      return null;
     }
-    const buf = new Uint8Array(totalBytes);
-    let off = 0;
-    for (const c of chunks) { buf.set(c, off); off += c.length; }
-    return { status: res.status, text: new TextDecoder().decode(buf), contentType };
-  } catch {
-    return null;
   }
+  return null;
 }
 
 const PORTAL_PATHS = ["/developers", "/developer", "/api", "/docs/api", "/api-docs"];
+const PORTAL_SUBDOMAINS = ["docs", "developers", "developer"];
 
-async function probeDeveloperPortal(
-  baseUrl: string,
-): Promise<{ url: string; text: string } | null> {
-  const results = await Promise.all(
+type PortalResult =
+  | { found: true; url: string; text: string }
+  | { found: false; probeFailed: boolean };
+
+async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
+  let anyResponseReceived = false;
+
+  const canonicalProbes = await Promise.all(
     PORTAL_PATHS.map(async (p) => {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url);
+      if (probe !== null) anyResponseReceived = true;
       if (probe && probe.status >= 200 && probe.status < 300) return { url, text: stripHtml(probe.text) };
       return null;
     }),
   );
-  return results.find((p): p is { url: string; text: string } => p !== null) ?? null;
+  const canonical = canonicalProbes.find((p): p is { url: string; text: string } => p !== null);
+  if (canonical) return { found: true, ...canonical };
+
+  // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
+  // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
+  // Fallback: subdomain probes (sequential, gentle on remote servers).
+  const u = new URL(baseUrl);
+  for (const sub of PORTAL_SUBDOMAINS) {
+    const url = `${u.protocol}//${sub}.${stripWww(u.hostname)}/`;
+    const probe = await probeUrl(url);
+    if (probe !== null) anyResponseReceived = true;
+    if (probe && probe.status >= 200 && probe.status < 300) {
+      return { found: true, url, text: stripHtml(probe.text) };
+    }
+  }
+
+  return { found: false, probeFailed: !anyResponseReceived };
 }
 
-const portalCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();
+const portalCache = new WeakMap<object, Promise<PortalResult>>();
 
-function cachedPortal(pages: object, baseUrl: string): Promise<{ url: string; text: string } | null> {
+function cachedPortal(pages: object, baseUrl: string): Promise<PortalResult> {
   if (!portalCache.has(pages)) {
     portalCache.set(pages, probeDeveloperPortal(baseUrl));
   }
@@ -163,10 +203,11 @@ const a1: Check = {
       probeUrl(`https://api.${registeredDomain}/`),
     ]);
 
+    // Accept 2xx (open) and 4xx (auth-required) JSON/YAML as evidence the API exists.
+    // A real API correctly returns 4xx with a structured JSON body when called without auth.
     const isJsonOrYaml = (p: typeof r1) =>
       p &&
-      p.status >= 200 &&
-      p.status < 300 &&
+      ((p.status >= 200 && p.status < 300) || (p.status >= 400 && p.status < 500)) &&
       (p.contentType.includes("json") || p.contentType.includes("yaml"));
 
     if (isJsonOrYaml(r1) || isJsonOrYaml(r2))
@@ -197,7 +238,10 @@ const a3: Check = {
   run: async (pages, metadata) => {
     const base = mk("developer-portal", "Developer portal", 2.0);
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (!portal) return res(base, "fail", 0, "No developer portal found");
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No developer portal found");
+    }
     if (portal.text.length >= 1000)
       return res(base, "pass", 100, `Developer portal at ${portal.url}`);
     return res(
@@ -213,9 +257,11 @@ const a4: Check = {
   ...mk("agent-auth-docs", "Agent/bot auth documentation", 2.0),
   run: async (pages, metadata) => {
     const base = mk("agent-auth-docs", "Agent/bot auth documentation", 2.0);
-    const portal = await cachedPortal(pages, metadata.baseUrl);
+    const portalResult = await cachedPortal(pages, metadata.baseUrl);
+    if (!portalResult.found && portalResult.probeFailed)
+      return res(base, "skip", 0, "Could not verify portal (network unreachable)");
     const homepageText = stripHtml(pages[0]?.html ?? "");
-    const combined = [portal?.text ?? "", homepageText].join(" ");
+    const combined = [portalResult.found ? portalResult.text : "", homepageText].join(" ");
 
     const pairs = countNearbyPairs(
       combined,
@@ -290,7 +336,10 @@ const b4: Check = {
   run: async (pages, metadata) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (!portal) return res(base, "fail", 0, "No developer portal to scan for scope patterns");
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No developer portal to scan for scope patterns");
+    }
 
     const text = portal.text;
     const scopePatterns = (text.match(/\b(read|write|admin|delete|update):\w+/g) ?? []).length;
@@ -313,7 +362,11 @@ const b5: Check = {
       return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
 
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (portal && /PKCE/i.test(portal.text) && /S256/i.test(portal.text))
+    if (!portal.found) {
+      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      return res(base, "fail", 0, "No PKCE S256 support detected");
+    }
+    if (/PKCE/i.test(portal.text) && /S256/i.test(portal.text))
       return res(
         base,
         "partial",
