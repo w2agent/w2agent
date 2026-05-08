@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateLlmsTxt } from "../app/lib/generate";
 
 function mockAdmin(shop: object, products: object[], pages: object[]) {
+  const pageInfo = { hasNextPage: false, endCursor: null };
   return {
     graphql: async (query: string) => {
       if (query.includes("ShopInfo")) {
@@ -9,12 +10,12 @@ function mockAdmin(shop: object, products: object[], pages: object[]) {
       }
       if (query.includes("Products")) {
         return Response.json({
-          data: { products: { edges: products.map((p) => ({ node: p })) } },
+          data: { products: { edges: products.map((p) => ({ node: p })), pageInfo } },
         });
       }
       if (query.includes("Pages")) {
         return Response.json({
-          data: { pages: { edges: pages.map((p) => ({ node: p })) } },
+          data: { pages: { edges: pages.map((p) => ({ node: p })), pageInfo } },
         });
       }
       return Response.json({ data: {} });
@@ -102,8 +103,7 @@ describe("generateLlmsTxt", () => {
         {
           title: "Test Product",
           handle: "test",
-          descriptionHtml:
-            "<p>Hello <strong>world</strong> &amp; friends</p>",
+          descriptionHtml: "<p>Hello <strong>world</strong> &amp; friends</p>",
         },
       ],
       [],
@@ -118,9 +118,7 @@ describe("generateLlmsTxt", () => {
   });
 
   it("truncation — long descriptions are truncated to ≤25 words with ellipsis", async () => {
-    const longDesc = Array.from({ length: 30 }, (_, i) => `word${i + 1}`).join(
-      " ",
-    );
+    const longDesc = Array.from({ length: 30 }, (_, i) => `word${i + 1}`).join(" ");
     const admin = mockAdmin(
       {
         name: "Shop",
@@ -133,13 +131,16 @@ describe("generateLlmsTxt", () => {
 
     const result = await generateLlmsTxt(admin);
 
-    const descLine = result
-      .split("\n")
-      .find((l) => l.includes("[Long Product]"));
+    const descLine = result.split("\n").find((l) => l.includes("[Long Product]"));
     expect(descLine).toBeDefined();
-    const descPart = descLine!.split(": ")[1];
+    const descPart = descLine?.split(": ")[1];
     expect(descPart).toMatch(/\.\.\.$/);
-    expect(descPart!.replace(/\.\.\.$/, "").trim().split(/\s+/).length).toBe(25);
+    expect(
+      descPart
+        ?.replace(/\.\.\.$/, "")
+        .trim()
+        .split(/\s+/).length,
+    ).toBe(25);
   });
 
   it("product without description — formats as bare link without trailing colon", async () => {

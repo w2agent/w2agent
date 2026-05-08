@@ -1,6 +1,6 @@
-import fs from "fs";
+import fs from "node:fs";
+import { ApiType, shopifyApiProject } from "@shopify/api-codegen-preset";
 import { ApiVersion } from "@shopify/shopify-api";
-import { shopifyApiProject, ApiType } from "@shopify/api-codegen-preset";
 import type { IGraphQLConfig } from "graphql-config";
 
 function getConfig() {
@@ -9,10 +9,7 @@ function getConfig() {
       default: shopifyApiProject({
         apiType: ApiType.Admin,
         apiVersion: ApiVersion.July25,
-        documents: [
-          "./app/**/*.{js,ts,jsx,tsx}",
-          "./app/.server/**/*.{js,ts,jsx,tsx}",
-        ],
+        documents: ["./app/**/*.{js,ts,jsx,tsx}", "./app/.server/**/*.{js,ts,jsx,tsx}"],
         outputDir: "./app/types",
       }),
     },

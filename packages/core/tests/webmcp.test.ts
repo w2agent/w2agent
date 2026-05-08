@@ -505,7 +505,8 @@ describe("generateWebMcp — injection defenses (security)", () => {
   it("declarative.html escapes hostile form action in attribute position", () => {
     const html = generateWebMcp(ctxWithHostileAction()).find(
       (f) => f.filename === "webmcp/declarative.html",
-    )!;
+    );
+    if (!html) throw new Error("declarative.html not generated");
     // Attacker content must not close the attribute or open a script tag
     expect(html.content).not.toContain(HOSTILE_ACTION);
     // Escaped form should preserve the data but neutralize it
@@ -516,7 +517,8 @@ describe("generateWebMcp — injection defenses (security)", () => {
   it("declarative.html escapes hostile field name in attribute position", () => {
     const html = generateWebMcp(ctxWithHostileName()).find(
       (f) => f.filename === "webmcp/declarative.html",
-    )!;
+    );
+    if (!html) throw new Error("declarative.html not generated");
     expect(html.content).not.toContain(`name="${HOSTILE_NAME}"`);
     expect(html.content).toContain("&quot;");
   });

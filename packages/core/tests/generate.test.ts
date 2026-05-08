@@ -1085,8 +1085,18 @@ describe("generateOpenClawSkillMd", () => {
 describe("generateAgentsMd", () => {
   const baseCtx: GenerateContext = {
     pages: [
-      { url: "https://example.com/", title: "Example Site", description: "A test site", markdown: "Welcome." },
-      { url: "https://example.com/docs", title: "Docs", description: "Documentation", markdown: "Read the docs." },
+      {
+        url: "https://example.com/",
+        title: "Example Site",
+        description: "A test site",
+        markdown: "Welcome.",
+      },
+      {
+        url: "https://example.com/docs",
+        title: "Docs",
+        description: "Documentation",
+        markdown: "Read the docs.",
+      },
     ],
     rawPages: [],
     metadata: {
@@ -1122,7 +1132,13 @@ describe("generateAgentsMd", () => {
       ...baseCtx,
       metadata: {
         ...baseCtx.metadata,
-        openapi: { title: "API", version: "1.0", endpoints: [{ path: "/v1/data", method: "GET", summary: "", parameters: [], responses: {} }] },
+        openapi: {
+          title: "API",
+          version: "1.0",
+          endpoints: [
+            { path: "/v1/data", method: "GET", summary: "", parameters: [], responses: {} },
+          ],
+        },
       },
     };
     const result = generateAgentsMd(ctx);
@@ -1132,7 +1148,10 @@ describe("generateAgentsMd", () => {
   it("notes OAuth server when well-known present", () => {
     const ctx = {
       ...baseCtx,
-      metadata: { ...baseCtx.metadata, wellKnown: { "oauth-authorization-server": '{"issuer":"https://example.com"}' } },
+      metadata: {
+        ...baseCtx.metadata,
+        wellKnown: { "oauth-authorization-server": '{"issuer":"https://example.com"}' },
+      },
     };
     const result = generateAgentsMd(ctx);
     expect(result).toContain("OAuth 2.0 authorization server");

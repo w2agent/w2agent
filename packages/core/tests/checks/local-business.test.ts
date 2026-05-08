@@ -15,24 +15,31 @@ function makePage(html: string, url = "https://mybusiness.example.com/"): Fetche
   return { url, status: 200, html, headers: {}, responseTime: 100 };
 }
 
-function makeLocalBusinessHtml(opts: {
-  hasAddress?: boolean;
-  hasPhone?: boolean;
-  hasHours?: boolean;
-  hasBookingLink?: boolean;
-  hasBookingIframe?: boolean;
-  useMicrodata?: boolean;
-} = {}): string {
-  const { hasAddress = false, hasPhone = false, hasHours = false, hasBookingLink = false, hasBookingIframe = false, useMicrodata = false } = opts;
+function makeLocalBusinessHtml(
+  opts: {
+    hasAddress?: boolean;
+    hasPhone?: boolean;
+    hasHours?: boolean;
+    hasBookingLink?: boolean;
+    hasBookingIframe?: boolean;
+    useMicrodata?: boolean;
+  } = {},
+): string {
+  const {
+    hasAddress = false,
+    hasPhone = false,
+    hasHours = false,
+    hasBookingLink = false,
+    hasBookingIframe = false,
+    useMicrodata = false,
+  } = opts;
 
   if (useMicrodata) {
     const addressHtml = hasAddress
       ? `<span itemprop="streetAddress">123 Main St</span>
          <span itemprop="addressLocality">Springfield</span>`
       : "";
-    const phoneHtml = hasPhone
-      ? `<span itemprop="telephone">555-0100</span>`
-      : "";
+    const phoneHtml = hasPhone ? `<span itemprop="telephone">555-0100</span>` : "";
     return `<html><body>
       <div itemscope itemtype="https://schema.org/LocalBusiness">
         <span itemprop="name">Test Business</span>
@@ -50,9 +57,7 @@ function makeLocalBusinessHtml(opts: {
     ? `"openingHoursSpecification": [{ "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday"], "opens": "09:00", "closes": "17:00" }],`
     : "";
 
-  const bookingLink = hasBookingLink
-    ? `<a href="/book">Book Now</a>`
-    : "";
+  const bookingLink = hasBookingLink ? `<a href="/book">Book Now</a>` : "";
   const bookingIframe = hasBookingIframe
     ? `<iframe src="https://calendly.com/mybusiness/30min"></iframe>`
     : "";

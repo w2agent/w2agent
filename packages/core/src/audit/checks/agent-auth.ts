@@ -1,5 +1,5 @@
-import { parseOAuthMetadata, parseMcpResourceLink } from "../shared/oauth-parser.js";
-import type { Check, CheckResult, SiteMetadata } from "../types.js";
+import { parseMcpResourceLink, parseOAuthMetadata } from "../shared/oauth-parser.js";
+import type { Check, CheckResult } from "../types.js";
 
 function stripWww(hostname: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
@@ -39,11 +39,17 @@ async function probeUrl(
         if (done || !value) break;
         chunks.push(value);
         totalBytes += value.length;
-        if (totalBytes >= MAX_PROBE_BYTES) { await reader.cancel(); break; }
+        if (totalBytes >= MAX_PROBE_BYTES) {
+          await reader.cancel();
+          break;
+        }
       }
       const buf = new Uint8Array(totalBytes);
       let off = 0;
-      for (const c of chunks) { buf.set(c, off); off += c.length; }
+      for (const c of chunks) {
+        buf.set(c, off);
+        off += c.length;
+      }
       return { status: res.status, text: new TextDecoder().decode(buf), contentType };
     } catch {
       if (attempt + 1 < PROBE_MAX_ATTEMPTS) {
@@ -71,7 +77,8 @@ async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url);
       if (probe !== null) anyResponseReceived = true;
-      if (probe && probe.status >= 200 && probe.status < 300) return { url, text: stripHtml(probe.text) };
+      if (probe && probe.status >= 200 && probe.status < 300)
+        return { url, text: stripHtml(probe.text) };
       return null;
     }),
   );
@@ -107,9 +114,8 @@ function extractApiHrefCount(html: string, host: string): number {
   const lower = html.toLowerCase();
   const apiPath = (lower.match(/href=["'][^"']*\/api[/"']/g) ?? []).length;
   const escapedHost = host.replace(/\./g, "\\.");
-  const apiSubdomain = (
-    lower.match(new RegExp(`href=["'][^"']*api\\.${escapedHost}`, "g")) ?? []
-  ).length;
+  const apiSubdomain = (lower.match(new RegExp(`href=["'][^"']*api\\.${escapedHost}`, "g")) ?? [])
+    .length;
   return apiPath + apiSubdomain;
 }
 
@@ -133,9 +139,7 @@ function countNearbyPairs(
   return count;
 }
 
-function parseRobotsBlocks(
-  text: string,
-): { userAgent: string; allow: number; disallow: number }[] {
+function parseRobotsBlocks(text: string): { userAgent: string; allow: number; disallow: number }[] {
   const lines = text.split(/\r?\n/);
   const blocks: { userAgent: string; allow: number; disallow: number }[] = [];
   let current: { userAgent: string; allow: number; disallow: number } | null = null;
@@ -216,7 +220,12 @@ const a1: Check = {
     const linkCount = extractApiHrefCount(pages[0]?.html ?? "", host);
     if (linkCount >= 3) return res(base, "pass", 100, `Found ${linkCount} API links on homepage`);
     if (linkCount >= 1)
-      return res(base, "partial", 50, `Found ${linkCount} API link(s) — no structured API endpoint`);
+      return res(
+        base,
+        "partial",
+        50,
+        `Found ${linkCount} API link(s) — no structured API endpoint`,
+      );
     return res(base, "fail", 0, "No public API surface detected");
   },
 };
@@ -239,7 +248,8 @@ const a3: Check = {
     const base = mk("developer-portal", "Developer portal", 2.0);
     const portal = await cachedPortal(pages, metadata.baseUrl);
     if (!portal.found) {
-      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      if (portal.probeFailed)
+        return res(base, "skip", 0, "Could not verify portal (network unreachable)");
       return res(base, "fail", 0, "No developer portal found");
     }
     if (portal.text.length >= 1000)
@@ -270,8 +280,10 @@ const a4: Check = {
       200,
     );
 
-    if (pairs >= 3) return res(base, "pass", 100, `${pairs} agent auth documentation signals found`);
-    if (pairs >= 1) return res(base, "partial", 50, `${pairs} agent auth signal(s) — incomplete coverage`);
+    if (pairs >= 3)
+      return res(base, "pass", 100, `${pairs} agent auth documentation signals found`);
+    if (pairs >= 1)
+      return res(base, "partial", 50, `${pairs} agent auth signal(s) — incomplete coverage`);
     return res(base, "fail", 0, "No agent/bot auth documentation signals found");
   },
 };
@@ -298,7 +310,8 @@ const b2: Check = {
   run: (_pages, metadata) => {
     const base = mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5);
     const raw = metadata.wellKnown["oauth-protected-resource"];
-    if (raw === undefined) return res(base, "fail", 0, "No OAuth protected resource metadata found");
+    if (raw === undefined)
+      return res(base, "fail", 0, "No OAuth protected resource metadata found");
     try {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object")
@@ -323,9 +336,22 @@ const b3: Check = {
       return res(base, "fail", 0, "No Link header in MCP initialization response");
     if (mcpInit.oauthResourceMetadataUrl) {
       const ownUrl = `${new URL(metadata.baseUrl).origin}/.well-known/oauth-protected-resource`;
-      if (mcpInit.oauthResourceMetadataUrl === ownUrl && metadata.wellKnown["oauth-protected-resource"])
-        return res(base, "pass", 100, "RFC 9728 Link header present and resource metadata reachable");
-      return res(base, "partial", 50, "Link header present but resource_metadata URL not verified (external or unreachable)");
+      if (
+        mcpInit.oauthResourceMetadataUrl === ownUrl &&
+        metadata.wellKnown["oauth-protected-resource"]
+      )
+        return res(
+          base,
+          "pass",
+          100,
+          "RFC 9728 Link header present and resource metadata reachable",
+        );
+      return res(
+        base,
+        "partial",
+        50,
+        "Link header present but resource_metadata URL not verified (external or unreachable)",
+      );
     }
     return res(base, "partial", 50, "Link header present but no resource_metadata relation found");
   },
@@ -337,14 +363,15 @@ const b4: Check = {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
     const portal = await cachedPortal(pages, metadata.baseUrl);
     if (!portal.found) {
-      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      if (portal.probeFailed)
+        return res(base, "skip", 0, "Could not verify portal (network unreachable)");
       return res(base, "fail", 0, "No developer portal to scan for scope patterns");
     }
 
     const text = portal.text;
     const scopePatterns = (text.match(/\b(read|write|admin|delete|update):\w+/g) ?? []).length;
     const scopeKeyword = countNearbyPairs(text, ["scope"], ["permission", "token", "access"], 200);
-    const bulletLists = (text.match(/^[\-\*]\s+\w+:\w+/gm) ?? []).length;
+    const bulletLists = (text.match(/^[-*]\s+\w+:\w+/gm) ?? []).length;
     const total = scopePatterns + scopeKeyword + bulletLists;
 
     if (total >= 3) return res(base, "pass", 100, `${total} scope/permission signals found`);
@@ -363,7 +390,8 @@ const b5: Check = {
 
     const portal = await cachedPortal(pages, metadata.baseUrl);
     if (!portal.found) {
-      if (portal.probeFailed) return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+      if (portal.probeFailed)
+        return res(base, "skip", 0, "Could not verify portal (network unreachable)");
       return res(base, "fail", 0, "No PKCE S256 support detected");
     }
     if (/PKCE/i.test(portal.text) && /S256/i.test(portal.text))
@@ -384,7 +412,12 @@ const c1: Check = {
     const mcpInit = metadata.mcpInit;
     if (!mcpInit) return res(base, "fail", 0, "No MCP initialization data available");
     if (mcpInit.serverInfo?.authMechanism)
-      return res(base, "pass", 100, `MCP auth mechanism declared: ${mcpInit.serverInfo.authMechanism}`);
+      return res(
+        base,
+        "pass",
+        100,
+        `MCP auth mechanism declared: ${mcpInit.serverInfo.authMechanism}`,
+      );
     if (mcpInit.status === 401 && mcpInit.rawHeaders?.["www-authenticate"])
       return res(base, "pass", 100, "MCP endpoint requires auth (401 + WWW-Authenticate)");
     if (mcpInit.status === 401)
@@ -403,7 +436,12 @@ const c2: Check = {
       return res(base, "fail", 0, "No Link header in MCP initialization response");
     if (parsed.resourceMetadataUrl && metadata.wellKnown["oauth-protected-resource"])
       return res(base, "pass", 100, "MCP Link header points to reachable OAuth resource metadata");
-    return res(base, "partial", 50, "Link header present but resource_metadata target not reachable");
+    return res(
+      base,
+      "partial",
+      50,
+      "Link header present but resource_metadata target not reachable",
+    );
   },
 };
 
@@ -422,9 +460,16 @@ const c3: Check = {
         if (Array.isArray(asList) && asList.length > 0) {
           const baseOrigin = new URL(metadata.baseUrl).origin;
           if (!String(asList[0]).startsWith(baseOrigin))
-            return res(base, "partial", 50, "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it");
+            return res(
+              base,
+              "partial",
+              50,
+              "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it",
+            );
         }
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     }
     const oauthMeta = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
     if (oauthMeta?.codeChallengeMethodsSupported?.includes("S256"))
@@ -448,7 +493,12 @@ const d1: Check = {
         return res(base, "pass", 100, "HTTP message signatures directory present and valid");
       return res(base, "partial", 50, "HTTP message signatures directory present but malformed");
     } catch {
-      return res(base, "partial", 50, "HTTP message signatures directory present but not valid JSON");
+      return res(
+        base,
+        "partial",
+        50,
+        "HTTP message signatures directory present but not valid JSON",
+      );
     }
   },
 };
@@ -538,5 +588,20 @@ const d4: Check = {
 };
 
 export const agentAuthChecks: Check[] = [
-  a1, a2, a3, a4, b1, b2, b3, b4, b5, c1, c2, c3, d1, d2, d3, d4,
+  a1,
+  a2,
+  a3,
+  a4,
+  b1,
+  b2,
+  b3,
+  b4,
+  b5,
+  c1,
+  c2,
+  c3,
+  d1,
+  d2,
+  d3,
+  d4,
 ];

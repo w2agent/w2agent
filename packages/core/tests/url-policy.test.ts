@@ -45,23 +45,19 @@ describe("isOriginAllowed", () => {
   });
 
   it("allows off-origin URL when host is in allowlist", () => {
-    expect(
-      isOriginAllowed("https://api.partner.com/x", baseOrigin, ["api.partner.com"]),
-    ).toBe(true);
+    expect(isOriginAllowed("https://api.partner.com/x", baseOrigin, ["api.partner.com"])).toBe(
+      true,
+    );
   });
 
   it("rejects off-origin allowlisted host that resolves to a private IP literal", () => {
     expect(
-      isOriginAllowed("http://169.254.169.254/latest/meta-data/", baseOrigin, [
-        "169.254.169.254",
-      ]),
+      isOriginAllowed("http://169.254.169.254/latest/meta-data/", baseOrigin, ["169.254.169.254"]),
     ).toBe(false);
   });
 
   it("rejects off-origin hostname that is a private literal even if allowlisted", () => {
-    expect(
-      isOriginAllowed("http://localhost:8080/x", baseOrigin, ["localhost"]),
-    ).toBe(false);
+    expect(isOriginAllowed("http://localhost:8080/x", baseOrigin, ["localhost"])).toBe(false);
   });
 
   it("rejects malformed URL", () => {

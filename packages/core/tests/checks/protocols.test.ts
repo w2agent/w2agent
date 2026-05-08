@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   actionSchemas,
   formsStructured,
@@ -40,7 +40,12 @@ describe("mcp-discovery", () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
       wellKnown: { mcp: '{"endpoints": []}' },
-      mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: true, status: 200, serverInfo: { name: "test-server", version: "1.0.0" } },
+      mcpInit: {
+        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        success: true,
+        status: 200,
+        serverInfo: { name: "test-server", version: "1.0.0" },
+      },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
     expect(result.message).toContain("test-server");
@@ -51,7 +56,11 @@ describe("mcp-discovery", () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
       wellKnown: { mcp: "something" },
-      mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: false, status: 405 },
+      mcpInit: {
+        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        success: false,
+        status: 405,
+      },
     });
     expect(result).toMatchObject({ status: "partial", score: 50 });
     expect(result.message).toContain("405");
@@ -61,7 +70,11 @@ describe("mcp-discovery", () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
       wellKnown: { mcp: "exists" },
-      mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: false, status: 200 },
+      mcpInit: {
+        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        success: false,
+        status: 200,
+      },
     });
     expect(result).toMatchObject({ status: "partial", score: 50 });
     expect(result.message).toContain("invalid MCP response");
@@ -81,7 +94,12 @@ describe("mcp-discovery", () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
       wellKnown: { mcp: "exists" },
-      mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: true, status: 200, serverInfo: { name: "sse-server", version: "2.0.0" } },
+      mcpInit: {
+        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        success: true,
+        status: 200,
+        serverInfo: { name: "sse-server", version: "2.0.0" },
+      },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
     expect(result.message).toContain("sse-server");

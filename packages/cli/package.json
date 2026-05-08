@@ -10,7 +10,14 @@
     "url": "https://github.com/interskh/w2agent.git",
     "directory": "packages/cli"
   },
-  "keywords": ["llms.txt", "mcp", "ai-agent", "w2agent", "cli", "openapi"],
+  "keywords": [
+    "llms.txt",
+    "mcp",
+    "ai-agent",
+    "w2agent",
+    "cli",
+    "openapi"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },

@@ -271,9 +271,13 @@ describe("deploy command", () => {
     it("masks webhook token by default", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(
-          makeSseResponse([{ type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) }]),
-        ),
+        vi
+          .fn()
+          .mockResolvedValue(
+            makeSseResponse([
+              { type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) },
+            ]),
+          ),
       );
 
       await buildProgram().parseAsync(["node", "w2agent", "deploy", "https://example.com"]);
@@ -286,9 +290,13 @@ describe("deploy command", () => {
     it("shows full token with --show-token flag", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(
-          makeSseResponse([{ type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) }]),
-        ),
+        vi
+          .fn()
+          .mockResolvedValue(
+            makeSseResponse([
+              { type: "result", data: makeResultData({ webhookToken: "w2wh_abc123xyz" }) },
+            ]),
+          ),
       );
 
       await buildProgram().parseAsync([

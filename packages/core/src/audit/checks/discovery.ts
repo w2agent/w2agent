@@ -270,9 +270,7 @@ export const wellKnownAiPlugin: Check = {
     }
 
     const hasSchemaVersion =
-      parsed !== null &&
-      typeof parsed === "object" &&
-      "schema_version" in (parsed as object);
+      parsed !== null && typeof parsed === "object" && "schema_version" in (parsed as object);
 
     if (!hasSchemaVersion) {
       return {

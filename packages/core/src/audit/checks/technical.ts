@@ -195,9 +195,9 @@ const REACTROOT_RE = /<div[^>]*data-reactroot[^>]*>\s*<\/div>/i;
 // SPA-shell detection thresholds. All three signals must agree (AND).
 // Calibrated against openai.com / anthropic.com / perplexity.ai homepages
 // (true positives) and a sampling of mainstream tech-doc pages (true negatives).
-const SHELL_MAX_ANCHORS = 5;          // < 5 anchors with href → link-starved homepage
-const SHELL_MAX_TEXT_RATIO = 0.2;     // body-text-bytes / script-bytes < 0.2 → script-dominated
-const TEXT_BYTES_PER_WORD = 5;        // ~4.5 chars + 1 space; close enough for ratio purposes
+const SHELL_MAX_ANCHORS = 5; // < 5 anchors with href → link-starved homepage
+const SHELL_MAX_TEXT_RATIO = 0.2; // body-text-bytes / script-bytes < 0.2 → script-dominated
+const TEXT_BYTES_PER_WORD = 5; // ~4.5 chars + 1 space; close enough for ratio purposes
 
 function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean {
   // Signal 1 (cheap): empty SPA mount point present?
@@ -245,9 +245,8 @@ export const noJsDependency: Check = {
 
     const score = pages.length > 0 ? Math.round((goodPages / pages.length) * 100) : 0;
     const frameworkList = [...frameworksFound].join(", ");
-    const shellNote = shellPages > 0
-      ? ` (${shellPages}/${pages.length} pages are JS-only shells)`
-      : "";
+    const shellNote =
+      shellPages > 0 ? ` (${shellPages}/${pages.length} pages are JS-only shells)` : "";
 
     return {
       id: "no-js-dependency",

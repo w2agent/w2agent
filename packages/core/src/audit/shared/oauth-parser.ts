@@ -49,8 +49,7 @@ export function parseMcpResourceLink(linkHeader: string | undefined): ParsedMcpR
   const resourceMetadata = rels.find(
     (r) =>
       r.rel === "resource_metadata" ||
-      r.rel ===
-        "https://datatracker.ietf.org/doc/html/rfc9728#name-link-header-field",
+      r.rel === "https://datatracker.ietf.org/doc/html/rfc9728#name-link-header-field",
   );
   return { resourceMetadataUrl: resourceMetadata?.url, rels };
 }

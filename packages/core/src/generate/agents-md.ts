@@ -40,11 +40,17 @@ export function generateAgentsMd(ctx: GenerateContext): string {
   const oauthServer = ctx.metadata.wellKnown["oauth-authorization-server"];
   const oauthResource = ctx.metadata.wellKnown["oauth-protected-resource"];
   if (oauthServer) {
-    lines.push("OAuth 2.0 authorization server metadata available at `/.well-known/oauth-authorization-server`.");
+    lines.push(
+      "OAuth 2.0 authorization server metadata available at `/.well-known/oauth-authorization-server`.",
+    );
   } else if (oauthResource) {
-    lines.push("OAuth 2.0 protected resource metadata available at `/.well-known/oauth-protected-resource`.");
+    lines.push(
+      "OAuth 2.0 protected resource metadata available at `/.well-known/oauth-protected-resource`.",
+    );
   } else {
-    lines.push("No OAuth server metadata detected. Check the developer portal for authentication details.");
+    lines.push(
+      "No OAuth server metadata detected. Check the developer portal for authentication details.",
+    );
   }
   lines.push("");
 
@@ -77,8 +83,14 @@ export function generateAgentsMd(ctx: GenerateContext): string {
 }
 
 const AI_BOTS = [
-  "GPTBot", "ClaudeBot", "Claude-Web", "Anthropic-AI",
-  "PerplexityBot", "Google-Extended", "CCBot", "Bytespider",
+  "GPTBot",
+  "ClaudeBot",
+  "Claude-Web",
+  "Anthropic-AI",
+  "PerplexityBot",
+  "Google-Extended",
+  "CCBot",
+  "Bytespider",
 ];
 
 function parseAiBotPermissions(
@@ -120,7 +132,7 @@ function parseAiBotPermissions(
   }
 
   return results.filter((r) =>
-    AI_BOTS.some((b) => r.agent === "*" || r.agent.toLowerCase() === b.toLowerCase())
+    AI_BOTS.some((b) => r.agent === "*" || r.agent.toLowerCase() === b.toLowerCase()),
   );
 }
 

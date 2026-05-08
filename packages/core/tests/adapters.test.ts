@@ -790,7 +790,7 @@ describe("Next.js MCP webhook snippet", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
     const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
     expect(webhook?.content).toContain("W2AGENT_INBOUND_TOKEN");
-    expect(webhook?.content).toContain('status: 401');
+    expect(webhook?.content).toContain("status: 401");
     expect(webhook?.content).toContain("Bearer ");
   });
 });

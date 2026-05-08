@@ -65,7 +65,7 @@ const RESTAURANT_JSONLD_HTML = `<html><head>
   }</script>
 </head><body></body></html>`;
 
-const GRAPH_JSONLD_HTML = `<html><head>
+const _GRAPH_JSONLD_HTML = `<html><head>
   <script type="application/ld+json">{
     "@graph": [
       { "@type": "WebSite", "name": "Joe's Diner Website" },
@@ -135,19 +135,19 @@ describe("extractLocalBusinessFromJsonLd", () => {
     ];
     const result = extractLocalBusinessFromJsonLd(jsonLd, "https://joesdiner.com");
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Joe's Diner");
-    expect(result!.type).toBe("Restaurant");
-    expect(result!.phone).toBe("+1-555-123-4567");
-    expect(result!.email).toBe("joe@joesdiner.com");
-    expect(result!.address?.city).toBe("Springfield");
-    expect(result!.hours).toHaveLength(1);
-    expect(result!.hours![0].days).toContain("Monday");
-    expect(result!.hours![0].days).toContain("Tuesday");
-    expect(result!.menu).toBe("https://joesdiner.com/menu");
-    expect(result!.bookingUrl).toBe("https://opentable.com/joes-diner");
-    expect(result!.geo?.lat).toBeCloseTo(39.7817);
-    expect(result!.priceRange).toBe("$$");
-    expect(result!.source).toBe("json-ld");
+    expect(result?.name).toBe("Joe's Diner");
+    expect(result?.type).toBe("Restaurant");
+    expect(result?.phone).toBe("+1-555-123-4567");
+    expect(result?.email).toBe("joe@joesdiner.com");
+    expect(result?.address?.city).toBe("Springfield");
+    expect(result?.hours).toHaveLength(1);
+    expect(result?.hours?.[0].days).toContain("Monday");
+    expect(result?.hours?.[0].days).toContain("Tuesday");
+    expect(result?.menu).toBe("https://joesdiner.com/menu");
+    expect(result?.bookingUrl).toBe("https://opentable.com/joes-diner");
+    expect(result?.geo?.lat).toBeCloseTo(39.7817);
+    expect(result?.priceRange).toBe("$$");
+    expect(result?.source).toBe("json-ld");
   });
 
   it("extracts business from @graph wrapped JSON-LD", () => {
@@ -166,8 +166,8 @@ describe("extractLocalBusinessFromJsonLd", () => {
     ];
     const result = extractLocalBusinessFromJsonLd(jsonLd, "https://joesdiner.com");
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Graph Diner");
-    expect(result!.type).toBe("Restaurant");
+    expect(result?.name).toBe("Graph Diner");
+    expect(result?.type).toBe("Restaurant");
   });
 
   it("returns null when no LocalBusiness type in JSON-LD", () => {
@@ -192,10 +192,10 @@ describe("extractLocalBusiness via microdata", () => {
     const ctx = makeContext([makePage(MICRODATA_HTML)]);
     const result = extractLocalBusiness(ctx);
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Micro Cafe");
-    expect(result!.phone).toBe("+1-555-888-2222");
-    expect(result!.address?.city).toBe("Portland");
-    expect(result!.source).toBe("microdata");
+    expect(result?.name).toBe("Micro Cafe");
+    expect(result?.phone).toBe("+1-555-888-2222");
+    expect(result?.address?.city).toBe("Portland");
+    expect(result?.source).toBe("microdata");
   });
 
   it("returns null when HTML has no microdata or JSON-LD", () => {
@@ -212,8 +212,8 @@ describe("extractLocalBusiness via HTML fallback", () => {
     const ctx = makeContext([page1, page2]);
     const result = extractLocalBusiness(ctx);
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("Joe's Diner");
-    expect(result!.bookingUrl).toBe("https://calendly.com/joesdiner/appointment");
+    expect(result?.name).toBe("Joe's Diner");
+    expect(result?.bookingUrl).toBe("https://calendly.com/joesdiner/appointment");
   });
 });
 
@@ -244,7 +244,7 @@ describe("buildLocalBusinessArtifacts", () => {
     const ctx = makeContext([makePage(RESTAURANT_JSONLD_HTML)], LOCAL_BUSINESS_SITE_TYPE);
     const result = buildLocalBusinessArtifacts(ctx);
     expect(result).not.toBeNull();
-    expect(result!.business.name).toBe("Joe's Diner");
+    expect(result?.business.name).toBe("Joe's Diner");
   });
 });
 
@@ -315,18 +315,15 @@ describe("schema-org LocalBusiness generation", () => {
     expect(business).not.toBeNull();
     const entries = generateSchemaOrg(ctx, undefined, business);
     expect(entries).not.toBeNull();
-    const businessEntry = entries!.find((e) => {
+    const businessEntry = entries?.find((e) => {
       const type = e.jsonLd["@type"] as string;
       return (
-        type === "LocalBusiness" ||
-        type === "Restaurant" ||
-        type === "Store" ||
-        type === "Dentist"
+        type === "LocalBusiness" || type === "Restaurant" || type === "Store" || type === "Dentist"
       );
     });
     expect(businessEntry).toBeDefined();
-    expect(businessEntry!.jsonLd.name).toBe("Micro Cafe");
-    expect(businessEntry!.jsonLd.speakable).toBeDefined();
+    expect(businessEntry?.jsonLd.name).toBe("Micro Cafe");
+    expect(businessEntry?.jsonLd.speakable).toBeDefined();
   });
 
   it("skips LocalBusiness JSON-LD when homepage already has it", () => {
@@ -351,12 +348,12 @@ describe("engine wiring — artifacts flow", () => {
     const artifacts = buildLocalBusinessArtifacts(ctx);
     expect(artifacts).not.toBeNull();
 
-    const schemaEntries = generateSchemaOrg(ctx, undefined, artifacts!.business);
+    const schemaEntries = generateSchemaOrg(ctx, undefined, artifacts?.business);
     expect(schemaEntries).not.toBeNull();
-    const businessEntry = schemaEntries!.find((e) => e.jsonLd["@type"] === "LocalBusiness");
+    const businessEntry = schemaEntries?.find((e) => e.jsonLd["@type"] === "LocalBusiness");
     expect(businessEntry).toBeDefined();
 
-    const table = generateBusinessInfoTable(artifacts!.business);
+    const table = generateBusinessInfoTable(artifacts?.business);
     expect(table).toContain("Micro Cafe");
   });
 });

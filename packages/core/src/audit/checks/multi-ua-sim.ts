@@ -7,7 +7,17 @@ function res(
   score: number,
   message: string,
 ): CheckResult {
-  return { id, name, category: "agent-protocols", status, score, maxScore: 100, weight: 1, message, severity: "info" };
+  return {
+    id,
+    name,
+    category: "agent-protocols",
+    status,
+    score,
+    maxScore: 100,
+    weight: 1,
+    message,
+    severity: "info",
+  };
 }
 
 function makeSimCheck(
@@ -34,7 +44,13 @@ function makeSimCheck(
         return res(id, name, "skip", 0, `${uaKey} could not be measured (${resp.outcome})`);
       }
       if (!resp.reachable) {
-        return res(id, name, "fail", 0, `${uaKey} cannot reach the homepage (status=${resp.status})`);
+        return res(
+          id,
+          name,
+          "fail",
+          0,
+          `${uaKey} cannot reach the homepage (status=${resp.status})`,
+        );
       }
       const pageHtml = pages[0]?.html ?? "";
       if (expectations(pageHtml, metadata)) {
@@ -45,17 +61,32 @@ function makeSimCheck(
   };
 }
 
-const simClaude = makeSimCheck("sim-claude", "Claude can use this site", "claude", (_html, meta) => {
-  return !!(meta.llmsTxt || meta.openapi || meta.mcpInit?.success);
-});
+const simClaude = makeSimCheck(
+  "sim-claude",
+  "Claude can use this site",
+  "claude",
+  (_html, meta) => {
+    return !!(meta.llmsTxt || meta.openapi || meta.mcpInit?.success);
+  },
+);
 
-const simChatgpt = makeSimCheck("sim-chatgpt", "ChatGPT can use this site", "chatgpt", (_html, meta) => {
-  return !!(meta.openapi || meta.wellKnown?.["ai-plugin.json"]);
-});
+const simChatgpt = makeSimCheck(
+  "sim-chatgpt",
+  "ChatGPT can use this site",
+  "chatgpt",
+  (_html, meta) => {
+    return !!(meta.openapi || meta.wellKnown?.["ai-plugin.json"]);
+  },
+);
 
-const simGemini = makeSimCheck("sim-gemini", "Gemini can use this site", "gemini", (html, _meta) => {
-  return /<script[^>]+type=["']application\/ld\+json["']/i.test(html);
-});
+const simGemini = makeSimCheck(
+  "sim-gemini",
+  "Gemini can use this site",
+  "gemini",
+  (html, _meta) => {
+    return /<script[^>]+type=["']application\/ld\+json["']/i.test(html);
+  },
+);
 
 const simPerplexity = makeSimCheck(
   "sim-perplexity",
@@ -73,5 +104,11 @@ const simDeepseek = makeSimCheck("sim-deepseek", "DeepSeek can use this site", "
   return true;
 });
 
-export const multiUaSimChecks: Check[] = [simClaude, simChatgpt, simGemini, simPerplexity, simDeepseek];
+export const multiUaSimChecks: Check[] = [
+  simClaude,
+  simChatgpt,
+  simGemini,
+  simPerplexity,
+  simDeepseek,
+];
 export { simClaude, simChatgpt, simGemini, simPerplexity, simDeepseek };

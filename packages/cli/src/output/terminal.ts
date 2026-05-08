@@ -71,8 +71,12 @@ export function formatReport(report: AuditReport): string {
   lines.push("");
 
   for (const category of report.categories) {
-    const bar = progressBar(category.score);
     const name = padRight(category.name, 24);
+    if (category.score === null) {
+      lines.push(`  ${name} ${chalk.gray("N/A".padEnd(BAR_WIDTH))}  ${chalk.gray("N/A")}`);
+      continue;
+    }
+    const bar = progressBar(category.score);
     lines.push(`  ${name} ${bar}  ${scoreColor(category.score)(`${category.score}/100`)}`);
   }
 
@@ -111,9 +115,11 @@ export function formatVerboseReport(report: AuditReport): string {
   lines.push("");
 
   for (const category of report.categories) {
-    lines.push(
-      `  ${chalk.bold(category.name)} — ${scoreColor(category.score)(`${category.score}/100`)}`,
-    );
+    const scoreStr =
+      category.score === null
+        ? chalk.gray("N/A")
+        : scoreColor(category.score)(`${category.score}/100`);
+    lines.push(`  ${chalk.bold(category.name)} — ${scoreStr}`);
     for (const check of category.checks) {
       const icon =
         check.status === "pass"

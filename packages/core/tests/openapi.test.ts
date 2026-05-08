@@ -450,7 +450,7 @@ describe("generateDataFiles with OpenAPI", () => {
     const files = generateDataFiles(ctx);
     const openapiFile = files.find((f) => f.filename === "mcp-server/data/openapi.json");
     expect(openapiFile).toBeDefined();
-    const parsed = JSON.parse(openapiFile!.content);
+    const parsed = JSON.parse(openapiFile?.content);
     expect(parsed.title).toBe("Test API");
     expect(parsed.endpoints).toHaveLength(1);
   });
@@ -504,11 +504,9 @@ describe("parseOpenAPISpec — origin policy", () => {
   });
 
   it("accepts relative serverUrl (resolves against baseUrl)", () => {
-    const result = parseOpenAPISpec(
-      makeSpec("/v1/api"),
-      "https://example.com/openapi.json",
-      { baseUrl: "https://example.com" },
-    );
+    const result = parseOpenAPISpec(makeSpec("/v1/api"), "https://example.com/openapi.json", {
+      baseUrl: "https://example.com",
+    });
     expect(result).not.toBeNull();
     expect(result?.serverUrl).toBe("/v1/api");
   });

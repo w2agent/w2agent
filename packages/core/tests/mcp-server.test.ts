@@ -790,7 +790,7 @@ describe("tool annotations", () => {
   // never as bare JS identifiers, or an attacker-controlled site can inject
   // arbitrary code into the generated MCP server.
   describe("form field name injection (security)", () => {
-    const HOSTILE = '}); injected(); ({ q';
+    const HOSTILE = "}); injected(); ({ q";
     const ctxWithHostile = () =>
       makeCtx({
         pages: [
@@ -974,9 +974,7 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
                 path: "/x",
                 method: "get",
                 operationId: "getX",
-                parameters: [
-                  { name: HOSTILE, in: "query", required: true, type: "string" },
-                ],
+                parameters: [{ name: HOSTILE, in: "query", required: true, type: "string" }],
               },
             ],
           } as any,
@@ -1217,7 +1215,7 @@ describe("e-commerce tools", () => {
     const files = generateMcpServer(ctx, undefined, mockArtifacts);
     const productsFile = files.find((f) => f.filename === "mcp-server/data/products.json");
     expect(productsFile).toBeDefined();
-    const data = JSON.parse(productsFile!.content);
+    const data = JSON.parse(productsFile?.content);
     expect(data).toHaveLength(2);
     expect(data[0].productId).toBe("p_abc123");
   });

@@ -103,5 +103,14 @@ export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   maxPages: 100,
   timeout: 10000,
   userAgent: "w2agent/0.1 (+https://w2agent.dev)",
-  formats: ["llms-txt", "agents-md", "full", "markdown", "robots-txt", "schema-org", "agent-card", "faq"],
+  formats: [
+    "llms-txt",
+    "agents-md",
+    "full",
+    "markdown",
+    "robots-txt",
+    "schema-org",
+    "agent-card",
+    "faq",
+  ],
 };

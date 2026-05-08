@@ -1,9 +1,14 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
 import { wellKnownAiPlugin } from "../src/audit/checks/discovery.js";
-import { simClaude, simChatgpt, simGemini, simPerplexity, simDeepseek } from "../src/audit/checks/multi-ua-sim.js";
+import {
+  simClaude,
+  simDeepseek,
+  simGemini,
+  simPerplexity,
+} from "../src/audit/checks/multi-ua-sim.js";
 import { crawlSite, fetchUnderUas } from "../src/audit/crawler.js";
+import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 const publicApi = agentAuthChecks.find((c) => c.id === "public-api")!;
 
@@ -19,10 +24,16 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://stripe.com/api/") {
-        return new Response("<html></html>", { status: 404, headers: { "content-type": "text/html" } });
+        return new Response("<html></html>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        });
       }
       if (u === "https://api.stripe.com/") {
-        return new Response('{"error":"missing auth"}', { status: 404, headers: { "content-type": "application/json" } });
+        return new Response('{"error":"missing auth"}', {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -36,7 +47,10 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://api.stripe.com/") {
-        return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+        return new Response('{"ok":true}', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -48,7 +62,10 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
 
   it("5xx + application/json does NOT pass (predicate excludes 5xx)", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      return new Response('{"error":"unavailable"}', { status: 503, headers: { "content-type": "application/json" } });
+      return new Response('{"error":"unavailable"}', {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
     });
     const result = await publicApi.run([makePage()], makeMeta());
     fetchSpy.mockRestore();
@@ -57,7 +74,10 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
 
   it("4xx + text/html does NOT pass (predicate requires JSON/YAML content-type)", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      return new Response("<html>Unauthorized</html>", { status: 401, headers: { "content-type": "text/html" } });
+      return new Response("<html>Unauthorized</html>", {
+        status: 401,
+        headers: { "content-type": "text/html" },
+      });
     });
     const result = await publicApi.run([makePage()], makeMeta());
     fetchSpy.mockRestore();
@@ -68,7 +88,10 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://stripe.com/api/") {
-        return new Response("openapi: 3.0.0\n", { status: 200, headers: { "content-type": "application/yaml" } });
+        return new Response("openapi: 3.0.0\n", {
+          status: 200,
+          headers: { "content-type": "application/yaml" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -81,7 +104,7 @@ describe("public-api accepts 4xx + JSON as positive evidence (A3)", () => {
 
 // --- A4: probeDeveloperPortal subdomain fallback ---
 const developerPortal = agentAuthChecks.find((c) => c.id === "developer-portal")!;
-const BIG_CONTENT = "Welcome to the API " + "x".repeat(1000);
+const BIG_CONTENT = `Welcome to the API ${"x".repeat(1000)}`;
 
 describe("developer-portal subdomain fallback (A4)", () => {
   it("canonical path hits → no subdomain probe fired", async () => {
@@ -98,7 +121,15 @@ describe("developer-portal subdomain fallback (A4)", () => {
       return new Response("", { status: 404 });
     });
     const result = await developerPortal.run(
-      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      [
+        {
+          url: "https://example.com/",
+          status: 200,
+          html: "<html></html>",
+          headers: {},
+          responseTime: 100,
+        },
+      ],
       { baseUrl: "https://example.com", wellKnown: {} },
     );
     fetchSpy.mockRestore();
@@ -106,7 +137,10 @@ describe("developer-portal subdomain fallback (A4)", () => {
     expect(result.message).toContain("https://example.com/api");
     // No subdomain URLs should have been attempted
     const subdomainCalls = urls.filter(
-      (u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."),
+      (u) =>
+        u.startsWith("https://docs.") ||
+        u.startsWith("https://developers.") ||
+        u.startsWith("https://developer."),
     );
     expect(subdomainCalls).toHaveLength(0);
   });
@@ -123,7 +157,15 @@ describe("developer-portal subdomain fallback (A4)", () => {
       return new Response("", { status: 404 });
     });
     const result = await developerPortal.run(
-      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      [
+        {
+          url: "https://example.com/",
+          status: 200,
+          html: "<html></html>",
+          headers: {},
+          responseTime: 100,
+        },
+      ],
       { baseUrl: "https://example.com", wellKnown: {} },
     );
     fetchSpy.mockRestore();
@@ -136,7 +178,15 @@ describe("developer-portal subdomain fallback (A4)", () => {
       return new Response("", { status: 404 });
     });
     const result = await developerPortal.run(
-      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      [
+        {
+          url: "https://example.com/",
+          status: 200,
+          html: "<html></html>",
+          headers: {},
+          responseTime: 100,
+        },
+      ],
       { baseUrl: "https://example.com", wellKnown: {} },
     );
     fetchSpy.mockRestore();
@@ -155,7 +205,15 @@ describe("developer-portal subdomain fallback (A4)", () => {
       return new Response("", { status: 404 });
     });
     const result = await developerPortal.run(
-      [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }],
+      [
+        {
+          url: "https://example.com/",
+          status: 200,
+          html: "<html></html>",
+          headers: {},
+          responseTime: 100,
+        },
+      ],
       { baseUrl: "https://example.com", wellKnown: {} },
     );
     fetchSpy.mockRestore();
@@ -173,7 +231,7 @@ const BASE_AUDIT_OPTIONS = {
   userAgent: "test-agent",
 };
 
-function makeCrawlFetch(overrides: Record<string, { status: number; body: string; ct?: string }>) {
+function _makeCrawlFetch(overrides: Record<string, { status: number; body: string; ct?: string }>) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
     const u = String(url);
     for (const [pattern, resp] of Object.entries(overrides)) {
@@ -213,7 +271,9 @@ describe("llms.txt subdomain fallback (A4)", () => {
     expect(result.metadata.llmsTxt).toContain("LLMs");
     const subdomainLlmsCalls = urls.filter(
       (u) =>
-        (u.includes("docs.example.com") || u.includes("developers.example.com") || u.includes("developer.example.com")) &&
+        (u.includes("docs.example.com") ||
+          u.includes("developers.example.com") ||
+          u.includes("developer.example.com")) &&
         u.includes("llms.txt"),
     );
     expect(subdomainLlmsCalls).toHaveLength(0);
@@ -244,10 +304,18 @@ describe("llms.txt subdomain fallback (A4)", () => {
 
 // --- A5: probeUrl one-retry with 2s back-off ---
 const portalCheck = agentAuthChecks.find((c) => c.id === "developer-portal")!;
-const A5_BIG_CONTENT = "Welcome to the developer API " + "x".repeat(1000);
+const A5_BIG_CONTENT = `Welcome to the developer API ${"x".repeat(1000)}`;
 // Fresh page array per call to avoid portalCache WeakMap hits across tests.
 function a5Page() {
-  return [{ url: "https://example.com/", status: 200, html: "<html></html>", headers: {}, responseTime: 100 }];
+  return [
+    {
+      url: "https://example.com/",
+      status: 200,
+      html: "<html></html>",
+      headers: {},
+      responseTime: 100,
+    },
+  ];
 }
 const A5_META = { baseUrl: "https://example.com", wellKnown: {} };
 
@@ -366,11 +434,14 @@ describe("probeUrl retry behaviour (A5)", () => {
 
 // --- A2: crawler sitemap fallback when link-starvation occurs ---
 const SPA_SHELL_HTML = "<html><body><div id='__next'></div></body></html>";
-const CONTENT_PAGE_HTML = "<html><body><main><h1>Product</h1>" + "word ".repeat(300) + "</main></body></html>";
+const CONTENT_PAGE_HTML = `<html><body><main><h1>Product</h1>${"word ".repeat(300)}</main></body></html>`;
 // Sitemap with www. prefix — parseSitemapWithMetadata (exact origin) will skip these,
 // but fillFromSitemap (subdomain-aware) will pick them up, triggering the fallback.
 function makeSitemapXml(host: string, count: number): string {
-  const locs = Array.from({ length: count }, (_, i) => `<url><loc>https://${host}/page${i + 1}</loc></url>`).join("\n");
+  const locs = Array.from(
+    { length: count },
+    (_, i) => `<url><loc>https://${host}/page${i + 1}</loc></url>`,
+  ).join("\n");
   return `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locs}\n</urlset>`;
 }
 
@@ -381,13 +452,22 @@ describe("crawler sitemap fallback (A2)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://spa.example.com/") {
-        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(SPA_SHELL_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       if (u === "https://spa.example.com/sitemap.xml") {
-        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+        return new Response(sitemapXml, {
+          status: 200,
+          headers: { "content-type": "application/xml" },
+        });
       }
       if (u.startsWith("https://www.spa.example.com/page")) {
-        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(CONTENT_PAGE_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -419,13 +499,22 @@ describe("crawler sitemap fallback (A2)", () => {
       const u = String(url);
       fetchedUrls.push(u);
       if (u === "https://example.com/") {
-        return new Response(homepageHtml, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(homepageHtml, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       if (u === "https://example.com/sitemap.xml") {
-        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+        return new Response(sitemapXml, {
+          status: 200,
+          headers: { "content-type": "application/xml" },
+        });
       }
       if (u.startsWith("https://example.com/")) {
-        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(CONTENT_PAGE_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -441,7 +530,9 @@ describe("crawler sitemap fallback (A2)", () => {
     fetchSpy.mockRestore();
 
     // Sitemap-only URLs (www.example.com) should never be fetched — fallback not triggered
-    const sitemapOnlyCalls = fetchedUrls.filter((u) => u.startsWith("https://www.example.com/page"));
+    const sitemapOnlyCalls = fetchedUrls.filter((u) =>
+      u.startsWith("https://www.example.com/page"),
+    );
     expect(sitemapOnlyCalls).toHaveLength(0);
   });
 
@@ -449,7 +540,10 @@ describe("crawler sitemap fallback (A2)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://spa.example.com/") {
-        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(SPA_SHELL_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -475,17 +569,29 @@ describe("crawler sitemap fallback (A2)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://spa.example.com/" || u === "https://spa.example.com")
-        return new Response('<html><body><div id="__next"></div></body></html>',
-          { status: 200, headers: { "content-type": "text/html" } });
+        return new Response('<html><body><div id="__next"></div></body></html>', {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       if (u.endsWith("/sitemap.xml"))
-        return new Response(cdataSitemap, { status: 200, headers: { "content-type": "application/xml" } });
+        return new Response(cdataSitemap, {
+          status: 200,
+          headers: { "content-type": "application/xml" },
+        });
       if (u.endsWith("/robots.txt")) return new Response("", { status: 404 });
       if (u === "https://spa.example.com/article-cdata")
-        return new Response("<html><body><h1>article</h1>" + "x".repeat(2000) + "</body></html>",
-          { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(`<html><body><h1>article</h1>${"x".repeat(2000)}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       return new Response("", { status: 404 });
     });
-    const out = await crawlSite("https://spa.example.com/", { maxPages: 6, timeout: 5000, verbose: false, userAgent: "test" });
+    const out = await crawlSite("https://spa.example.com/", {
+      maxPages: 6,
+      timeout: 5000,
+      verbose: false,
+      userAgent: "test",
+    });
     fetchSpy.mockRestore();
     // The CDATA-wrapped URL should have been fetched as part of the fallback.
     expect(out.pages.some((p) => p.url === "https://spa.example.com/article-cdata")).toBe(true);
@@ -496,13 +602,22 @@ describe("crawler sitemap fallback (A2)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://spa.example.com/") {
-        return new Response(SPA_SHELL_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(SPA_SHELL_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       if (u === "https://spa.example.com/sitemap.xml") {
-        return new Response(sitemapXml, { status: 200, headers: { "content-type": "application/xml" } });
+        return new Response(sitemapXml, {
+          status: 200,
+          headers: { "content-type": "application/xml" },
+        });
       }
       if (u.startsWith("https://www.spa.example.com/page")) {
-        return new Response(CONTENT_PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(CONTENT_PAGE_HTML, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response("", { status: 404 });
     });
@@ -538,7 +653,10 @@ describe("no-js-dependency SPA detection (A1)", () => {
   // This page has 55+ words from nav/meta text so it PASSES word-count alone,
   // but the SPA shell signals (root mount + 0 anchors + script >> body text) must catch it.
   it("SPA shell with __next root marker, 0 anchors, lots of script → fail even when word count clears 50", () => {
-    const navWords = "Home About Pricing Contact Blog Support Docs Sign in Get started Try now Demo Features Enterprise ".repeat(5);
+    const navWords =
+      "Home About Pricing Contact Blog Support Docs Sign in Get started Try now Demo Features Enterprise ".repeat(
+        5,
+      );
     const html = `<html>
   <head><title>OpenAI</title><meta name="description" content="${"great platform ".repeat(5)}"/></head>
   <body>
@@ -553,7 +671,7 @@ describe("no-js-dependency SPA detection (A1)", () => {
   });
 
   it("real article page with substantial body text and root marker → pass (5 anchors + high word count)", () => {
-    const html = `<html><body><div id="root"></div><h1>Article Title</h1>${"<p>" + "Lorem ipsum dolor sit amet ".repeat(100) + "</p>"}<a href="/x">link 1</a><a href="/y">link 2</a><a href="/z">link 3</a><a href="/q">link 4</a><a href="/r">link 5</a></body></html>`;
+    const html = `<html><body><div id="root"></div><h1>Article Title</h1>${`<p>${"Lorem ipsum dolor sit amet ".repeat(100)}</p>`}<a href="/x">link 1</a><a href="/y">link 2</a><a href="/z">link 3</a><a href="/q">link 4</a><a href="/r">link 5</a></body></html>`;
     const result = noJsDependency.run([makeJsPage(html)]);
     expect(result.status).toBe("pass");
   });
@@ -574,9 +692,11 @@ describe("no-js-dependency SPA detection (A1)", () => {
 // --- A4 polish: www. stripping + sequential subdomain probing ---
 // Fresh page array per call to avoid portalCache WeakMap hits across tests.
 function a4polishPage(host = "example.com") {
-  return [{ url: `https://${host}/`, status: 200, html: "<html></html>", headers: {}, responseTime: 100 }];
+  return [
+    { url: `https://${host}/`, status: 200, html: "<html></html>", headers: {}, responseTime: 100 },
+  ];
 }
-const PORTAL_BIG = "Welcome to the API docs " + "x".repeat(1000);
+const PORTAL_BIG = `Welcome to the API docs ${"x".repeat(1000)}`;
 
 describe("A4 polish: www. stripping and sequential subdomain probing", () => {
   it("www. is stripped before subdomain probe — probes docs.example.com not docs.www.example.com", async () => {
@@ -585,12 +705,17 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
       probedUrls.push(String(url));
       return new Response("", { status: 404 });
     });
-    await developerPortal.run(
-      a4polishPage("www.example.com"),
-      { baseUrl: "https://www.example.com", wellKnown: {} },
-    );
+    await developerPortal.run(a4polishPage("www.example.com"), {
+      baseUrl: "https://www.example.com",
+      wellKnown: {},
+    });
     fetchSpy.mockRestore();
-    const subdomainCalls = probedUrls.filter((u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."));
+    const subdomainCalls = probedUrls.filter(
+      (u) =>
+        u.startsWith("https://docs.") ||
+        u.startsWith("https://developers.") ||
+        u.startsWith("https://developer."),
+    );
     expect(subdomainCalls.some((u) => u.includes("docs.www.example.com"))).toBe(false);
     expect(subdomainCalls.some((u) => u === "https://docs.example.com/")).toBe(true);
   });
@@ -601,12 +726,17 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
       probedUrls.push(String(url));
       return new Response("", { status: 404 });
     });
-    await developerPortal.run(
-      a4polishPage("example.com"),
-      { baseUrl: "https://example.com", wellKnown: {} },
-    );
+    await developerPortal.run(a4polishPage("example.com"), {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+    });
     fetchSpy.mockRestore();
-    const subdomainCalls = probedUrls.filter((u) => u.startsWith("https://docs.") || u.startsWith("https://developers.") || u.startsWith("https://developer."));
+    const subdomainCalls = probedUrls.filter(
+      (u) =>
+        u.startsWith("https://docs.") ||
+        u.startsWith("https://developers.") ||
+        u.startsWith("https://developer."),
+    );
     expect(subdomainCalls.some((u) => u === "https://docs.example.com/")).toBe(true);
   });
 
@@ -616,14 +746,17 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
       const u = String(url);
       probedUrls.push(u);
       if (u === "https://docs.example.com/") {
-        return new Response(`<html><body>${PORTAL_BIG}</body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+        return new Response(`<html><body>${PORTAL_BIG}</body></html>`, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       }
       return new Response("", { status: 404 });
     });
-    const result = await developerPortal.run(
-      a4polishPage(),
-      { baseUrl: "https://example.com", wellKnown: {} },
-    );
+    const result = await developerPortal.run(a4polishPage(), {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+    });
     fetchSpy.mockRestore();
     expect(result.status).toBe("pass");
     expect(probedUrls.some((u) => u === "https://developers.example.com/")).toBe(false);
@@ -632,7 +765,13 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
 });
 
 describe("ai-plugin.json well-known probe (D2a)", () => {
-  const page: FetchedPage = { url: "https://example.com", status: 200, html: "<html></html>", headers: {}, responseTime: 100 };
+  const page: FetchedPage = {
+    url: "https://example.com",
+    status: 200,
+    html: "<html></html>",
+    headers: {},
+    responseTime: 100,
+  };
 
   it("valid manifest with schema_version in metadata → pass", () => {
     const meta: SiteMetadata = {
@@ -657,7 +796,10 @@ describe("ai-plugin.json well-known probe (D2a)", () => {
       baseUrl: "https://example.com",
       wellKnown: { "ai-plugin.json": JSON.stringify({ name: "thing" }) },
     };
-    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
+    const result = wellKnownAiPlugin.run(
+      [page],
+      meta,
+    ) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("partial");
   });
 
@@ -666,13 +808,19 @@ describe("ai-plugin.json well-known probe (D2a)", () => {
       baseUrl: "https://example.com",
       wellKnown: { "ai-plugin.json": "not json" },
     };
-    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
+    const result = wellKnownAiPlugin.run(
+      [page],
+      meta,
+    ) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("partial");
   });
 
   it("absent from metadata → fail", () => {
     const meta: SiteMetadata = { baseUrl: "https://example.com", wellKnown: {} };
-    const result = wellKnownAiPlugin.run([page], meta) as import("../src/audit/types.js").CheckResult;
+    const result = wellKnownAiPlugin.run(
+      [page],
+      meta,
+    ) as import("../src/audit/types.js").CheckResult;
     expect(result.status).toBe("fail");
   });
 });
@@ -686,7 +834,13 @@ describe("multi-UA simulation (D1)", () => {
       ...makeMeta("https://example.com"),
       llmsTxt: "# llms.txt\n",
       multiUaResponses: {
-        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        claude: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -699,7 +853,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 403, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "ok" },
+        claude: {
+          status: 403,
+          contentLength: 0,
+          finalUrl: "https://example.com/",
+          reachable: false,
+          outcome: "ok",
+        },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -712,7 +872,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        claude: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -742,7 +908,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "fetch-error" },
+        claude: {
+          status: 0,
+          contentLength: 0,
+          finalUrl: "https://example.com/",
+          reachable: false,
+          outcome: "fetch-error",
+        },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -754,7 +926,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        claude: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "blocked-by-robots" },
+        claude: {
+          status: 0,
+          contentLength: 0,
+          finalUrl: "https://example.com/",
+          reachable: false,
+          outcome: "blocked-by-robots",
+        },
       },
     };
     const result = await simClaude.run([page], meta);
@@ -776,9 +954,12 @@ describe("multi-UA simulation (D1)", () => {
         return new Response("", { status: 403 });
       }
       if (ua.includes("PerplexityBot")) {
-        return new Response("<html>long content here for perplexity bot testing purposes to exceed threshold</html>", {
-          status: 200,
-        });
+        return new Response(
+          "<html>long content here for perplexity bot testing purposes to exceed threshold</html>",
+          {
+            status: 200,
+          },
+        );
       }
       if (ua.includes("DeepSeekBot")) {
         return new Response("<html>ok</html>", { status: 200 });
@@ -786,7 +967,9 @@ describe("multi-UA simulation (D1)", () => {
       return new Response("", { status: 404 });
     });
 
-    const result = await fetchUnderUas("https://example.com/", { timeout: 5000 } as import("../src/audit/types.js").AuditOptions);
+    const result = await fetchUnderUas("https://example.com/", {
+      timeout: 5000,
+    } as import("../src/audit/types.js").AuditOptions);
     fetchSpy.mockRestore();
 
     expect(Object.keys(result)).toEqual(
@@ -823,14 +1006,27 @@ describe("multi-UA simulation (D1)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       if (u === "https://example.com/" || u === "https://example.com")
-        return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
+        return new Response("<html></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
       if (u === "https://example.com/.well-known/ai-plugin.json")
-        return new Response('{"schema_version":"v1"}', { status: 200, headers: { "content-type": "application/json" } });
+        return new Response('{"schema_version":"v1"}', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       if (u.endsWith("/robots.txt") || u.endsWith("/sitemap.xml") || u.endsWith("/llms.txt"))
         return new Response("", { status: 404 });
       return new Response("", { status: 404 });
     });
-    const out = await crawlSite("https://example.com/", { maxPages: 1, timeout: 5000, verbose: false, userAgent: "test", requestDelay: 0, concurrency: 1 });
+    const out = await crawlSite("https://example.com/", {
+      maxPages: 1,
+      timeout: 5000,
+      verbose: false,
+      userAgent: "test",
+      requestDelay: 0,
+      concurrency: 1,
+    });
     fetchSpy.mockRestore();
     expect(out.metadata.wellKnown["ai-plugin.json"]).toBeTruthy();
   });
@@ -839,10 +1035,19 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        gemini: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        gemini: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
-    const pageWithJsonLd = makePage('<html><head><script type="application/ld+json">{}</script></head></html>', "https://example.com/");
+    const pageWithJsonLd = makePage(
+      '<html><head><script type="application/ld+json">{}</script></head></html>',
+      "https://example.com/",
+    );
     const result = await simGemini.run([pageWithJsonLd], meta);
     expect(result.status).toBe("pass");
     expect(result.score).toBe(100);
@@ -852,10 +1057,19 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        gemini: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        gemini: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
-    const result = await simGemini.run([makePage("<html><body>no json-ld here</body></html>")], meta);
+    const result = await simGemini.run(
+      [makePage("<html><body>no json-ld here</body></html>")],
+      meta,
+    );
     expect(result.status).toBe("partial");
     expect(result.score).toBe(50);
   });
@@ -864,7 +1078,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        perplexity: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        perplexity: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
     const result = await simPerplexity.run([makePage()], meta);
@@ -876,7 +1096,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        perplexity: { status: 200, contentLength: 100, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        perplexity: {
+          status: 200,
+          contentLength: 100,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
     const result = await simPerplexity.run([makePage()], meta);
@@ -888,7 +1114,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        deepseek: { status: 200, contentLength: 5000, finalUrl: "https://example.com/", reachable: true, outcome: "ok" },
+        deepseek: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
       },
     };
     const result = await simDeepseek.run([makePage()], meta);
@@ -900,7 +1132,13 @@ describe("multi-UA simulation (D1)", () => {
     const meta: SiteMetadata = {
       ...makeMeta("https://example.com"),
       multiUaResponses: {
-        deepseek: { status: 0, contentLength: 0, finalUrl: "https://example.com/", reachable: false, outcome: "fetch-error" },
+        deepseek: {
+          status: 0,
+          contentLength: 0,
+          finalUrl: "https://example.com/",
+          reachable: false,
+          outcome: "fetch-error",
+        },
       },
     };
     const result = await simDeepseek.run([makePage()], meta);

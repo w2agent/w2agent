@@ -143,16 +143,19 @@ export function applyNaCascade(results: CheckResult[]): CheckResult[] {
   const byId = new Map(results.map((r) => [r.id, r]));
   // §5.6 cascade — order matches §3 dependency graph (acyclic; references only earlier checks).
   const cascade: Array<{ id: string; naWhen: (m: Map<string, CheckResult>) => boolean }> = [
-    { id: "openapi-spec",             naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "developer-portal",         naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "agent-auth-docs",          naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
-    { id: "oauth-support",            naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "openapi-spec", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "developer-portal", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "agent-auth-docs", naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
+    { id: "oauth-support", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "oauth-protected-resource", naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "scoped-permissions",       naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
-    { id: "pkce-s256",                naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")) },
-    { id: "mcp-pkce-s256",            naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
-    { id: "api-catalog-rfc9727",      naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "mcp-server-card",          naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "scoped-permissions", naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
+    {
+      id: "pkce-s256",
+      naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")),
+    },
+    { id: "mcp-pkce-s256", naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
+    { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "mcp-server-card", naWhen: (m) => isFailOrNa(m.get("public-api")) },
   ];
   for (const { id, naWhen } of cascade) {
     const r = byId.get(id);

@@ -110,15 +110,13 @@ export async function probeOpenAPIPaths(
       const json = JSON.parse(result.text);
       if (!json.openapi && !json.swagger) continue;
       return parseOpenAPISpec(json, specUrl, policy);
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   // Phase 2: scan homepage HTML for OpenAPI/Swagger links
   if (htmlHints?.homepageHtml) {
-    const candidateUrls = extractOpenAPILinksFromHTML(htmlHints.homepageHtml, baseUrl).filter(
-      (u) => isOriginAllowed(u, baseUrl, options.allowedOffOriginHosts),
+    const candidateUrls = extractOpenAPILinksFromHTML(htmlHints.homepageHtml, baseUrl).filter((u) =>
+      isOriginAllowed(u, baseUrl, options.allowedOffOriginHosts),
     );
     for (const candidateUrl of candidateUrls) {
       const result = await fetchText(candidateUrl, options);
@@ -127,9 +125,7 @@ export async function probeOpenAPIPaths(
         const json = JSON.parse(result.text);
         if (!json.openapi && !json.swagger) continue;
         return parseOpenAPISpec(json, candidateUrl, policy);
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
 

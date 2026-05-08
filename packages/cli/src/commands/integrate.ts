@@ -198,9 +198,7 @@ export function registerIntegrateCommand(program: Command): void {
             console.log(chalk.bold(`  Recommended: use the npm package`));
             console.log(`    ${chalk.cyan(`npm install ${npmPkg}`)}`);
             console.log(
-              chalk.gray(
-                `  The generated files above are an alternative for manual setup.`,
-              ),
+              chalk.gray(`  The generated files above are an alternative for manual setup.`),
             );
             console.log("");
           }

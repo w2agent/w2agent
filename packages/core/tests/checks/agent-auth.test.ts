@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../../src/audit/checks/agent-auth.js";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
@@ -42,7 +42,9 @@ const originalFetch = globalThis.fetch;
 
 // --- A1 public-api ---
 describe("agent-auth: A1 public-api", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when /api/ returns JSON", async () => {
     globalThis.fetch = mockFetch((url) => {
@@ -117,10 +119,12 @@ describe("agent-auth: A2 openapi-spec", () => {
 
 // --- A3 developer-portal ---
 describe("agent-auth: A3 developer-portal", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when portal has >= 1000 chars of content", async () => {
-    const bigContent = "Welcome to the API " + "x".repeat(1000);
+    const bigContent = `Welcome to the API ${"x".repeat(1000)}`;
     globalThis.fetch = mockFetch((url) => {
       if (url.endsWith("/api")) return htmlResp(`<html><body>${bigContent}</body></html>`);
       return notFound();
@@ -150,7 +154,9 @@ describe("agent-auth: A3 developer-portal", () => {
 
 // --- A4 agent-auth-docs ---
 describe("agent-auth: A4 agent-auth-docs", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when >= 3 keyword pairs found in portal", async () => {
     const text =
@@ -257,7 +263,8 @@ describe("agent-auth: B3 oauth-metadata-rfc9728", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
         oauthResourceMetadataUrl: "https://example.com/.well-known/oauth-protected-resource",
       },
       wellKnown: { "oauth-protected-resource": '{"resource": "x"}' },
@@ -272,7 +279,8 @@ describe("agent-auth: B3 oauth-metadata-rfc9728", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
         oauthResourceMetadataUrl: "https://example.com/.well-known/oauth-protected-resource",
       },
     };
@@ -294,7 +302,9 @@ describe("agent-auth: B3 oauth-metadata-rfc9728", () => {
 
 // --- B4 scoped-permissions ---
 describe("agent-auth: B4 scoped-permissions", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when >= 3 scope signals in portal", async () => {
     const text = "read:users write:posts admin:settings scope permission token";
@@ -328,7 +338,9 @@ describe("agent-auth: B4 scoped-permissions", () => {
 
 // --- B5 pkce-s256 ---
 describe("agent-auth: B5 pkce-s256", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when S256 in oauth metadata", async () => {
     const check = agentAuthChecks.find((c) => c.id === "pkce-s256")!;
@@ -431,7 +443,8 @@ describe("agent-auth: C2 mcp-oauth-metadata", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
       },
       wellKnown: { "oauth-protected-resource": '{"resource": "x"}' },
     };
@@ -445,7 +458,8 @@ describe("agent-auth: C2 mcp-oauth-metadata", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
       },
     };
     expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
@@ -475,7 +489,8 @@ describe("agent-auth: C3 mcp-pkce-s256", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
       },
       wellKnown: {
         "oauth-authorization-server": JSON.stringify({
@@ -494,7 +509,8 @@ describe("agent-auth: C3 mcp-pkce-s256", () => {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
         status: 401,
-        linkHeader: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
+        linkHeader:
+          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
       },
       wellKnown: {
         "oauth-authorization-server": JSON.stringify({
@@ -521,7 +537,9 @@ describe("agent-auth: C3 mcp-pkce-s256", () => {
 
 // --- D1 web-bot-auth-directory ---
 describe("agent-auth: D1 web-bot-auth-directory", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when valid JSON directory found", async () => {
     globalThis.fetch = mockFetch((url) => {
@@ -555,7 +573,9 @@ describe("agent-auth: D1 web-bot-auth-directory", () => {
 
 // --- D2 api-catalog-rfc9727 ---
 describe("agent-auth: D2 api-catalog-rfc9727", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when apis array with name+url entries", async () => {
     globalThis.fetch = mockFetch((url) => {
@@ -633,7 +653,9 @@ Disallow: /
 
 // --- D4 mcp-server-card ---
 describe("agent-auth: D4 mcp-server-card", () => {
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   it("pass when mcp.json has name+version+capabilities", async () => {
     globalThis.fetch = mockFetch((url) => {
@@ -667,11 +689,22 @@ describe("agent-auth: D4 mcp-server-card", () => {
 // --- meta: all 16 check IDs exported ---
 describe("agent-auth: check registry", () => {
   const EXPECTED_IDS = [
-    "public-api", "openapi-spec", "developer-portal", "agent-auth-docs",
-    "oauth-support", "oauth-protected-resource", "oauth-metadata-rfc9728",
-    "scoped-permissions", "pkce-s256",
-    "mcp-auth-mechanism", "mcp-oauth-metadata", "mcp-pkce-s256",
-    "web-bot-auth-directory", "api-catalog-rfc9727", "agent-allowlist", "mcp-server-card",
+    "public-api",
+    "openapi-spec",
+    "developer-portal",
+    "agent-auth-docs",
+    "oauth-support",
+    "oauth-protected-resource",
+    "oauth-metadata-rfc9728",
+    "scoped-permissions",
+    "pkce-s256",
+    "mcp-auth-mechanism",
+    "mcp-oauth-metadata",
+    "mcp-pkce-s256",
+    "web-bot-auth-directory",
+    "api-catalog-rfc9727",
+    "agent-allowlist",
+    "mcp-server-card",
   ];
 
   it("exports all 16 checks", () => {

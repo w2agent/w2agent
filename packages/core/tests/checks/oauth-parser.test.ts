@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseOAuthMetadata,
-  parseMcpResourceLink,
-} from "../../src/audit/shared/oauth-parser.js";
+import { parseMcpResourceLink, parseOAuthMetadata } from "../../src/audit/shared/oauth-parser.js";
 
 describe("parseOAuthMetadata", () => {
   it("extracts known fields from valid JSON", () => {

@@ -4,16 +4,38 @@ import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { parseMcpResourceLink } from "./shared/oauth-parser.js";
-import type { AuditOptions, FetchedPage, McpInitResult, MultiUaResponse, SiteMetadata } from "./types.js";
+import type {
+  AuditOptions,
+  FetchedPage,
+  McpInitResult,
+  MultiUaResponse,
+  SiteMetadata,
+} from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const AGENT_UAS: { key: string; ua: string; robotsName: string }[] = [
-  { key: "claude",     ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)",       robotsName: "ClaudeBot" },
-  { key: "chatgpt",    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",                  robotsName: "ChatGPT-User" },
-  { key: "gemini",     ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)",                                        robotsName: "Google-Extended" },
-  { key: "perplexity", ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)", robotsName: "PerplexityBot" },
-  { key: "deepseek",   ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)",                                            robotsName: "DeepSeekBot" },
+  {
+    key: "claude",
+    ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)",
+    robotsName: "ClaudeBot",
+  },
+  {
+    key: "chatgpt",
+    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+    robotsName: "ChatGPT-User",
+  },
+  {
+    key: "gemini",
+    ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)",
+    robotsName: "Google-Extended",
+  },
+  {
+    key: "perplexity",
+    ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)",
+    robotsName: "PerplexityBot",
+  },
+  { key: "deepseek", ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)", robotsName: "DeepSeekBot" },
 ];
 
 export async function fetchUnderUas(
@@ -29,19 +51,35 @@ export async function fetchUnderUas(
   const start = Date.now();
 
   const robotsRulesUrl = (() => {
-    try { return `${new URL(homepageUrl).origin}/robots.txt`; } catch { return `${homepageUrl}/robots.txt`; }
+    try {
+      return `${new URL(homepageUrl).origin}/robots.txt`;
+    } catch {
+      return `${homepageUrl}/robots.txt`;
+    }
   })();
   const robots = robotsParser(robotsRulesUrl, robotsTxt ?? "");
 
   for (const { key, ua, robotsName } of AGENT_UAS) {
     if (Date.now() - start > budget) {
-      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "budget-skipped" };
+      responses[key] = {
+        status: 0,
+        contentLength: 0,
+        finalUrl: homepageUrl,
+        reachable: false,
+        outcome: "budget-skipped",
+      };
       continue;
     }
 
     // Check robots.txt before fetching
     if (robotsTxt && robots.isAllowed(homepageUrl, robotsName) === false) {
-      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: "blocked-by-robots" };
+      responses[key] = {
+        status: 0,
+        contentLength: 0,
+        finalUrl: homepageUrl,
+        reachable: false,
+        outcome: "blocked-by-robots",
+      };
       continue;
     }
 
@@ -58,7 +96,10 @@ export async function fetchUnderUas(
           const { done, value } = await reader.read();
           if (done || !value) break;
           contentLength += value.length;
-          if (contentLength >= cap) { await reader.cancel(); break; }
+          if (contentLength >= cap) {
+            await reader.cancel();
+            break;
+          }
         }
       }
       responses[key] = {
@@ -70,7 +111,13 @@ export async function fetchUnderUas(
       };
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === "TimeoutError";
-      responses[key] = { status: 0, contentLength: 0, finalUrl: homepageUrl, reachable: false, outcome: isTimeout ? "timeout" : "fetch-error" };
+      responses[key] = {
+        status: 0,
+        contentLength: 0,
+        finalUrl: homepageUrl,
+        reachable: false,
+        outcome: isTimeout ? "timeout" : "fetch-error",
+      };
     }
   }
   return responses;
@@ -113,7 +160,10 @@ export async function crawlSite(
     // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
     // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
     for (const sub of LLMS_SUBDOMAINS) {
-      const r = await fetchText(`${base.protocol}//${sub}.${stripWww(base.hostname)}/llms.txt`, options);
+      const r = await fetchText(
+        `${base.protocol}//${sub}.${stripWww(base.hostname)}/llms.txt`,
+        options,
+      );
       if (r && r.status === 200) {
         llmsTxtFallback = r.text;
         break;
@@ -260,7 +310,7 @@ async function fillFromSitemap(
     .filter((u) => {
       try {
         const h = new URL(u).hostname;
-        return (h === baseHost || h.endsWith("." + baseHost)) && !seen.has(u);
+        return (h === baseHost || h.endsWith(`.${baseHost}`)) && !seen.has(u);
       } catch {
         return false;
       }
@@ -294,7 +344,10 @@ async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpIni
     };
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
       body: JSON.stringify(initRequest),
       signal: AbortSignal.timeout(5000),
     });

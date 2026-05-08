@@ -3,10 +3,10 @@ import { parseHTML } from "../shared/html-parser.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
-import type { LocalBusinessArtifacts } from "./local-business.js";
-import { generateLocalBusinessToolHandlers } from "./local-business.js";
 import { generateFaq } from "./faq.js";
 import { extractSiteInfo } from "./llms-txt.js";
+import type { LocalBusinessArtifacts } from "./local-business.js";
+import { generateLocalBusinessToolHandlers } from "./local-business.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
@@ -118,7 +118,7 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
 }
 
 function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): string {
-  let base = ep.operationId
+  const base = ep.operationId
     ? ep.operationId
         .replace(/([a-z])([A-Z])/g, "$1-$2")
         .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
@@ -643,16 +643,22 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(`    const _res = await fetch(${actionUrl}, {`);
     lines.push(`      method: "POST",`);
     lines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
-    lines.push(`      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`);
+    lines.push(
+      `      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`,
+    );
     lines.push(`      signal: _controller.signal,`);
     lines.push(`    });`);
     lines.push(`    clearTimeout(_timer);`);
     lines.push(`    const _text = await _res.text();`);
     lines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
-    lines.push(`    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`);
+    lines.push(
+      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`,
+    );
     lines.push(`  } catch (err) {`);
     lines.push(`    clearTimeout(_timer);`);
-    lines.push(`    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`);
+    lines.push(
+      `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
+    );
     lines.push(`  }`);
     lines.push(`});`);
     lines.push(``);
@@ -720,7 +726,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       `server.tool("get-hours", "Get business hours and opening times", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
     );
     lines.push(`  const result = getHours(business);`);
-    lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+    lines.push(
+      `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
+    );
     lines.push(`});`);
     lines.push(``);
 
@@ -731,7 +739,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
         `server.tool("get-menu", "Get the menu URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
       lines.push(`  const result = getMenu(business);`);
-      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(
+        `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
+      );
       lines.push(`});`);
       lines.push(``);
     }
@@ -743,7 +753,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
         `server.tool("get-services", "Get the services page URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
       lines.push(`  const result = getServices(business);`);
-      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(
+        `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
+      );
       lines.push(`});`);
       lines.push(``);
     }
@@ -755,7 +767,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
         `server.tool("book-appointment", "Get booking URL and instructions for scheduling", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
       lines.push(`  const result = bookAppointment(business);`);
-      lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`);
+      lines.push(
+        `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
+      );
       lines.push(`});`);
       lines.push(``);
     }
@@ -1037,10 +1051,7 @@ ${fieldSchemas.join(",\n")}
 }${
   detected.hasOpenapi && detected.openapiEndpoints.length > 0
     ? "\n" +
-      generateOpenapiToolHandlers(
-        detected.openapiEndpoints,
-        detected.openapiServerUrl || baseUrl,
-      )
+      generateOpenapiToolHandlers(detected.openapiEndpoints, detected.openapiServerUrl || baseUrl)
         .map((l) => (l ? `  ${l}` : l))
         .join("\n")
     : ""
@@ -1296,7 +1307,7 @@ ${
           const formTools = detected.tools.filter((t) => t.condition === "hasForm");
           const toolName = formTools[i]?.name ?? `submit-form-${i}`;
           const properties = Object.fromEntries(
-            form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }])
+            form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }]),
           );
           const required = form.fields.filter((f) => f.required).map((f) => f.name);
           return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
@@ -1310,9 +1321,7 @@ ${
         .map(({ toolName, ep }) => {
           const pathParams = ep.parameters.filter((p) => p.in === "path");
           const queryParams = ep.parameters.filter((p) => p.in === "query");
-          const bodyProps = ep.requestBody
-            ? Object.entries(ep.requestBody.properties)
-            : [];
+          const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
           const properties: Record<string, { type: string }> = {};
           for (const p of [...pathParams, ...queryParams]) {
             properties[p.name] = {
@@ -1332,8 +1341,7 @@ ${
           const annotations = isReadOnly
             ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
             : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
-          const desc =
-            ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
+          const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
           return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
         })
         .join("\n")
@@ -1397,13 +1405,13 @@ ${
       }`
           : ""
       }${
-  detected.forms.length > 0
-    ? detected.forms
-        .map((form, i) => {
-          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
-          return ` else if (toolName === ${JSON.stringify(toolName)}) {
+        detected.forms.length > 0
+          ? detected.forms
+              .map((form, i) => {
+                const formTools = detected.tools.filter((t) => t.condition === "hasForm");
+                const toolName = formTools[i]?.name ?? `submit-form-${i}`;
+                const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+                return ` else if (toolName === ${JSON.stringify(toolName)}) {
         const _controller = new AbortController();
         const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
@@ -1422,68 +1430,63 @@ ${
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
-        })
-        .join("")
-    : ""
-}${
-  openapiTools.length > 0
-    ? openapiTools
-        .map(({ toolName, ep }) => {
-          const pathParams = ep.parameters.filter((p) => p.in === "path");
-          const queryParams = ep.parameters.filter((p) => p.in === "query");
-          const bodyProps = ep.requestBody
-            ? Object.entries(ep.requestBody.properties)
-            : [];
+              })
+              .join("")
+          : ""
+      }${
+        openapiTools.length > 0
+          ? openapiTools
+              .map(({ toolName, ep }) => {
+                const pathParams = ep.parameters.filter((p) => p.in === "path");
+                const queryParams = ep.parameters.filter((p) => p.in === "query");
+                const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
 
-          let urlExpr = JSON.stringify(apiBase + ep.path);
-          for (const p of pathParams) {
-            urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args.${p.name}))`;
-          }
+                let urlExpr = JSON.stringify(apiBase + ep.path);
+                for (const p of pathParams) {
+                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args.${p.name}))`;
+                }
 
-          const queryLines: string[] = [];
-          if (queryParams.length > 0) {
-            queryLines.push(`          const _query = new URLSearchParams();`);
-            for (const p of queryParams) {
-              if (p.required) {
-                queryLines.push(
-                  `          _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
-                );
-              } else {
-                queryLines.push(
-                  `          if (args.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
-                );
-              }
-            }
-            queryLines.push(
-              `          const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`,
-            );
-          }
+                const queryLines: string[] = [];
+                if (queryParams.length > 0) {
+                  queryLines.push(`          const _query = new URLSearchParams();`);
+                  for (const p of queryParams) {
+                    if (p.required) {
+                      queryLines.push(
+                        `          _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                      );
+                    } else {
+                      queryLines.push(
+                        `          if (args.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                      );
+                    }
+                  }
+                  queryLines.push(
+                    `          const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`,
+                  );
+                }
 
-          const bodyLines: string[] = [];
-          let fetchExtra: string;
-          if (bodyProps.length > 0) {
-            bodyLines.push(`          const _body: Record<string, unknown> = {};`);
-            for (const [propName] of bodyProps) {
-              bodyLines.push(
-                `          if (args.${propName} !== undefined) _body[${JSON.stringify(propName)}] = args.${propName};`,
-              );
-            }
-            fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
-          } else {
-            fetchExtra = `, headers: { "Accept": "application/json" }`;
-          }
+                const bodyLines: string[] = [];
+                let fetchExtra: string;
+                if (bodyProps.length > 0) {
+                  bodyLines.push(`          const _body: Record<string, unknown> = {};`);
+                  for (const [propName] of bodyProps) {
+                    bodyLines.push(
+                      `          if (args.${propName} !== undefined) _body[${JSON.stringify(propName)}] = args.${propName};`,
+                    );
+                  }
+                  fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
+                } else {
+                  fetchExtra = `, headers: { "Accept": "application/json" }`;
+                }
 
-          const innerLines = [
-            ...queryLines,
-            ...bodyLines,
-          ].join("\n");
+                const innerLines = [...queryLines, ...bodyLines].join("\n");
 
-          return ` else if (toolName === ${JSON.stringify(toolName)}) {
+                return ` else if (toolName === ${JSON.stringify(toolName)}) {
         const _controller = new AbortController();
         const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
           let _url = ${urlExpr};
-${innerLines ? innerLines + "\n" : ""}          const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra}, signal: _controller.signal });
+${innerLines ? `${innerLines}\n` : ""}          const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra}, signal: _controller.signal });
           clearTimeout(_timer);
           const _text = await _res.text();
           const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;
@@ -1493,10 +1496,10 @@ ${innerLines ? innerLines + "\n" : ""}          const _res = await fetch(_url, {
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
-        })
-        .join("")
-    : ""
-} else {
+              })
+              .join("")
+          : ""
+      } else {
         return new Response(JSON.stringify({
           jsonrpc: "2.0", id: body.id,
           error: { code: -32601, message: "Unknown tool: " + toolName },

@@ -1,8 +1,5 @@
 interface AdminClient {
-  graphql(
-    query: string,
-    options?: { variables?: Record<string, unknown> },
-  ): Promise<Response>;
+  graphql(query: string, options?: { variables?: Record<string, unknown> }): Promise<Response>;
 }
 
 function stripHtml(html: string): string {
@@ -21,7 +18,7 @@ function stripHtml(html: string): string {
 function truncate(text: string, words: number): string {
   const split = text.split(/\s+/);
   if (split.length <= words) return text;
-  return split.slice(0, words).join(" ") + "...";
+  return `${split.slice(0, words).join(" ")}...`;
 }
 
 const SHOP_QUERY = `#graphql
@@ -73,11 +70,7 @@ const PAGES_QUERY = `#graphql
 const PAGE_SIZE = 250;
 const MAX_ITEMS = 2000;
 
-async function fetchAll<T>(
-  admin: AdminClient,
-  query: string,
-  rootField: string,
-): Promise<T[]> {
+async function fetchAll<T>(admin: AdminClient, query: string, rootField: string): Promise<T[]> {
   const items: T[] = [];
   let cursor: string | null = null;
 
@@ -129,13 +122,9 @@ export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
   if (products.length > 0) {
     output += "## Products\n\n";
     for (const node of products) {
-      const desc = node.descriptionHtml
-        ? truncate(stripHtml(node.descriptionHtml), 25)
-        : "";
+      const desc = node.descriptionHtml ? truncate(stripHtml(node.descriptionHtml), 25) : "";
       const url = `${baseUrl}/products/${node.handle}`;
-      output += desc
-        ? `- [${node.title}](${url}): ${desc}\n`
-        : `- [${node.title}](${url})\n`;
+      output += desc ? `- [${node.title}](${url}): ${desc}\n` : `- [${node.title}](${url})\n`;
     }
     output += "\n";
   }
@@ -145,9 +134,7 @@ export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
     for (const node of pages) {
       const desc = node.body ? truncate(stripHtml(node.body), 25) : "";
       const url = `${baseUrl}/pages/${node.handle}`;
-      output += desc
-        ? `- [${node.title}](${url}): ${desc}\n`
-        : `- [${node.title}](${url})\n`;
+      output += desc ? `- [${node.title}](${url}): ${desc}\n` : `- [${node.title}](${url})\n`;
     }
     output += "\n";
   }

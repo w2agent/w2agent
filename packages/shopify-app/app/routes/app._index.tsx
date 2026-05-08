@@ -1,19 +1,19 @@
-import { useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher } from "@remix-run/react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import {
-  Page,
-  Layout,
-  Text,
-  Card,
-  Button,
   BlockStack,
   Box,
-  List,
-  Link,
+  Button,
+  Card,
   InlineStack,
+  Layout,
+  Link,
+  List,
+  Page,
+  Text,
 } from "@shopify/polaris";
-import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
+import { useEffect } from "react";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -24,9 +24,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
+  const color = ["Red", "Orange", "Yellow", "Green"][Math.floor(Math.random() * 4)];
   const response = await admin.graphql(
     `#graphql
       mutation populateProduct($product: ProductCreateInput!) {
@@ -59,8 +57,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   );
   const responseJson = await response.json();
 
-  const product = responseJson.data!.productCreate!.product!;
-  const variantId = product.variants.edges[0]!.node!.id!;
+  const product = responseJson.data?.productCreate?.product;
+  if (!product) throw new Error("productCreate did not return a product");
+  const variantId = product.variants.edges[0]?.node?.id;
+  if (!variantId) throw new Error("product has no default variant");
 
   const variantResponse = await admin.graphql(
     `#graphql
@@ -85,9 +85,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const variantResponseJson = await variantResponse.json();
 
   return {
-    product: responseJson!.data!.productCreate!.product,
-    variant:
-      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+    product: responseJson?.data?.productCreate?.product,
+    variant: variantResponseJson?.data?.productVariantsBulkUpdate?.productVariants,
   };
 };
 
@@ -96,12 +95,8 @@ export default function Index() {
 
   const shopify = useAppBridge();
   const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-  const productId = fetcher.data?.product?.id.replace(
-    "gid://shopify/Product/",
-    "",
-  );
+    ["loading", "submitting"].includes(fetcher.state) && fetcher.formMethod === "POST";
+  const productId = fetcher.data?.product?.id.replace("gid://shopify/Product/", "");
 
   useEffect(() => {
     if (productId) {
@@ -147,8 +142,7 @@ export default function Index() {
                     >
                       Admin GraphQL
                     </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
+                    mutation demo, to provide a starting point for app development.
                   </Text>
                 </BlockStack>
                 <BlockStack gap="200">
@@ -156,8 +150,8 @@ export default function Index() {
                     Get started with products
                   </Text>
                   <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
+                    Generate a product with GraphQL and get the JSON output for that product. Learn
+                    more about the{" "}
                     <Link
                       url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
                       target="_blank"
@@ -197,9 +191,7 @@ export default function Index() {
                       overflowX="scroll"
                     >
                       <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.product, null, 2)}
-                        </code>
+                        <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
                       </pre>
                     </Box>
                     <Text as="h3" variant="headingMd">
@@ -215,9 +207,7 @@ export default function Index() {
                       overflowX="scroll"
                     >
                       <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.variant, null, 2)}
-                        </code>
+                        <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
                       </pre>
                     </Box>
                   </>
@@ -237,11 +227,7 @@ export default function Index() {
                       <Text as="span" variant="bodyMd">
                         Framework
                       </Text>
-                      <Link
-                        url="https://remix.run"
-                        target="_blank"
-                        removeUnderline
-                      >
+                      <Link url="https://remix.run" target="_blank" removeUnderline>
                         Remix
                       </Link>
                     </InlineStack>
@@ -249,11 +235,7 @@ export default function Index() {
                       <Text as="span" variant="bodyMd">
                         Database
                       </Text>
-                      <Link
-                        url="https://www.prisma.io/"
-                        target="_blank"
-                        removeUnderline
-                      >
+                      <Link url="https://www.prisma.io/" target="_blank" removeUnderline>
                         Prisma
                       </Link>
                     </InlineStack>
@@ -262,11 +244,7 @@ export default function Index() {
                         Interface
                       </Text>
                       <span>
-                        <Link
-                          url="https://polaris.shopify.com"
-                          target="_blank"
-                          removeUnderline
-                        >
+                        <Link url="https://polaris.shopify.com" target="_blank" removeUnderline>
                           Polaris
                         </Link>
                         {", "}

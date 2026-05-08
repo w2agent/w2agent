@@ -10,17 +10,22 @@ installGlobals({ nativeFetch: true });
 // stop passing in HOST, so we can remove this workaround after the next major release.
 if (
   process.env.HOST &&
-  (!process.env.SHOPIFY_APP_URL ||
-    process.env.SHOPIFY_APP_URL === process.env.HOST)
+  (!process.env.SHOPIFY_APP_URL || process.env.SHOPIFY_APP_URL === process.env.HOST)
 ) {
   process.env.SHOPIFY_APP_URL = process.env.HOST;
   delete process.env.HOST;
 }
 
-const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost")
-  .hostname;
+const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost").hostname;
 
-let hmrConfig;
+interface HmrConfig {
+  protocol: "ws" | "wss";
+  host: string;
+  port: number;
+  clientPort: number;
+}
+
+let hmrConfig: HmrConfig;
 if (host === "localhost") {
   hmrConfig = {
     protocol: "ws",
@@ -32,7 +37,7 @@ if (host === "localhost") {
   hmrConfig = {
     protocol: "wss",
     host: host,
-    port: parseInt(process.env.FRONTEND_PORT!) || 8002,
+    port: Number.parseInt(process.env.FRONTEND_PORT ?? "", 10) || 8002,
     clientPort: 443,
   };
 }

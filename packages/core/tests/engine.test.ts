@@ -33,9 +33,9 @@ function makePage(html: string, url = "https://example.com"): FetchedPage {
 // Response body is only readable once, which causes concurrent reads to hang.
 let fetchMock: ReturnType<typeof vi.spyOn> | undefined;
 beforeEach(() => {
-  fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
-    async () => new Response("", { status: 404 }),
-  );
+  fetchMock = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async () => new Response("", { status: 404 }));
 });
 afterEach(() => {
   fetchMock?.mockRestore();
@@ -196,10 +196,7 @@ function makeCategoryResult(score: number | null, weight: number): CategoryResul
 
 describe("NA semantics", () => {
   it("computeCategoryScore returns null when all checks are skip", () => {
-    const checks = [
-      makeCheck({ status: "skip" }),
-      makeCheck({ status: "skip" }),
-    ];
+    const checks = [makeCheck({ status: "skip" }), makeCheck({ status: "skip" })];
     expect(computeCategoryScore(checks)).toBeNull();
   });
 
@@ -221,8 +218,8 @@ describe("NA semantics", () => {
       makeCategoryResult(100, 0.15),
       makeCategoryResult(100, 0.12),
       makeCategoryResult(100, 0.13),
-      makeCategoryResult(100, 0.10),
-      makeCategoryResult(null, 0.20),
+      makeCategoryResult(100, 0.1),
+      makeCategoryResult(null, 0.2),
     ];
     expect(computeOverallScore(categories)).toBe(100);
   });
@@ -338,38 +335,24 @@ describe("applyNaCascade (§5.6)", () => {
 
   it("B5 (pkce-s256) requires BOTH oauth-support AND developer-portal to fail before skipping", () => {
     // oauth-support pass alone → pkce-s256 stays fail (not skipped)
-    const r1 = [
-      r("oauth-support", "pass"),
-      r("developer-portal", "fail"),
-      r("pkce-s256", "fail"),
-    ];
+    const r1 = [r("oauth-support", "pass"), r("developer-portal", "fail"), r("pkce-s256", "fail")];
     applyNaCascade(r1);
     expect(r1.find((x) => x.id === "pkce-s256")?.status).toBe("fail");
 
     // both fail → skip
-    const r2 = [
-      r("oauth-support", "fail"),
-      r("developer-portal", "fail"),
-      r("pkce-s256", "fail"),
-    ];
+    const r2 = [r("oauth-support", "fail"), r("developer-portal", "fail"), r("pkce-s256", "fail")];
     applyNaCascade(r2);
     expect(r2.find((x) => x.id === "pkce-s256")?.status).toBe("skip");
   });
 
   it("C3 (mcp-pkce-s256) cascades off C2 (mcp-oauth-metadata)", () => {
-    const results = [
-      r("mcp-oauth-metadata", "fail"),
-      r("mcp-pkce-s256", "fail"),
-    ];
+    const results = [r("mcp-oauth-metadata", "fail"), r("mcp-pkce-s256", "fail")];
     applyNaCascade(results);
     expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("skip");
   });
 
   it("C3 does not cascade when mcp-oauth-metadata passes", () => {
-    const results = [
-      r("mcp-oauth-metadata", "pass"),
-      r("mcp-pkce-s256", "fail"),
-    ];
+    const results = [r("mcp-oauth-metadata", "pass"), r("mcp-pkce-s256", "fail")];
     applyNaCascade(results);
     expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("fail");
   });
@@ -402,7 +385,7 @@ describe("applyNaCascade (§5.6)", () => {
     );
     const authCat = report.categories.find((c) => c.id === "agent-auth");
     expect(authCat).toBeDefined();
-    expect(authCat!.checks.length).toBe(16);
+    expect(authCat?.checks.length).toBe(16);
     expect(Number.isFinite(report.overallScore)).toBe(true);
   });
 
@@ -435,7 +418,12 @@ describe("applyNaCascade (§5.6)", () => {
     const portalContent = "API key for agent bot AI rate limit OAuth scope permission ".repeat(50);
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       const u = url.toString();
-      if (u.includes("/developers") || u.includes("/developer") || u.includes("/api-docs") || u.includes("/docs/api")) {
+      if (
+        u.includes("/developers") ||
+        u.includes("/developer") ||
+        u.includes("/api-docs") ||
+        u.includes("/docs/api")
+      ) {
         return new Response(`<html><body>${portalContent}</body></html>`, {
           status: 200,
           headers: { "content-type": "text/html" },

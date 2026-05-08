@@ -232,11 +232,11 @@ describe("schema-org Product generation", () => {
     const products = extractProducts(ctx);
     const entries = generateSchemaOrg(ctx, products);
     expect(entries).not.toBeNull();
-    const productEntry = entries!.find((e) => e.jsonLd["@type"] === "Product");
+    const productEntry = entries?.find((e) => e.jsonLd["@type"] === "Product");
     expect(productEntry).toBeDefined();
-    expect(productEntry!.jsonLd.name).toBe("Microdata Product");
-    expect(productEntry!.jsonLd.offers).toBeDefined();
-    const offers = productEntry!.jsonLd.offers as Record<string, unknown>;
+    expect(productEntry?.jsonLd.name).toBe("Microdata Product");
+    expect(productEntry?.jsonLd.offers).toBeDefined();
+    const offers = productEntry?.jsonLd.offers as Record<string, unknown>;
     expect(offers.price).toBe(19.99);
   });
 
@@ -253,7 +253,7 @@ describe("schema-org Product generation", () => {
     const ctx = makeContext([makePage(simpleHtml, "https://example.com/about")]);
     const entries = generateSchemaOrg(ctx);
     expect(entries).not.toBeNull();
-    expect(entries![0].jsonLd["@type"]).toBe("WebPage");
+    expect(entries?.[0].jsonLd["@type"]).toBe("WebPage");
   });
 });
 
@@ -267,13 +267,13 @@ describe("engine wiring", () => {
     expect(artifacts).not.toBeNull();
 
     // Same artifacts feed schema-org
-    const schemaEntries = generateSchemaOrg(ctx, artifacts!.products);
+    const schemaEntries = generateSchemaOrg(ctx, artifacts?.products);
     expect(schemaEntries).not.toBeNull();
-    const productEntries = schemaEntries!.filter((e) => e.jsonLd["@type"] === "Product");
+    const productEntries = schemaEntries?.filter((e) => e.jsonLd["@type"] === "Product");
     expect(productEntries).toHaveLength(2);
 
     // Same artifacts feed catalog
-    const catalog = generateProductCatalog(artifacts!.products);
+    const catalog = generateProductCatalog(artifacts?.products);
     expect(catalog).toContain("Microdata Product");
     expect(catalog).toContain("OG Product");
   });
