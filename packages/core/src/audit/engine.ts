@@ -153,9 +153,14 @@ export function applyNaCascade(results: CheckResult[]): CheckResult[] {
       id: "pkce-s256",
       naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")),
     },
+    // MCP-tier checks: NA when the site has no MCP signal at all (mcp-discovery is the sentinel).
+    // Keeps the rubric from punishing sites that haven't adopted an emerging standard they don't claim.
+    { id: "mcp-auth-mechanism", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
+    { id: "mcp-oauth-metadata", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
+    { id: "oauth-metadata-rfc9728", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
     { id: "mcp-pkce-s256", naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
     { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "mcp-server-card", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    { id: "mcp-server-card", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
   ];
   for (const { id, naWhen } of cascade) {
     const r = byId.get(id);

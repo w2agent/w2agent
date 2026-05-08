@@ -287,7 +287,7 @@ function r(id: string, status: CheckResult["status"], category = "agent-auth"): 
 }
 
 describe("applyNaCascade (§5.6)", () => {
-  it("A1 fail → openapi-spec/developer-portal/oauth-support/oauth-protected-resource/api-catalog/mcp-server-card become skip", () => {
+  it("A1 fail → openapi-spec/developer-portal/oauth-support/oauth-protected-resource/api-catalog become skip", () => {
     const results = [
       r("public-api", "fail"),
       r("openapi-spec", "fail"),
@@ -295,7 +295,6 @@ describe("applyNaCascade (§5.6)", () => {
       r("oauth-support", "fail"),
       r("oauth-protected-resource", "fail"),
       r("api-catalog-rfc9727", "fail"),
-      r("mcp-server-card", "fail"),
     ];
     applyNaCascade(results);
     for (const id of [
@@ -304,10 +303,39 @@ describe("applyNaCascade (§5.6)", () => {
       "oauth-support",
       "oauth-protected-resource",
       "api-catalog-rfc9727",
+    ]) {
+      expect(results.find((x) => x.id === id)?.status).toBe("skip");
+    }
+  });
+
+  it("mcp-discovery fail → MCP-tier auth checks become skip (mcp-auth-mechanism, mcp-oauth-metadata, oauth-metadata-rfc9728, mcp-server-card)", () => {
+    const results = [
+      r("mcp-discovery", "fail"),
+      r("mcp-auth-mechanism", "fail"),
+      r("mcp-oauth-metadata", "fail"),
+      r("oauth-metadata-rfc9728", "fail"),
+      r("mcp-server-card", "fail"),
+    ];
+    applyNaCascade(results);
+    for (const id of [
+      "mcp-auth-mechanism",
+      "mcp-oauth-metadata",
+      "oauth-metadata-rfc9728",
       "mcp-server-card",
     ]) {
       expect(results.find((x) => x.id === id)?.status).toBe("skip");
     }
+  });
+
+  it("mcp-discovery pass → MCP-tier auth checks stay fail (no skip when MCP is present)", () => {
+    const results = [
+      r("mcp-discovery", "pass"),
+      r("mcp-auth-mechanism", "fail"),
+      r("mcp-server-card", "fail"),
+    ];
+    applyNaCascade(results);
+    expect(results.find((x) => x.id === "mcp-auth-mechanism")?.status).toBe("fail");
+    expect(results.find((x) => x.id === "mcp-server-card")?.status).toBe("fail");
   });
 
   it("A3 fail (developer-portal) → agent-auth-docs/scoped-permissions become skip", () => {

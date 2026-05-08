@@ -355,8 +355,7 @@ describe("agent-auth: B4 scoped-permissions", () => {
     const keysText = `Restricted API keys (RAKs) let you assign custom permissions to specific resources.
       You can grant read or write access for each resource. Limit access using granular permissions.`;
     globalThis.fetch = mockFetch((url) => {
-      if (url.endsWith("/api"))
-        return htmlResp("<html><body>generic API reference</body></html>");
+      if (url.endsWith("/api")) return htmlResp("<html><body>generic API reference</body></html>");
       if (url.endsWith("/keys")) return htmlResp(`<html><body>${keysText}</body></html>`);
       return notFound();
     });

@@ -76,7 +76,8 @@ export const apiEndpoints: Check = {
     const indicators: string[] = [];
 
     // Check for OpenAPI / Swagger links and human-labeled API entry points (e.g. "API reference")
-    const apiTextPattern = /\b(rest|graphql)\s+api\b|\bapi\s+(reference|docs?|documentation|explorer)\b/i;
+    const apiTextPattern =
+      /\b(rest|graphql)\s+api\b|\bapi\s+(reference|docs?|documentation|explorer)\b/i;
     for (const page of pages) {
       const parsed = parseHTML(page.html);
       for (const link of parsed.links) {

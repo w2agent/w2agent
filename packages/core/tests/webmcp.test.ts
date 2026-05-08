@@ -438,7 +438,8 @@ describe("field-to-schema mapping", () => {
     const ctx = makeFormCtx([
       { name: "color", type: "select", required: false, options: ["red", "blue", "green"] },
     ]);
-    const js = generateWebMcp(ctx).find((f) => f.filename === "webmcp/webmcp.js")!;
+    const js = generateWebMcp(ctx).find((f) => f.filename === "webmcp/webmcp.js");
+    if (!js) throw new Error("webmcp.js not generated");
     expect(js.content).toContain('"enum"');
   });
 });
@@ -494,7 +495,8 @@ describe("generateWebMcp — injection defenses (security)", () => {
     }) satisfies GenerateContext;
 
   it("webmcp.js never emits hostile field name as bare JS identifier", () => {
-    const js = generateWebMcp(ctxWithHostileName()).find((f) => f.filename === "webmcp/webmcp.js")!;
+    const js = generateWebMcp(ctxWithHostileName()).find((f) => f.filename === "webmcp/webmcp.js");
+    if (!js) throw new Error("webmcp.js not generated");
     // Bare-identifier patterns that would let an attacker break out
     expect(js.content).not.toContain(`const ${HOSTILE_NAME}Field`);
     expect(js.content).not.toContain(`params.${HOSTILE_NAME}`);
