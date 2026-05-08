@@ -189,6 +189,22 @@ describe("agent-auth: A4 agent-auth-docs", () => {
     const result = await check.run([basePage], baseMeta);
     expect(result.status).toBe("fail");
   });
+
+  it("pass when /keys has auth docs content (Stripe-style content split)", async () => {
+    const apiText = "Stripe API Reference. Endpoints: charges, customers, subscriptions.";
+    const keysText = `Use API keys to authenticate API requests.
+      API keys are tokens with full account access.
+      Restricted API keys let you assign custom permissions for each scope.
+      Rate limit applies per API key. Configure permissions per resource.`;
+    globalThis.fetch = mockFetch((url) => {
+      if (url.endsWith("/api")) return htmlResp(`<html><body>${apiText}</body></html>`);
+      if (url.endsWith("/keys")) return htmlResp(`<html><body>${keysText}</body></html>`);
+      return notFound();
+    });
+    const check = agentAuthChecks.find((c) => c.id === "agent-auth-docs")!;
+    const result = await check.run([basePage], baseMeta);
+    expect(result.status).toBe("pass");
+  });
 });
 
 // --- B1 oauth-support ---
@@ -333,6 +349,32 @@ describe("agent-auth: B4 scoped-permissions", () => {
     const check = agentAuthChecks.find((c) => c.id === "scoped-permissions")!;
     const result = await check.run([basePage], baseMeta);
     expect(result.status).toBe("fail");
+  });
+
+  it("pass with Stripe-style restricted-keys vocabulary on /keys", async () => {
+    const keysText = `Restricted API keys (RAKs) let you assign custom permissions to specific resources.
+      You can grant read or write access for each resource. Limit access using granular permissions.`;
+    globalThis.fetch = mockFetch((url) => {
+      if (url.endsWith("/api"))
+        return htmlResp("<html><body>generic API reference</body></html>");
+      if (url.endsWith("/keys")) return htmlResp(`<html><body>${keysText}</body></html>`);
+      return notFound();
+    });
+    const check = agentAuthChecks.find((c) => c.id === "scoped-permissions")!;
+    const result = await check.run([basePage], baseMeta);
+    expect(result.status).toBe("pass");
+  });
+
+  it("pass with portal-only graduated-access vocabulary (read-only + custom permissions + limit access)", async () => {
+    const text =
+      "We support custom permissions including read-only access. Limit access via scoped tokens.";
+    globalThis.fetch = mockFetch((url) => {
+      if (url.endsWith("/api")) return htmlResp(`<html><body>${text}</body></html>`);
+      return notFound();
+    });
+    const check = agentAuthChecks.find((c) => c.id === "scoped-permissions")!;
+    const result = await check.run([basePage], baseMeta);
+    expect(result.status).toBe("pass");
   });
 });
 

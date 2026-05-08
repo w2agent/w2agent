@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   actionSchemas,
+  apiEndpoints,
   formsStructured,
   mcpDiscovery,
   webmcpDeclarative,
@@ -237,6 +238,41 @@ describe("webmcp-imperative", () => {
       <script src="/webmcp-tools.js"></script>
     </body></html>`;
     const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
+});
+
+describe("api-endpoints", () => {
+  it("passes when homepage links to /openapi.json (existing strong-href signal)", () => {
+    const html = `<html><body>
+      <a href="https://example.com/openapi.json">spec</a>
+    </body></html>`;
+    const result = apiEndpoints.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("passes when link text says 'API reference' even if href is just /api (Stripe pattern)", () => {
+    const html = `<html><body>
+      <a href="https://docs.example.com/api">API reference</a>
+    </body></html>`;
+    const result = apiEndpoints.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("passes for 'REST API' link text", () => {
+    const html = `<html><body>
+      <a href="/developers">REST API</a>
+    </body></html>`;
+    const result = apiEndpoints.run([{ ...basePage, html }], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("fails when no API link text or strong-href signals", () => {
+    const html = `<html><body>
+      <a href="/about">About</a>
+      <a href="/pricing">Pricing</a>
+    </body></html>`;
+    const result = apiEndpoints.run([{ ...basePage, html }], baseMeta);
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 });

@@ -14,7 +14,7 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-const MAX_PROBE_BYTES = 64 * 1024;
+const MAX_PROBE_BYTES = 256 * 1024;
 export const PROBE_RETRY_DELAY_MS = 2000;
 export const PROBE_MAX_ATTEMPTS = 2;
 
@@ -108,6 +108,44 @@ function cachedPortal(pages: object, baseUrl: string): Promise<PortalResult> {
     portalCache.set(pages, probeDeveloperPortal(baseUrl));
   }
   return portalCache.get(pages)!;
+}
+
+const KEY_DOC_PATHS = ["/keys", "/api-keys", "/docs/keys"];
+
+async function probeKeyDocs(baseUrl: string): Promise<{ url: string; text: string } | null> {
+  const apexProbes = await Promise.all(
+    KEY_DOC_PATHS.map(async (p) => {
+      const url = `${baseUrl}${p}`;
+      const probe = await probeUrl(url);
+      if (probe && probe.status >= 200 && probe.status < 300)
+        return { url, text: stripHtml(probe.text) };
+      return null;
+    }),
+  );
+  const apex = apexProbes.find((r): r is { url: string; text: string } => r !== null);
+  if (apex) return apex;
+
+  const u = new URL(baseUrl);
+  const docsBase = `${u.protocol}//docs.${stripWww(u.hostname)}`;
+  for (const p of KEY_DOC_PATHS) {
+    const url = `${docsBase}${p}`;
+    const probe = await probeUrl(url);
+    if (probe && probe.status >= 200 && probe.status < 300)
+      return { url, text: stripHtml(probe.text) };
+  }
+  return null;
+}
+
+const keyDocsCache = new WeakMap<object, Promise<{ url: string; text: string } | null>>();
+
+function cachedKeyDocs(
+  pages: object,
+  baseUrl: string,
+): Promise<{ url: string; text: string } | null> {
+  if (!keyDocsCache.has(pages)) {
+    keyDocsCache.set(pages, probeKeyDocs(baseUrl));
+  }
+  return keyDocsCache.get(pages)!;
 }
 
 function extractApiHrefCount(html: string, host: string): number {
@@ -270,8 +308,13 @@ const a4: Check = {
     const portalResult = await cachedPortal(pages, metadata.baseUrl);
     if (!portalResult.found && portalResult.probeFailed)
       return res(base, "skip", 0, "Could not verify portal (network unreachable)");
+    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl);
     const homepageText = stripHtml(pages[0]?.html ?? "");
-    const combined = [portalResult.found ? portalResult.text : "", homepageText].join(" ");
+    const combined = [
+      portalResult.found ? portalResult.text : "",
+      keyDocs?.text ?? "",
+      homepageText,
+    ].join(" ");
 
     const pairs = countNearbyPairs(
       combined,
@@ -362,18 +405,30 @@ const b4: Check = {
   run: async (pages, metadata) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
     const portal = await cachedPortal(pages, metadata.baseUrl);
-    if (!portal.found) {
-      if (portal.probeFailed)
+    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl);
+
+    const portalText = portal.found ? portal.text : "";
+    const text = [portalText, keyDocs?.text ?? ""].filter(Boolean).join(" ");
+    if (!text) {
+      if (!portal.found && portal.probeFailed)
         return res(base, "skip", 0, "Could not verify portal (network unreachable)");
-      return res(base, "fail", 0, "No developer portal to scan for scope patterns");
+      return res(base, "fail", 0, "No developer portal or key docs to scan for scope patterns");
     }
 
-    const text = portal.text;
     const scopePatterns = (text.match(/\b(read|write|admin|delete|update):\w+/g) ?? []).length;
     const scopeKeyword = countNearbyPairs(text, ["scope"], ["permission", "token", "access"], 200);
     const bulletLists = (text.match(/^[-*]\s+\w+:\w+/gm) ?? []).length;
-    const total = scopePatterns + scopeKeyword + bulletLists;
 
+    // Graduated-access vocabulary signals (Stripe-style restricted keys, read-only/read or write tiers)
+    const graduatedPatterns: RegExp[] = [
+      /\brestricted\s+(api\s+)?keys?\b/i,
+      /\bread[-\s]?only\b|\bread\s+(?:or|and|&)\s+write\b/i,
+      /\b(custom|limited|scoped|restricted|granular)\s+permissions?\b/i,
+      /\blimit(?:s|ed)?\s+access\b/i,
+    ];
+    const graduatedHits = graduatedPatterns.filter((re) => re.test(text)).length;
+
+    const total = scopePatterns + scopeKeyword + bulletLists + graduatedHits;
     if (total >= 3) return res(base, "pass", 100, `${total} scope/permission signals found`);
     if (total >= 1) return res(base, "partial", 50, `${total} scope/permission signal(s) found`);
     return res(base, "fail", 0, "No scoped permission patterns found in developer portal");
