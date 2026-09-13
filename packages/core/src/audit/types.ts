@@ -152,6 +152,13 @@ export const DEFAULT_OPTIONS: AuditOptions = {
   requestDelay: 200,
 };
 
+export const AUDIT_CRAWL_PROFILE = {
+  maxPages: 10,
+  timeout: 10000,
+} as const satisfies Readonly<Pick<AuditOptions, "maxPages" | "timeout">>;
+
+export const AUDIT_CRAWL_PROFILE_ID: string = `maxPages=${AUDIT_CRAWL_PROFILE.maxPages};timeout=${AUDIT_CRAWL_PROFILE.timeout}`;
+
 export const CATEGORY_CONFIG: Record<CategoryId, { name: string; weight: number }> = {
   "bot-accessibility": { name: "Bot Accessibility", weight: 0.15 },
   "structured-data": { name: "Structured Data", weight: 0.15 },

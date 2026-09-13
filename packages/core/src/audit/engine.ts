@@ -1,7 +1,8 @@
 import { detectPlatform, getAdapter } from "../adapters/registry.js";
+import { fetchPage } from "../shared/fetcher.js";
 import { getSiteTypeChecks } from "../site-types/checks.js";
 import { detectSiteType } from "../site-types/index.js";
-import { crawlSite } from "./crawler.js";
+import { crawlPages, crawlSite } from "./crawler.js";
 import type {
   AuditOptions,
   AuditReport,
@@ -48,8 +49,11 @@ export async function runAudit(
   let pages: FetchedPage[];
   let metadata: SiteMetadata;
   if (options.prefetchedPages?.length && options.prefetchedMetadata) {
-    pages = options.prefetchedPages;
     metadata = options.prefetchedMetadata;
+    pages =
+      options.prefetchedPages.length > options.maxPages
+        ? await reselectPrefetchedPages(url, options.prefetchedPages, metadata, options, onProgress)
+        : options.prefetchedPages;
   } else {
     const crawled = await crawlSite(url, options, onProgress);
     pages = crawled.pages;
@@ -132,6 +136,41 @@ export async function runAudit(
     ...(detected && { platform: detected }),
     ...(detectedSiteType && { siteType: detectedSiteType }),
   };
+}
+
+function normalizePageUrl(u: string): string {
+  try {
+    const parsed = new URL(u);
+    parsed.hash = "";
+    return parsed.href.replace(/\/+$/, "");
+  } catch {
+    return u;
+  }
+}
+
+async function reselectPrefetchedPages(
+  url: string,
+  prefetched: FetchedPage[],
+  metadata: SiteMetadata,
+  options: AuditOptions,
+  onProgress?: (status: string) => void,
+): Promise<FetchedPage[]> {
+  const byUrl = new Map<string, FetchedPage>();
+  for (const page of prefetched) {
+    const key = normalizePageUrl(page.url);
+    if (!byUrl.has(key)) byUrl.set(key, page);
+  }
+  const cached = (u: string) => byUrl.get(normalizePageUrl(u));
+
+  const homepage = cached(url) ?? (await fetchPage(url, options));
+  if (homepage.status === 0) {
+    throw new Error(
+      `Could not reach ${new URL(url).host}. Check the URL or your network connection.`,
+    );
+  }
+
+  const { pages } = await crawlPages(url, homepage, metadata, options, { cached, onProgress });
+  return pages;
 }
 
 function isFailOrNa(r: CheckResult | undefined): boolean {

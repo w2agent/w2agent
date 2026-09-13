@@ -1,5 +1,5 @@
 export { allChecks } from "./audit/checks/index.js";
-export { crawlSite } from "./audit/crawler.js";
+export { crawlSite, probeSiteMetadata } from "./audit/crawler.js";
 export {
   clearChecks,
   getRegisteredChecks,
@@ -26,7 +26,12 @@ export type {
   SiteMetadata,
   TopIssue,
 } from "./audit/types.js";
-export { CATEGORY_CONFIG, DEFAULT_OPTIONS } from "./audit/types.js";
+export {
+  AUDIT_CRAWL_PROFILE,
+  AUDIT_CRAWL_PROFILE_ID,
+  CATEGORY_CONFIG,
+  DEFAULT_OPTIONS,
+} from "./audit/types.js";
 export type { DiscoveredPage } from "./crawl/index.js";
 export {
   discoverInternalLinks,

@@ -19,6 +19,16 @@ const mockFetchText = vi.mocked(fetchText);
 
 const BASE_URL = "https://example.com";
 
+let globalFetchSpy: ReturnType<typeof vi.spyOn> | undefined;
+beforeEach(() => {
+  globalFetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async () => new Response("", { status: 404 }));
+});
+afterEach(() => {
+  globalFetchSpy?.mockRestore();
+});
+
 function makeSitemap(urls: string[]): string {
   return `<?xml version="1.0"?><urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
 }

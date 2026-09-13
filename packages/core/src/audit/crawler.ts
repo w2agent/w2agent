@@ -141,18 +141,38 @@ export async function crawlSite(
   options: AuditOptions,
   onProgress?: (status: string) => void,
 ): Promise<CrawlResult> {
-  const base = new URL(url);
-  const baseUrl = `${base.protocol}//${base.host}`;
-
   onProgress?.("Fetching homepage...");
   const homepage = await fetchPage(url, options);
+
+  const metadata = await probeSiteMetadata(url, options, {
+    homepageHtml: homepage.html,
+    onProgress,
+  });
+
+  const { pages, totalUrlsFound } = await crawlPages(url, homepage, metadata, options, {
+    pageRankings: options.pageRankings,
+    onProgress,
+  });
+
+  return { pages, metadata, totalUrlsFound };
+}
+
+export async function probeSiteMetadata(
+  url: string,
+  options: AuditOptions,
+  opts: { homepageHtml?: string; onProgress?: (status: string) => void } = {},
+): Promise<SiteMetadata> {
+  const { onProgress } = opts;
+  const base = new URL(url);
+  const baseUrl = `${base.protocol}//${base.host}`;
+  const homepageHtml = opts.homepageHtml ?? (await fetchPage(url, options)).html;
 
   onProgress?.("Fetching robots.txt...");
   const [robotsResult, sitemapResult, llmsResult, openapiResult] = await Promise.all([
     fetchText(`${baseUrl}/robots.txt`, options),
     fetchText(`${baseUrl}/sitemap.xml`, options),
     fetchText(`${baseUrl}/llms.txt`, options),
-    probeOpenAPIPaths(baseUrl, options, { homepageHtml: homepage.html }),
+    probeOpenAPIPaths(baseUrl, options, { homepageHtml }),
   ]);
 
   let llmsTxtFallback: string | undefined;
@@ -207,6 +227,27 @@ export async function crawlSite(
     metadata.mcpInit = await probeMcpInit(`${baseUrl}/.well-known/mcp`, options);
   }
 
+  onProgress?.("Simulating agent user-agents...");
+  metadata.multiUaResponses = await fetchUnderUas(url, options, metadata.robotsTxt);
+
+  return metadata;
+}
+
+export async function crawlPages(
+  url: string,
+  homepage: FetchedPage,
+  metadata: SiteMetadata,
+  options: AuditOptions,
+  opts: {
+    pageRankings?: Map<string, number>;
+    cached?: (url: string) => FetchedPage | undefined;
+    onProgress?: (status: string) => void;
+  } = {},
+): Promise<{ pages: FetchedPage[]; totalUrlsFound: number }> {
+  const { onProgress, cached } = opts;
+  const base = new URL(url);
+  const baseUrl = `${base.protocol}//${base.host}`;
+
   const crawlDelaySeconds =
     robotsParser(`${baseUrl}/robots.txt`, metadata.robotsTxt ?? "").getCrawlDelay(
       options.userAgent,
@@ -226,9 +267,9 @@ export async function crawlSite(
     baseUrl,
   });
 
-  if (options.pageRankings?.size) {
+  if (opts.pageRankings?.size) {
     for (const page of discovered) {
-      const rank = options.pageRankings.get(page.url);
+      const rank = opts.pageRankings.get(page.url);
       if (rank !== undefined) page.queritRank = rank;
     }
   }
@@ -256,12 +297,15 @@ export async function crawlSite(
           const u = urlsToFetch[completed];
           completed++;
 
-          // Acquire rate limit slot
-          const mySlot = gate.then(() => sleep(effectiveDelay));
-          gate = mySlot;
+          let page = cached?.(u);
+          if (!page) {
+            // Acquire rate limit slot
+            const mySlot = gate.then(() => sleep(effectiveDelay));
+            gate = mySlot;
 
-          await mySlot;
-          const page = await fetchPage(u, options);
+            await mySlot;
+            page = await fetchPage(u, options);
+          }
 
           if (page.status > 0) {
             pages.push(page);
@@ -274,14 +318,11 @@ export async function crawlSite(
     );
   }
 
-  if (sitemapResult?.status === 200) {
-    await fillFromSitemap(pages, sitemapResult.text, url, options);
+  if (metadata.sitemapXml !== undefined) {
+    await fillFromSitemap(pages, metadata.sitemapXml, url, options, cached);
   }
 
-  onProgress?.("Simulating agent user-agents...");
-  metadata.multiUaResponses = await fetchUnderUas(url, options, metadata.robotsTxt);
-
-  return { pages, metadata, totalUrlsFound };
+  return { pages, totalUrlsFound };
 }
 
 function parseSitemapUrls(xml: string): string[] {
@@ -294,6 +335,7 @@ async function fillFromSitemap(
   sitemapXml: string,
   baseUrl: string,
   options: AuditOptions,
+  cached?: (url: string) => FetchedPage | undefined,
 ): Promise<void> {
   // Fewer than 3 crawled pages signals a link-starved crawl (typical of SPA shells).
   // Most multi-page checks (e.g., "X/N pages have JSON-LD") degrade meaningfully when N < 3.
@@ -322,7 +364,7 @@ async function fillFromSitemap(
   const start = Date.now();
   for (const u of candidates) {
     if (Date.now() - start > fallbackBudget) break;
-    const page = await fetchPage(u, options);
+    const page = cached?.(u) ?? (await fetchPage(u, options));
     if (page.status >= 200 && page.status < 300) {
       pages.push(page);
     }
