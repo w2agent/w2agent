@@ -103,6 +103,16 @@ describe("mcp-discovery", () => {
     expect(result.message).toMatch(/deprecated/i);
     expect(result.details).toContain(ENDPOINT);
   });
+
+  it("scores partial 50, not 75, for an auth-gated HTTP+SSE-only endpoint (deprecated transport wins)", async () => {
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      mcpEndpoint: ENDPOINT,
+      mcpInit: { mcpEndpointUrl: ENDPOINT, success: false, status: 401, transport: "http+sse" },
+    });
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toMatch(/deprecated/i);
+  });
 });
 
 describe("forms-structured", () => {

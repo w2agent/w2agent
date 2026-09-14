@@ -221,7 +221,13 @@ export async function probeSiteMetadata(
   const [rootProbe, wellKnownProbe, ...wellKnownResults] = await Promise.all([
     fetchText(`${baseUrl}/${randomUUID()}`, options),
     fetchText(`${baseUrl}/.well-known/${randomUUID()}`, options),
-    ...wellKnownPaths.map((path) => fetchText(`${baseUrl}/.well-known/${path}`, options)),
+    ...wellKnownPaths.map((path) =>
+      path === "api-catalog"
+        ? fetchText(`${baseUrl}/.well-known/${path}`, options, {
+            accept: WELL_KNOWN_MEDIA_TYPES[path],
+          })
+        : fetchText(`${baseUrl}/.well-known/${path}`, options),
+    ),
   ]);
   const catchAllBody = is2xx(wellKnownProbe) ? wellKnownProbe.text : undefined;
 

@@ -47,17 +47,24 @@ function looksLikeMcpEndpoint(url: URL): boolean {
   return path.endsWith("/mcp") || path.endsWith("/sse") || url.hostname.startsWith("mcp.");
 }
 
+function siteApex(baseUrl: string): string {
+  return new URL(baseUrl).hostname.replace(/^www\./, "");
+}
+
+function isSameSite(apex: string, hostname: string): boolean {
+  return hostname === apex || hostname.endsWith(`.${apex}`);
+}
+
 export function buildMcpCandidates(baseUrl: string, homepageHtml: string): string[] {
   const base = new URL(baseUrl);
-  const apex = base.hostname.replace(/^www\./, "");
-  const isSameSite = (h: string) => h === apex || h.endsWith(`.${apex}`);
+  const apex = siteApex(baseUrl);
 
   const hrefs: string[] = [];
   for (const [, raw] of homepageHtml.matchAll(/href=["']([^"']+)["']/gi)) {
     try {
       const url = new URL(raw, base);
       if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-      if (!isSameSite(url.hostname) || !looksLikeMcpEndpoint(url)) continue;
+      if (!isSameSite(apex, url.hostname) || !looksLikeMcpEndpoint(url)) continue;
       url.hash = "";
       if (!hrefs.includes(url.href)) hrefs.push(url.href);
     } catch {
@@ -68,7 +75,9 @@ export function buildMcpCandidates(baseUrl: string, homepageHtml: string): strin
   // P3-3: ai-catalog / ARD manifest entries go here, ahead of homepage hrefs.
   const candidates = hrefs.slice(0, MCP_HREF_CANDIDATE_CAP);
   const fixed = [`${base.origin}/mcp`];
-  if (!isIpOrLocalhost(apex)) {
+  if (apex.startsWith("mcp.")) {
+    fixed.push(`${base.origin}/`);
+  } else if (!isIpOrLocalhost(apex)) {
     fixed.push(`${base.protocol}//mcp.${apex}/mcp`, `${base.protocol}//mcp.${apex}/`);
   }
   for (const raw of fixed) {
@@ -82,10 +91,12 @@ function essence(contentType: string | null): string {
   return (contentType ?? "").split(";")[0].trim().toLowerCase();
 }
 
-function isBearerChallenge(response: Response): boolean {
+function isMcpAuthChallenge(response: Response): boolean {
+  const challenge = response.headers.get("www-authenticate") ?? "";
   return (
     response.status === 401 &&
-    /(^|,)\s*bearer(\s|,|$)/i.test(response.headers.get("www-authenticate") ?? "")
+    /(^|,)\s*bearer(\s|,|$)/i.test(challenge) &&
+    /(^|[\s,])resource_metadata\s*=/i.test(challenge)
   );
 }
 
@@ -122,17 +133,15 @@ function parseSseEvents(text: string): SseEvent[] {
   for (const block of text.split(/\r?\n\r?\n/).slice(0, -1)) {
     let event = "message";
     const data: string[] = [];
-    let hasField = false;
     for (const line of block.split(/\r?\n/)) {
       if (line === "" || line.startsWith(":")) continue;
       const idx = line.indexOf(":");
       const field = idx === -1 ? line : line.slice(0, idx);
       const value = idx === -1 ? "" : line.slice(idx + 1).replace(/^ /, "");
-      hasField = true;
       if (field === "event") event = value;
       else if (field === "data") data.push(value);
     }
-    if (hasField) events.push({ event, data: data.join("\n") });
+    if (data.length > 0) events.push({ event, data: data.join("\n") });
   }
   return events;
 }
@@ -207,33 +216,61 @@ function resultFrom(
 }
 
 type Deadline = { end: number; perRequest: number };
+type ProbeContext = {
+  apex: string;
+  deadline: Deadline;
+  options: Pick<AuditOptions, "isAllowedTarget">;
+};
+
+const MAX_MCP_REDIRECTS = 3;
 
 async function send(
   url: string,
   init: RequestInit,
-  deadline: Deadline,
-  options: Pick<AuditOptions, "isAllowedTarget">,
-): Promise<Response | null> {
-  const remaining = deadline.end - Date.now();
-  if (remaining <= 0) return null;
-  try {
-    return await guardedFetch(
-      url,
-      { ...init, signal: AbortSignal.timeout(Math.min(deadline.perRequest, remaining)) },
-      options.isAllowedTarget,
-    );
-  } catch {
-    return null;
+  ctx: ProbeContext,
+): Promise<{ response: Response; url: string } | null> {
+  let current = url;
+  for (let hops = 0; ; hops++) {
+    const remaining = ctx.deadline.end - Date.now();
+    if (remaining <= 0) return null;
+    let response: Response;
+    try {
+      response = await guardedFetch(
+        current,
+        {
+          ...init,
+          redirect: "manual",
+          signal: AbortSignal.timeout(Math.min(ctx.deadline.perRequest, remaining)),
+        },
+        ctx.options.isAllowedTarget,
+      );
+    } catch {
+      return null;
+    }
+    if (response.status < 300 || response.status >= 400) return { response, url: current };
+
+    await response.body?.cancel().catch(() => {});
+    if ((response.status !== 307 && response.status !== 308) || hops >= MAX_MCP_REDIRECTS) {
+      return null;
+    }
+    let next: URL;
+    try {
+      next = new URL(response.headers.get("location") ?? "", current);
+    } catch {
+      return null;
+    }
+    const isHttp = next.protocol === "http:" || next.protocol === "https:";
+    if (!response.headers.has("location") || !isHttp || !isSameSite(ctx.apex, next.hostname)) {
+      return null;
+    }
+    next.hash = "";
+    current = next.href;
   }
 }
 
-async function probeCandidate(
-  url: string,
-  deadline: Deadline,
-  options: Pick<AuditOptions, "isAllowedTarget">,
-): Promise<McpInitResult | null> {
+async function probeCandidate(url: string, ctx: ProbeContext): Promise<McpInitResult | null> {
   try {
-    const discover = await send(
+    const discoverSent = await send(
       url,
       {
         method: "POST",
@@ -244,38 +281,40 @@ async function probeCandidate(
         },
         body: DISCOVER_BODY,
       },
-      deadline,
-      options,
+      ctx,
     );
-    if (!discover) return null;
-    if (isBearerChallenge(discover)) return resultFrom(url, discover, "streamable-http");
+    if (!discoverSent) return null;
+    const discover = discoverSent.response;
+    if (isMcpAuthChallenge(discover)) {
+      return resultFrom(discoverSent.url, discover, "streamable-http");
+    }
 
     const discoverMsg = await readJsonRpc(discover);
     const ok = discover.status >= 200 && discover.status < 300;
     if (ok && Array.isArray(discoverMsg?.result?.supportedVersions)) {
-      const confirmed = resultFrom(url, discover, "streamable-http");
+      const confirmed = resultFrom(discoverSent.url, discover, "streamable-http");
       confirmed.success = true;
       const meta = objectOrUndefined(discoverMsg.result._meta);
       confirmed.serverInfo = serverInfoFrom(meta?.["io.modelcontextprotocol/serverInfo"]);
       return confirmed;
     }
     if (MODERN_ERROR_CODES.has(discoverMsg?.error?.code as number)) {
-      return resultFrom(url, discover, "streamable-http");
+      return resultFrom(discoverSent.url, discover, "streamable-http");
     }
     if (!ok && (discover.status < 400 || discover.status >= 500)) return null;
 
-    const init = await send(
+    const initSent = await send(
       url,
       { method: "POST", headers: BASE_HEADERS, body: INITIALIZE_BODY },
-      deadline,
-      options,
+      ctx,
     );
-    if (!init) return null;
-    if (isBearerChallenge(init)) return resultFrom(url, init, "streamable-http");
+    if (!initSent) return null;
+    const init = initSent.response;
+    if (isMcpAuthChallenge(init)) return resultFrom(initSent.url, init, "streamable-http");
     const initMsg = await readJsonRpc(init);
     const serverInfo = serverInfoFrom(initMsg?.result?.serverInfo);
     if (init.status >= 200 && init.status < 300 && initMsg?.result && serverInfo) {
-      const confirmed = resultFrom(url, init, "streamable-http");
+      const confirmed = resultFrom(initSent.url, init, "streamable-http");
       confirmed.success = true;
       const result = initMsg.result as {
         capabilities?: { auth?: { type?: string } };
@@ -287,23 +326,26 @@ async function probeCandidate(
       };
       return confirmed;
     }
-    if (init.status !== 400 && init.status !== 405) return null;
+    if (init.status !== 400 && init.status !== 404 && init.status !== 405) return null;
 
-    const sse = await send(
+    const sseSent = await send(
       url,
       { method: "GET", headers: { Accept: "text/event-stream" } },
-      deadline,
-      options,
+      ctx,
     );
-    if (!sse) return null;
-    if (isBearerChallenge(sse)) return resultFrom(url, sse, "http+sse");
-    if (essence(sse.headers.get("content-type")) !== "text/event-stream") {
+    if (!sseSent) return null;
+    const sse = sseSent.response;
+    if (isMcpAuthChallenge(sse)) return resultFrom(sseSent.url, sse, "http+sse");
+    if (sse.status !== 200 || essence(sse.headers.get("content-type")) !== "text/event-stream") {
       await sse.body?.cancel().catch(() => {});
       return null;
     }
     const firstEvent = (t: string) => parseSseEvents(t)[0];
     const text = await readCapped(sse, MAX_SSE_ENDPOINT_BYTES, (t) => firstEvent(t) !== undefined);
-    return firstEvent(text)?.event === "endpoint" ? resultFrom(url, sse, "http+sse") : null;
+    const event = firstEvent(text);
+    return event?.event === "endpoint" && event.data.trim() !== ""
+      ? resultFrom(sseSent.url, sse, "http+sse")
+      : null;
   } catch {
     return null;
   }
@@ -315,13 +357,17 @@ export async function probeMcpEndpoint(
   options: Pick<AuditOptions, "timeout" | "isAllowedTarget">,
 ): Promise<McpInitResult | undefined> {
   const timeout = options.timeout ?? 5000;
-  const deadline: Deadline = {
-    end: Date.now() + Math.min(timeout * 3, 15000),
-    perRequest: Math.min(timeout, 5000),
+  const ctx: ProbeContext = {
+    apex: siteApex(baseUrl),
+    deadline: {
+      end: Date.now() + Math.min(timeout * 3, 15000),
+      perRequest: Math.min(timeout, 5000),
+    },
+    options,
   };
   for (const url of buildMcpCandidates(baseUrl, homepageHtml)) {
-    if (Date.now() >= deadline.end) break;
-    const result = await probeCandidate(url, deadline, options);
+    if (Date.now() >= ctx.deadline.end) break;
+    const result = await probeCandidate(url, ctx);
     if (result) return result;
   }
   return undefined;

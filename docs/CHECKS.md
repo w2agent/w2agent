@@ -54,7 +54,7 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
-| MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer auth-gated, 50=deprecated HTTP+SSE, 0=no endpoint). No endpoint → MCP-tier auth checks and `mcp-server-card` are N/A |
+| MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer challenge with `resource_metadata` (auth-gated), 50=deprecated HTTP+SSE (incl. auth-gated), 0=no endpoint). No endpoint → MCP-tier auth checks and `mcp-server-card` are N/A |
 | API endpoints | `api-endpoints` | OpenAPI, GraphQL links |
 | Structured forms | `forms-structured` | Forms have labels and names |
 | UCP | `well-known-ucp` | /.well-known/ucp |

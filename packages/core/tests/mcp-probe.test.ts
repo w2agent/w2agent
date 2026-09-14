@@ -319,29 +319,183 @@ describe("probeMcpEndpoint protocol handling", () => {
     expect(await probeMcpEndpoint(SITE, "", metaOptions)).toBeUndefined();
   });
 
-  it("POSTs that 404 never trigger the legacy SSE GET", async () => {
-    mockSite(() => html("", 404));
+  it("legacy GET-only HTTP+SSE server: POST 404 on a homepage /sse link, GET text/event-stream endpoint → partial 50", async () => {
+    const SSE = `${SITE}/sse`;
+    mockSite((url, call) => {
+      if (url.href !== SSE) return html("", 404);
+      if (call.method === "POST") return html("Cannot POST /sse", 404);
+      return openSse("event: endpoint\ndata: /messages?sessionId=abc\n\n");
+    });
+    const found = await probeMcpEndpoint(SITE, '<a href="/sse">MCP</a>', metaOptions);
+    expect(found).toMatchObject({ mcpEndpointUrl: SSE, transport: "http+sse" });
+    const metadata: SiteMetadata = {
+      baseUrl: SITE,
+      wellKnown: {},
+      mcpInit: found,
+      mcpEndpoint: SSE,
+    };
+    expect(mcpDiscovery.run([], metadata)).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("POST 404 then a GET answering non-event-stream HTML → not found, and the HTML body is never read", async () => {
+    let bodyRead = false;
+    mockSite((_url, call) => {
+      if (call.method === "POST") return html("", 404);
+      const body = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            bodyRead = true;
+            controller.enqueue(new TextEncoder().encode("<html>big page</html>"));
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      return new Response(body, { status: 404, headers: { "content-type": "text/html" } });
+    });
     expect(await probeMcpEndpoint(SITE, "", metaOptions)).toBeUndefined();
-    expect(calls.filter((c) => c.method === "GET")).toEqual([]);
+    expect(calls.some((c) => c.method === "GET")).toBe(true);
+    expect(bodyRead).toBe(false);
+  });
+
+  it("legacy SSE GET whose stream opens with a data-less `retry:` block before the endpoint event → partial 50", async () => {
+    mockSite((url, call) => {
+      if (url.href !== ENDPOINT) return html("", 404);
+      if (call.method === "POST") return new Response("", { status: 405 });
+      return openSse("retry: 3000\n\nevent: endpoint\ndata: /messages?session=1\n\n");
+    });
+    const { found, check } = await probeAndScore();
+    expect(found).toMatchObject({ mcpEndpointUrl: ENDPOINT, transport: "http+sse" });
+    expect(check).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("modern server answering over SSE with a `retry:` prelude still parses the DiscoverResult → pass 100", async () => {
+    mockSite((url, call) =>
+      url.href === ENDPOINT && call.method === "POST"
+        ? openSse(`retry: 3000\n\nevent: message\ndata: ${JSON.stringify(DISCOVER_RESULT)}\n\n`)
+        : html("", 404),
+    );
+    const { check } = await probeAndScore();
+    expect(check).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it.each([
+    ["a 500 status", () => openSse("event: endpoint\ndata: /messages\n\n", 500)],
+    [
+      "an endpoint event with no data",
+      () => openSse("event: endpoint\n\nevent: message\ndata: x\n\n"),
+    ],
+    ["an endpoint event with empty data", () => openSse("event: endpoint\ndata:\n\n")],
+  ])("legacy SSE GET with %s is not an MCP endpoint", async (_label, respond) => {
+    mockSite((url, call) => {
+      if (url.href !== ENDPOINT) return html("", 404);
+      if (call.method === "POST") return new Response("", { status: 405 });
+      return respond();
+    });
+    expect(await probeMcpEndpoint(SITE, "", metaOptions)).toBeUndefined();
   });
 
   it.each([
     ["no WWW-Authenticate", {}],
     ["a Basic challenge", { "www-authenticate": 'Basic realm="admin"' }],
-  ])("401 with %s is not an MCP endpoint (login walls are not MCP servers)", async (_label, headers) => {
+    ["a Bearer challenge without resource_metadata", { "www-authenticate": 'bearer realm="x"' }],
+  ])("401 with %s is not an MCP endpoint (login walls and API gateways are not MCP servers)", async (_label, headers) => {
     mockSite(() => new Response("login", { status: 401, headers }));
     expect(await probeMcpEndpoint(SITE, "", metaOptions)).toBeUndefined();
   });
 
-  it("401 Bearer on the legacy SSE GET confirms an auth-gated endpoint", async () => {
+  it("whole-origin API gateway answering every path 401 Bearer realm=api → no endpoint, fail 0", async () => {
+    const GATEWAY = "https://api-gateway.example";
+    mockSite(
+      () =>
+        new Response('{"error":"unauthorized"}', {
+          status: 401,
+          headers: { "www-authenticate": 'Bearer realm="api"' },
+        }),
+    );
+    const metadata = await probeSiteMetadata(GATEWAY, metaOptions);
+    expect(metadata.mcpEndpoint).toBeUndefined();
+    expect(mcpDiscovery.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("401 Bearer with resource_metadata on the legacy SSE GET → auth-gated HTTP+SSE endpoint, partial 50", async () => {
     mockSite((url, call) => {
       if (url.href !== ENDPOINT) return html("", 404);
       if (call.method === "POST") return new Response("", { status: 405 });
-      return new Response("", { status: 401, headers: { "www-authenticate": 'bearer realm="x"' } });
+      return new Response("", {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="x", resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+        },
+      });
     });
     const { found, check } = await probeAndScore();
-    expect(found?.status).toBe(401);
-    expect(check).toMatchObject({ status: "pass", score: 75 });
+    expect(found).toMatchObject({ status: 401, transport: "http+sse" });
+    expect(check).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  describe("redirects (probe hook set, as the platform runs it)", () => {
+    const hooked = { ...metaOptions, isAllowedTarget: (u: string) => !u.includes("/internal/") };
+    const redirect = (status: number, location: string) =>
+      new Response(null, { status, headers: { location } });
+
+    it("POST /mcp → 302 to a static DiscoverResult JSON (POST rewritten to GET) is not credited", async () => {
+      mockSite((url, call) => {
+        if (url.href === ENDPOINT && call.method === "POST") return redirect(302, "/static.json");
+        if (url.pathname === "/static.json") return json(DISCOVER_RESULT);
+        return html("", 404);
+      });
+      expect(await probeMcpEndpoint(SITE, "", hooked)).toBeUndefined();
+      expect(calls.some((c) => c.url.endsWith("/static.json"))).toBe(false);
+    });
+
+    it("307 /mcp → /mcp/ re-sends the same POST and records the final URL", async () => {
+      mockSite((url, call) => {
+        if (url.href === ENDPOINT && call.method === "POST") return redirect(307, "/mcp/");
+        if (url.href === `${ENDPOINT}/` && call.method === "POST") return json(DISCOVER_RESULT);
+        return html("", 404);
+      });
+      const found = await probeMcpEndpoint(SITE, "", hooked);
+      expect(found).toMatchObject({ mcpEndpointUrl: `${ENDPOINT}/`, success: true });
+      const [hop] = posts(`${ENDPOINT}/`);
+      expect(rpcMethod(hop)).toBe("server/discover");
+      expect(hop.headers.get("mcp-method")).toBe("server/discover");
+    });
+
+    it("307 to a third-party host is not followed", async () => {
+      mockSite((url, call) => {
+        if (url.href === ENDPOINT && call.method === "POST") {
+          return redirect(307, "https://thirdparty.dev/mcp");
+        }
+        if (url.hostname === "thirdparty.dev") return json(DISCOVER_RESULT);
+        return html("", 404);
+      });
+      expect(await probeMcpEndpoint(SITE, "", hooked)).toBeUndefined();
+      expect(calls.some((c) => c.url.includes("thirdparty.dev"))).toBe(false);
+    });
+
+    it("a redirect hop refused by isAllowedTarget is never fetched", async () => {
+      mockSite((url, call) => {
+        if (url.href === ENDPOINT && call.method === "POST") return redirect(308, "/internal/mcp");
+        if (url.pathname === "/internal/mcp") return json(DISCOVER_RESULT);
+        return html("", 404);
+      });
+      expect(await probeMcpEndpoint(SITE, "", hooked)).toBeUndefined();
+      expect(calls.some((c) => c.url.includes("/internal/"))).toBe(false);
+    });
+
+    it("stops after 3 hops", async () => {
+      mockSite((url, call) => {
+        const n = Number(url.pathname.match(/^\/r(\d+)$/)?.[1] ?? -1);
+        if (url.href === ENDPOINT && call.method === "POST") return redirect(307, "/r1");
+        if (n > 0 && call.method === "POST") return redirect(307, `/r${n + 1}`);
+        if (n > 0) return json(DISCOVER_RESULT);
+        return html("", 404);
+      });
+      expect(await probeMcpEndpoint(SITE, "", hooked)).toBeUndefined();
+      expect(calls.some((c) => c.url.endsWith("/r4"))).toBe(false);
+      expect(posts(`${SITE}/r3`)).toHaveLength(1);
+    });
   });
 
   it("uses a same-site homepage href and never fetches a third-party MCP server", async () => {
@@ -427,6 +581,23 @@ describe("buildMcpCandidates", () => {
       "https://mcp.example.com/mcp",
       "https://mcp.example.com/",
     ]);
+  });
+
+  it("auditing an mcp.<domain> host directly probes its own / (and never mcp.mcp.<domain>)", async () => {
+    expect(buildMcpCandidates("https://mcp.stripe.com", "")).toEqual([
+      "https://mcp.stripe.com/mcp",
+      "https://mcp.stripe.com/",
+    ]);
+    mockSite((url, call) =>
+      url.href === "https://mcp.stripe.com/" && call.method === "POST"
+        ? json({}, 401, {
+            "www-authenticate":
+              "Bearer resource_metadata=https://mcp.stripe.com/.well-known/oauth-protected-resource",
+          })
+        : html("", 404),
+    );
+    const found = await probeMcpEndpoint("https://mcp.stripe.com", "", metaOptions);
+    expect(found).toMatchObject({ mcpEndpointUrl: "https://mcp.stripe.com/", status: 401 });
   });
 
   it("does not invent mcp.<host> candidates for localhost or IP literals", () => {

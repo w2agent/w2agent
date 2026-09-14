@@ -264,11 +264,15 @@ export async function fetchPage(
 export async function fetchText(
   url: string,
   options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
+  request: { accept?: string } = {},
 ): Promise<{ text: string; status: number; contentType: string } | null> {
   const response = await retryableFetch(
     url,
     {
-      headers: { "User-Agent": options.userAgent },
+      headers: {
+        "User-Agent": options.userAgent,
+        ...(request.accept ? { Accept: request.accept } : {}),
+      },
       redirect: "follow",
     },
     options.timeout,

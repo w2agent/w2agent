@@ -389,6 +389,21 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
     expect(byId.get("api-catalog-rfc9727")?.score).toBe(0);
   });
 
+  it("api-catalog served as application/json by default and linkset+json only on Accept (RFC 9727 §4.2 negotiation) → accepted, pass", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname !== "/.well-known/api-catalog") return html("nope", 404);
+      const accept = new Headers(init?.headers).get("accept") ?? "";
+      return accept.includes("application/linkset+json")
+        ? new Response(CLOUDFLARE_API_CATALOG, { headers: { "content-type": LINKSET_TYPE } })
+        : json({ apis: [{ name: "Example API", url: "https://example.com/api" }] });
+    });
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["api-catalog"]).toBe(CLOUDFLARE_API_CATALOG);
+    const check = allChecks.find((c) => c.id === "api-catalog-rfc9727") as Check;
+    expect(await check.run([], metadata)).toMatchObject({ status: "pass", score: 100 });
+  });
+
   it("rejects each path's spec media type on the other path", async () => {
     serve(
       withType(200, (path) =>

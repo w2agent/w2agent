@@ -29,6 +29,15 @@ export const mcpDiscovery: Check = {
     }
     const init = metadata.mcpInit;
     const details = `Endpoint: ${endpoint}`;
+    if (init?.transport === "http+sse") {
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: "MCP endpoint uses the deprecated HTTP+SSE transport",
+        details: init.status === 401 ? `${details} → 401` : details,
+      };
+    }
     if (init?.status === 401) {
       return {
         ...base,
@@ -36,15 +45,6 @@ export const mcpDiscovery: Check = {
         score: 75,
         message: "MCP endpoint requires auth (401 — OAuth or other auth expected)",
         details: `${details} → 401`,
-      };
-    }
-    if (init?.transport === "http+sse") {
-      return {
-        ...base,
-        status: "partial",
-        score: 50,
-        message: "MCP endpoint uses the deprecated HTTP+SSE transport",
-        details,
       };
     }
     const server = init?.serverInfo;
