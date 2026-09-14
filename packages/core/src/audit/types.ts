@@ -14,6 +14,7 @@ export interface CheckResult {
   details?: string;
   fixSnippet?: string;
   severity: Severity;
+  tracked?: boolean; // reported but excluded from scoring, top issues, and warnings
 }
 
 export type CategoryId =
@@ -122,6 +123,7 @@ export interface Check {
   category: CategoryId;
   weight: number;
   severity: Severity;
+  tracked?: boolean;
   run: (
     pages: FetchedPage[],
     metadata: SiteMetadata,

@@ -54,7 +54,7 @@ URL
 
 4. **Run Checks** (`engine.ts:70`): All checks execute in parallel via `Promise.all()`. Each check receives the full `pages` array and `metadata` object, returning a `CheckResult` with id, score (0-100), weight, category, status, and optional fix snippet.
 
-5. **Score** (`engine.ts:75-83`): Results grouped by category. Per-category score = weighted average of check scores. Overall score = weighted sum of category scores. Grade derived from overall score.
+5. **Score** (`engine.ts:75-83`): Results grouped by category. Per-category score = weighted average of check scores. Overall score = weighted sum of category scores. Grade derived from overall score. **Tracked checks** (`Check.tracked: true`; the engine stamps `tracked: true` on the result) stay in `category.checks` but are excluded from the weighted average and category renormalization, top issues, warnings, and generate-format mapping; a category whose only applicable checks are tracked scores `null`. Renderers list them under "Tracked (not scored)".
 
 6. **Top Issues** (`engine.ts:143-163`): Failed checks sorted by `estimateImpact()` — how many overall points would be gained by fixing this check. Impact = `(100 - checkScore) × (checkWeight / totalCategoryWeight) × categoryWeight`. Top 5 returned.
 
@@ -69,6 +69,7 @@ interface Check {
   name: string;
   category: CategoryId;
   weight: number;          // relative importance within category
+  tracked?: boolean;       // reported, not scored
   run(pages: FetchedPage[], metadata: SiteMetadata): Promise<CheckResult>;
 }
 ```
@@ -88,6 +89,7 @@ interface CheckResult {
   details?: string;
   fixSnippet?: string;     // code suggestion for fixing
   severity: "error" | "warning" | "info";
+  tracked?: boolean;       // stamped from Check.tracked
 }
 ```
 

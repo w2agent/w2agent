@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AuditReport } from "w2agent-core";
-import { formatReport } from "../src/output/terminal.js";
+import type { AuditReport, CheckResult } from "w2agent-core";
+import { formatReport, formatVerboseReport } from "../src/output/terminal.js";
 
 function makeReport(overrides: Partial<AuditReport> = {}): AuditReport {
   return {
@@ -67,5 +67,68 @@ describe("formatReport warnings", () => {
     );
     expect(output).toContain("JS Heavy");
     expect(output).toContain("Other Warning");
+  });
+});
+
+function makeCheck(overrides: Partial<CheckResult> & { id: string; name: string }): CheckResult {
+  return {
+    category: "agent-discovery",
+    status: "fail",
+    score: 0,
+    maxScore: 100,
+    weight: 1,
+    message: "",
+    severity: "error",
+    ...overrides,
+  };
+}
+
+describe("formatVerboseReport tracked checks", () => {
+  // Tracked checks are not scored, so they must not read as category failures.
+  it("lists tracked checks under a separate heading, not in their category", () => {
+    const output = formatVerboseReport(
+      makeReport({
+        categories: [
+          {
+            id: "agent-discovery",
+            name: "Agent Discovery",
+            weight: 0.12,
+            score: 100,
+            checks: [
+              makeCheck({ id: "scored", name: "Scored Check", status: "pass", score: 100 }),
+              makeCheck({
+                id: "tracked",
+                name: "Emerging Standard Check",
+                message: "Not found",
+                tracked: true,
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const heading = output.indexOf("Tracked (not scored)");
+    expect(heading).toBeGreaterThan(-1);
+    expect(output.split("Emerging Standard Check")).toHaveLength(2);
+    expect(output.indexOf("Emerging Standard Check")).toBeGreaterThan(heading);
+    expect(output.indexOf("Scored Check")).toBeLessThan(heading);
+    expect(output.indexOf("Not found")).toBeGreaterThan(heading);
+  });
+
+  it("omits the tracked heading when no checks are tracked", () => {
+    const output = formatVerboseReport(
+      makeReport({
+        categories: [
+          {
+            id: "agent-discovery",
+            name: "Agent Discovery",
+            weight: 0.12,
+            score: 100,
+            checks: [makeCheck({ id: "scored", name: "Scored Check", status: "pass", score: 100 })],
+          },
+        ],
+      }),
+    );
+    expect(output).not.toContain("Tracked (not scored)");
   });
 });

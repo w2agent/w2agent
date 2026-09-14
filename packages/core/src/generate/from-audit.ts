@@ -28,7 +28,7 @@ export function mapFailedChecksToFormats(report: AuditReport): FromAuditResult {
 
   for (const category of report.categories) {
     for (const check of category.checks) {
-      if (check.status === "skip" || check.score >= 100) continue;
+      if (check.status === "skip" || check.tracked || check.score >= 100) continue;
       const format = CHECK_TO_FORMAT[check.id];
       if (format) {
         formats.add(format);

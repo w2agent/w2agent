@@ -114,6 +114,7 @@ export function formatVerboseReport(report: AuditReport): string {
   lines.push(chalk.bold("  Detailed Results:"));
   lines.push("");
 
+  const tracked: AuditReport["categories"][number]["checks"] = [];
   for (const category of report.categories) {
     const scoreStr =
       category.score === null
@@ -121,6 +122,10 @@ export function formatVerboseReport(report: AuditReport): string {
         : scoreColor(category.score)(`${category.score}/100`);
     lines.push(`  ${chalk.bold(category.name)} — ${scoreStr}`);
     for (const check of category.checks) {
+      if (check.tracked) {
+        tracked.push(check);
+        continue;
+      }
       const icon =
         check.status === "pass"
           ? chalk.green("✓")
@@ -133,6 +138,17 @@ export function formatVerboseReport(report: AuditReport): string {
         `    ${icon} ${padRight(check.name, 40)} ${scoreColor(check.score)(`${check.score}`)}`,
       );
       if (check.status !== "pass" && check.message) {
+        lines.push(`      ${chalk.gray(check.message)}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (tracked.length > 0) {
+    lines.push(chalk.bold("  Tracked (not scored):"));
+    for (const check of tracked) {
+      lines.push(`    ${chalk.gray("·")} ${padRight(check.name, 40)} ${chalk.gray(check.status)}`);
+      if (check.message) {
         lines.push(`      ${chalk.gray(check.message)}`);
       }
     }

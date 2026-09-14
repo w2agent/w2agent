@@ -105,7 +105,10 @@ export async function runAudit(
   // Run checks
   onProgress?.(`Running ${checks.length} checks...`);
   const results: CheckResult[] = await Promise.all(
-    checks.map((check) => check.run(pages, metadata, options)),
+    checks.map(async (check) => {
+      const result = await check.run(pages, metadata, options);
+      return check.tracked ? { ...result, tracked: true } : result;
+    }),
   );
   applyNaCascade(results);
 
@@ -215,9 +218,10 @@ export function applyNaCascade(results: CheckResult[]): CheckResult[] {
 
 function computeWarnings(results: CheckResult[], metadata: SiteMetadata): AuditWarning[] {
   const warnings: AuditWarning[] = [];
+  const scored = results.filter((r) => !r.tracked);
 
-  const noJsResult = results.find((r) => r.id === "no-js-dependency");
-  const tokenResult = results.find((r) => r.id === "token-efficiency");
+  const noJsResult = scored.find((r) => r.id === "no-js-dependency");
+  const tokenResult = scored.find((r) => r.id === "token-efficiency");
 
   const noJsScore = noJsResult?.score ?? 100;
   const tokenScore = tokenResult?.score ?? 100;
@@ -272,7 +276,7 @@ function computeCategories(results: CheckResult[]): CategoryResult[] {
 }
 
 export function computeCategoryScore(checks: CheckResult[]): number | null {
-  const applicable = checks.filter((c) => c.status !== "skip");
+  const applicable = checks.filter((c) => c.status !== "skip" && !c.tracked);
   if (applicable.length === 0) return null;
   const totalWeight = applicable.reduce((sum, c) => sum + c.weight, 0);
   if (totalWeight === 0) return null;
@@ -300,7 +304,7 @@ function computeTopIssues(
   _overallScore: number,
 ): TopIssue[] {
   const failedChecks = results
-    .filter((r) => r.score < 100 && r.status !== "skip")
+    .filter((r) => r.score < 100 && r.status !== "skip" && !r.tracked)
     .sort((a, b) => {
       // Sort by potential impact (how many overall points fixing would add)
       const aImpact = estimateImpact(a, categories);
@@ -321,7 +325,7 @@ function estimateImpact(check: CheckResult, categories: CategoryResult[]): numbe
   if (!category) return 0;
 
   const categoryWeight = category.weight;
-  const applicableChecks = category.checks.filter((c) => c.status !== "skip");
+  const applicableChecks = category.checks.filter((c) => c.status !== "skip" && !c.tracked);
   if (applicableChecks.length === 0) return 0;
 
   const totalCheckWeight = applicableChecks.reduce((sum, c) => sum + c.weight, 0);
