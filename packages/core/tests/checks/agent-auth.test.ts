@@ -707,50 +707,6 @@ describe("agent-auth: D2 api-catalog-rfc9727", () => {
   });
 });
 
-// --- D3 agent-allowlist ---
-describe("agent-auth: D3 agent-allowlist", () => {
-  const check = agentAuthChecks.find((c) => c.id === "agent-allowlist")!;
-
-  const robotsWithAllows = `
-User-agent: GPTBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: *
-Disallow:
-`.trim();
-
-  const robotsBlock = `
-User-agent: *
-Disallow: /
-`.trim();
-
-  it("pass when >= 3 AI bots explicitly allowed", () => {
-    const meta: SiteMetadata = { ...baseMeta, robotsTxt: robotsWithAllows };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
-
-  it("partial when 1-2 AI bots allowed", () => {
-    const robots = "User-agent: GPTBot\nAllow: /\n\nUser-agent: *\nDisallow:";
-    const meta: SiteMetadata = { ...baseMeta, robotsTxt: robots };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
-  });
-
-  it("fail when catch-all blocks all bots", () => {
-    const meta: SiteMetadata = { ...baseMeta, robotsTxt: robotsBlock };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
-  });
-
-  it("fail when no robots.txt", () => {
-    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail" });
-  });
-});
-
 // --- D4 mcp-server-card ---
 describe("agent-auth: D4 mcp-server-card", () => {
   const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
@@ -783,7 +739,7 @@ describe("agent-auth: D4 mcp-server-card", () => {
   });
 });
 
-// --- meta: all 16 check IDs exported ---
+// --- meta: all 15 check IDs exported ---
 describe("agent-auth: check registry", () => {
   const EXPECTED_IDS = [
     "public-api",
@@ -800,12 +756,11 @@ describe("agent-auth: check registry", () => {
     "mcp-pkce-s256",
     "agent-operator-signing",
     "api-catalog-rfc9727",
-    "agent-allowlist",
     "mcp-server-card",
   ];
 
-  it("exports all 16 checks", () => {
-    expect(agentAuthChecks).toHaveLength(16);
+  it("exports all 15 checks", () => {
+    expect(agentAuthChecks).toHaveLength(15);
   });
 
   it("all checks have category agent-auth", () => {
@@ -814,7 +769,7 @@ describe("agent-auth: check registry", () => {
     }
   });
 
-  it("all 16 spec IDs are present", () => {
+  it("all 15 spec IDs are present", () => {
     const ids = agentAuthChecks.map((c) => c.id);
     for (const expected of EXPECTED_IDS) {
       expect(ids).toContain(expected);

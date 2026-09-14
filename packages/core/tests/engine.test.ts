@@ -450,7 +450,7 @@ describe("applyNaCascade (§5.6)", () => {
     );
     const authCat = report.categories.find((c) => c.id === "agent-auth");
     expect(authCat).toBeDefined();
-    expect(authCat?.checks.length).toBe(16);
+    expect(authCat?.checks.length).toBe(15);
     expect(Number.isFinite(report.overallScore)).toBe(true);
   });
 

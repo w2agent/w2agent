@@ -1,8 +1,7 @@
 import robotsParser from "robots-parser";
 import { checkContentNegotiation } from "../../shared/fetcher.js";
+import { BOT_TOKENS, type BotPurpose } from "../shared/bot-tokens.js";
 import type { Check } from "../types.js";
-
-const AI_BOTS = ["GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended", "Bytespider"];
 
 export const robotsTxtExists: Check = {
   id: "robots-txt-exists",
@@ -28,59 +27,94 @@ export const robotsTxtExists: Check = {
   }),
 };
 
-export const robotsTxtAiBots: Check = {
-  id: "robots-txt-ai-bots",
-  name: "AI bots not blocked",
+const GOOGLE_AGENT_NOTE =
+  "Google-Agent: no robots.txt token — Google says user-triggered fetchers generally ignore robots.txt";
+
+export const aiAgentAccess: Check = {
+  id: "ai-agent-access",
+  name: "AI agent access",
   category: "bot-accessibility",
   weight: 2,
   severity: "error",
   run: (_pages, metadata) => {
+    const base = {
+      id: "ai-agent-access",
+      name: "AI agent access",
+      category: "bot-accessibility" as const,
+      maxScore: 100,
+      weight: 2,
+    };
+
     if (!metadata.robotsTxt) {
       return {
-        id: "robots-txt-ai-bots",
-        name: "AI bots not blocked",
-        category: "bot-accessibility",
-        status: "skip",
-        score: 50,
-        maxScore: 100,
-        weight: 2,
-        message: "No robots.txt — bots are implicitly allowed but intent is unclear",
-        severity: "warning",
+        ...base,
+        status: "pass",
+        score: 100,
+        message: "No robots.txt — nothing is blocked",
+        details: GOOGLE_AGENT_NOTE,
+        severity: "info",
       };
     }
 
     const robots = robotsParser(`${metadata.baseUrl}/robots.txt`, metadata.robotsTxt);
-    const blocked: string[] = [];
-    const allowed: string[] = [];
+    const blocked: Record<BotPurpose, string[]> = { user: [], search: [], training: [] };
+    const trainingAllowed: string[] = [];
 
-    for (const bot of AI_BOTS) {
-      if (!robots.isAllowed(`${metadata.baseUrl}/`, bot)) {
-        blocked.push(bot);
-      } else {
-        allowed.push(bot);
+    for (const bot of BOT_TOKENS) {
+      if (!bot.robotsToken) continue;
+      if (robots.isAllowed(`${metadata.baseUrl}/`, bot.token) === false) {
+        blocked[bot.purpose].push(bot.token);
+      } else if (bot.purpose === "training") {
+        trainingAllowed.push(bot.token);
       }
     }
 
-    const score = Math.round((allowed.length / AI_BOTS.length) * 100);
-    const status =
-      blocked.length === 0 ? "pass" : blocked.length === AI_BOTS.length ? "fail" : "partial";
+    const details = [
+      blocked.user.length > 0 ? `User-initiated blocked: ${blocked.user.join(", ")}` : undefined,
+      blocked.search.length > 0 ? `Search blocked: ${blocked.search.join(", ")}` : undefined,
+      `Training (informational, not scored) — allowed: ${trainingAllowed.join(", ") || "none"}; blocked: ${blocked.training.join(", ") || "none"}`,
+      GOOGLE_AGENT_NOTE,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const fixable = [...blocked.user, ...blocked.search];
+    const fixSnippet =
+      fixable.length > 0
+        ? `# Allow AI agents and search fetchers in robots.txt:\n${fixable.map((t) => `User-agent: ${t}\nAllow: /`).join("\n\n")}`
+        : undefined;
+
+    if (blocked.user.length > 0) {
+      return {
+        ...base,
+        status: "fail",
+        score: 0,
+        message: `robots.txt declares intent to block user-initiated AI agents: ${blocked.user.join(", ")}`,
+        details,
+        severity: "error",
+        fixSnippet,
+      };
+    }
+
+    if (blocked.search.length > 0) {
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: `AI search fetchers blocked: ${blocked.search.join(", ")}`,
+        details,
+        severity: "warning",
+        fixSnippet,
+      };
+    }
 
     return {
-      id: "robots-txt-ai-bots",
-      name: "AI bots not blocked",
-      category: "bot-accessibility",
-      status,
-      score,
-      maxScore: 100,
-      weight: 2,
-      message:
-        blocked.length === 0 ? "All major AI bots are allowed" : `Blocked: ${blocked.join(", ")}`,
-      details: `Allowed: ${allowed.join(", ")}${blocked.length > 0 ? `\nBlocked: ${blocked.join(", ")}` : ""}`,
-      severity: blocked.length > 0 ? "error" : "info",
-      fixSnippet:
-        blocked.length > 0
-          ? `# Remove or update these rules in robots.txt:\n${blocked.map((b) => `# User-agent: ${b}\n# Disallow: /  <-- remove this`).join("\n")}`
-          : undefined,
+      ...base,
+      status: "pass",
+      score: 100,
+      message: "User-initiated AI agents and AI search fetchers are not blocked",
+      details,
+      severity: "info",
     };
   },
 };
@@ -221,7 +255,7 @@ export const statusCodes: Check = {
 
 export const botAccessibilityChecks: Check[] = [
   robotsTxtExists,
-  robotsTxtAiBots,
+  aiAgentAccess,
   sitemapExists,
   responseTime,
   contentNegotiation,

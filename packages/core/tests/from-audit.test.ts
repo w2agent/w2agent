@@ -96,7 +96,7 @@ describe("CHECK_TO_FORMAT", () => {
   it("contains entries for all expected check IDs", () => {
     const expectedMappings: Record<string, string> = {
       "robots-txt-exists": "robots-txt",
-      "robots-txt-ai-bots": "robots-txt",
+      "ai-agent-access": "robots-txt",
       "schema-org-present": "schema-org",
       "llms-txt-exists": "llms-txt",
       "well-known-agent-card": "agent-card",

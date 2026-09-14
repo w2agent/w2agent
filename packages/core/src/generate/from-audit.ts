@@ -3,7 +3,7 @@ import type { GenerateFormat } from "./types.js";
 
 export const CHECK_TO_FORMAT: Record<string, GenerateFormat> = {
   "robots-txt-exists": "robots-txt",
-  "robots-txt-ai-bots": "robots-txt",
+  "ai-agent-access": "robots-txt",
   "schema-org-present": "schema-org",
   "schema-org-type": "schema-org",
   "schema-org-completeness": "schema-org",

@@ -7,7 +7,7 @@
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | robots.txt exists | `robots-txt-exists` | robots.txt is accessible |
-| AI bots not blocked | `robots-txt-ai-bots` | GPTBot, ClaudeBot, PerplexityBot, Google-Extended, Bytespider allowed |
+| AI agent access | `ai-agent-access` | robots.txt root access per vendor-documented token (`src/audit/shared/bot-tokens.ts`): user-initiated agent blocked = fail (error); search fetcher blocked = partial (warning); training crawlers reported only, never scored |
 | XML sitemap exists | `sitemap-exists` | Valid sitemap.xml present |
 | Response time | `response-time` | Average page load <2s |
 | Content negotiation | `content-negotiation` | Responds to `Accept: text/markdown` |

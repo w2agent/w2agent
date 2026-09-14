@@ -1,19 +1,5 @@
+import { ROBOTS_TOKENS } from "../audit/shared/bot-tokens.js";
 import type { GenerateContext } from "./types.js";
-
-const AI_BOTS = [
-  "GPTBot",
-  "ChatGPT-User",
-  "ClaudeBot",
-  "Claude-Web",
-  "PerplexityBot",
-  "Google-Extended",
-  "Bytespider",
-  "CCBot",
-  "Applebot-Extended",
-  "Amazonbot",
-  "anthropic-ai",
-  "cohere-ai",
-];
 
 export function generateRobotsTxt(ctx: GenerateContext): string {
   const { metadata, baseUrl } = ctx;
@@ -33,7 +19,7 @@ function generateFull(baseUrl: string): string {
   lines.push("Allow: /");
   lines.push("");
 
-  for (const bot of AI_BOTS) {
+  for (const bot of ROBOTS_TOKENS) {
     lines.push(`User-agent: ${bot}`);
     lines.push("Allow: /");
     lines.push("");
@@ -51,7 +37,7 @@ function appendMissingRules(existing: string, baseUrl: string): string {
   const content = existing.toLowerCase();
   const additions: string[] = [];
 
-  for (const bot of AI_BOTS) {
+  for (const bot of ROBOTS_TOKENS) {
     if (!content.includes(bot.toLowerCase())) {
       additions.push(`User-agent: ${bot}`);
       additions.push("Allow: /");

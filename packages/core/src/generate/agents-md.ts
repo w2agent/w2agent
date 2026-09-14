@@ -1,3 +1,4 @@
+import { ROBOTS_TOKENS } from "../audit/shared/bot-tokens.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { GenerateContext } from "./types.js";
 
@@ -82,17 +83,6 @@ export function generateAgentsMd(ctx: GenerateContext): string {
   return lines.join("\n");
 }
 
-const AI_BOTS = [
-  "GPTBot",
-  "ClaudeBot",
-  "Claude-Web",
-  "Anthropic-AI",
-  "PerplexityBot",
-  "Google-Extended",
-  "CCBot",
-  "Bytespider",
-];
-
 function parseAiBotPermissions(
   robotsTxt: string,
   _baseUrl: string,
@@ -132,7 +122,7 @@ function parseAiBotPermissions(
   }
 
   return results.filter((r) =>
-    AI_BOTS.some((b) => r.agent === "*" || r.agent.toLowerCase() === b.toLowerCase()),
+    ROBOTS_TOKENS.some((b) => r.agent === "*" || r.agent.toLowerCase() === b.toLowerCase()),
   );
 }
 
@@ -143,7 +133,7 @@ function flushBlock(
   out: Array<{ agent: string; access: string }>,
 ): void {
   for (const agent of agents) {
-    if (!AI_BOTS.some((b) => b.toLowerCase() === agent.toLowerCase()) && agent !== "*") {
+    if (!ROBOTS_TOKENS.some((b) => b.toLowerCase() === agent.toLowerCase()) && agent !== "*") {
       continue;
     }
     const access = hasDisallow ? "Restricted" : hasAllow ? "Allowed" : "Allowed (default)";

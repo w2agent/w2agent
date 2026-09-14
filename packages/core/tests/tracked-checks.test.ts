@@ -197,7 +197,7 @@ describe("agent-operator-signing is tracked (P1-4)", () => {
   // A Web Bot Auth directory identifies a bot operator; publishing one or not
   // must never move the audited site's agent-auth score.
   const signing = agentAuthChecks.find((c) => c.id === "agent-operator-signing") as Check;
-  const allowlist = agentAuthChecks.find((c) => c.id === "agent-allowlist") as Check;
+  const openapiSpec = agentAuthChecks.find((c) => c.id === "openapi-spec") as Check;
   const directory = JSON.stringify({
     keys: [{ kty: "OKP", crv: "Ed25519", x: "7F_3jDlxaquwh291MiACkcS3Opq88NksyHiakzS-Y1g" }],
     signature_agent: "https://chatgpt.com",
@@ -207,7 +207,7 @@ describe("agent-operator-signing is tracked (P1-4)", () => {
     const metadata: SiteMetadata = {
       baseUrl,
       wellKnown: { "http-message-signatures-directory": dir },
-      robotsTxt: "User-agent: GPTBot\nAllow: /\n\nUser-agent: *\nDisallow:",
+      openapi: { specUrl: `${baseUrl}/openapi.json`, version: "3.1.0", endpoints: [] },
     };
     const pages: FetchedPage[] = [
       {
@@ -220,7 +220,7 @@ describe("agent-operator-signing is tracked (P1-4)", () => {
     ];
     return runAudit(baseUrl, { prefetchedPages: pages, prefetchedMetadata: metadata }, undefined, [
       signing,
-      allowlist,
+      openapiSpec,
     ]);
   }
 
@@ -232,7 +232,7 @@ describe("agent-operator-signing is tracked (P1-4)", () => {
     ];
     for (const { report, status } of variants) {
       expect(findResult(report, "agent-operator-signing")).toMatchObject({ status, tracked: true });
-      expect(findResult(report, "agent-allowlist")).toMatchObject({ status: "partial", score: 50 });
+      expect(findResult(report, "openapi-spec")).toMatchObject({ status: "partial", score: 50 });
       expect(report.categories.find((c) => c.id === "agent-auth")?.score).toBe(50);
       expect(report.topIssues.map((i) => i.checkId)).not.toContain("agent-operator-signing");
     }

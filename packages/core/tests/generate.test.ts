@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ROBOTS_TOKENS } from "../src/audit/shared/bot-tokens.js";
 import type { FetchedPage } from "../src/audit/types.js";
 import { generateAgentCard } from "../src/generate/agent-card.js";
 import { generateAgentsMd } from "../src/generate/agents-md.js";
@@ -400,6 +401,14 @@ describe("generateRobotsTxt", () => {
     expect(result).toContain("# llms.txt: https://example.com/llms.txt");
   });
 
+  it("emits only vendor-documented tokens — delisted or undocumented tokens are never suggested", () => {
+    const result = generateRobotsTxt(makeCtx());
+    expect(result).toContain("User-agent: Claude-User");
+    for (const stale of ["Claude-Web", "anthropic-ai", "cohere-ai", "Bytespider", "Google-Agent"]) {
+      expect(result).not.toContain(`User-agent: ${stale}`);
+    }
+  });
+
   it("appends missing bot rules to existing robots.txt", () => {
     const ctx = makeCtx({
       metadata: {
@@ -419,22 +428,8 @@ describe("generateRobotsTxt", () => {
   });
 
   it("returns existing robots.txt unchanged if all bots covered", () => {
-    const allBots = [
-      "GPTBot",
-      "ChatGPT-User",
-      "ClaudeBot",
-      "Claude-Web",
-      "PerplexityBot",
-      "Google-Extended",
-      "Bytespider",
-      "CCBot",
-      "Applebot-Extended",
-      "Amazonbot",
-      "anthropic-ai",
-      "cohere-ai",
-    ];
     const existing =
-      allBots.map((b) => `User-agent: ${b}\nAllow: /`).join("\n\n") +
+      ROBOTS_TOKENS.map((b) => `User-agent: ${b}\nAllow: /`).join("\n\n") +
       "\n\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
 
     const ctx = makeCtx({

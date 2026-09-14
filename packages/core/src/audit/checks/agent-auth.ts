@@ -204,39 +204,6 @@ function countNearbyPairs(
   return count;
 }
 
-function parseRobotsBlocks(text: string): { userAgent: string; allow: number; disallow: number }[] {
-  const lines = text.split(/\r?\n/);
-  const blocks: { userAgent: string; allow: number; disallow: number }[] = [];
-  let current: { userAgent: string; allow: number; disallow: number } | null = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^user-agent:/i.test(trimmed)) {
-      const agent = trimmed.replace(/^user-agent:\s*/i, "").trim();
-      current = { userAgent: agent, allow: 0, disallow: 0 };
-      blocks.push(current);
-    } else if (current) {
-      if (/^allow:/i.test(trimmed)) {
-        current.allow++;
-      } else if (/^disallow:/i.test(trimmed)) {
-        current.disallow++;
-      }
-    }
-  }
-  return blocks;
-}
-
-const AI_BOTS = [
-  "gptbot",
-  "claudebot",
-  "claude-web",
-  "anthropic-ai",
-  "perplexitybot",
-  "google-extended",
-  "ccbot",
-  "bytespider",
-];
-
 type Base = {
   id: string;
   name: string;
@@ -637,37 +604,6 @@ const d2: Check = {
   },
 };
 
-const d3: Check = {
-  ...mk("agent-allowlist", "AI agent allowlist in robots.txt", 1.0),
-  run: (_pages, metadata) => {
-    const base = mk("agent-allowlist", "AI agent allowlist in robots.txt", 1.0);
-    if (!metadata.robotsTxt) return res(base, "fail", 0, "No robots.txt found");
-
-    const blocks = parseRobotsBlocks(metadata.robotsTxt);
-    const catchAll = blocks.find((b) => b.userAgent === "*");
-    const catchAllBlocked = catchAll !== undefined && catchAll.disallow > 0 && catchAll.allow === 0;
-
-    const aiBotBlocks = blocks.filter((b) =>
-      AI_BOTS.some((bot) => b.userAgent.toLowerCase().includes(bot)),
-    );
-    const explicitAllows = aiBotBlocks.filter((b) => b.allow > 0).length;
-    const aiDisallowed = aiBotBlocks.some((b) => b.disallow > 0 && b.allow === 0);
-
-    if (aiDisallowed || (catchAllBlocked && aiBotBlocks.length === 0))
-      return res(base, "fail", 0, "AI agents are explicitly blocked in robots.txt");
-    if (explicitAllows >= 3)
-      return res(base, "pass", 100, `${explicitAllows} AI agents explicitly allowed in robots.txt`);
-    if (explicitAllows >= 1)
-      return res(
-        base,
-        "partial",
-        50,
-        `${explicitAllows} AI agent(s) explicitly allowed in robots.txt`,
-      );
-    return res(base, "fail", 0, "No AI agents explicitly allowed in robots.txt");
-  },
-};
-
 const d4: Check = {
   ...mk("mcp-server-card", "MCP server card (mcp.json)", 1.0),
   run: (_pages, metadata) => {
@@ -704,6 +640,5 @@ export const agentAuthChecks: Check[] = [
   c3,
   d1,
   d2,
-  d3,
   d4,
 ];
