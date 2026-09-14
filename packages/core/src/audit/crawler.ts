@@ -209,9 +209,6 @@ export async function probeSiteMetadata(
   onProgress?.("Fetching .well-known files...");
   const wellKnownPaths = [
     "agent-card.json",
-    "agents.json",
-    "ai-plugin.json",
-    "ara/manifest.json",
     "mcp",
     "ucp",
     "oauth-authorization-server",

@@ -12,9 +12,6 @@ const SPA_SHELL =
 
 const WELL_KNOWN_CHECK_IDS = [
   "well-known-agent-card",
-  "well-known-agents-json",
-  "well-known-ara",
-  "well-known-ai-plugin",
   "well-known-ucp",
   "mcp-discovery",
   "oauth-support",

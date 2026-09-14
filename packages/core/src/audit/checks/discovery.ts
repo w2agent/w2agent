@@ -1,13 +1,13 @@
 import { fetchText } from "../../shared/fetcher.js";
 import { parseHTML } from "../../shared/html-parser.js";
 import { parseJsonObject } from "../shared/json.js";
-import type { Check, SiteMetadata } from "../types.js";
+import type { Check } from "../types.js";
 
 export const llmsTxtExists: Check = {
   id: "llms-txt-exists",
   name: "llms.txt exists",
   category: "agent-discovery",
-  weight: 2,
+  weight: 0.5,
   severity: "warning",
   run: (_pages, metadata) => ({
     id: "llms-txt-exists",
@@ -16,10 +16,10 @@ export const llmsTxtExists: Check = {
     status: metadata.llmsTxt ? "pass" : "fail",
     score: metadata.llmsTxt ? 100 : 0,
     maxScore: 100,
-    weight: 2,
+    weight: 0.5,
     message: metadata.llmsTxt
       ? "llms.txt found"
-      : "No llms.txt found — LLMs can't discover your site's AI-optimized content",
+      : "No llms.txt found — coding agents and AI tools that read llms.txt have no curated index of your docs",
     severity: metadata.llmsTxt ? "info" : "warning",
     fixSnippet: !metadata.llmsTxt
       ? `# Create /llms.txt at your site root:\n# Your Site Name\n\n> Brief description of your site\n\n## Docs\n\n- [Page Title](https://yoursite.com/page): Description\n- [Another Page](https://yoursite.com/other): Description`
@@ -31,7 +31,7 @@ export const llmsTxtValid: Check = {
   id: "llms-txt-valid",
   name: "llms.txt follows spec",
   category: "agent-discovery",
-  weight: 1,
+  weight: 0.5,
   severity: "info",
   run: (_pages, metadata) => {
     if (!metadata.llmsTxt) {
@@ -42,7 +42,7 @@ export const llmsTxtValid: Check = {
         status: "skip",
         score: 0,
         maxScore: 100,
-        weight: 1,
+        weight: 0.5,
         message: "No llms.txt to validate",
         severity: "info",
       };
@@ -67,7 +67,7 @@ export const llmsTxtValid: Check = {
       status: score >= 70 ? "pass" : score > 0 ? "partial" : "fail",
       score,
       maxScore: 100,
-      weight: 1,
+      weight: 0.5,
       message:
         score >= 70
           ? "llms.txt follows the specification"
@@ -81,7 +81,7 @@ export const llmsTxtLinksResolve: Check = {
   id: "llms-txt-links-resolve",
   name: "llms.txt links resolve",
   category: "agent-discovery",
-  weight: 1,
+  weight: 0.5,
   severity: "warning",
   run: async (_pages, metadata, ctx) => {
     if (!metadata.llmsTxt) {
@@ -92,7 +92,7 @@ export const llmsTxtLinksResolve: Check = {
         status: "skip",
         score: 0,
         maxScore: 100,
-        weight: 1,
+        weight: 0.5,
         message: "No llms.txt to check links",
         severity: "info",
       };
@@ -109,7 +109,7 @@ export const llmsTxtLinksResolve: Check = {
         status: "fail",
         score: 0,
         maxScore: 100,
-        weight: 1,
+        weight: 0.5,
         message: "No URLs found in llms.txt",
         severity: "warning",
       };
@@ -138,7 +138,7 @@ export const llmsTxtLinksResolve: Check = {
       status: score === 100 ? "pass" : score > 0 ? "partial" : "fail",
       score,
       maxScore: 100,
-      weight: 1,
+      weight: 0.5,
       message: `${resolved}/${toCheck.length} URLs in llms.txt resolve successfully`,
       details: results
         .filter((r) => !r.ok)
@@ -169,130 +169,6 @@ export const wellKnownAgentCard: Check = {
       message: valid
         ? "agent-card.json found and valid JSON"
         : "No /.well-known/agent-card.json found",
-      severity: "info",
-    };
-  },
-};
-
-export const wellKnownAgentsJson: Check = {
-  id: "well-known-agents-json",
-  name: "/.well-known/agents.json",
-  category: "agent-discovery",
-  weight: 1,
-  severity: "info",
-  run: (_pages, metadata) => {
-    const content = metadata.wellKnown["agents.json"];
-    let valid = false;
-    if (content) {
-      try {
-        JSON.parse(content);
-        valid = true;
-      } catch {}
-    }
-
-    return {
-      id: "well-known-agents-json",
-      name: "/.well-known/agents.json",
-      category: "agent-discovery",
-      status: valid ? "pass" : "fail",
-      score: valid ? 100 : 0,
-      maxScore: 100,
-      weight: 1,
-      message: valid ? "agents.json found and valid" : "No /.well-known/agents.json found",
-      severity: "info",
-    };
-  },
-};
-
-export const wellKnownAra: Check = {
-  id: "well-known-ara",
-  name: "/.well-known/ara/manifest.json",
-  category: "agent-discovery",
-  weight: 0.5,
-  severity: "info",
-  run: (_pages, metadata) => {
-    const content = metadata.wellKnown["ara/manifest.json"];
-    const exists = !!content;
-
-    return {
-      id: "well-known-ara",
-      name: "/.well-known/ara/manifest.json",
-      category: "agent-discovery",
-      status: exists ? "pass" : "fail",
-      score: exists ? 100 : 0,
-      maxScore: 100,
-      weight: 0.5,
-      message: exists ? "ARA manifest found" : "No ARA manifest found",
-      severity: "info",
-    };
-  },
-};
-
-export const wellKnownAiPlugin: Check = {
-  id: "well-known-ai-plugin",
-  name: "/.well-known/ai-plugin.json",
-  category: "agent-discovery",
-  weight: 1,
-  severity: "info",
-  run: (_pages, metadata: SiteMetadata) => {
-    const content = metadata.wellKnown["ai-plugin.json"];
-    if (!content) {
-      return {
-        id: "well-known-ai-plugin",
-        name: "/.well-known/ai-plugin.json",
-        category: "agent-discovery",
-        status: "fail",
-        score: 0,
-        maxScore: 100,
-        weight: 1,
-        message: "No /.well-known/ai-plugin.json found",
-        severity: "info",
-      };
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      return {
-        id: "well-known-ai-plugin",
-        name: "/.well-known/ai-plugin.json",
-        category: "agent-discovery",
-        status: "partial",
-        score: 50,
-        maxScore: 100,
-        weight: 1,
-        message: "/.well-known/ai-plugin.json found but contains invalid JSON",
-        severity: "info",
-      };
-    }
-
-    const hasSchemaVersion =
-      parsed !== null && typeof parsed === "object" && "schema_version" in (parsed as object);
-
-    if (!hasSchemaVersion) {
-      return {
-        id: "well-known-ai-plugin",
-        name: "/.well-known/ai-plugin.json",
-        category: "agent-discovery",
-        status: "partial",
-        score: 50,
-        maxScore: 100,
-        weight: 1,
-        message: "/.well-known/ai-plugin.json found but missing required schema_version field",
-        severity: "info",
-      };
-    }
-
-    return {
-      id: "well-known-ai-plugin",
-      name: "/.well-known/ai-plugin.json",
-      category: "agent-discovery",
-      status: "pass",
-      score: 100,
-      maxScore: 100,
-      weight: 1,
-      message: "ai-plugin.json found and valid",
       severity: "info",
     };
   },
@@ -341,8 +217,5 @@ export const discoveryChecks: Check[] = [
   llmsTxtValid,
   llmsTxtLinksResolve,
   wellKnownAgentCard,
-  wellKnownAgentsJson,
-  wellKnownAra,
-  wellKnownAiPlugin,
   markdownAlternate,
 ];

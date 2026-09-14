@@ -408,6 +408,21 @@ describe("Next.js checks", () => {
       expect(result.score).toBeLessThanOrEqual(100);
     }
   });
+
+  it("nextjs-well-known-served counts agent-card.json only, not the retired ai-plugin.json", async () => {
+    const check = nextjsAdapter.checks.find((c) => c.id === "nextjs-well-known-served");
+    const page = makePage("<html></html>");
+    const withCard = await check?.run([page], {
+      ...baseMeta,
+      wellKnown: { "agent-card.json": '{"name":"x"}' },
+    });
+    expect(withCard?.status).toBe("pass");
+    const pluginOnly = await check?.run([page], {
+      ...baseMeta,
+      wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
+    });
+    expect(pluginOnly?.status).toBe("fail");
+  });
 });
 
 // ─── Shopify Checks ─────────────────────────────────────────────

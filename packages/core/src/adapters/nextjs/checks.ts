@@ -8,8 +8,7 @@ export const nextjsWellKnownCheck: Check = {
   severity: "warning",
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
     const hasAgentCard = !!metadata.wellKnown["agent-card.json"];
-    const hasAiPlugin = !!metadata.wellKnown["ai-plugin.json"];
-    const hasAny = hasAgentCard || hasAiPlugin;
+    const hasAny = hasAgentCard;
 
     return {
       id: this.id,

@@ -75,7 +75,7 @@ const simChatgpt = makeSimCheck(
   "ChatGPT can use this site",
   "chatgpt",
   (_html, meta) => {
-    return !!(meta.openapi || meta.wellKnown?.["ai-plugin.json"]);
+    return !!meta.openapi;
   },
 );
 

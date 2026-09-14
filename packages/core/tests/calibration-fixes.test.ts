@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
-import { wellKnownAiPlugin } from "../src/audit/checks/discovery.js";
 import {
+  simChatgpt,
   simClaude,
   simDeepseek,
   simGemini,
@@ -764,67 +764,6 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
   });
 });
 
-describe("ai-plugin.json well-known probe (D2a)", () => {
-  const page: FetchedPage = {
-    url: "https://example.com",
-    status: 200,
-    html: "<html></html>",
-    headers: {},
-    responseTime: 100,
-  };
-
-  it("valid manifest with schema_version in metadata → pass", () => {
-    const meta: SiteMetadata = {
-      baseUrl: "https://example.com",
-      wellKnown: {
-        "ai-plugin.json": JSON.stringify({
-          schema_version: "v1",
-          name_for_model: "example",
-          name_for_human: "Example",
-          description_for_model: "An example plugin",
-          api: { type: "openapi", url: "https://example.com/openapi.yaml" },
-        }),
-      },
-    };
-    const result = wellKnownAiPlugin.run([page], meta);
-    expect(result).not.toBeInstanceOf(Promise);
-    expect((result as import("../src/audit/types.js").CheckResult).status).toBe("pass");
-  });
-
-  it("JSON missing schema_version in metadata → partial", () => {
-    const meta: SiteMetadata = {
-      baseUrl: "https://example.com",
-      wellKnown: { "ai-plugin.json": JSON.stringify({ name: "thing" }) },
-    };
-    const result = wellKnownAiPlugin.run(
-      [page],
-      meta,
-    ) as import("../src/audit/types.js").CheckResult;
-    expect(result.status).toBe("partial");
-  });
-
-  it("invalid JSON in metadata → partial", () => {
-    const meta: SiteMetadata = {
-      baseUrl: "https://example.com",
-      wellKnown: { "ai-plugin.json": "not json" },
-    };
-    const result = wellKnownAiPlugin.run(
-      [page],
-      meta,
-    ) as import("../src/audit/types.js").CheckResult;
-    expect(result.status).toBe("partial");
-  });
-
-  it("absent from metadata → fail", () => {
-    const meta: SiteMetadata = { baseUrl: "https://example.com", wellKnown: {} };
-    const result = wellKnownAiPlugin.run(
-      [page],
-      meta,
-    ) as import("../src/audit/types.js").CheckResult;
-    expect(result.status).toBe("fail");
-  });
-});
-
 describe("multi-UA simulation (D1)", () => {
   const page = makePage("<html><body>content</body></html>", "https://example.com/");
 
@@ -1002,21 +941,21 @@ describe("multi-UA simulation (D1)", () => {
     expect(result.chatgpt.outcome).toBe("ok");
   });
 
-  it("crawler populates wellKnown['ai-plugin.json'] (regression for D1 polish)", async () => {
+  it("crawler no longer probes retired well-known paths (agents.json, ai-plugin.json, ARA)", async () => {
+    const requested: string[] = [];
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
+      requested.push(u);
       if (u === "https://example.com/" || u === "https://example.com")
         return new Response("<html></html>", {
           status: 200,
           headers: { "content-type": "text/html" },
         });
-      if (u === "https://example.com/.well-known/ai-plugin.json")
+      if (u.includes("/.well-known/"))
         return new Response('{"schema_version":"v1"}', {
           status: 200,
           headers: { "content-type": "application/json" },
         });
-      if (u.endsWith("/robots.txt") || u.endsWith("/sitemap.xml") || u.endsWith("/llms.txt"))
-        return new Response("", { status: 404 });
       return new Response("", { status: 404 });
     });
     const out = await crawlSite("https://example.com/", {
@@ -1028,7 +967,50 @@ describe("multi-UA simulation (D1)", () => {
       concurrency: 1,
     });
     fetchSpy.mockRestore();
-    expect(out.metadata.wellKnown["ai-plugin.json"]).toBeTruthy();
+    expect(requested).toContain("https://example.com/.well-known/agent-card.json");
+    for (const retired of ["agents.json", "ai-plugin.json", "ara/manifest.json"]) {
+      expect(
+        requested.some((u) => u.includes(`/.well-known/${retired}`)),
+        retired,
+      ).toBe(false);
+      expect(out.metadata.wellKnown[retired], retired).toBeUndefined();
+    }
+  });
+
+  it("sim-chatgpt passes when reachable and an OpenAPI spec was found", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      openapi: { specUrl: "https://example.com/openapi.json", version: "3.1.0", endpoints: [] },
+      multiUaResponses: {
+        chatgpt: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
+      },
+    };
+    const result = await simChatgpt.run([page], meta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("sim-chatgpt is partial without OpenAPI even if an ai-plugin.json were present (dead surface)", async () => {
+    const meta: SiteMetadata = {
+      ...makeMeta("https://example.com"),
+      wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
+      multiUaResponses: {
+        chatgpt: {
+          status: 200,
+          contentLength: 5000,
+          finalUrl: "https://example.com/",
+          reachable: true,
+          outcome: "ok",
+        },
+      },
+    };
+    const result = await simChatgpt.run([page], meta);
+    expect(result).toMatchObject({ status: "partial", score: 50 });
   });
 
   it("sim-gemini passes when page HTML has JSON-LD script tag", async () => {

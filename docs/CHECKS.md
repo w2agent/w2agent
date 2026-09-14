@@ -46,9 +46,9 @@
 | llms.txt valid | `llms-txt-valid` | Follows spec (H1, blockquote, URLs) |
 | llms.txt links | `llms-txt-links-resolve` | URLs in llms.txt return 200 |
 | Agent card | `well-known-agent-card` | /.well-known/agent-card.json |
-| Agents JSON | `well-known-agents-json` | /.well-known/agents.json |
-| ARA manifest | `well-known-ara` | /.well-known/ara/manifest.json |
 | Markdown alternate | `markdown-alternate` | `<link rel="alternate" type="text/markdown">` |
+
+Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara`, `well-known-ai-plugin`.
 
 ## Agent Protocols (15%)
 
