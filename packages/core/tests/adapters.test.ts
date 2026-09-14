@@ -422,6 +422,11 @@ describe("Next.js checks", () => {
       wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
     });
     expect(pluginOnly?.status).toBe("fail");
+    const namelessJson = await check?.run([page], {
+      ...baseMeta,
+      wellKnown: { "agent-card.json": '{"error":"not found"}' },
+    });
+    expect(namelessJson).toMatchObject({ status: "fail", score: 0 });
   });
 });
 

@@ -1,7 +1,11 @@
 import { guardedFetch, type IsAllowedTarget, TargetNotAllowedError } from "../../shared/fetcher.js";
-import { isJsonContentType, parseJsonObject } from "../shared/json.js";
-import { parseMcpResourceLink, parseOAuthMetadata } from "../shared/oauth-parser.js";
-import type { Check, CheckResult } from "../types.js";
+import { parseJsonObject } from "../shared/json.js";
+import {
+  parseMcpResourceLink,
+  parseOAuthMetadata,
+  parseProtectedResourceMetadata,
+} from "../shared/oauth-parser.js";
+import type { Check, CheckResult, SiteMetadata } from "../types.js";
 
 function stripWww(hostname: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
@@ -75,12 +79,13 @@ type PortalResult =
 
 async function probeDeveloperPortal(
   baseUrl: string,
+  catchAll: boolean,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<PortalResult> {
-  let anyResponseReceived = false;
+  let anyResponseReceived = catchAll;
 
   const canonicalProbes = await Promise.all(
-    PORTAL_PATHS.map(async (p) => {
+    (catchAll ? [] : PORTAL_PATHS).map(async (p) => {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url, isAllowedTarget);
       if (probe !== null) anyResponseReceived = true;
@@ -112,11 +117,14 @@ const portalCache = new WeakMap<object, Promise<PortalResult>>();
 
 function cachedPortal(
   pages: object,
-  baseUrl: string,
+  metadata: SiteMetadata,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<PortalResult> {
   if (!portalCache.has(pages)) {
-    portalCache.set(pages, probeDeveloperPortal(baseUrl, isAllowedTarget));
+    portalCache.set(
+      pages,
+      probeDeveloperPortal(metadata.baseUrl, metadata.catchAll === true, isAllowedTarget),
+    );
   }
   return portalCache.get(pages)!;
 }
@@ -125,10 +133,11 @@ const KEY_DOC_PATHS = ["/keys", "/api-keys", "/docs/keys"];
 
 async function probeKeyDocs(
   baseUrl: string,
+  catchAll: boolean,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<{ url: string; text: string } | null> {
   const apexProbes = await Promise.all(
-    KEY_DOC_PATHS.map(async (p) => {
+    (catchAll ? [] : KEY_DOC_PATHS).map(async (p) => {
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url, isAllowedTarget);
       if (probe && probe.status >= 200 && probe.status < 300)
@@ -154,11 +163,14 @@ const keyDocsCache = new WeakMap<object, Promise<{ url: string; text: string } |
 
 function cachedKeyDocs(
   pages: object,
-  baseUrl: string,
+  metadata: SiteMetadata,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<{ url: string; text: string } | null> {
   if (!keyDocsCache.has(pages)) {
-    keyDocsCache.set(pages, probeKeyDocs(baseUrl, isAllowedTarget));
+    keyDocsCache.set(
+      pages,
+      probeKeyDocs(metadata.baseUrl, metadata.catchAll === true, isAllowedTarget),
+    );
   }
   return keyDocsCache.get(pages)!;
 }
@@ -299,7 +311,7 @@ const a3: Check = {
   ...mk("developer-portal", "Developer portal", 2.0),
   run: async (pages, metadata, ctx) => {
     const base = mk("developer-portal", "Developer portal", 2.0);
-    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const portal = await cachedPortal(pages, metadata, ctx?.isAllowedTarget);
     if (!portal.found) {
       if (portal.probeFailed)
         return res(base, "skip", 0, "Could not verify portal (network unreachable)");
@@ -320,10 +332,10 @@ const a4: Check = {
   ...mk("agent-auth-docs", "Agent/bot auth documentation", 2.0),
   run: async (pages, metadata, ctx) => {
     const base = mk("agent-auth-docs", "Agent/bot auth documentation", 2.0);
-    const portalResult = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const portalResult = await cachedPortal(pages, metadata, ctx?.isAllowedTarget);
     if (!portalResult.found && portalResult.probeFailed)
       return res(base, "skip", 0, "Could not verify portal (network unreachable)");
-    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const keyDocs = await cachedKeyDocs(pages, metadata, ctx?.isAllowedTarget);
     const homepageText = stripHtml(pages[0]?.html ?? "");
     const combined = [
       portalResult.found ? portalResult.text : "",
@@ -367,7 +379,7 @@ const b2: Check = {
   ...mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5),
   run: (_pages, metadata) => {
     const base = mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5);
-    if (parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) === null)
+    if (parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) === null)
       return res(base, "fail", 0, "No OAuth protected resource metadata found");
     return res(base, "pass", 100, "OAuth protected resource metadata present and valid");
   },
@@ -388,7 +400,7 @@ const b3: Check = {
       const ownUrl = `${new URL(metadata.baseUrl).origin}/.well-known/oauth-protected-resource`;
       if (
         mcpInit.oauthResourceMetadataUrl === ownUrl &&
-        parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) !== null
+        parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) !== null
       )
         return res(
           base,
@@ -411,8 +423,8 @@ const b4: Check = {
   ...mk("scoped-permissions", "Scoped API permissions", 1.5),
   run: async (pages, metadata, ctx) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
-    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
-    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const portal = await cachedPortal(pages, metadata, ctx?.isAllowedTarget);
+    const keyDocs = await cachedKeyDocs(pages, metadata, ctx?.isAllowedTarget);
 
     const portalText = portal.found ? portal.text : "";
     const text = [portalText, keyDocs?.text ?? ""].filter(Boolean).join(" ");
@@ -450,7 +462,7 @@ const b5: Check = {
     if (parsed?.codeChallengeMethodsSupported?.includes("S256"))
       return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
 
-    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const portal = await cachedPortal(pages, metadata, ctx?.isAllowedTarget);
     if (!portal.found) {
       if (portal.probeFailed)
         return res(base, "skip", 0, "Could not verify portal (network unreachable)");
@@ -498,7 +510,7 @@ const c2: Check = {
       return res(base, "fail", 0, "No Link header in MCP initialization response");
     if (
       parsed.resourceMetadataUrl &&
-      parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) !== null
+      parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) !== null
     )
       return res(base, "pass", 100, "MCP Link header points to reachable OAuth resource metadata");
     return res(
@@ -517,7 +529,7 @@ const c3: Check = {
     const linkParsed = parseMcpResourceLink(metadata.mcpInit?.linkHeader);
     if (!linkParsed.resourceMetadataUrl)
       return res(base, "fail", 0, "No MCP resource metadata link — cannot verify PKCE support");
-    const asList = parseJsonObject(
+    const asList = parseProtectedResourceMetadata(
       metadata.wellKnown["oauth-protected-resource"],
     )?.authorization_servers;
     if (Array.isArray(asList) && asList.length > 0) {
@@ -539,35 +551,27 @@ const c3: Check = {
 
 const d1: Check = {
   ...mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0),
-  run: async (_pages, metadata, ctx) => {
+  run: (_pages, metadata) => {
     const base = mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0);
-    const probe = await probeUrl(
-      `${metadata.baseUrl}/.well-known/http-message-signatures-directory`,
-      ctx?.isAllowedTarget,
-    );
-    if (!probe || probe.status < 200 || probe.status >= 300)
+    const raw = metadata.wellKnown["http-message-signatures-directory"];
+    if (raw === undefined)
       return res(base, "fail", 0, "No HTTP message signatures directory found");
-    if (!isJsonContentType(probe.contentType) || parseJsonObject(probe.text) === null)
-      return res(base, "fail", 0, "HTTP message signatures directory is not a JSON object");
+    if (!Array.isArray(parseJsonObject(raw)?.keys))
+      return res(base, "fail", 0, "HTTP message signatures directory has no keys array");
     return res(base, "pass", 100, "HTTP message signatures directory present and valid");
   },
 };
 
 const d2: Check = {
   ...mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0),
-  run: async (_pages, metadata, ctx) => {
+  run: (_pages, metadata) => {
     const base = mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0);
-    const probe = await probeUrl(
-      `${metadata.baseUrl}/.well-known/api-catalog`,
-      ctx?.isAllowedTarget,
-    );
-    if (!probe || probe.status < 200 || probe.status >= 300)
+    const raw = metadata.wellKnown["api-catalog"];
+    if (raw === undefined)
       return res(base, "fail", 0, "No API catalog at /.well-known/api-catalog");
-    const parsed = isJsonContentType(probe.contentType) ? parseJsonObject(probe.text) : null;
-    if (!parsed) return res(base, "fail", 0, "API catalog is not a JSON object");
-    const apis = parsed.apis;
+    const apis = parseJsonObject(raw)?.apis;
+    if (!Array.isArray(apis)) return res(base, "fail", 0, "API catalog has no apis array");
     if (
-      Array.isArray(apis) &&
       apis.length > 0 &&
       apis.every(
         (api): api is Record<string, unknown> =>
@@ -617,20 +621,21 @@ const d3: Check = {
 
 const d4: Check = {
   ...mk("mcp-server-card", "MCP server card (mcp.json)", 1.0),
-  run: async (_pages, metadata, ctx) => {
+  run: (_pages, metadata) => {
     const base = mk("mcp-server-card", "MCP server card (mcp.json)", 1.0);
-    const probe = await probeUrl(`${metadata.baseUrl}/.well-known/mcp.json`, ctx?.isAllowedTarget);
-    if (!probe || probe.status < 200 || probe.status >= 300)
+    const raw = metadata.wellKnown["mcp.json"];
+    if (raw === undefined)
       return res(base, "fail", 0, "No MCP server card at /.well-known/mcp.json");
-    const parsed = isJsonContentType(probe.contentType) ? parseJsonObject(probe.text) : null;
-    if (!parsed) return res(base, "fail", 0, "MCP server card is not a JSON object");
-    if (parsed.name && parsed.version && parsed.capabilities)
+    const parsed = parseJsonObject(raw);
+    if (!parsed?.name || !parsed.version)
+      return res(base, "fail", 0, "MCP server card is missing name or version");
+    if (parsed.capabilities)
       return res(base, "pass", 100, `MCP server card: ${parsed.name} v${parsed.version}`);
     return res(
       base,
       "partial",
       50,
-      "MCP server card found but missing required fields (name, version, or capabilities)",
+      "MCP server card found but missing required field capabilities",
     );
   },
 };

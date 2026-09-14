@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import robotsParser from "robots-parser";
 import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
@@ -141,7 +142,9 @@ function is2xx(r: TextResult): r is NonNullable<TextResult> {
 }
 
 function isTextFile(r: TextResult): r is NonNullable<TextResult> {
-  return r?.status === 200 && !r.contentType.toLowerCase().includes("text/html");
+  if (r?.status !== 200) return false;
+  const isHtmlType = r.contentType.split(";")[0].trim().toLowerCase() === "text/html";
+  return !(isHtmlType && /^\uFEFF?\s*</.test(r.text));
 }
 
 export interface CrawlResult {
@@ -213,10 +216,13 @@ export async function probeSiteMetadata(
     "ucp",
     "oauth-authorization-server",
     "oauth-protected-resource",
+    "http-message-signatures-directory",
+    "api-catalog",
+    "mcp.json",
   ];
   const [rootProbe, wellKnownProbe, ...wellKnownResults] = await Promise.all([
-    fetchText(`${baseUrl}/${crypto.randomUUID()}`, options),
-    fetchText(`${baseUrl}/.well-known/${crypto.randomUUID()}`, options),
+    fetchText(`${baseUrl}/${randomUUID()}`, options),
+    fetchText(`${baseUrl}/.well-known/${randomUUID()}`, options),
     ...wellKnownPaths.map((path) => fetchText(`${baseUrl}/.well-known/${path}`, options)),
   ]);
   const catchAllBody = is2xx(wellKnownProbe) ? wellKnownProbe.text : undefined;

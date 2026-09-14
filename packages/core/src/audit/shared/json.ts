@@ -1,5 +1,6 @@
 export function isJsonContentType(contentType: string): boolean {
-  return contentType.toLowerCase().includes("json");
+  const essence = contentType.split(";")[0].trim().toLowerCase();
+  return essence === "application/json" || /^[^/\s]+\/[^/\s]+\+json$/.test(essence);
 }
 
 export function parseJsonObject(raw: string | undefined): Record<string, unknown> | null {
@@ -11,4 +12,9 @@ export function parseJsonObject(raw: string | undefined): Record<string, unknown
   } catch {
     return null;
   }
+}
+
+export function isAgentCard(raw: string | undefined): boolean {
+  const name = parseJsonObject(raw)?.name;
+  return typeof name === "string" && name.trim() !== "";
 }

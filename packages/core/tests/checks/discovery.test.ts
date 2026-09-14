@@ -132,7 +132,15 @@ describe("well-known-agent-card", () => {
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it.each(["[]", "null", "1"])("fails when the body is not a JSON object (%s)", (body) => {
+  it.each([
+    "[]",
+    "null",
+    "1",
+    "{}",
+    '{"name":""}',
+    '{"name":42}',
+    '{"error":"not found","path":"/.well-known/agent-card.json"}',
+  ])("fails when the body is not an object with a non-empty string name (%s)", (body) => {
     const result = wellKnownAgentCard.run([basePage], {
       ...baseMeta,
       wellKnown: { "agent-card.json": body },

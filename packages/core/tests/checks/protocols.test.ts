@@ -157,12 +157,20 @@ describe("well-known-ucp", () => {
   it("passes when UCP exists", () => {
     const result = wellKnownUcp.run([basePage], {
       ...baseMeta,
-      wellKnown: { ucp: '{"version": "1.0"}' },
+      wellKnown: { ucp: '{"ucp": {"version": "2026-08-25"}}' },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it.each(["[]", "true", '"ucp"'])("fails when the body is not a JSON object (%s)", (body) => {
+  it.each([
+    "[]",
+    "true",
+    '"ucp"',
+    '{"version": "1.0"}',
+    '{"ucp": []}',
+    '{"ucp": "2026-08-25"}',
+    '{"error":"not found","path":"/.well-known/ucp"}',
+  ])("fails when the body is not an object with a ucp object member (%s)", (body) => {
     const result = wellKnownUcp.run([basePage], { ...baseMeta, wellKnown: { ucp: body } });
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });

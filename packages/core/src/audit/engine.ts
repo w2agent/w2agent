@@ -243,7 +243,7 @@ function computeWarnings(results: CheckResult[], metadata: SiteMetadata): AuditW
       id: "catch-all-responses",
       title: "Site returns 200 for non-existent paths",
       message:
-        "This site answers 200 OK for URLs that do not exist (a catch-all route or soft-404 page). Machine-readable files such as /.well-known/* were only counted when served as real JSON, so files that returned the same page as any missing URL were not credited.",
+        "This site answers 200 OK for URLs that do not exist (a catch-all route or soft-404 page). /.well-known/* files were only credited when served as JSON that differs from the response for a missing URL, and developer-portal paths on this domain (such as /developers) were not credited.",
     });
   }
 

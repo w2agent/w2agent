@@ -40,15 +40,23 @@ describe("parseOAuthMetadata", () => {
   });
 
   it("returns object with undefined fields when optional fields are missing", () => {
-    const result = parseOAuthMetadata("{}");
+    const result = parseOAuthMetadata('{"issuer":"https://auth.example.com"}');
     expect(result).not.toBeNull();
-    expect(result?.issuer).toBeUndefined();
     expect(result?.authorizationEndpoint).toBeUndefined();
-    expect(result?.raw).toEqual({});
+    expect(result?.raw).toEqual({ issuer: "https://auth.example.com" });
+  });
+
+  it.each([
+    "{}",
+    '{"issuer":42}',
+    '{"error":"not found","path":"/.well-known/oauth-authorization-server"}',
+  ])("returns null without a string issuer (%s) so a JSON catch-all cannot score partial", (body) => {
+    expect(parseOAuthMetadata(body)).toBeNull();
   });
 
   it("filters non-string entries from array fields", () => {
     const json = JSON.stringify({
+      issuer: "https://auth.example.com",
       scopes_supported: ["openid", 42, null, "profile"],
       code_challenge_methods_supported: [true, "S256"],
     });

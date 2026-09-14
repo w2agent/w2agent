@@ -260,7 +260,10 @@ describe("agent-auth: B2 oauth-protected-resource", () => {
     "[]",
     "null",
     '"string"',
-  ])("fail when the body is not a JSON object (%s) — a catch-all must not earn credit", (body) => {
+    "{}",
+    '{"resource":42}',
+    '{"error":"not found","path":"/.well-known/oauth-protected-resource"}',
+  ])("fail when the body is not an object with a string resource (%s) — a catch-all must not earn credit", (body) => {
     const meta: SiteMetadata = {
       ...baseMeta,
       wellKnown: { "oauth-protected-resource": body },
@@ -583,73 +586,61 @@ describe("agent-auth: C3 mcp-pkce-s256", () => {
 
 // --- D1 web-bot-auth-directory ---
 describe("agent-auth: D1 web-bot-auth-directory", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
+  const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
+  const withDir = (body: string): SiteMetadata => ({
+    ...baseMeta,
+    wellKnown: { "http-message-signatures-directory": body },
   });
 
-  it("pass when valid JSON directory found", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("http-message-signatures-directory"))
-        return jsonResp({ algorithms: ["rsa-pss-sha512"] });
-      return notFound();
-    });
-    const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("pass");
+  it("pass when the crawler accepted a JWKS directory with a keys array", () => {
+    const body = JSON.stringify({ keys: [{ kty: "OKP", crv: "Ed25519", x: "abc" }] });
+    expect(check.run([basePage], withDir(body))).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("fail when 200 but not JSON (soft-404 page)", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("http-message-signatures-directory"))
-        return new Response("not json", { status: 200 });
-      return notFound();
-    });
-    const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  it.each([
+    "{}",
+    '{"error":"not found","path":"/.well-known/http-message-signatures-directory"}',
+    '{"keys":{}}',
+    "[]",
+  ])("fail 0 when the JSON body is not a keys directory (%s) — a JSON catch-all earns nothing", (body) => {
+    expect(check.run([basePage], withDir(body))).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it("fail when 404", async () => {
-    globalThis.fetch = mockFetch(() => notFound());
-    const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("fail");
+  it("fail when the crawler did not accept the file", () => {
+    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
   });
 });
 
 // --- D2 api-catalog-rfc9727 ---
 describe("agent-auth: D2 api-catalog-rfc9727", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
+  const check = agentAuthChecks.find((c) => c.id === "api-catalog-rfc9727")!;
+  const withCatalog = (body: unknown): SiteMetadata => ({
+    ...baseMeta,
+    wellKnown: { "api-catalog": JSON.stringify(body) },
   });
 
-  it("pass when apis array with name+url entries", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("api-catalog"))
-        return jsonResp({ apis: [{ name: "Users API", url: "https://example.com/api/users" }] });
-      return notFound();
+  it("pass when apis array with name+url entries", () => {
+    const meta = withCatalog({
+      apis: [{ name: "Users API", url: "https://example.com/api/users" }],
     });
-    const check = agentAuthChecks.find((c) => c.id === "api-catalog-rfc9727")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("pass");
-    expect(result.score).toBe(100);
+    expect(check.run([basePage], meta)).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("partial when catalog present but missing required fields", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("api-catalog")) return jsonResp({ apis: [{ name: "Users API" }] });
-      return notFound();
-    });
-    const check = agentAuthChecks.find((c) => c.id === "api-catalog-rfc9727")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("partial");
+  it("partial when an apis array exists but entries miss required fields", () => {
+    const meta = withCatalog({ apis: [{ name: "Users API" }] });
+    expect(check.run([basePage], meta)).toMatchObject({ status: "partial", score: 50 });
   });
 
-  it("fail when 404", async () => {
-    globalThis.fetch = mockFetch(() => notFound());
-    const check = agentAuthChecks.find((c) => c.id === "api-catalog-rfc9727")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("fail");
+  it.each([
+    {},
+    { error: "not found", path: "/.well-known/api-catalog" },
+    { apis: "Users API" },
+  ])("fail 0 when the object has no apis array (%j) — not partial", (body) => {
+    expect(check.run([basePage], withCatalog(body))).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("fail when the crawler did not accept the file", () => {
+    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
   });
 });
 
@@ -699,36 +690,33 @@ Disallow: /
 
 // --- D4 mcp-server-card ---
 describe("agent-auth: D4 mcp-server-card", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
+  const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
+  const withCard = (body: unknown): SiteMetadata => ({
+    ...baseMeta,
+    wellKnown: { "mcp.json": JSON.stringify(body) },
   });
 
-  it("pass when mcp.json has name+version+capabilities", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("mcp.json"))
-        return jsonResp({ name: "MyMCP", version: "1.0.0", capabilities: { tools: true } });
-      return notFound();
-    });
-    const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("pass");
+  it("pass when mcp.json has name+version+capabilities", () => {
+    const meta = withCard({ name: "MyMCP", version: "1.0.0", capabilities: { tools: true } });
+    expect(check.run([basePage], meta)).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("partial when mcp.json missing capabilities", async () => {
-    globalThis.fetch = mockFetch((url) => {
-      if (url.includes("mcp.json")) return jsonResp({ name: "MyMCP", version: "1.0.0" });
-      return notFound();
-    });
-    const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("partial");
+  it("partial when mcp.json has name+version but no capabilities", () => {
+    const meta = withCard({ name: "MyMCP", version: "1.0.0" });
+    expect(check.run([basePage], meta)).toMatchObject({ status: "partial", score: 50 });
   });
 
-  it("fail when 404", async () => {
-    globalThis.fetch = mockFetch(() => notFound());
-    const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("fail");
+  it.each([
+    {},
+    { error: "not found", path: "/.well-known/mcp.json" },
+    { name: "MyMCP", capabilities: { tools: true } },
+    { version: "1.0.0", capabilities: { tools: true } },
+  ])("fail 0 without both name and version (%j) — not partial", (body) => {
+    expect(check.run([basePage], withCard(body))).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("fail when the crawler did not accept the file", () => {
+    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
   });
 });
 

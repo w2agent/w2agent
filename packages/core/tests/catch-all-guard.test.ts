@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { nextjsWellKnownCheck } from "../src/adapters/nextjs/checks.js";
 import { allChecks } from "../src/audit/checks/index.js";
 import { probeSiteMetadata } from "../src/audit/crawler.js";
 import { runAudit } from "../src/audit/engine.js";
-import type { AuditOptions, AuditReport, Check, CheckResult } from "../src/audit/types.js";
+import { isJsonContentType } from "../src/audit/shared/json.js";
+import type {
+  AuditOptions,
+  AuditReport,
+  Check,
+  CheckResult,
+  FetchedPage,
+} from "../src/audit/types.js";
 import { DEFAULT_OPTIONS } from "../src/audit/types.js";
+
+const FIXED_UUID = "00000000-0000-4000-8000-000000000000";
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomUUID: () => "00000000-0000-4000-8000-000000000000",
+}));
 
 const SITE = "https://example.com";
 const OPTIONS: Partial<AuditOptions> = { maxPages: 1, requestDelay: 0, timeout: 1000 };
@@ -75,6 +89,89 @@ describe("catch-all / soft-404 guard", () => {
     const warning = report.warnings.find((w) => w.id === "catch-all-responses");
     expect(warning).toBeDefined();
     expect(warning?.message).toMatch(/do not exist|non-existent/i);
+    expect(warning?.message).toMatch(/JSON/);
+    expect(warning?.message).toMatch(/developer-portal/);
+  });
+
+  it("probes /.well-known/<uuid> and /<uuid> with node:crypto randomUUID (engines.node >=18 has no global crypto)", async () => {
+    const fetchSpy = mockSite(() => html("nope", 404));
+    await probeSiteMetadata(SITE, metaOptions);
+    const urls = fetchSpy.mock.calls.map(([input]) =>
+      input instanceof Request ? input.url : String(input),
+    );
+    expect(urls).toContain(`${SITE}/${FIXED_UUID}`);
+    expect(urls).toContain(`${SITE}/.well-known/${FIXED_UUID}`);
+  });
+
+  it("on an SPA catch-all, same-origin developer-portal and key-doc paths earn no credit", async () => {
+    const longShell = `<!doctype html><html><body>${"api key oauth agent token scope permission read:users write:posts ".repeat(40)}</body></html>`;
+    mockSite((url) => (url.hostname === "example.com" ? html(longShell) : html("nope", 404)));
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    const pages: FetchedPage[] = [];
+    for (const id of ["developer-portal", "agent-auth-docs", "scoped-permissions", "pkce-s256"]) {
+      const check = allChecks.find((c) => c.id === id) as Check;
+      expect(await check.run(pages, metadata), id).toMatchObject({ status: "fail", score: 0 });
+    }
+  });
+
+  it("on a catch-all site whose portal subdomains do not resolve, developer-portal fails rather than skipping as unreachable", async () => {
+    vi.useFakeTimers();
+    try {
+      mockSite(() => {
+        throw new TypeError("fetch failed");
+      });
+      const check = allChecks.find((c) => c.id === "developer-portal") as Check;
+      const pending = check.run([], { baseUrl: SITE, wellKnown: {}, catchAll: true });
+      await vi.runAllTimersAsync();
+      expect(await pending).toMatchObject({ status: "fail", score: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("on a catch-all site, a real portal on the docs.<host> subdomain is still found", async () => {
+    const portal = `<html><body>${"Developer portal: API reference and guides. ".repeat(40)}</body></html>`;
+    mockSite((url) => {
+      if (url.hostname === "docs.example.com" && url.pathname === "/") return html(portal);
+      if (url.hostname === "example.com") return html(SPA_SHELL);
+      return html("nope", 404);
+    });
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    const check = allChecks.find((c) => c.id === "developer-portal") as Check;
+    const result = await check.run([], metadata);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("docs.example.com");
+  });
+
+  it("a path-echoing JSON catch-all (different body per path) passes no schema-checked well-known check", async () => {
+    mockSite((url) => json({ error: "not found", path: url.pathname }));
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    expect(metadata.wellKnown["agent-card.json"]).toBeDefined();
+    expect(metadata.wellKnown["api-catalog"]).toBeDefined();
+
+    const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
+    const byId = checksById(report);
+    for (const id of [
+      "well-known-agent-card",
+      "well-known-ucp",
+      "oauth-support",
+      "oauth-protected-resource",
+      "web-bot-auth-directory",
+      "api-catalog-rfc9727",
+      "mcp-server-card",
+    ]) {
+      expect(byId.get(id)?.score, id).toBe(0);
+    }
+    expect(await nextjsWellKnownCheck.run([], metadata)).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
   });
 
   it("well-known files not served with a JSON content-type are not counted, even when bodies differ per path", async () => {
@@ -130,6 +227,9 @@ describe("catch-all / soft-404 guard", () => {
     expect(metadata.wellKnown.mcp).toBeUndefined();
     expect(metadata.wellKnown["oauth-authorization-server"]).toBeUndefined();
     expect(metadata.wellKnown["oauth-protected-resource"]).toBe(JSON.stringify(realPrm));
+    for (const path of ["http-message-signatures-directory", "api-catalog", "mcp.json"]) {
+      expect(metadata.wellKnown[path], path).toBeUndefined();
+    }
 
     const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
     const byId = checksById(report);
@@ -138,16 +238,21 @@ describe("catch-all / soft-404 guard", () => {
       "well-known-ucp",
       "mcp-discovery",
       "oauth-support",
+      "web-bot-auth-directory",
+      "api-catalog-rfc9727",
+      "mcp-server-card",
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
     expect(report.warnings.some((w) => w.id === "catch-all-responses")).toBe(true);
   });
 
-  it("robots.txt and llms.txt served as HTML are absent; the llms.txt subdomain fallback still runs", async () => {
+  it("robots.txt and llms.txt HTML shells are absent; the llms.txt subdomain fallback skips shells too", async () => {
     mockSite((url) => {
-      if (url.hostname === "docs.example.com" && url.pathname === "/llms.txt") {
-        return new Response("# Docs\n", { headers: { "content-type": "text/markdown" } });
+      if (url.hostname === "docs.example.com" && url.pathname === "/llms.txt")
+        return html(SPA_SHELL);
+      if (url.hostname === "developers.example.com" && url.pathname === "/llms.txt") {
+        return html("# Docs\n");
       }
       if (url.pathname === "/robots.txt" || url.pathname === "/llms.txt") return html(SPA_SHELL);
       return html("nope", 404);
@@ -157,21 +262,89 @@ describe("catch-all / soft-404 guard", () => {
     expect(metadata.robotsTxt).toBeUndefined();
     expect(metadata.llmsTxt).toBe("# Docs\n");
   });
+
+  it("robots.txt and llms.txt with real content are kept even when mislabelled text/html", async () => {
+    const robots = "User-agent: *\nDisallow: /admin\n";
+    const llms = "# Example\n\n> Docs index\n";
+    mockSite((url) => {
+      if (url.pathname === "/robots.txt") return html(robots);
+      if (url.pathname === "/llms.txt") return html(llms);
+      return html("nope", 404);
+    });
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.robotsTxt).toBe(robots);
+    expect(metadata.llmsTxt).toBe(llms);
+  });
 });
 
-describe("well-known checks that probe directly reject non-JSON and non-object bodies", () => {
-  const byId = (id: string) => allChecks.find((c) => c.id === id) as Check;
-  const meta = { baseUrl: SITE, wellKnown: {} };
+describe("crawler gate covers the signatures directory, api-catalog and mcp.json", () => {
+  const PATHS = ["http-message-signatures-directory", "api-catalog", "mcp.json"];
+  const BODIES: Record<string, unknown> = {
+    "http-message-signatures-directory": { keys: [{ kty: "OKP" }] },
+    "api-catalog": { apis: [{ name: "Users", url: `${SITE}/api/users` }] },
+    "mcp.json": { name: "MCP", version: "1.0.0", capabilities: { tools: {} } },
+  };
+  const serve = (make: (body: unknown) => Response) =>
+    mockSite((url) => {
+      const path = url.pathname.replace("/.well-known/", "");
+      if (url.pathname.startsWith("/.well-known/") && path in BODIES) return make(BODIES[path]);
+      return html("nope", 404);
+    });
+
+  it("accepts 200 JSON (incl. +json media types) and d1/d2/d4 pass without fetching", async () => {
+    serve(
+      (body) =>
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/http-message-signatures-directory+json" },
+        }),
+    );
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    vi.restoreAllMocks();
+    const fetchSpy = mockSite(() => {
+      throw new Error("d1/d2/d4 must read crawler metadata, not fetch");
+    });
+    for (const id of ["web-bot-auth-directory", "api-catalog-rfc9727", "mcp-server-card"]) {
+      const check = allChecks.find((c) => c.id === id) as Check;
+      expect(await check.run([], metadata), id).toMatchObject({ status: "pass", score: 100 });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 
   it.each([
-    "web-bot-auth-directory",
-    "api-catalog-rfc9727",
-    "mcp-server-card",
-  ])("%s fails on a 2xx HTML page and on a JSON array", async (id) => {
-    mockSite(() => html(SPA_SHELL));
-    expect(await byId(id).run([], meta)).toMatchObject({ status: "fail", score: 0 });
-    vi.restoreAllMocks();
-    mockSite(() => json([1, 2]));
-    expect(await byId(id).run([], meta)).toMatchObject({ status: "fail", score: 0 });
+    ["206 JSON", (body: unknown) => json(body, 206)],
+    [
+      "200 text/html",
+      (body: unknown) =>
+        new Response(JSON.stringify(body), { headers: { "content-type": "text/html" } }),
+    ],
+  ])("rejects %s", async (_label, make) => {
+    serve(make);
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    for (const path of PATHS) expect(metadata.wellKnown[path], path).toBeUndefined();
+  });
+});
+
+describe("isJsonContentType", () => {
+  it.each([
+    "application/json",
+    "application/json; charset=utf-8",
+    " Application/JSON ",
+    "application/linkset+json",
+    "application/http-message-signatures-directory+json; charset=utf-8",
+  ])("accepts %s", (ct) => {
+    expect(isJsonContentType(ct)).toBe(true);
+  });
+
+  it.each([
+    "",
+    "text/plain",
+    'text/plain; profile="json"',
+    "text/html; charset=json",
+    "application/jsonp",
+    "application/json-seq",
+    "application/x-json-stream",
+  ])("rejects %j", (ct) => {
+    expect(isJsonContentType(ct)).toBe(false);
   });
 });

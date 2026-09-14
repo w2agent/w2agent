@@ -197,7 +197,8 @@ export const wellKnownUcp: Check = {
   weight: 0.5,
   severity: "info",
   run: (_pages, metadata) => {
-    const exists = parseJsonObject(metadata.wellKnown.ucp) !== null;
+    const ucp = parseJsonObject(metadata.wellKnown.ucp)?.ucp;
+    const exists = typeof ucp === "object" && ucp !== null && !Array.isArray(ucp);
 
     return {
       id: "well-known-ucp",

@@ -1,7 +1,7 @@
 import { parseJsonObject } from "./json.js";
 
 export interface ParsedOAuthMetadata {
-  issuer?: string;
+  issuer: string;
   authorizationEndpoint?: string;
   tokenEndpoint?: string;
   scopesSupported?: string[];
@@ -12,9 +12,9 @@ export interface ParsedOAuthMetadata {
 
 export function parseOAuthMetadata(json: string | undefined): ParsedOAuthMetadata | null {
   const o = parseJsonObject(json);
-  if (!o) return null;
+  if (!o || typeof o.issuer !== "string") return null;
   return {
-    issuer: typeof o.issuer === "string" ? o.issuer : undefined,
+    issuer: o.issuer,
     authorizationEndpoint:
       typeof o.authorization_endpoint === "string" ? o.authorization_endpoint : undefined,
     tokenEndpoint: typeof o.token_endpoint === "string" ? o.token_endpoint : undefined,
@@ -29,6 +29,13 @@ export function parseOAuthMetadata(json: string | undefined): ParsedOAuthMetadat
       : undefined,
     raw: o,
   };
+}
+
+export function parseProtectedResourceMetadata(
+  json: string | undefined,
+): Record<string, unknown> | null {
+  const o = parseJsonObject(json);
+  return o && typeof o.resource === "string" ? o : null;
 }
 
 export interface ParsedMcpResourceLink {

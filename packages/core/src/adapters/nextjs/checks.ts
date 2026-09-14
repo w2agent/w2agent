@@ -1,3 +1,4 @@
+import { isAgentCard } from "../../audit/shared/json.js";
 import type { Check, FetchedPage, SiteMetadata } from "../../audit/types.js";
 
 export const nextjsWellKnownCheck: Check = {
@@ -7,7 +8,7 @@ export const nextjsWellKnownCheck: Check = {
   weight: 1,
   severity: "warning",
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
-    const hasAgentCard = !!metadata.wellKnown["agent-card.json"];
+    const hasAgentCard = isAgentCard(metadata.wellKnown["agent-card.json"]);
     const hasAny = hasAgentCard;
 
     return {
