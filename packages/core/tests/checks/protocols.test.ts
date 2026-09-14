@@ -423,18 +423,30 @@ describe("webmcp-imperative", () => {
     expect(result).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("never fetches scripts on other subdomains, other schemes or look-alike hosts", async () => {
+  it("never fetches scripts on other subdomains, other schemes, other ports or look-alike hosts", async () => {
     const spy = serve({});
     const result = await webmcpImperative.run(
       [
         page(
-          '<script src="https://api.example.com/x.js"></script><script src="http://example.com/x.js"></script><script src="https://example.com.evil.test/x.js"></script><script src="https://www.example.com/x.js"></script>',
+          '<script src="https://cdn.example.com/x.js"></script><script src="http://example.com/x.js"></script><script src="https://example.com:8443/x.js"></script><script src="https://www.example.com:8443/x.js"></script><script src="https://example.com.evil.test/x.js"></script>',
         ),
       ],
       baseMeta,
     );
     expect(fetchedUrls(spy)).toEqual([]);
     expect(result).toMatchObject({ status: "skip" });
+  });
+
+  // Eligibility is a property of the site, not of the page the tag was found on.
+  it("fetches a www script referenced from an apex page via an absolute <base href>", async () => {
+    const WWW = "https://www.example.com";
+    const spy = serve({ [`${WWW}/assets/app.js`]: () => js(REGISTER) });
+    const result = await webmcpImperative.run(
+      [page(`<base href="${WWW}/assets/"><script src="app.js"></script>`)],
+      baseMeta,
+    );
+    expect(fetchedUrls(spy)).toEqual([`${WWW}/assets/app.js`]);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
   });
 
   it("never fetches a script from a crawled page that lives on another site", async () => {
@@ -543,6 +555,36 @@ describe("webmcp-imperative", () => {
       );
       expect(fetchedUrls(spy)).toEqual([`${WWW}/old.js`, `${SITE}/app.js`]);
       expect(result).toMatchObject({ status: "pass" });
+    });
+
+    it("a script shared by an apex page and a www page may redirect to the www host", async () => {
+      const WWW = "https://www.example.com";
+      const spy = serveRedirects({
+        [`${SITE}/loader.js`]: to(`${WWW}/tool.js`),
+        [`${WWW}/tool.js`]: () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [
+          page(`<script src="${SITE}/loader.js"></script>`),
+          page(`<script src="${SITE}/loader.js"></script>`, `${WWW}/`),
+        ],
+        baseMeta,
+      );
+      expect(fetchedUrls(spy)).toEqual([`${SITE}/loader.js`, `${WWW}/tool.js`]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("a redirect to another port on the site host is not followed", async () => {
+      const spy = serveRedirects({
+        [`${SITE}/redir.js`]: to("https://example.com:8443/app.js"),
+        "https://example.com:8443/app.js": () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [page('<script src="/redir.js"></script>')],
+        baseMeta,
+      );
+      expect(fetchedUrls(spy)).toEqual([`${SITE}/redir.js`]);
+      expect(result).toMatchObject({ status: "skip" });
     });
 
     it("follows at most 3 redirects", async () => {

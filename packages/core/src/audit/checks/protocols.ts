@@ -401,21 +401,19 @@ function originTrialFeature(token: string): string | undefined {
 const SCRIPT_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_SCRIPT_REDIRECTS = 3;
 
-type ScriptSite = { base: URL; pageOrigin: string };
-
-function isSiteScript(url: URL, { base, pageOrigin }: ScriptSite): boolean {
+function isSiteScript(url: URL, base: URL): boolean {
   const stripWww = (host: string) => host.replace(/^www\./, "");
   return (
     (url.protocol === "http:" || url.protocol === "https:") &&
     url.protocol === base.protocol &&
-    (url.origin === pageOrigin || url.origin === base.origin) &&
+    url.port === base.port &&
     stripWww(url.hostname) === stripWww(base.hostname)
   );
 }
 
 async function scriptHasWebmcp(
   url: string,
-  site: ScriptSite,
+  site: URL,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<boolean> {
   try {
@@ -454,7 +452,7 @@ export const webmcpImperative: Check = {
   run: async (pages, metadata, ctx) => {
     const found: string[] = [];
     const trialFeatures: string[] = [];
-    const externalScripts = new Map<string, ScriptSite>();
+    const externalScripts = new Set<string>();
     let siteBase: URL | undefined;
     try {
       siteBase = new URL(metadata.baseUrl);
@@ -482,26 +480,26 @@ export const webmcpImperative: Check = {
       } catch {
         continue;
       }
-      const site: ScriptSite = { base: siteBase, pageOrigin: scriptBase.origin };
       try {
         scriptBase = new URL(parsed.$("base[href]").first().attr("href") ?? page.url, page.url);
       } catch {}
       for (const script of parsed.$("script[src]").toArray()) {
         try {
           const src = new URL(parsed.$(script).attr("src") ?? "", scriptBase);
-          if (!isSiteScript(src, site) || externalScripts.has(src.href)) continue;
-          externalScripts.set(src.href, site);
+          if (!isSiteScript(src, siteBase) || externalScripts.has(src.href)) continue;
+          externalScripts.add(src.href);
           if (externalScripts.size >= MAX_EXTERNAL_SCRIPTS) break;
         } catch {}
       }
     }
 
-    if (found.length === 0) {
+    if (found.length === 0 && siteBase) {
+      const site = siteBase;
       const scripts = [...externalScripts];
       const hits = await Promise.all(
-        scripts.map(([url, site]) => scriptHasWebmcp(url, site, ctx?.isAllowedTarget)),
+        scripts.map((url) => scriptHasWebmcp(url, site, ctx?.isAllowedTarget)),
       );
-      scripts.forEach(([url], i) => {
+      scripts.forEach((url, i) => {
         if (hits[i]) found.push(`script ${url}`);
       });
     }
