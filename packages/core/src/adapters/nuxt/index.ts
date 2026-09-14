@@ -122,7 +122,7 @@ export default defineEventHandler(async (event) => {
       const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
       if (webmcpJs) {
         const webmcpPlugin = `// W2Agent WebMCP Registration
-// Client-only Nuxt plugin — registers forms as AI tools via navigator.modelContext
+// Client-only Nuxt plugin — registers forms as AI tools via document.modelContext (WebMCP)
 export default defineNuxtPlugin(() => {
   if (import.meta.client) {
     ${webmcpJs.split("\n").join("\n    ")}

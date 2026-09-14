@@ -1,6 +1,7 @@
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   actionSchemas,
   apiEndpoints,
@@ -10,7 +11,8 @@ import {
   webmcpImperative,
   wellKnownUcp,
 } from "../../src/audit/checks/protocols.js";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { runAudit } from "../../src/audit/engine.js";
+import type { Check, FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -231,87 +233,288 @@ describe("well-known-ucp", () => {
   });
 });
 
+// WebMCP is an origin-trial API that moved from navigator to document.modelContext
+// mid-cycle (CG draft 2026-09-10): tracked at weight 0 so adoption is reported without
+// moving anyone's score. Renderers hide tracked skips, so "nothing found" must be skip.
 describe("webmcp-declarative", () => {
-  it("skips when no forms exist", () => {
+  const page = (body: string): FetchedPage => ({
+    ...basePage,
+    html: `<html><body>${body}</body></html>`,
+  });
+
+  it("is tracked at weight 0 on the definition and in results; no forms → skip 0", () => {
+    expect(webmcpDeclarative).toMatchObject({ weight: 0, tracked: true });
     const result = webmcpDeclarative.run([basePage], baseMeta);
-    expect(result).toMatchObject({ status: "skip", score: 100 });
+    expect(result).toMatchObject({ status: "skip", score: 0, weight: 0, tracked: true });
   });
 
-  it("fails when forms exist but none have WebMCP attributes", () => {
-    const html = `<html><body><form>
-      <input type="text" name="query" />
-    </form></body></html>`;
-    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
-    expect(result.message).toContain("No forms have WebMCP");
+  it("counts only task forms in the denominator: search, login and newsletter forms are excluded", () => {
+    const html = `
+      <form role="search" toolname="siteSearch"><input type="text" name="term" /></form>
+      <form action="/login"><input type="text" name="user" /><input type="password" name="pw" /></form>
+      <form action="/subscribe"><input type="email" name="email" /><button type="submit">Go</button></form>
+      <form action="/book" toolname="bookTable"><input name="date" type="date" /><input name="party" type="number" /></form>
+      <form action="/contact"><input name="name" /><textarea name="msg"></textarea></form>`;
+    const result = webmcpDeclarative.run([page(html)], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100, tracked: true });
+    expect(result.message).toContain("1/2 task forms declare WebMCP tools");
+    expect(result.details).toContain('https://example.com: <form toolname="bookTable">');
+    expect(result.details).toContain('<form toolname="siteSearch"> (search form');
   });
 
-  it("passes when all forms have toolname", () => {
-    const html = `<html><body>
-      <form toolname="search" tooldescription="Search things">
-        <input type="text" name="q" toolparamdescription="Search query" />
-      </form>
-    </body></html>`;
-    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
+  it.each([
+    ["role=search on the form", '<form role="search"><input name="term" /></form>'],
+    ["an ancestor <search> element", '<search><form><input name="term" /></form></search>'],
+    [
+      "an input[type=search]",
+      '<form><input type="search" name="k" /><select name="c"></select></form>',
+    ],
+    ["a lone text input named q", '<form><input name="q" /><button>Go</button></form>'],
+    ["a lone text input named query", '<form><input type="text" name="query" /></form>'],
+    ["a lone text input named s", '<form><input type="text" name="s" /></form>'],
+    ["a password input", '<form><input name="user" /><input type="password" name="pw" /></form>'],
+    ["a single email input", '<form><input type="email" name="e" /><input type="submit" /></form>'],
+  ])("excludes a form with %s from the task-form count", (_label, form) => {
+    const tagged = `${form}<form toolname="t"><input name="a" /><input name="b" /></form>`;
+    expect(webmcpDeclarative.run([page(tagged)], baseMeta).message).toContain("1/1 task forms");
+  });
+
+  it("a toolname on an excluded form still counts as detected", () => {
+    const html = '<form role="search" toolname="siteSearch"><input name="q" /></form>';
+    const result = webmcpDeclarative.run([page(html)], baseMeta);
     expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("1/1");
+    expect(result.message).toContain("0/0 task forms");
+    expect(result.details).toContain("not counted as a task form");
   });
 
-  it("returns partial when some forms have toolname", () => {
-    const html = `<html><body>
-      <form toolname="search" tooldescription="Search">
-        <input type="text" name="q" />
-      </form>
-      <form>
-        <input type="text" name="email" />
-      </form>
-      <form>
-        <input type="text" name="name" />
-      </form>
-    </body></html>`;
-    const result = webmcpDeclarative.run([{ ...basePage, html }], baseMeta);
-    expect(result).toMatchObject({ status: "partial" });
-    expect(result.score).toBe(33); // Math.round(1/3 * 100)
-    expect(result.message).toContain("1/3");
+  it("a newsletter form with a name field besides the email is a task form", () => {
+    const html =
+      '<form><input type="text" name="name" /><input type="email" name="email" /></form><form toolname="t"><input name="a" /><input name="b" /></form>';
+    expect(webmcpDeclarative.run([page(html)], baseMeta).message).toContain("1/2 task forms");
+  });
+
+  it("skips when only search/login/newsletter forms exist and none declares a tool", () => {
+    const html = `
+      <form role="search"><input name="q" /></form>
+      <form><input name="user" /><input type="password" name="pw" /></form>
+      <form><input type="email" name="email" /></form>`;
+    expect(webmcpDeclarative.run([page(html)], baseMeta)).toMatchObject({
+      status: "skip",
+      score: 0,
+      tracked: true,
+    });
+  });
+
+  it("skips when task forms exist but none declares a tool", () => {
+    const html = '<form><input name="name" /><textarea name="msg"></textarea></form>';
+    expect(webmcpDeclarative.run([page(html)], baseMeta)).toMatchObject({
+      status: "skip",
+      score: 0,
+    });
   });
 });
 
 describe("webmcp-imperative", () => {
-  it("fails when no scripts exist", () => {
-    const result = webmcpImperative.run([basePage], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  const SITE = "https://example.com";
+  const page = (body: string, url = SITE): FetchedPage => ({
+    ...basePage,
+    url,
+    html: `<html><head></head><body>${body}</body></html>`,
+  });
+  const REGISTER = 'document.modelContext.registerTool({ name: "t", async execute() {} });';
+
+  function serve(routes: Record<string, () => Response>) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return routes[url]?.() ?? new Response("not found", { status: 404 });
+    });
+  }
+  const fetchedUrls = (spy: ReturnType<typeof serve>) =>
+    spy.mock.calls.map(([input]) => (input instanceof Request ? input.url : String(input)));
+  const js = (body: string, headers: Record<string, string> = {}) =>
+    new Response(body, { headers: { "content-type": "text/javascript", ...headers } });
+
+  function originTrialToken(payload: unknown): string {
+    const json = Buffer.from(JSON.stringify(payload), "utf8");
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(json.length);
+    return Buffer.concat([Buffer.from([3]), Buffer.alloc(64), length, json]).toString("base64");
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("passes when inline script uses navigator.modelContext", () => {
-    const html = `<html><body>
-      <script>
-        navigator.modelContext.registerTool({
-          name: "test",
-          description: "A test tool",
-          inputSchema: { type: "object", properties: {} },
-          async execute() {}
-        });
-      </script>
-    </body></html>`;
-    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
+  it("is tracked at weight 0; no signals → skip 0 with a message that does not recommend navigator.modelContext", async () => {
+    const spy = serve({});
+    expect(webmcpImperative).toMatchObject({ weight: 0, tracked: true });
+    const result = await webmcpImperative.run([page("<script>console.log(1)</script>")], baseMeta);
+    expect(result).toMatchObject({ status: "skip", score: 0, weight: 0, tracked: true });
+    expect(result.message).not.toContain("navigator.modelContext");
+    expect(result.fixSnippet).toContain("document.modelContext");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["document.modelContext.registerTool", REGISTER],
+    [
+      "document.modelContext without a direct registerTool chain",
+      "const mc = document.modelContext; mc && mc.registerTool(x);",
+    ],
+    ["navigator.modelContext (deprecated alias)", "if (navigator.modelContext) { run(); }"],
+    ["optional chaining", "document?.modelContext?.registerTool(x)"],
+    ["bracket access", 'window.document["modelContext"]'],
+  ])("inline %s → pass", async (_label, code) => {
+    serve({});
+    const result = await webmcpImperative.run([page(`<script>${code}</script>`)], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100, tracked: true });
+    expect(result.details).toContain(`inline script on ${SITE}`);
+  });
+
+  it("detects registration in a same-origin external script and names the script URL", async () => {
+    serve({ [`${SITE}/assets/app.js`]: () => js(`!function(){${REGISTER}}()`) });
+    const result = await webmcpImperative.run(
+      [page('<script src="/assets/app.js"></script>')],
+      baseMeta,
+    );
     expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("1 page(s)");
+    expect(result.details).toContain(`script ${SITE}/assets/app.js`);
   });
 
-  it("fails when script exists but has no modelContext", () => {
-    const html = `<html><body>
-      <script>console.log("hello");</script>
-    </body></html>`;
-    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  it("never fetches a cross-origin script", async () => {
+    const spy = serve({ "https://cdn.other.com/app.js": () => js(REGISTER) });
+    const result = await webmcpImperative.run(
+      [page('<script src="https://cdn.other.com/app.js"></script>')],
+      baseMeta,
+    );
+    expect(result).toMatchObject({ status: "skip", score: 0 });
+    expect(fetchedUrls(spy)).toEqual([]);
   });
 
-  it("fails when script is external (src attribute)", () => {
-    const html = `<html><body>
-      <script src="/webmcp-tools.js"></script>
-    </body></html>`;
-    const result = webmcpImperative.run([{ ...basePage, html }], baseMeta);
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  it("fetches at most 5 unique same-origin scripts, deduped across pages in page order", async () => {
+    const routes: Record<string, () => Response> = {};
+    for (let i = 1; i <= 6; i++) routes[`${SITE}/s${i}.js`] = () => js(i === 6 ? REGISTER : "x()");
+    const spy = serve(routes);
+    const pages = [
+      page(
+        '<script src="/s1.js"></script><script src="/s2.js"></script><script src="/s3.js"></script>',
+      ),
+      page(
+        '<script src="/s1.js"></script><script src="s4.js"></script><script src="/s5.js"></script><script src="/s6.js"></script>',
+        `${SITE}/about`,
+      ),
+    ];
+    const result = await webmcpImperative.run(pages, baseMeta);
+    expect(fetchedUrls(spy)).toEqual([1, 2, 3, 4, 5].map((i) => `${SITE}/s${i}.js`));
+    expect(result).toMatchObject({ status: "skip" });
+  });
+
+  it("does not read a script whose content-length exceeds 256 KB", async () => {
+    serve({ [`${SITE}/big.js`]: () => js(REGISTER, { "content-length": "262145" }) });
+    const result = await webmcpImperative.run([page('<script src="/big.js"></script>')], baseMeta);
+    expect(result).toMatchObject({ status: "skip" });
+  });
+
+  it("reads at most 256 KB of a script body: a pattern past the cap is not detected", async () => {
+    const body = `${"x".repeat(262144)}${REGISTER}`;
+    serve({ [`${SITE}/long.js`]: () => js(body) });
+    const result = await webmcpImperative.run([page('<script src="/long.js"></script>')], baseMeta);
+    expect(result).toMatchObject({ status: "skip" });
+  });
+
+  it("a script refused by isAllowedTarget, a non-2xx script, or a network error → skip, never throws", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/err.js")) throw new TypeError("fetch failed");
+      if (url.endsWith("/500.js")) return new Response(REGISTER, { status: 500 });
+      return js(REGISTER);
+    });
+    const result = await webmcpImperative.run(
+      [
+        page(
+          '<script src="/blocked.js"></script><script src="/err.js"></script><script src="/500.js"></script>',
+        ),
+      ],
+      baseMeta,
+      { isAllowedTarget: (url) => !url.endsWith("/blocked.js") },
+    );
+    expect(result).toMatchObject({ status: "skip", score: 0 });
+    expect(fetchedUrls(spy)).not.toContain(`${SITE}/blocked.js`);
+  });
+
+  it("an origin-trial token for WebMCP without registration code is reported as detected", async () => {
+    serve({});
+    const token = originTrialToken({ origin: SITE, feature: "WebMCP", expiry: 1900000000 });
+    const result = await webmcpImperative.run(
+      [page(`<meta http-equiv="Origin-Trial" content="${token}">`)],
+      baseMeta,
+    );
+    expect(result).toMatchObject({ status: "pass", score: 100, tracked: true });
+    expect(result.details).toContain("origin-trial token for WebMCP");
+    expect(result.details).toContain("origin-trial token only, no registration code found");
+  });
+
+  it.each([
+    [
+      "an origin-trial token for another feature",
+      `content="${originTrialToken({ feature: "WebGPU" })}"`,
+    ],
+    ["malformed base64", 'content="!!!not-base64@@@"'],
+    ["a truncated token", `content="${originTrialToken({ feature: "WebMCP" }).slice(0, 100)}"`],
+    [
+      "a non-JSON payload",
+      `content="${Buffer.concat([Buffer.alloc(65), Buffer.from([0, 0, 0, 3]), Buffer.from("{{{")]).toString("base64")}"`,
+    ],
+  ])("%s → skip, no throw", async (_label, attr) => {
+    serve({});
+    const result = await webmcpImperative.run(
+      [page(`<meta http-equiv="origin-trial" ${attr}>`)],
+      baseMeta,
+    );
+    expect(result).toMatchObject({ status: "skip", score: 0 });
+  });
+
+  it("a WebMCP pass does not change the agent-protocols category score", async () => {
+    serve({});
+    const scored: Check = {
+      id: "scored-stub",
+      name: "scored-stub",
+      category: "agent-protocols",
+      weight: 1,
+      severity: "info",
+      run: () => ({
+        id: "scored-stub",
+        name: "scored-stub",
+        category: "agent-protocols",
+        status: "partial",
+        score: 40,
+        maxScore: 100,
+        weight: 1,
+        message: "stub",
+        severity: "info",
+      }),
+    };
+    const audit = async (body: string) => {
+      const report = await runAudit(
+        SITE,
+        {
+          categories: ["agent-protocols"],
+          prefetchedPages: [{ ...page(body), headers: { "content-type": "text/html" } }],
+          prefetchedMetadata: baseMeta,
+        },
+        undefined,
+        [scored, webmcpImperative],
+      );
+      return report.categories.find((c) => c.id === "agent-protocols");
+    };
+    const withWebmcp = await audit(`<script>${REGISTER}</script>`);
+    const without = await audit("<p>none</p>");
+    expect(withWebmcp?.checks.find((c) => c.id === "webmcp-imperative")).toMatchObject({
+      status: "pass",
+      tracked: true,
+    });
+    expect(withWebmcp?.score).toBe(40);
+    expect(without?.score).toBe(withWebmcp?.score);
   });
 });
 

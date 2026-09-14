@@ -169,7 +169,7 @@ describe("generateWebMcp", () => {
     expect(html.content).toContain("email");
   });
 
-  it("imperative JS includes feature detection", () => {
+  it("imperative JS feature-detects document.modelContext (CG draft 2026-09-10) with the deprecated navigator alias as fallback", () => {
     const ctx = makeCtx({
       pages: [
         {
@@ -189,7 +189,12 @@ describe("generateWebMcp", () => {
     });
     const files = generateWebMcp(ctx);
     const js = files.find((f) => f.filename === "webmcp/webmcp.js")!;
-    expect(js.content).toContain('"modelContext" in navigator');
+    expect(js.content).toContain("const mc = document.modelContext ?? navigator.modelContext;");
+    expect(js.content).toContain("if (!mc) return;");
+    expect(js.content).toContain("mc.registerTool(");
+    expect(js.content).not.toContain("navigator.modelContext.registerTool");
+    expect(js.content).not.toContain('"modelContext" in navigator');
+    expect(js.content).toContain("https://webmachinelearning.github.io/webmcp/");
   });
 
   it("imperative JS includes registerTool for each form", () => {

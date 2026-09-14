@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nextjsWellKnownCheck } from "../src/adapters/nextjs/checks.js";
 import { allChecks } from "../src/audit/checks/index.js";
+import { wellKnownUcp } from "../src/audit/checks/protocols.js";
 import { probeSiteMetadata } from "../src/audit/crawler.js";
 import { runAudit } from "../src/audit/engine.js";
 import { isJsonContentType } from "../src/audit/shared/json.js";
@@ -86,6 +87,8 @@ describe("catch-all / soft-404 guard", () => {
       expect({ id, status: r?.status, score: r?.score }).toMatchObject({ id, score: 0 });
       expect(["fail", "skip"], id).toContain(r?.status);
     }
+    // The engine gate skips UCP on non-ecommerce sites; run it directly so the body itself is judged.
+    expect(await wellKnownUcp.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
 
     const warning = report.warnings.find((w) => w.id === "catch-all-responses");
     expect(warning).toBeDefined();
@@ -169,6 +172,8 @@ describe("catch-all / soft-404 guard", () => {
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
+    // The engine gate skips UCP on non-ecommerce sites; run it directly so the body itself is judged.
+    expect(await wellKnownUcp.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
     expect(await nextjsWellKnownCheck.run([], metadata)).toMatchObject({
       status: "fail",
       score: 0,
@@ -266,6 +271,8 @@ describe("catch-all / soft-404 guard", () => {
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
+    // The engine gate skips UCP on non-ecommerce sites; run it directly so the body itself is judged.
+    expect(await wellKnownUcp.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
     // The real PRM still counts, but the {} soft-404 served at the AS metadata path has no issuer.
     expect(byId.get("oauth-discovery")).toMatchObject({ status: "partial", score: 50 });
     expect(report.warnings.some((w) => w.id === "catch-all-responses")).toBe(true);

@@ -108,7 +108,7 @@ Anthropic-spec agent skill file describing the site's capabilities, MCP server c
 
 #### WebMCP Declarations (`webmcp`)
 
-WebMCP-compatible HTML forms with `toolname` attributes for declarative agent interaction. Generated for each platform adapter.
+WebMCP-compatible HTML forms with `toolname` attributes for declarative agent interaction, plus `webmcp.js`, which registers the same forms via `document.modelContext` (falling back to the deprecated `navigator.modelContext`). Generated for each platform adapter.
 
 #### OpenClaw SKILL.md (`openclaw`)
 

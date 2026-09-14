@@ -85,6 +85,6 @@ Each generator is independent — `--format llms-txt` runs only that generator. 
 
 The `mcp-server` format generates a complete Node.js project (`package.json`, `index.ts`, tool definitions). Self-contained — `npm install && npm start` works. The alternative (a config file that a global MCP runner interprets) would be simpler but less portable.
 
-### WebMCP follows Chrome 146 Canary behavior
+### WebMCP follows the CG draft (2026-09-10)
 
-The WebMCP format (`webmcp.html`) follows the W3C draft spec as implemented in Chrome 146 Canary. If the spec renames attributes (e.g., `toolname` → `tool-name`), the generator needs updating. Accepted risk for an emerging standard.
+The WebMCP format follows the Web Machine Learning CG draft: declarative `toolname`/`tooldescription`/`toolautosubmit`/`toolparamdescription` attributes, and imperative registration via `document.modelContext` with the deprecated `navigator.modelContext` alias as fallback. If the spec renames attributes (e.g., `toolname` → `tool-name`) or moves the API again, the generator needs updating. Accepted risk for an emerging standard.

@@ -168,5 +168,5 @@ The generated `mcp-server/` is a complete Node.js project with `package.json`, r
 
 - **`--format all` includes everything** — WebMCP is included in `all`. If a format should be excluded from `all`, add it to the exclusion list in `parseFormats()`.
 - **OpenClaw SKILL.md version is static** — `version: 1.0.0` doesn't auto-increment on regeneration.
-- **WebMCP spec is draft** — attribute names follow Chrome 146 Canary behavior. May need updating if W3C renames attributes.
+- **WebMCP spec is draft** — follows the CG draft of 2026-09-10 (`document.modelContext`, `navigator.modelContext` fallback; attributes `toolname`/`tooldescription`/`toolautosubmit`/`toolparamdescription`). May need updating if the spec renames attributes or moves the API again.
 - **No incremental generation** — full crawl + full generation every time. No diffing against previous output.

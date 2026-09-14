@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer";
+import type { CheerioAPI } from "cheerio";
+import { guardedFetch, type IsAllowedTarget, readBodyCapped } from "../../shared/fetcher.js";
 import { parseHTML } from "../../shared/html-parser.js";
 import { parseJsonObject } from "../shared/json.js";
 import type { Check } from "../types.js";
@@ -277,28 +280,70 @@ export const actionSchemas: Check = {
   },
 };
 
+type CheerioNode = ReturnType<CheerioAPI>;
+
+const NON_FIELD_INPUT_TYPES = new Set(["hidden", "submit", "button", "reset", "image"]);
+const SEARCH_FIELD_NAMES = new Set(["q", "query", "s"]);
+
+type FormKind = "task" | "search" | "login" | "newsletter";
+
+function lowerAttr($el: CheerioNode, name: string, fallback = ""): string {
+  return ($el.attr(name) ?? fallback).trim().toLowerCase();
+}
+
+function classifyForm($: CheerioAPI, $form: CheerioNode): FormKind {
+  const inputs = $form
+    .find("input")
+    .toArray()
+    .map((el) => $(el));
+  const inputType = ($input: CheerioNode) => lowerAttr($input, "type", "text") || "text";
+
+  if (
+    lowerAttr($form, "role") === "search" ||
+    $form.closest("search").length > 0 ||
+    inputs.some(($input) => inputType($input) === "search")
+  ) {
+    return "search";
+  }
+  if (inputs.some(($input) => inputType($input) === "password")) return "login";
+
+  const fieldInputs = inputs.filter(($input) => !NON_FIELD_INPUT_TYPES.has(inputType($input)));
+  const textInputs = fieldInputs.filter(($input) => inputType($input) === "text");
+  if (textInputs.length === 1 && SEARCH_FIELD_NAMES.has(lowerAttr(textInputs[0], "name"))) {
+    return "search";
+  }
+  const fieldCount = fieldInputs.length + $form.find("select, textarea").length;
+  if (fieldCount === 1 && fieldInputs.length === 1 && inputType(fieldInputs[0]) === "email") {
+    return "newsletter";
+  }
+  return "task";
+}
+
 export const webmcpDeclarative: Check = {
   id: "webmcp-declarative",
   name: "WebMCP declarative API",
   category: "agent-protocols",
-  weight: 0.75,
+  weight: 0,
   severity: "info",
+  tracked: true,
   run: (pages) => {
-    let totalForms = 0;
-    let webmcpForms = 0;
+    let taskForms = 0;
+    let taskToolForms = 0;
+    let excludedToolForms = 0;
     const webmcpDetails: string[] = [];
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
-      const forms = parsed.$("form");
-      totalForms += forms.length;
-
-      forms.each((_, form) => {
+      parsed.$("form").each((_, form) => {
         const $form = parsed.$(form);
-        if ($form.attr("toolname")) {
-          webmcpForms++;
-          webmcpDetails.push(`${page.url}: <form toolname="${$form.attr("toolname")}">`);
-        }
+        const kind = classifyForm(parsed.$, $form);
+        if (kind === "task") taskForms++;
+        const toolname = $form.attr("toolname");
+        if (!toolname) return;
+        if (kind === "task") taskToolForms++;
+        else excludedToolForms++;
+        const note = kind === "task" ? "" : ` (${kind} form, not counted as a task form)`;
+        webmcpDetails.push(`${page.url}: <form toolname="${toolname}">${note}`);
       });
     }
 
@@ -307,76 +352,139 @@ export const webmcpDeclarative: Check = {
       name: "WebMCP declarative API",
       category: "agent-protocols" as const,
       maxScore: 100,
-      weight: 0.75,
+      weight: 0,
       severity: "info" as const,
-      fixSnippet: `<form toolname="searchFlights" tooldescription="Search available flights" toolautosubmit="true">
+      tracked: true,
+      fixSnippet: `<form toolname="searchFlights" tooldescription="Search available flights" toolautosubmit>
   <input type="text" name="origin" toolparamdescription="IATA airport code for departure" />
   <input type="text" name="destination" toolparamdescription="IATA airport code for arrival" />
 </form>`,
     };
 
-    if (totalForms === 0) {
-      return { ...base, status: "skip", score: 100, message: "No forms found (not applicable)" };
+    if (webmcpDetails.length === 0) {
+      return {
+        ...base,
+        status: "skip",
+        score: 0,
+        message: "No WebMCP form tool declarations found",
+      };
     }
 
-    const score = Math.round((webmcpForms / totalForms) * 100);
-
+    const excludedNote =
+      excludedToolForms > 0 ? ` (+${excludedToolForms} search/login/newsletter form(s))` : "";
     return {
       ...base,
-      status: score >= 80 ? "pass" : score > 0 ? "partial" : "fail",
-      score,
-      message:
-        webmcpForms > 0
-          ? `${webmcpForms}/${totalForms} forms have WebMCP attributes`
-          : "No forms have WebMCP tool declarations",
-      ...(webmcpDetails.length > 0 ? { details: webmcpDetails.join("\n") } : {}),
+      status: "pass",
+      score: 100,
+      message: `${taskToolForms}/${taskForms} task forms declare WebMCP tools${excludedNote}`,
+      details: webmcpDetails.join("\n"),
     };
   },
 };
+
+const WEBMCP_SCRIPT_PATTERN =
+  /\b(?:document|navigator)\s*\??\.\s*modelContext\b|\[\s*["'`]modelContext["'`]\s*\]|\bmodelContext\s*\??\.\s*registerTool\b/;
+const MAX_EXTERNAL_SCRIPTS = 5;
+const MAX_SCRIPT_BYTES = 256 * 1024;
+const SCRIPT_TIMEOUT_MS = 5000;
+const OT_HEADER_BYTES = 1 + 64 + 4;
+const WEBMCP_OT_FEATURE = /webmcp|modelcontext/i;
+
+function originTrialFeature(token: string): string | undefined {
+  const buf = Buffer.from(token.trim(), "base64");
+  if (buf.length < OT_HEADER_BYTES) return undefined;
+  const length = buf.readUInt32BE(OT_HEADER_BYTES - 4);
+  if (OT_HEADER_BYTES + length > buf.length) return undefined;
+  try {
+    const payload: unknown = JSON.parse(
+      buf.subarray(OT_HEADER_BYTES, OT_HEADER_BYTES + length).toString("utf8"),
+    );
+    const feature = (payload as Record<string, unknown> | null)?.feature;
+    return typeof feature === "string" && WEBMCP_OT_FEATURE.test(feature) ? feature : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function scriptHasWebmcp(url: string, isAllowedTarget?: IsAllowedTarget): Promise<boolean> {
+  try {
+    const res = await guardedFetch(
+      url,
+      { signal: AbortSignal.timeout(SCRIPT_TIMEOUT_MS) },
+      isAllowedTarget,
+    );
+    const declared = Number(res.headers.get("content-length"));
+    if (res.status < 200 || res.status >= 300 || declared > MAX_SCRIPT_BYTES) {
+      await res.body?.cancel().catch(() => {});
+      return false;
+    }
+    return WEBMCP_SCRIPT_PATTERN.test(await readBodyCapped(res, MAX_SCRIPT_BYTES));
+  } catch {
+    return false;
+  }
+}
 
 export const webmcpImperative: Check = {
   id: "webmcp-imperative",
   name: "WebMCP imperative API",
   category: "agent-protocols",
-  weight: 0.5,
+  weight: 0,
   severity: "info",
-  run: (pages) => {
-    const detectedPages: string[] = [];
+  tracked: true,
+  run: async (pages, metadata, ctx) => {
+    const found: string[] = [];
+    const trialFeatures: string[] = [];
+    const externalScripts: string[] = [];
+    let origin: string | undefined;
+    try {
+      origin = new URL(metadata.baseUrl).origin;
+    } catch {}
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
-      const scripts = parsed.$("script:not([src])");
-      let found = false;
+      const inline = parsed
+        .$("script:not([src])")
+        .toArray()
+        .some((script) => WEBMCP_SCRIPT_PATTERN.test(parsed.$(script).html() ?? ""));
+      if (inline) found.push(`inline script on ${page.url}`);
 
-      scripts.each((_, script) => {
-        if (found) return;
-        const content = parsed.$(script).html() || "";
-        if (
-          content.includes("navigator.modelContext") ||
-          content.includes("modelContext.registerTool")
-        ) {
-          found = true;
-          detectedPages.push(page.url);
-        }
+      parsed.$("meta[http-equiv][content]").each((_, meta) => {
+        const $meta = parsed.$(meta);
+        if (lowerAttr($meta, "http-equiv") !== "origin-trial") return;
+        const feature = originTrialFeature($meta.attr("content") ?? "");
+        if (feature) trialFeatures.push(`origin-trial token for ${feature} on ${page.url}`);
+      });
+
+      parsed.$("script[src]").each((_, script) => {
+        try {
+          const src = new URL(parsed.$(script).attr("src") ?? "", page.url);
+          if (src.protocol !== "http:" && src.protocol !== "https:") return;
+          if (src.origin !== origin || externalScripts.includes(src.href)) return;
+          externalScripts.push(src.href);
+        } catch {}
       });
     }
 
-    const found = detectedPages.length > 0;
+    if (found.length === 0) {
+      const scripts = externalScripts.slice(0, MAX_EXTERNAL_SCRIPTS);
+      const hits = await Promise.all(
+        scripts.map((url) => scriptHasWebmcp(url, ctx?.isAllowedTarget)),
+      );
+      scripts.forEach((url, i) => {
+        if (hits[i]) found.push(`script ${url}`);
+      });
+    }
 
-    return {
-      id: "webmcp-imperative",
+    const base = {
+      id: "webmcp-imperative" as const,
       name: "WebMCP imperative API",
-      category: "agent-protocols",
-      status: found ? "pass" : "fail",
-      score: found ? 100 : 0,
+      category: "agent-protocols" as const,
       maxScore: 100,
-      weight: 0.5,
-      message: found
-        ? `WebMCP imperative API detected on ${detectedPages.length} page(s)`
-        : "No navigator.modelContext usage found",
-      severity: "info",
-      ...(found ? { details: detectedPages.join("\n") } : {}),
-      fixSnippet: `navigator.modelContext.registerTool({
+      weight: 0,
+      severity: "info" as const,
+      tracked: true,
+      fixSnippet: `const mc = document.modelContext ?? navigator.modelContext;
+mc?.registerTool({
   name: "addToCart",
   description: "Add a product to the shopping cart",
   inputSchema: {
@@ -389,6 +497,28 @@ export const webmcpImperative: Check = {
   },
   async execute(args) { /* implementation */ },
 });`,
+    };
+
+    if (found.length === 0 && trialFeatures.length === 0) {
+      return {
+        ...base,
+        status: "skip",
+        score: 0,
+        message: "No WebMCP tool registration (document.modelContext) found",
+      };
+    }
+
+    const details = [...found, ...trialFeatures];
+    if (found.length === 0) details.push("origin-trial token only, no registration code found");
+    return {
+      ...base,
+      status: "pass",
+      score: 100,
+      message:
+        found.length > 0
+          ? `WebMCP tool registration code found in ${found.length} place(s)`
+          : "WebMCP origin-trial token found (no registration code found)",
+      details: details.join("\n"),
     };
   },
 };
