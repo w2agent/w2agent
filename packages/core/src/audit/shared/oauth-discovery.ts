@@ -37,7 +37,7 @@ export function resourceMatches(requested: string, configured: string): boolean 
 export function sameIssuer(a: string, b: string): boolean {
   if (a === b) return true;
   const [short, long] = a.length < b.length ? [a, b] : [b, a];
-  if (long !== `${short}/` || /[?#]/.test(short)) return false;
+  if (long !== `${short}/` || short.endsWith("/") || /[?#]/.test(short)) return false;
   try {
     return new URL(short).pathname === "/";
   } catch {

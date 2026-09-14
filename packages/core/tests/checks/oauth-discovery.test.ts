@@ -71,6 +71,7 @@ describe("sameIssuer", () => {
     ["https://honest.example", "https://attacker.example"],
     ["https://as.example/tenant1", "https://as.example/tenant2"],
     ["https://as.example", "not a url"],
+    ["https://idp.example/", "https://idp.example//"],
   ])("%s and %s differ", (a, b) => {
     expect(sameIssuer(a, b)).toBe(false);
   });
