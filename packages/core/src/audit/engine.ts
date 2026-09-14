@@ -142,7 +142,7 @@ function normalizePageUrl(u: string): string {
   try {
     const parsed = new URL(u);
     parsed.hash = "";
-    return parsed.href.replace(/\/+$/, "");
+    return parsed.href;
   } catch {
     return u;
   }

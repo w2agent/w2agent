@@ -57,6 +57,7 @@ beforeEach(() => {
       return new Response('{"name":"site-mcp"}', { status: 200 });
     }
     if (/^\/p\d+$/.test(path)) return html(`<html><body><p>page ${path}</p></body></html>`);
+    if (path === "/guide/") return html("<html><body><p>guide index (slash)</p></body></html>");
     return new Response("", { status: 404 });
   });
 });
@@ -247,5 +248,46 @@ describe("runAudit re-selection of prefetched pages beyond the profile", () => {
     expect(mainUaPageFetches(`${SITE}/p5`)).toHaveLength(1);
     expect(mainUaPageFetches(HOME)).toHaveLength(1);
     expect(mainUaPageFetches(`${SITE}/p1`)).toHaveLength(0);
+  });
+
+  it("treats /guide and /guide/ as distinct pages: only an exact prefetched match is reused", async () => {
+    const guide = `${SITE}/guide`;
+    const guideSlash = `${SITE}/guide/`;
+    const sitemapXml = `<?xml version="1.0"?><urlset><url><loc>${HOME}</loc></url><url><loc>${guide}</loc><priority>0.9</priority></url><url><loc>${guideSlash}</loc><priority>0.9</priority></url>${PAGE_URLS.map(
+      (u) => `<url><loc>${u}</loc><priority>0.1</priority></url>`,
+    ).join("")}</urlset>`;
+    const pages: FetchedPage[] = [
+      ...prefetched(),
+      {
+        url: guide,
+        status: 200,
+        html: "<html><body><p>guide article (no slash)</p></body></html>",
+        headers: { "content-type": "text/html" },
+        responseTime: 0,
+      },
+    ];
+    expect(pages.length).toBeGreaterThan(AUDIT_CRAWL_PROFILE.maxPages);
+
+    let scoredPages: FetchedPage[] = [];
+    const htmlRecorder: Check = {
+      ...recorder,
+      run: (p, m) => {
+        scoredPages = p;
+        return recorder.run(p, m);
+      },
+    };
+
+    await runAudit(
+      HOME,
+      { ...OPTIONS, prefetchedPages: pages, prefetchedMetadata: { ...metadata, sitemapXml } },
+      undefined,
+      [htmlRecorder],
+    );
+
+    const htmlOf = (u: string) => scoredPages.filter((p) => p.url === u).map((p) => p.html);
+    expect(htmlOf(guide)).toEqual(["<html><body><p>guide article (no slash)</p></body></html>"]);
+    expect(htmlOf(guideSlash)).toEqual(["<html><body><p>guide index (slash)</p></body></html>"]);
+    expect(mainUaPageFetches(guideSlash)).toHaveLength(1);
+    expect(mainUaPageFetches(guide)).toHaveLength(0);
   });
 });
