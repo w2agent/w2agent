@@ -34,11 +34,20 @@ function ok(body = "ok", headers: Record<string, string> = {}): Route {
 beforeEach(() => {
   routes = {};
   calls = [];
+  // Follows redirects itself unless the caller asked for manual/error handling, like undici,
+  // so a fetch that bypasses the hook really does land on the private host.
   fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    calls.push({ url, init });
-    const route = routes[url];
-    return route ? route(init) : new Response("", { status: 404 });
+    let url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    for (let hop = 0; hop <= 20; hop++) {
+      calls.push({ url, init });
+      const route = routes[url];
+      const res = route ? route(init) : new Response("", { status: 404 });
+      const location = res.headers.get("location");
+      if ((init?.redirect ?? "follow") !== "follow" || location === null) return res;
+      if (res.status < 300 || res.status >= 400) return res;
+      url = new URL(location, url).href;
+    }
+    throw new TypeError("redirect count exceeded");
   });
 });
 
