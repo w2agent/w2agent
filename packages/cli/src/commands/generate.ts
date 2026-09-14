@@ -31,6 +31,10 @@ export function registerGenerateCommand(program: Command): void {
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
     .option("--mcp-endpoint <url>", "MCP server endpoint URL (for skill-md format)")
+    .option(
+      "--a2a-endpoint <url>",
+      "Your live A2A agent endpoint URL (agent-card format is skipped without it)",
+    )
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .option(
       "--allow-host <host>",
@@ -59,6 +63,7 @@ export function registerGenerateCommand(program: Command): void {
         formats,
         sections,
         mcpEndpoint: opts.mcpEndpoint,
+        a2aEndpoint: opts.a2aEndpoint,
         ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
       };
 
@@ -176,6 +181,14 @@ export function registerGenerateCommand(program: Command): void {
           } else if (file.filename.startsWith("webmcp/")) {
             // Count webmcp files — handled below
           }
+        }
+
+        if (generateOptions.formats?.includes("agent-card") && !opts.a2aEndpoint) {
+          console.log(
+            chalk.gray(
+              "  - agent-card.json    skipped: pass --a2a-endpoint <url> only if this site runs an A2A agent",
+            ),
+          );
         }
 
         const mdFiles = result.files.filter((f) => f.filename.startsWith("markdown/"));

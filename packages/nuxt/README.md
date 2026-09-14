@@ -29,7 +29,11 @@ export default defineNuxtConfig({
 npx w2agent generate https://your-site.com --output ./public/
 ```
 
-This populates `public/llms.txt`, `public/llms-full.txt`, and `public/.well-known/agent-card.json`.
+This populates `public/llms.txt` and `public/llms-full.txt`. Only if your site runs an A2A agent, add `public/.well-known/agent-card.json`:
+
+```bash
+npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --output ./public/.well-known/
+```
 
 ## Routes registered
 
@@ -37,7 +41,7 @@ This populates `public/llms.txt`, `public/llms-full.txt`, and `public/.well-know
 |-------|-------------|
 | `GET /llms.txt` | AI content index |
 | `GET /llms-full.txt` | Full content dump |
-| `GET /.well-known/agent-card.json` | Agent metadata |
+| `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json`; 404 when absent |
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
 
 Content-negotiation middleware is also added: AI bots requesting `Accept: text/markdown` at `/` are redirected to `/llms.txt`.

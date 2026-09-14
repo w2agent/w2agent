@@ -50,7 +50,7 @@ export const wordpressAdapter: PlatformAdapter = {
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
-    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content;
     const robotsTxt = coreFiles.find((f) => f.filename === "robots.txt")?.content || "";
 
     // Extract just the AI-specific rules from generated robots.txt

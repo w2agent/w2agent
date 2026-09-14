@@ -1,6 +1,6 @@
 # @w2agent/astro
 
-Astro integration for [w2agent](https://w2agent.dev) — generates `llms.txt`, `llms-full.txt`, and `/.well-known/agent-card.json` for AI agent discoverability.
+Astro integration for [w2agent](https://w2agent.dev) — generates `llms.txt` and `llms-full.txt` for AI agent discoverability, and serves `/.well-known/agent-card.json` if you provide one.
 
 ## Install
 
@@ -29,11 +29,11 @@ export default defineConfig({
 **Static/SSG output** (`astro:build:done`):
 - Crawls `src/content/**/*.md` and `*.mdx`, extracts titles and descriptions, writes `llms.txt` to the build output directory
 - Falls back to copying `public/llms.txt` if no content directory exists
-- Copies `public/.well-known/agent-card.json` → `dist/.well-known/agent-card.json`
+- Copies `public/.well-known/agent-card.json` → `dist/.well-known/agent-card.json` when that file exists (it is generated only with `--a2a-endpoint`)
 - Fires an optional webhook on build complete
 
 **SSR output** (`output: 'server'`, in addition to the above):
-- Injects `/llms.txt`, `/llms-full.txt`, `/.well-known/agent-card.json`, and `/api/w2agent-webhook` as server routes
+- Injects `/llms.txt`, `/llms-full.txt`, `/.well-known/agent-card.json` (404 when no card file exists), and `/api/w2agent-webhook` as server routes
 
 ## Options
 
@@ -55,8 +55,14 @@ w2agent({
 
 ## Generate agent files
 
-Use the w2agent CLI to generate `llms.txt` and `agent-card.json` from a live site:
+Use the w2agent CLI to generate `llms.txt` from a live site:
 
 ```bash
 npx w2agent generate https://your-site.com --output ./public/
+```
+
+Only if your site runs an A2A agent, generate `agent-card.json` pointing at that agent's endpoint:
+
+```bash
+npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --output ./public/.well-known/
 ```

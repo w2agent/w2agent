@@ -74,11 +74,26 @@ describe("mapFailedChecksToFormats", () => {
   it("includes checks with partial scores (< 100)", () => {
     const report = makeReport([
       makeCheck({ id: "llms-txt-valid", status: "partial", score: 50 }),
-      makeCheck({ id: "well-known-agent-card", status: "partial", score: 75 }),
+      makeCheck({ id: "faq-content", status: "partial", score: 75 }),
     ]);
     const result = mapFailedChecksToFormats(report);
     expect(result.formats).toContain("llms-txt");
-    expect(result.formats).toContain("agent-card");
+    expect(result.formats).toContain("faq");
+  });
+
+  it("never auto-generates an agent card: a failing or stub agent card is a manual fix", () => {
+    // Generation cannot know the site's A2A endpoint, so a regenerated card would be the
+    // same homepage stub the check scores partial — an endless suggest/regenerate loop.
+    const report = makeReport([
+      makeCheck({ id: "well-known-agent-card", status: "fail", score: 0 }),
+      makeCheck({ id: "well-known-agent-card", status: "partial", score: 50 }),
+    ]);
+    const result = mapFailedChecksToFormats(report);
+    expect(result.formats).not.toContain("agent-card");
+    expect(result.unfixable.map((c) => c.id)).toEqual([
+      "well-known-agent-card",
+      "well-known-agent-card",
+    ]);
   });
 
   it("excludes skipped checks entirely", () => {
@@ -99,7 +114,6 @@ describe("CHECK_TO_FORMAT", () => {
       "ai-agent-access": "robots-txt",
       "schema-org-present": "schema-org",
       "llms-txt-exists": "llms-txt",
-      "well-known-agent-card": "agent-card",
       "faq-content": "faq",
       "webmcp-declarative": "webmcp",
       "forms-structured": "webmcp",

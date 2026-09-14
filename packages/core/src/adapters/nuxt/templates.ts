@@ -3,7 +3,7 @@ import type { GeneratedFile } from "../../generate/types.js";
 export function generateNuxtIntegration(
   llmsTxtContent: string,
   llmsFullTxtContent: string,
-  agentCardContent: string,
+  agentCardContent: string | undefined,
   siteUrl: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
@@ -182,7 +182,7 @@ your-nuxt-app/
     routes/
       llms.txt.ts                                      <- Cached Nitro handler
       llms-full.txt.ts                                 <- Cached Nitro handler
-      .well-known/agent-card.json.ts                   <- Cached JSON handler
+      .well-known/agent-card.json.ts                   <- Cached A2A agent card (only with --a2a-endpoint)
     middleware/
       content-negotiation.ts                           <- AI bot content negotiation
   public/
@@ -209,7 +209,9 @@ npx w2agent generate ${siteUrl} --output ./public/
 
   files.push(makeFile("nuxt/server/routes/llms.txt.ts", llmsTxtRoute));
   files.push(makeFile("nuxt/server/routes/llms-full.txt.ts", llmsFullTxtRoute));
-  files.push(makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", agentCardRoute));
+  if (agentCardContent) {
+    files.push(makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", agentCardRoute));
+  }
   files.push(
     makeFile("nuxt/server/middleware/content-negotiation.ts", contentNegotiationMiddleware),
   );

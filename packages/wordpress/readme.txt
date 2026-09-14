@@ -8,7 +8,7 @@ Stable tag: 1.0.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Make your WordPress site discoverable by AI agents. Dynamically generates llms.txt and agent-card.json from your content.
+Make your WordPress site discoverable by AI agents. Dynamically generates llms.txt from your content, and serves an A2A agent-card.json if you provide one.
 
 == Description ==
 
@@ -17,7 +17,7 @@ w2agent makes your WordPress site AI-ready by automatically generating the files
 **What it does:**
 
 * Serves `/llms.txt` — dynamically generated from your published posts, pages, and custom post types
-* Serves `/.well-known/agent-card.json` — describes your site's AI capabilities
+* Serves `/.well-known/agent-card.json` only if you add `data/agent-card.json` — publish one only if your site runs an A2A agent (`w2agent generate <url> --format agent-card --a2a-endpoint <url>`)
 * Adds an AI discovery `<link>` tag to all pages
 * Merges AI-friendly rules into your robots.txt
 * Automatically notifies the w2agent platform when you publish or update content
@@ -52,6 +52,6 @@ Yes. Custom post types (including WooCommerce products) are automatically includ
 = 1.0.0 =
 * Initial release
 * Dynamic llms.txt generation from posts, pages, and custom post types
-* agent-card.json endpoint
+* agent-card.json endpoint (serves a provided data/agent-card.json)
 * robots.txt AI rules integration
 * Settings page with API key + webhook configuration

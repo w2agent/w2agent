@@ -16,7 +16,9 @@ interface AgentCard {
 export function generateAgentCard(
   ctx: GenerateContext,
   options?: { a2aEndpoint?: string },
-): AgentCard {
+): AgentCard | null {
+  if (!options?.a2aEndpoint) return null;
+
   const { siteName, siteDescription } = extractSiteInfo(ctx.pages, ctx.baseUrl);
 
   const hasSearchAction = ctx.rawPages.some((page) => page.html?.includes("SearchAction"));
@@ -56,7 +58,7 @@ export function generateAgentCard(
     description: siteDescription || `AI-ready content from ${siteName}`,
     supportedInterfaces: [
       {
-        url: options?.a2aEndpoint || ctx.baseUrl,
+        url: options.a2aEndpoint,
         protocolBinding: "JSONRPC",
         protocolVersion: "1.0",
       },

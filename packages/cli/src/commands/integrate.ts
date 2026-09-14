@@ -39,6 +39,10 @@ export function registerIntegrateCommand(program: Command): void {
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .option(
+      "--a2a-endpoint <url>",
+      "Your live A2A agent endpoint URL (no agent card is integrated without it)",
+    )
+    .option(
       "--allow-host <host>",
       "Allow off-origin host for generated-tool fetch targets (repeatable)",
       (value: string, acc: string[] = []) => acc.concat(value),
@@ -64,6 +68,7 @@ export function registerIntegrateCommand(program: Command): void {
             maxPages: parseInt(opts.maxPages, 10),
             timeout: parseInt(opts.timeout, 10),
             formats: ["llms-txt", "full", "robots-txt", "agent-card", "webmcp"],
+            a2aEndpoint: opts.a2aEndpoint,
             ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
           },
           (status) => {
@@ -72,6 +77,14 @@ export function registerIntegrateCommand(program: Command): void {
         );
 
         spinner.stop();
+
+        if (!opts.a2aEndpoint) {
+          console.log(
+            chalk.gray(
+              "  - agent-card.json    skipped: pass --a2a-endpoint <url> only if this site runs an A2A agent",
+            ),
+          );
+        }
 
         // Determine platform
         const validPlatforms: PlatformId[] = [

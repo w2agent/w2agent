@@ -2,7 +2,7 @@ import type { GeneratedFile } from "../../generate/types.js";
 
 export function generateDocusaurusIntegration(
   llmsTxtContent: string,
-  agentCardContent: string,
+  agentCardContent: string | undefined,
   siteUrl: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
@@ -214,12 +214,12 @@ module.exports = {
 \`\`\`
 
 4. Build your site: \`npm run build\`
-5. Verify: \`/llms.txt\` and \`/.well-known/agent-card.json\` are in the build output
+5. Verify: \`/llms.txt\` is in the build output (and \`/.well-known/agent-card.json\`, if you generated one with \`--a2a-endpoint\`)
 
 ### Option B: Static Files Only
 
 1. Copy \`static/llms.txt\` to your Docusaurus \`static/\` directory
-2. Copy \`static/.well-known/agent-card.json\` to \`static/.well-known/\`
+2. If present (generated only with \`--a2a-endpoint\`), copy \`static/.well-known/agent-card.json\` to \`static/.well-known/\`
 3. Add the \`headTags\` config above
 
 ## File Structure
@@ -230,7 +230,7 @@ docusaurus/
   static/
     llms.txt                         <- Pre-generated fallback
     .well-known/
-      agent-card.json                <- Agent discovery card
+      agent-card.json                <- A2A agent card (only with --a2a-endpoint)
 \`\`\`
 
 ## Tips
@@ -248,7 +248,9 @@ npx w2agent generate ${siteUrl} --format llms-txt --output ./docusaurus/static/
 
   files.push(makeFile("docusaurus/w2agent-plugin.js", pluginJs));
   files.push(makeFile("docusaurus/static/llms.txt", llmsTxtContent));
-  files.push(makeFile("docusaurus/static/.well-known/agent-card.json", agentCardContent));
+  if (agentCardContent) {
+    files.push(makeFile("docusaurus/static/.well-known/agent-card.json", agentCardContent));
+  }
   files.push(makeFile("docusaurus/INSTALL.md", installMd));
 
   return files;

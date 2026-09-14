@@ -166,6 +166,21 @@ describe("well-known-agent-card (A2A v1.0 validation, P1-10)", () => {
     expect(result.message).toContain("v1.0");
   });
 
+  it("the fix points non-passing sites at a real A2A endpoint, never at an auto-generated card", () => {
+    // An endpoint-less generated card is a homepage stub; suggesting one would loop forever.
+    for (const card of [undefined, withInterfaces("https://example.com/"), V03_CARD]) {
+      const result =
+        card === undefined
+          ? (wellKnownAgentCard.run([basePage], baseMeta) as CheckResult)
+          : run(card);
+      expect(result.status).not.toBe("pass");
+      expect(result.fixSnippet).toContain("Only if this site operates an A2A agent");
+      expect(result.fixSnippet).toContain("--a2a-endpoint");
+      expect(result.fixSnippet).toContain("never the site homepage");
+    }
+    expect(run(V1_CARD).fixSnippet).toBeUndefined();
+  });
+
   it("an interface on another origin's root is a real endpoint, not a stub", () => {
     expect(run(withInterfaces("https://agent.example.net/"))).toMatchObject({
       status: "pass",

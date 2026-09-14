@@ -2,7 +2,7 @@
 /**
  * Plugin Name: w2agent — AI Agent Discoverability
  * Plugin URI:  https://w2agent.dev
- * Description: Dynamically generates and serves llms.txt, agent-card.json, and AI-friendly robots.txt rules. Enables AI agents to discover and interact with your WordPress site.
+ * Description: Dynamically generates and serves llms.txt and AI-friendly robots.txt rules, and serves an A2A agent-card.json you provide. Enables AI agents to discover and interact with your WordPress site.
  * Version:     1.0.0
  * Author:      w2agent
  * Author URI:  https://w2agent.dev
@@ -12,6 +12,10 @@
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
+
+// Only an operator-provided A2A card is served (generate it with `w2agent generate <url>
+// --format agent-card --a2a-endpoint <url>`); without this file WordPress 404s the path.
+define( 'W2AGENT_AGENT_CARD_FILE', plugin_dir_path( __FILE__ ) . 'data/agent-card.json' );
 
 // ─── Dynamic llms.txt generation ────────────────────────────────
 
@@ -75,23 +79,6 @@ function w2agent_generate_llms_txt() {
     return $output;
 }
 
-function w2agent_generate_agent_card() {
-    $site_name = get_bloginfo( 'name' );
-    $site_desc = get_bloginfo( 'description' );
-    $site_url  = home_url();
-
-    return wp_json_encode( [
-        'name'         => $site_name,
-        'description'  => $site_desc,
-        'url'          => $site_url,
-        'capabilities' => [
-            'llms_txt'   => $site_url . '/llms.txt',
-            'robots_txt' => $site_url . '/robots.txt',
-        ],
-        'protocols'    => [ 'llms-txt', 'robots-txt', 'schema-org' ],
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-}
-
 // ─── Serve endpoints ─────────────────────────────────────────────
 
 add_action( 'template_redirect', function () {
@@ -105,11 +92,11 @@ add_action( 'template_redirect', function () {
         exit;
     }
 
-    if ( $uri === '/.well-known/agent-card.json' ) {
+    if ( $uri === '/.well-known/agent-card.json' && file_exists( W2AGENT_AGENT_CARD_FILE ) ) {
         status_header( 200 );
         header( 'Content-Type: application/json; charset=utf-8' );
         header( 'Cache-Control: public, max-age=3600' );
-        echo w2agent_generate_agent_card();
+        readfile( W2AGENT_AGENT_CARD_FILE );
         exit;
     }
 } );
@@ -123,7 +110,7 @@ add_action( 'wp_head', function () {
 // ─── Robots.txt ──────────────────────────────────────────────────
 
 add_filter( 'robots_txt', function ( $output, $public ) {
-    $rules = "User-agent: *\nAllow: /llms.txt\nAllow: /.well-known/agent-card.json\n";
+    $rules = "User-agent: *\nAllow: /llms.txt\n";
     return $output . "\n" . $rules;
 }, 10, 2 );
 
@@ -132,7 +119,6 @@ add_filter( 'robots_txt', function ( $output, $public ) {
 add_action( 'save_post', function ( $post_id ) {
     if ( wp_is_post_revision( $post_id ) ) return;
     wp_cache_delete( 'w2agent_llms_txt' );
-    wp_cache_delete( 'w2agent_agent_card' );
 
     // Notify w2agent.dev platform if configured
     $api_key      = get_option( 'w2agent_api_key', '' );
@@ -189,11 +175,13 @@ function w2agent_settings_page() {
                 <td><a href="<?php echo esc_url( $site_url ); ?>/llms.txt" target="_blank">View</a></td>
                 <td>Generated from posts &amp; pages</td>
             </tr>
+            <?php if ( file_exists( W2AGENT_AGENT_CARD_FILE ) ) : ?>
             <tr>
                 <td><strong>/.well-known/agent-card.json</strong></td>
                 <td><a href="<?php echo esc_url( $site_url ); ?>/.well-known/agent-card.json" target="_blank">View</a></td>
-                <td>Generated from site info</td>
+                <td>Served from data/agent-card.json</td>
             </tr>
+            <?php endif; ?>
             <tr>
                 <td><strong>robots.txt</strong></td>
                 <td><a href="<?php echo esc_url( $site_url ); ?>/robots.txt" target="_blank">View</a></td>

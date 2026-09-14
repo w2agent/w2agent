@@ -155,6 +155,11 @@ export const llmsTxtLinksResolve: Check = {
   },
 };
 
+const AGENT_CARD_FIX_SNIPPET = `# Only if this site operates an A2A agent: publish /.well-known/agent-card.json (A2A v1.0).
+# supportedInterfaces[].url must be the agent's live A2A endpoint, never the site homepage.
+# Sites without an A2A agent should not publish a card.
+# w2agent generate <site> --format agent-card --a2a-endpoint <your A2A endpoint URL>`;
+
 function agentCardResult(
   status: CheckResult["status"],
   score: number,
@@ -170,6 +175,7 @@ function agentCardResult(
     weight: 1,
     message,
     severity: "info",
+    fixSnippet: status === "pass" ? undefined : AGENT_CARD_FIX_SNIPPET,
   };
 }
 

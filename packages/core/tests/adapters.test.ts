@@ -623,6 +623,7 @@ describe("WordPress integration generation", () => {
     const install = files.find((f) => f.filename === "wordpress/INSTALL.md");
     expect(install).toBeDefined();
     expect(install?.content).toContain("Dynamically generated");
+    expect(install?.content).toContain("--a2a-endpoint");
   });
 
   it("includes seed data files", () => {
@@ -647,6 +648,17 @@ describe("Next.js integration generation", () => {
     expect(llmsRoute?.content).toContain("revalidate");
     expect(llmsRoute?.content).toContain("export async function GET");
     expect(llmsRoute?.content).toContain("s-maxage=3600");
+  });
+
+  it("the agent-card route 404s when .w2agent/agent-card.json is missing, never a schema.org stand-in", () => {
+    // Any 200 JSON at /.well-known/agent-card.json is audited as a (broken) A2A card.
+    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
+    const route = files.find(
+      (f) => f.filename === "nextjs/app/.well-known/agent-card.json/route.ts",
+    )?.content;
+    expect(route).toContain('return new NextResponse("Not Found", { status: 404 });');
+    expect(route).not.toContain("schema.org");
+    expect(route).not.toContain("WebSite");
   });
 
   it("generates middleware with content negotiation", () => {
@@ -910,6 +922,26 @@ describe("Astro MCP webhook snippet", () => {
     const files = astroAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const webhook = files.find((f) => f.filename.includes("w2agent-mcp-webhook"));
     expect(webhook).toBeUndefined();
+  });
+});
+
+// ─── No A2A endpoint → no agent card ────────────────────────────
+
+describe("adapters without a generated agent card", () => {
+  it("ship no agent-card file or route (an empty or fallback card would fail the audit)", () => {
+    // Core emits agent-card.json only with an explicit A2A endpoint; adapters must not
+    // back-fill a "{}" card or a schema.org fallback at /.well-known/agent-card.json.
+    const coreFiles = makeCoreFiles().filter((f) => f.filename !== "agent-card.json");
+    for (const adapter of [
+      wordpressAdapter,
+      nextjsAdapter,
+      docusaurusAdapter,
+      nuxtAdapter,
+      astroAdapter,
+    ]) {
+      const names = adapter.generateIntegration(makeCtx(), coreFiles).map((f) => f.filename);
+      expect(names.filter((n) => n.includes("agent-card"))).toEqual([]);
+    }
   });
 });
 

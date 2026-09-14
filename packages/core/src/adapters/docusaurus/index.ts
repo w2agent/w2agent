@@ -50,7 +50,7 @@ export const docusaurusAdapter: PlatformAdapter = {
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
-    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content || "{}";
+    const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content;
 
     const files = generateDocusaurusIntegration(llmsTxt, agentCard, ctx.baseUrl);
 

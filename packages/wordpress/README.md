@@ -1,6 +1,6 @@
 # @w2agent/wordpress
 
-WordPress plugin for [w2agent](https://w2agent.dev) — AI agent discoverability via `llms.txt` and `agent-card.json`.
+WordPress plugin for [w2agent](https://w2agent.dev) — AI agent discoverability via `llms.txt`, plus an optional A2A `agent-card.json`.
 
 ## Install
 
@@ -17,7 +17,7 @@ Search "w2agent" in **Plugins → Add New** in your WordPress admin.
 ## What it does
 
 - Serves `/llms.txt` dynamically from your published posts, pages, and custom post types
-- Serves `/.well-known/agent-card.json` from site info
+- Serves `/.well-known/agent-card.json` only if you add `data/agent-card.json` (generate it with `w2agent generate <url> --format agent-card --a2a-endpoint <url>` when your site runs an A2A agent); otherwise the path 404s
 - Adds AI discovery `<link>` tag to all pages
 - Merges AI bot rules into `robots.txt`
 - Notifies w2agent.dev on content changes (optional, requires API key)

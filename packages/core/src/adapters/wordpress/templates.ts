@@ -2,7 +2,7 @@ import type { GeneratedFile } from "../../generate/types.js";
 
 export function generateWpPlugin(
   llmsTxtContent: string,
-  agentCardContent: string,
+  agentCardContent: string | undefined,
   robotsRules: string,
   siteUrl: string,
 ): GeneratedFile[] {
@@ -11,7 +11,7 @@ export function generateWpPlugin(
   const pluginPhp = `<?php
 /**
  * Plugin Name: w2agent — AI Readiness
- * Description: Dynamically generates and serves llms.txt, agent-card.json, and AI-friendly robots.txt rules from your WordPress content.
+ * Description: Dynamically generates and serves llms.txt and AI-friendly robots.txt rules from your WordPress content, and serves a provided A2A agent-card.json.
  * Version: 1.0.0
  * Author: w2agent
  * License: MIT
@@ -86,26 +86,6 @@ function w2agent_generate_llms_txt() {
     return $output;
 }
 
-function w2agent_generate_agent_card() {
-    $site_name = get_bloginfo('name');
-    $site_desc = get_bloginfo('description');
-    $site_url = home_url();
-
-    return json_encode([
-        'name' => $site_name,
-        'description' => $site_desc ?: $site_name,
-        'supportedInterfaces' => [
-            ['url' => $site_url, 'protocolBinding' => 'JSONRPC', 'protocolVersion' => '1.0'],
-        ],
-        'provider' => ['organization' => $site_name, 'url' => $site_url],
-        'version' => '1.0.0',
-        'capabilities' => new stdClass(),
-        'defaultInputModes' => ['text/plain'],
-        'defaultOutputModes' => ['text/plain'],
-        'skills' => [],
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-}
-
 // ─── Serve endpoints ────────────────────────────────────────────
 
 add_action('template_redirect', function() {
@@ -125,16 +105,12 @@ add_action('template_redirect', function() {
         exit;
     }
 
-    if ($uri === '/.well-known/agent-card.json') {
+    // Only an operator-provided A2A card is served; without data/agent-card.json WordPress 404s.
+    if ($uri === '/.well-known/agent-card.json' && file_exists(W2AGENT_DATA_DIR . 'agent-card.json')) {
         http_response_code(200);
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
-
-        if (function_exists('get_bloginfo')) {
-            echo w2agent_generate_agent_card();
-        } else {
-            readfile(W2AGENT_DATA_DIR . 'agent-card.json');
-        }
+        readfile(W2AGENT_DATA_DIR . 'agent-card.json');
         exit;
     }
 });
@@ -165,7 +141,6 @@ add_action('save_post', function($post_id) {
     if (wp_is_post_revision($post_id)) return;
     // Clear any object cache for llms.txt
     wp_cache_delete('w2agent_llms_txt');
-    wp_cache_delete('w2agent_agent_card');
 });
 
 // ─── Admin settings page ────────────────────────────────────────
@@ -190,14 +165,14 @@ function w2agent_settings_page() {
         <h2>Active Endpoints</h2>
         <table class="widefat" style="max-width: 600px;">
             <tr><td><strong>/llms.txt</strong></td><td><a href="<?php echo $site_url; ?>/llms.txt" target="_blank">View</a></td><td>Generated from posts &amp; pages</td></tr>
-            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo $site_url; ?>/.well-known/agent-card.json" target="_blank">View</a></td><td>Generated from site info</td></tr>
+            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo $site_url; ?>/.well-known/agent-card.json" target="_blank">View</a></td><td>Served from data/agent-card.json, if present</td></tr>
             <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo $site_url; ?>/robots.txt" target="_blank">View</a></td><td>AI bot rules merged</td></tr>
         </table>
 
         <h2>How It Works</h2>
         <ul>
             <li><code>/llms.txt</code> is generated dynamically from your published posts and pages</li>
-            <li><code>agent-card.json</code> is generated from your site name and description</li>
+            <li><code>agent-card.json</code> is served only if <code>data/agent-card.json</code> exists (generate it with <code>--a2a-endpoint</code> when your site runs an A2A agent)</li>
             <li>Content auto-updates when you publish, edit, or delete posts</li>
             <li>Static fallback files in <code>data/</code> are used as seed data</li>
         </ul>
@@ -221,7 +196,7 @@ function w2agent_settings_page() {
 ## What It Does
 
 - **\`/llms.txt\`** — **Dynamically generated** from your published posts and pages
-- **\`/.well-known/agent-card.json\`** — **Dynamically generated** from site info
+- **\`/.well-known/agent-card.json\`** — Served from \`data/agent-card.json\` only if present. Generate it with \`w2agent generate ${siteUrl} --format agent-card --a2a-endpoint <url>\` when your site runs an A2A agent
 - **\`<link>\` tag** — Adds AI discovery link to all pages
 - **robots.txt** — Merges AI-friendly bot rules via WordPress filter
 - **Auto-updates** — Content regenerates when you publish, edit, or delete posts
@@ -248,7 +223,7 @@ w2agent/
   w2agent-plugin.php    ← Main plugin (dynamic generation + serving)
   data/
     llms.txt            ← Seed content (fallback)
-    agent-card.json     ← Seed agent card (fallback)
+    agent-card.json     ← A2A agent card (only with --a2a-endpoint)
     robots-rules.txt    ← AI bot rules for robots.txt
 \`\`\`
 
@@ -260,7 +235,9 @@ But since the plugin generates dynamically, you typically don't need to.
 
   files.push(makeFile("wordpress/w2agent-plugin.php", pluginPhp));
   files.push(makeFile("wordpress/data/llms.txt", llmsTxtContent));
-  files.push(makeFile("wordpress/data/agent-card.json", agentCardContent));
+  if (agentCardContent) {
+    files.push(makeFile("wordpress/data/agent-card.json", agentCardContent));
+  }
   files.push(makeFile("wordpress/data/robots-rules.txt", robotsRules));
   files.push(makeFile("wordpress/INSTALL.md", installMd));
 

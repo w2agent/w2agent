@@ -16,7 +16,8 @@ npx w2agent generate <url> [options]
 | `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `skill-md`, `webmcp`, `openclaw`, `all` |
 | `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
-| `--from-audit` | off | Run audit first, generate fixes for failed checks only |
+| `--a2a-endpoint <url>` | none | Your live A2A agent endpoint; `agent-card` is skipped without it (also on `integrate`) |
+| `--from-audit` | off | Run audit first, generate fixes for failed checks only (never `agent-card`: it needs your A2A endpoint) |
 | `--timeout <ms>` | `10000` | Per-request timeout |
 
 ## Output Files
@@ -67,7 +68,7 @@ Auto-detected Schema.org JSON-LD for the site.
 
 #### agent-card.json
 
-A2A v1.0 agent card at `/.well-known/agent-card.json`: `name`, `description`, `version`, `provider`, `supportedInterfaces` (one `JSONRPC` / `1.0` interface), `capabilities`, `defaultInputModes` / `defaultOutputModes` (`text/plain`), and `skills` with `tags`. The interface URL is the `a2aEndpoint` generate option; without it the card points at the site base URL, which the `well-known-agent-card` check reports as a stub (partial) because the site has no A2A agent.
+A2A v1.0 agent card at `/.well-known/agent-card.json`: `name`, `description`, `version`, `provider`, `supportedInterfaces` (one `JSONRPC` / `1.0` interface), `capabilities`, `defaultInputModes` / `defaultOutputModes` (`text/plain`), and `skills` with `tags`. The interface URL is the `a2aEndpoint` generate option (`--a2a-endpoint`). Without it no card is generated, and platform integrations ship no agent-card file or route: a card pointing at the site homepage is a stub that the `well-known-agent-card` check can never pass. Publish a card only if the site operates an A2A agent.
 
 #### faq.json
 

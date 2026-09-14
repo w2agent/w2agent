@@ -3,7 +3,7 @@ import type { GeneratedFile } from "../../generate/types.js";
 export function generateAstroIntegration(
   llmsTxtContent: string,
   llmsFullTxtContent: string,
-  agentCardContent: string,
+  agentCardContent: string | undefined,
   siteUrl: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
@@ -199,11 +199,11 @@ your-astro-app/
     llms.txt                                          <- Static file (primary)
     llms-full.txt                                     <- Static file
     .well-known/
-      agent-card.json                                 <- Static agent card
+      agent-card.json                                 <- Static A2A agent card (only with --a2a-endpoint)
   src/pages/
     llms.txt.ts                                       <- SSR endpoint (optional)
     .well-known/
-      agent-card.json.ts                              <- SSR endpoint (optional)
+      agent-card.json.ts                              <- SSR endpoint (only with --a2a-endpoint)
 \`\`\`
 
 ## Regenerating
@@ -219,10 +219,14 @@ npx w2agent generate ${siteUrl} --output ./public/
   // Static files first (Astro's strength)
   files.push(makeFile("astro/public/llms.txt", llmsTxtContent));
   files.push(makeFile("astro/public/llms-full.txt", llmsFullTxtContent));
-  files.push(makeFile("astro/public/.well-known/agent-card.json", agentCardContent));
+  if (agentCardContent) {
+    files.push(makeFile("astro/public/.well-known/agent-card.json", agentCardContent));
+  }
   // SSR endpoints
   files.push(makeFile("astro/src/pages/llms.txt.ts", llmsTxtEndpoint));
-  files.push(makeFile("astro/src/pages/.well-known/agent-card.json.ts", agentCardEndpoint));
+  if (agentCardContent) {
+    files.push(makeFile("astro/src/pages/.well-known/agent-card.json.ts", agentCardEndpoint));
+  }
   // Build tools
   files.push(makeFile("astro/w2agent-integration.mjs", integrationPlugin));
   files.push(makeFile("astro/w2agent-build.mjs", buildScript));

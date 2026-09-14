@@ -645,6 +645,13 @@ describe("generateSchemaOrg", () => {
 // --- agent-card generation ---
 
 describe("generateAgentCard", () => {
+  const A2A = "https://example.com/a2a/v1";
+  const cardWithEndpoint = (ctx: GenerateContext) => {
+    const card = generateAgentCard(ctx, { a2aEndpoint: A2A });
+    if (!card) throw new Error("expected an agent card when an A2A endpoint is given");
+    return card;
+  };
+
   it("creates agent card with site info", () => {
     const ctx = makeCtx({
       pages: [
@@ -658,7 +665,7 @@ describe("generateAgentCard", () => {
       rawPages: [],
     });
 
-    const card = generateAgentCard(ctx);
+    const card = cardWithEndpoint(ctx);
     expect(card.name).toBe("My Site");
     expect(card.description).toBe("A great site");
     expect(card.version).toBe("1.0.0");
@@ -666,16 +673,14 @@ describe("generateAgentCard", () => {
   });
 
   it("emits the A2A v1.0 shape, not the v0.3 url/preferredTransport fields or invented capability flags", () => {
-    const card = generateAgentCard(
+    const card = cardWithEndpoint(
       makeCtx({
         pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
         rawPages: [],
       }),
     ) as unknown as Record<string, unknown>;
     expect(card).toMatchObject({
-      supportedInterfaces: [
-        { url: "https://example.com", protocolBinding: "JSONRPC", protocolVersion: "1.0" },
-      ],
+      supportedInterfaces: [{ url: A2A, protocolBinding: "JSONRPC", protocolVersion: "1.0" }],
       capabilities: {},
       defaultInputModes: ["text/plain"],
       defaultOutputModes: ["text/plain"],
@@ -685,18 +690,13 @@ describe("generateAgentCard", () => {
     expect(card.capabilities).toEqual({});
   });
 
-  it("without an A2A endpoint the card validates as v1.0 but is flagged as a stub (the site has no A2A agent)", () => {
-    const card = generateAgentCard(
-      makeCtx({
-        pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
-        rawPages: [],
-      }),
-    );
-    expect(validateAgentCard(card, "https://example.com")).toEqual({
-      shape: "v1.0",
-      missing: [],
-      stubUrls: ["https://example.com"],
+  it("without an A2A endpoint no card is generated: a homepage-interface card is a stub the check can never pass", () => {
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
+      rawPages: [],
     });
+    expect(generateAgentCard(ctx)).toBeNull();
+    expect(generateAgentCard(ctx, { a2aEndpoint: "" })).toBeNull();
   });
 
   it("with an A2A endpoint the card round-trips through the checker as a passing v1.0 card", () => {
@@ -707,7 +707,7 @@ describe("generateAgentCard", () => {
       rawPages: [makeFetchedPage("https://example.com", html)],
       metadata: { baseUrl: "https://example.com", llmsTxt: "# My Site", wellKnown: {} },
     });
-    const card = generateAgentCard(ctx, { a2aEndpoint: "https://example.com/a2a/v1" });
+    const card = cardWithEndpoint(ctx);
     expect(card.supportedInterfaces[0].url).toBe("https://example.com/a2a/v1");
     expect(validateAgentCard(card, "https://example.com")).toEqual({
       shape: "v1.0",
@@ -734,7 +734,7 @@ describe("generateAgentCard", () => {
       },
     });
 
-    const card = generateAgentCard(ctx);
+    const card = cardWithEndpoint(ctx);
     expect(card.skills.find((s) => s.id === "llms-txt")?.tags).toContain("llms-txt");
   });
 
@@ -746,7 +746,7 @@ describe("generateAgentCard", () => {
       rawPages: [makeFetchedPage("https://example.com", html)],
     });
 
-    const card = generateAgentCard(ctx);
+    const card = cardWithEndpoint(ctx);
     expect(card.skills.map((s) => s.id)).toEqual(["search", "structured-data"]);
     for (const skill of card.skills) expect(skill.tags.length).toBeGreaterThan(0);
   });
@@ -770,6 +770,12 @@ describe("generateAgentCard", () => {
       expect(JSON.parse(file?.content ?? "{}").supportedInterfaces[0].url).toBe(
         "https://example.com/a2a/v1",
       );
+
+      const withoutEndpoint = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["agent-card"],
+      });
+      expect(withoutEndpoint.files.map((f) => f.filename)).not.toContain("agent-card.json");
     } finally {
       vi.restoreAllMocks();
     }
@@ -781,7 +787,7 @@ describe("generateAgentCard", () => {
       rawPages: [],
     });
 
-    const card = generateAgentCard(ctx);
+    const card = cardWithEndpoint(ctx);
     expect(card.description).toContain("My Site");
   });
 });

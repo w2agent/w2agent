@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "echo 'No build step — pure PHP'",
-    "test": "echo 'No JS tests — PHP plugin'",
+    "test": "node --test",
     "lint": "echo 'No JS lint — PHP plugin'",
     "clean": "echo 'Nothing to clean'"
   }

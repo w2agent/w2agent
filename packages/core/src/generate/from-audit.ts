@@ -11,7 +11,6 @@ export const CHECK_TO_FORMAT: Record<string, GenerateFormat> = {
   "llms-txt-exists": "llms-txt",
   "llms-txt-valid": "llms-txt",
   "llms-txt-links-resolve": "llms-txt",
-  "well-known-agent-card": "agent-card",
   "faq-content": "faq",
   "webmcp-declarative": "webmcp",
   "forms-structured": "webmcp",

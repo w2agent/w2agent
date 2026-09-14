@@ -17,8 +17,5 @@ export const GET: APIRoute = () => {
       });
     }
   }
-  return new Response(
-    JSON.stringify({ error: "agent-card.json not found — run: npx w2agent generate <url>" }),
-    { headers: { "Content-Type": "application/json" } },
-  );
+  return new Response("Not Found", { status: 404 });
 };

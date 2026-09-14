@@ -25,7 +25,7 @@ describe("generateWpPlugin — HTTP status codes", () => {
 
   it("sets http_response_code(200) for /.well-known/agent-card.json before content-type", () => {
     const php = pluginPhp();
-    const cardBlock = php.slice(php.indexOf("if ($uri === '/.well-known/agent-card.json')"));
+    const cardBlock = php.slice(php.indexOf("if ($uri === '/.well-known/agent-card.json'"));
     const codePos = cardBlock.indexOf("http_response_code(200)");
     const ctPos = cardBlock.indexOf("Content-Type: application/json");
     expect(codePos).toBeGreaterThan(-1);
@@ -80,28 +80,21 @@ describe("generateWpPlugin — PHP plugin content", () => {
     expect(pluginPhp()).toContain("if (!defined('ABSPATH')) exit");
   });
 
-  it("the dynamic agent card emits the A2A v1.0 required fields, not the v0.3 url or invented capability links", () => {
+  it("serves only a provided agent-card.json and never builds a homepage-stub card from site info", () => {
+    // A card whose interface is home_url() scores as a stub and can never pass the audit.
     const php = pluginPhp();
-    const fn = php.slice(
-      php.indexOf("function w2agent_generate_agent_card()"),
-      php.indexOf("// ─── Serve endpoints"),
+    expect(php).not.toContain("w2agent_generate_agent_card");
+    expect(php).not.toContain("'supportedInterfaces'");
+    const cardBlock = php.slice(
+      php.indexOf("if ($uri === '/.well-known/agent-card.json'"),
+      php.indexOf("// ─── Discovery tags"),
     );
-    for (const field of [
-      "'name'",
-      "'description'",
-      "'supportedInterfaces'",
-      "'protocolBinding' => 'JSONRPC'",
-      "'protocolVersion' => '1.0'",
-      "'version'",
-      "'capabilities' => new stdClass()",
-      "'defaultInputModes'",
-      "'defaultOutputModes'",
-      "'skills'",
-    ]) {
-      expect(fn).toContain(field);
-    }
-    expect(fn).not.toContain("'url' => $site_url,\n        'capabilities'");
-    expect(fn).not.toContain("llms_txt");
-    expect(fn).not.toContain("'protocols'");
+    expect(cardBlock).toContain("&& file_exists(W2AGENT_DATA_DIR . 'agent-card.json')");
+    expect(cardBlock).toContain("readfile(W2AGENT_DATA_DIR . 'agent-card.json')");
+  });
+
+  it("without a generated agent card the plugin ships no agent-card data file", () => {
+    const files = generateWpPlugin(SAMPLE_LLMS, undefined, SAMPLE_ROBOTS, SITE_URL);
+    expect(files.map((f) => f.filename)).not.toContain("wordpress/data/agent-card.json");
   });
 });

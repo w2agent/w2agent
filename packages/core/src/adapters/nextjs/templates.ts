@@ -3,7 +3,7 @@ import type { GeneratedFile } from "../../generate/types.js";
 export function generateNextjsIntegration(
   llmsTxtContent: string,
   llmsFullTxtContent: string,
-  agentCardContent: string,
+  agentCardContent: string | undefined,
   siteUrl: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
@@ -121,12 +121,8 @@ export async function GET() {
     });
   }
 
-  // Fallback — return minimal agent card
-  return NextResponse.json({ "@context": "https://schema.org", "@type": "WebSite", "url": "${siteUrl}" }, {
-    headers: {
-      "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-    },
-  });
+  // No A2A agent card published — 404 so agents and audits see the card as absent
+  return new NextResponse("Not Found", { status: 404 });
 }
 `;
 
@@ -215,11 +211,11 @@ your-nextjs-app/
   .w2agent/
     llms.txt                                <- Generated content (read by route handler)
     llms-full.txt                           <- Generated content (read by route handler)
-    agent-card.json                         <- Agent card data (read by route handler)
+    agent-card.json                         <- A2A agent card data (only with --a2a-endpoint)
   app/
     llms.txt/route.ts                       <- Dynamic route handler (ISR)
     llms-full.txt/route.ts                  <- Dynamic route handler (ISR)
-    .well-known/agent-card.json/route.ts    <- Dynamic agent card
+    .well-known/agent-card.json/route.ts    <- Agent card route (only with --a2a-endpoint)
 \`\`\`
 
 ## How It Works
@@ -247,10 +243,14 @@ npx w2agent generate ${siteUrl} --output ./.w2agent/
   files.push(makeFile("nextjs/middleware.ts", middlewareTs));
   files.push(makeFile("nextjs/app/llms.txt/route.ts", llmsTxtRoute));
   files.push(makeFile("nextjs/app/llms-full.txt/route.ts", llmsFullTxtRoute));
-  files.push(makeFile("nextjs/app/.well-known/agent-card.json/route.ts", agentCardRoute));
+  if (agentCardContent) {
+    files.push(makeFile("nextjs/app/.well-known/agent-card.json/route.ts", agentCardRoute));
+  }
   files.push(makeFile("nextjs/.w2agent/llms.txt", llmsTxtContent));
   files.push(makeFile("nextjs/.w2agent/llms-full.txt", llmsFullTxtContent));
-  files.push(makeFile("nextjs/.w2agent/agent-card.json", agentCardContent));
+  if (agentCardContent) {
+    files.push(makeFile("nextjs/.w2agent/agent-card.json", agentCardContent));
+  }
   files.push(makeFile("nextjs/w2agent-build.mjs", buildScript));
   files.push(makeFile("nextjs/INSTALL.md", installMd));
 

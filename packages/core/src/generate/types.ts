@@ -24,7 +24,7 @@ export interface GenerateOptions {
   sections?: string[];
   /** MCP server endpoint URL for SKILL.md generation */
   mcpEndpoint?: string;
-  /** A2A endpoint URL for agent-card.json supportedInterfaces (defaults to the site base URL) */
+  /** A2A endpoint URL for agent-card.json supportedInterfaces; without it no agent card is generated */
   a2aEndpoint?: string;
   /** Off-origin hosts allowed for generated-tool fetch targets. */
   allowedOffOriginHosts?: string[];

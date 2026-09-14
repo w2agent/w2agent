@@ -25,7 +25,7 @@ inputs:
     required: false
     default: '20'
   formats:
-    description: 'Comma-separated generate formats (llms-txt, robots-txt, schema-org, agent-card, faq, markdown, full, webmcp, all)'
+    description: 'Comma-separated generate formats (llms-txt, robots-txt, schema-org, agent-card, faq, markdown, full, webmcp, all). agent-card needs an A2A endpoint the action does not pass, so it is skipped (the CLI logs the skip)'
     required: false
     default: 'all'
   max-pages:
