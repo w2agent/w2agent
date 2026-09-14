@@ -7,7 +7,6 @@ import { runAudit } from "../src/audit/engine.js";
 import { type AuditOptions, DEFAULT_OPTIONS } from "../src/audit/types.js";
 import { runGenerate } from "../src/generate/engine.js";
 import { fetchPage, fetchText, guardedFetch, TargetNotAllowedError } from "../src/index.js";
-import { checkContentNegotiation } from "../src/shared/fetcher.js";
 
 // The threat: a public site under audit steers the auditor (via redirects,
 // sitemap entries, llms.txt links, well-known probes) onto private/internal
@@ -337,14 +336,19 @@ describe("hook slower than the caller's timeout", () => {
   });
 });
 
-describe("fetchPage / fetchText / checkContentNegotiation with a hook", () => {
+describe("fetchPage / fetchText / content-negotiation check with a hook", () => {
   const opts = { timeout: 5000, userAgent: "t", isAllowedTarget };
 
   it("refused initial URL → fetchPage status 0, fetchText null, no fetch, no retries", async () => {
     const page = await fetchPage("http://10.0.0.1/", opts);
     expect(page).toMatchObject({ url: "http://10.0.0.1/", status: 0, html: "" });
     expect(await fetchText("http://10.0.0.1/robots.txt", opts)).toBeNull();
-    expect(await checkContentNegotiation("http://10.0.0.1/", opts)).toBe(false);
+    const negotiation = await contentNegotiation.run(
+      [],
+      { baseUrl: "http://10.0.0.1", wellKnown: {} },
+      { isAllowedTarget },
+    );
+    expect(negotiation).toMatchObject({ status: "fail", score: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

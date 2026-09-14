@@ -288,32 +288,3 @@ export async function fetchText(
   if (text === null) return null;
   return { text, status: response.status, contentType: response.headers.get("content-type") ?? "" };
 }
-
-export async function checkContentNegotiation(
-  url: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
-): Promise<boolean> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeout);
-
-  try {
-    const response = await guardedFetch(
-      url,
-      {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": options.userAgent,
-          Accept: "text/markdown",
-        },
-        redirect: "follow",
-      },
-      options.isAllowedTarget,
-    );
-    const contentType = response.headers.get("content-type") || "";
-    return contentType.includes("text/markdown");
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-}

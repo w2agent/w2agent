@@ -1,11 +1,12 @@
-import { checkContentNegotiation } from "../../shared/fetcher.js";
+import { guardedFetch, type IsAllowedTarget, readBodyCapped } from "../../shared/fetcher.js";
 import { BOT_TOKENS } from "../shared/bot-tokens.js";
+import { mediaTypeEssence } from "../shared/json.js";
 import {
   findBlockedTokens,
   planRobotsAccessFix,
   robotsAccessFixSnippet,
 } from "../shared/robots-fix.js";
-import type { Check } from "../types.js";
+import type { Check, FetchedPage } from "../types.js";
 
 export const robotsTxtExists: Check = {
   id: "robots-txt-exists",
@@ -221,31 +222,205 @@ export const responseTime: Check = {
   },
 };
 
+const MARKDOWN_TIMEOUT_MS = 10000;
+const MAX_MARKDOWN_BYTES = 64 * 1024;
+const MARKDOWN_TYPES = new Set(["text/markdown", "text/x-markdown"]);
+
+interface MarkdownTarget {
+  label: "homepage" | "docs page";
+  url: string;
+  html?: string;
+}
+
+interface MarkdownProbe {
+  target: MarkdownTarget;
+  method: "accept" | "suffix";
+  url: string;
+  hit: boolean;
+  vary: boolean;
+  reason: string;
+}
+
+const stripWww = (host: string) => host.replace(/^www\./, "");
+
+function hrefOf(url: string): string | undefined {
+  try {
+    return new URL(url).href;
+  } catch {
+    return undefined;
+  }
+}
+
+function findDocsPage(pages: FetchedPage[], base: URL, homepage: string): FetchedPage | undefined {
+  const siteHost = stripWww(base.hostname);
+  return pages.find((page) => {
+    if (page.status < 200 || page.status >= 300) return false;
+    let url: URL;
+    try {
+      url = new URL(page.url);
+    } catch {
+      return false;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (url.href === homepage) return false;
+    if (stripWww(url.hostname) !== siteHost && url.hostname !== `docs.${siteHost}`) return false;
+    return url.hostname.startsWith("docs.") || /^\/(docs|documentation)(\/|$)/.test(url.pathname);
+  });
+}
+
+function markdownSuffixUrl(target: string): string {
+  const url = new URL(target);
+  url.search = "";
+  url.hash = "";
+  url.pathname = url.pathname === "/" ? "/index.md" : `${url.pathname.replace(/\/$/, "")}.md`;
+  return url.href;
+}
+
+async function probeMarkdown(
+  target: MarkdownTarget,
+  method: MarkdownProbe["method"],
+  signal: AbortSignal,
+  catchAll: boolean,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<MarkdownProbe> {
+  const url = method === "accept" ? target.url : markdownSuffixUrl(target.url);
+  const miss = (reason: string): MarkdownProbe => ({
+    target,
+    method,
+    url,
+    hit: false,
+    vary: false,
+    reason,
+  });
+  try {
+    const res = await guardedFetch(
+      url,
+      {
+        signal,
+        redirect: "follow",
+        headers: method === "accept" ? { Accept: "text/markdown" } : undefined,
+      },
+      isAllowedTarget,
+    );
+    const type = mediaTypeEssence(res.headers.get("content-type") ?? "");
+    if (res.status < 200 || res.status >= 300 || !MARKDOWN_TYPES.has(type)) {
+      await res.body?.cancel().catch(() => {});
+      return miss(`status ${res.status}, content-type ${type || "none"}`);
+    }
+    const body = await readBodyCapped(res, MAX_MARKDOWN_BYTES);
+    const start = body.trimStart().slice(0, 14).toLowerCase();
+    if (body.trim() === "") return miss("empty body");
+    if (start.startsWith("<!doctype html") || start.startsWith("<html")) {
+      return miss("HTML body labelled as markdown");
+    }
+    if (catchAll && target.html !== undefined && body === target.html) {
+      return miss("catch-all: same body as the crawled page");
+    }
+    const vary = (res.headers.get("vary") ?? "")
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .some((v) => v === "accept" || v === "*");
+    return { target, method, url, hit: true, vary, reason: "" };
+  } catch {
+    return miss("request failed, timed out or was refused");
+  }
+}
+
 export const contentNegotiation: Check = {
   id: "content-negotiation",
   name: "Content negotiation (Markdown)",
   category: "bot-accessibility",
   weight: 0.5,
   severity: "info",
-  run: async (_pages, metadata, ctx) => {
-    const supports = await checkContentNegotiation(`${metadata.baseUrl}/`, {
-      timeout: 10000,
-      userAgent: "w2agent/0.1",
-      isAllowedTarget: ctx?.isAllowedTarget,
-    });
-
-    return {
+  run: async (pages, metadata, ctx) => {
+    const base = {
       id: "content-negotiation",
       name: "Content negotiation (Markdown)",
-      category: "bot-accessibility",
-      status: supports ? "pass" : "fail",
-      score: supports ? 100 : 0,
+      category: "bot-accessibility" as const,
       maxScore: 100,
       weight: 0.5,
-      message: supports
-        ? "Site responds to Accept: text/markdown"
-        : "No markdown content negotiation support",
-      severity: "info",
+      severity: "info" as const,
+    };
+
+    const homepage = `${metadata.baseUrl}/`;
+    const homepageHref = hrefOf(homepage);
+    const targets: MarkdownTarget[] = [];
+    if (homepageHref) {
+      const crawled = pages.find((p) => hrefOf(p.url) === homepageHref);
+      targets.push({ label: "homepage", url: homepageHref, html: crawled?.html });
+      const docs = findDocsPage(pages, new URL(homepageHref), homepageHref);
+      if (docs) targets.push({ label: "docs page", url: docs.url, html: docs.html });
+    }
+
+    const signal = AbortSignal.timeout(MARKDOWN_TIMEOUT_MS);
+    const catchAll = metadata.catchAll === true;
+    const probes = await Promise.all(
+      targets.flatMap((t) =>
+        (["accept", "suffix"] as const).map((m) =>
+          probeMarkdown(t, m, signal, catchAll, ctx?.isAllowedTarget),
+        ),
+      ),
+    );
+
+    const labelsOf = (list: MarkdownProbe[]) =>
+      [...new Set(list.map((p) => p.target.label))].join(" and ");
+    const suffixHits = probes.filter((p) => p.hit && p.method === "suffix");
+    const acceptHits = probes.filter((p) => p.hit && p.method === "accept");
+    const acceptNoVary = acceptHits.filter((p) => !p.vary);
+
+    const details = probes
+      .map((p) => {
+        const how = p.method === "accept" ? "Accept: text/markdown" : ".md URL";
+        const outcome = p.hit
+          ? p.method === "accept"
+            ? `hit (${p.vary ? "Vary: Accept" : "no Vary: Accept"})`
+            : "hit"
+          : `miss (${p.reason})`;
+        return `${p.target.label} ${how} ${p.url}: ${outcome}`;
+      })
+      .join("\n");
+
+    const parts: string[] = [];
+    if (suffixHits.length > 0) parts.push(`.md URL (${labelsOf(suffixHits)})`);
+    if (acceptHits.length > 0) parts.push(`Accept: text/markdown (${labelsOf(acceptHits)})`);
+    const varyNote =
+      acceptNoVary.length > 0
+        ? `; add Vary: Accept to the Accept: text/markdown response (${labelsOf(acceptNoVary)}) so caches don't serve markdown to browsers`
+        : "";
+    const snippetPath = targets[targets.length - 1]
+      ? new URL(markdownSuffixUrl(targets[targets.length - 1].url)).pathname
+      : "/index.md";
+
+    if (suffixHits.length > 0 || acceptHits.some((p) => p.vary)) {
+      return {
+        ...base,
+        status: "pass",
+        score: 100,
+        message: `Markdown served via ${parts.join(" and ")}${varyNote}`,
+        details,
+      };
+    }
+
+    if (acceptHits.length > 0) {
+      return {
+        ...base,
+        status: "partial",
+        score: 50,
+        message: `Markdown served via ${parts.join(" and ")} but without Vary: Accept${varyNote}`,
+        details,
+        fixSnippet:
+          "# On responses that vary by the Accept header, add:\nVary: Accept\n# Or also serve the markdown at a .md URL, e.g. " +
+          snippetPath,
+      };
+    }
+
+    return {
+      ...base,
+      status: "fail",
+      score: 0,
+      message: `No markdown served via Accept: text/markdown or .md URLs (checked ${targets.map((t) => t.label).join(" and ") || "no valid homepage URL"})`,
+      details: details || undefined,
+      fixSnippet: `# Serve markdown for agents, either:\n# 1. For requests with Accept: text/markdown, respond with\nContent-Type: text/markdown; charset=utf-8\nVary: Accept\n# 2. Or serve the page as markdown at ${snippetPath}`,
     };
   },
 };
