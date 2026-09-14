@@ -121,7 +121,11 @@ export interface Check {
   category: CategoryId;
   weight: number;
   severity: Severity;
-  run: (pages: FetchedPage[], metadata: SiteMetadata) => CheckResult | Promise<CheckResult>;
+  run: (
+    pages: FetchedPage[],
+    metadata: SiteMetadata,
+    ctx?: Pick<AuditOptions, "isAllowedTarget">,
+  ) => CheckResult | Promise<CheckResult>;
 }
 
 export interface AuditOptions {
@@ -141,6 +145,11 @@ export interface AuditOptions {
    * always rejected even when allowlisted.
    */
   allowedOffOriginHosts?: string[];
+  /**
+   * Gate applied to every audit fetch target and each redirect hop. Returning
+   * false (or throwing) refuses the fetch. Unset = native fetch behaviour.
+   */
+  isAllowedTarget?: (url: string) => boolean | Promise<boolean>;
 }
 
 export const DEFAULT_OPTIONS: AuditOptions = {

@@ -1,4 +1,4 @@
-import type { FetchedPage, SiteMetadata } from "../audit/types.js";
+import type { AuditOptions, FetchedPage, SiteMetadata } from "../audit/types.js";
 
 export interface GenerateContext {
   pages: PageMarkdown[];
@@ -26,6 +26,8 @@ export interface GenerateOptions {
   mcpEndpoint?: string;
   /** Off-origin hosts allowed for generated-tool fetch targets. */
   allowedOffOriginHosts?: string[];
+  /** Gate applied to every crawl fetch target and redirect hop (see AuditOptions). */
+  isAllowedTarget?: AuditOptions["isAllowedTarget"];
 }
 
 export type GenerateFormat =

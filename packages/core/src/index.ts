@@ -77,7 +77,8 @@ export type {
 export { DEFAULT_GENERATE_OPTIONS } from "./generate/types.js";
 export { generateWebMcp } from "./generate/webmcp.js";
 export { loadConfig, mergeConfigWithOptions } from "./shared/config.js";
-export { fetchPage, fetchText } from "./shared/fetcher.js";
+export type { IsAllowedTarget } from "./shared/fetcher.js";
+export { fetchPage, fetchText, guardedFetch, TargetNotAllowedError } from "./shared/fetcher.js";
 export { parseHTML } from "./shared/html-parser.js";
 export { parseOpenAPISpec, probeOpenAPIPaths } from "./shared/openapi.js";
 export { scoreUrl, sortUrlsByScore } from "./shared/page-scoring.js";

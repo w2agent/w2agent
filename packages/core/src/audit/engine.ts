@@ -105,7 +105,7 @@ export async function runAudit(
   // Run checks
   onProgress?.(`Running ${checks.length} checks...`);
   const results: CheckResult[] = await Promise.all(
-    checks.map((check) => check.run(pages, metadata)),
+    checks.map((check) => check.run(pages, metadata, options)),
   );
   applyNaCascade(results);
 

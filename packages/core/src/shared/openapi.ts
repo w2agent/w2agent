@@ -70,7 +70,10 @@ function extractSwaggerUISpecUrl(html: string, pageUrl: string): string | null {
 
 export async function probeOpenAPIPaths(
   baseUrl: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent" | "allowedOffOriginHosts">,
+  options: Pick<
+    AuditOptions,
+    "timeout" | "userAgent" | "allowedOffOriginHosts" | "isAllowedTarget"
+  >,
   htmlHints?: { homepageHtml?: string },
 ): Promise<ParsedOpenAPISpec | null> {
   const swaggerUISpecUrls: string[] = [];

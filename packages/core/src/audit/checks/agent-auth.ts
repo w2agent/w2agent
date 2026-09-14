@@ -1,3 +1,4 @@
+import { guardedFetch, type IsAllowedTarget, TargetNotAllowedError } from "../../shared/fetcher.js";
 import { parseMcpResourceLink, parseOAuthMetadata } from "../shared/oauth-parser.js";
 import type { Check, CheckResult } from "../types.js";
 
@@ -20,10 +21,11 @@ export const PROBE_MAX_ATTEMPTS = 2;
 
 async function probeUrl(
   url: string,
+  isAllowedTarget?: IsAllowedTarget,
 ): Promise<{ status: number; text: string; contentType: string } | null> {
   for (let attempt = 0; attempt < PROBE_MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await globalThis.fetch(url, { signal: AbortSignal.timeout(5000) });
+      const res = await guardedFetch(url, { signal: AbortSignal.timeout(5000) }, isAllowedTarget);
       if (res.status >= 500 && attempt + 1 < PROBE_MAX_ATTEMPTS) {
         await res.body?.cancel();
         await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
@@ -51,7 +53,8 @@ async function probeUrl(
         off += c.length;
       }
       return { status: res.status, text: new TextDecoder().decode(buf), contentType };
-    } catch {
+    } catch (err) {
+      if (err instanceof TargetNotAllowedError) return null;
       if (attempt + 1 < PROBE_MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, PROBE_RETRY_DELAY_MS));
         continue;
@@ -69,13 +72,16 @@ type PortalResult =
   | { found: true; url: string; text: string }
   | { found: false; probeFailed: boolean };
 
-async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
+async function probeDeveloperPortal(
+  baseUrl: string,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<PortalResult> {
   let anyResponseReceived = false;
 
   const canonicalProbes = await Promise.all(
     PORTAL_PATHS.map(async (p) => {
       const url = `${baseUrl}${p}`;
-      const probe = await probeUrl(url);
+      const probe = await probeUrl(url, isAllowedTarget);
       if (probe !== null) anyResponseReceived = true;
       if (probe && probe.status >= 200 && probe.status < 300)
         return { url, text: stripHtml(probe.text) };
@@ -91,7 +97,7 @@ async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
   const u = new URL(baseUrl);
   for (const sub of PORTAL_SUBDOMAINS) {
     const url = `${u.protocol}//${sub}.${stripWww(u.hostname)}/`;
-    const probe = await probeUrl(url);
+    const probe = await probeUrl(url, isAllowedTarget);
     if (probe !== null) anyResponseReceived = true;
     if (probe && probe.status >= 200 && probe.status < 300) {
       return { found: true, url, text: stripHtml(probe.text) };
@@ -103,20 +109,27 @@ async function probeDeveloperPortal(baseUrl: string): Promise<PortalResult> {
 
 const portalCache = new WeakMap<object, Promise<PortalResult>>();
 
-function cachedPortal(pages: object, baseUrl: string): Promise<PortalResult> {
+function cachedPortal(
+  pages: object,
+  baseUrl: string,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<PortalResult> {
   if (!portalCache.has(pages)) {
-    portalCache.set(pages, probeDeveloperPortal(baseUrl));
+    portalCache.set(pages, probeDeveloperPortal(baseUrl, isAllowedTarget));
   }
   return portalCache.get(pages)!;
 }
 
 const KEY_DOC_PATHS = ["/keys", "/api-keys", "/docs/keys"];
 
-async function probeKeyDocs(baseUrl: string): Promise<{ url: string; text: string } | null> {
+async function probeKeyDocs(
+  baseUrl: string,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<{ url: string; text: string } | null> {
   const apexProbes = await Promise.all(
     KEY_DOC_PATHS.map(async (p) => {
       const url = `${baseUrl}${p}`;
-      const probe = await probeUrl(url);
+      const probe = await probeUrl(url, isAllowedTarget);
       if (probe && probe.status >= 200 && probe.status < 300)
         return { url, text: stripHtml(probe.text) };
       return null;
@@ -129,7 +142,7 @@ async function probeKeyDocs(baseUrl: string): Promise<{ url: string; text: strin
   const docsBase = `${u.protocol}//docs.${stripWww(u.hostname)}`;
   for (const p of KEY_DOC_PATHS) {
     const url = `${docsBase}${p}`;
-    const probe = await probeUrl(url);
+    const probe = await probeUrl(url, isAllowedTarget);
     if (probe && probe.status >= 200 && probe.status < 300)
       return { url, text: stripHtml(probe.text) };
   }
@@ -141,9 +154,10 @@ const keyDocsCache = new WeakMap<object, Promise<{ url: string; text: string } |
 function cachedKeyDocs(
   pages: object,
   baseUrl: string,
+  isAllowedTarget?: IsAllowedTarget,
 ): Promise<{ url: string; text: string } | null> {
   if (!keyDocsCache.has(pages)) {
-    keyDocsCache.set(pages, probeKeyDocs(baseUrl));
+    keyDocsCache.set(pages, probeKeyDocs(baseUrl, isAllowedTarget));
   }
   return keyDocsCache.get(pages)!;
 }
@@ -234,15 +248,15 @@ function res(
 
 const a1: Check = {
   ...mk("public-api", "Public API surface", 2.0),
-  run: async (pages, metadata) => {
+  run: async (pages, metadata, ctx) => {
     const base = mk("public-api", "Public API surface", 2.0);
     const host = new URL(metadata.baseUrl).hostname;
     const hostParts = host.split(".");
     const registeredDomain = hostParts.length > 2 ? hostParts.slice(-2).join(".") : host;
 
     const [r1, r2] = await Promise.all([
-      probeUrl(`${metadata.baseUrl}/api/`),
-      probeUrl(`https://api.${registeredDomain}/`),
+      probeUrl(`${metadata.baseUrl}/api/`, ctx?.isAllowedTarget),
+      probeUrl(`https://api.${registeredDomain}/`, ctx?.isAllowedTarget),
     ]);
 
     // Accept 2xx (open) and 4xx (auth-required) JSON/YAML as evidence the API exists.
@@ -282,9 +296,9 @@ const a2: Check = {
 
 const a3: Check = {
   ...mk("developer-portal", "Developer portal", 2.0),
-  run: async (pages, metadata) => {
+  run: async (pages, metadata, ctx) => {
     const base = mk("developer-portal", "Developer portal", 2.0);
-    const portal = await cachedPortal(pages, metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
     if (!portal.found) {
       if (portal.probeFailed)
         return res(base, "skip", 0, "Could not verify portal (network unreachable)");
@@ -303,12 +317,12 @@ const a3: Check = {
 
 const a4: Check = {
   ...mk("agent-auth-docs", "Agent/bot auth documentation", 2.0),
-  run: async (pages, metadata) => {
+  run: async (pages, metadata, ctx) => {
     const base = mk("agent-auth-docs", "Agent/bot auth documentation", 2.0);
-    const portalResult = await cachedPortal(pages, metadata.baseUrl);
+    const portalResult = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
     if (!portalResult.found && portalResult.probeFailed)
       return res(base, "skip", 0, "Could not verify portal (network unreachable)");
-    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl);
+    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl, ctx?.isAllowedTarget);
     const homepageText = stripHtml(pages[0]?.html ?? "");
     const combined = [
       portalResult.found ? portalResult.text : "",
@@ -402,10 +416,10 @@ const b3: Check = {
 
 const b4: Check = {
   ...mk("scoped-permissions", "Scoped API permissions", 1.5),
-  run: async (pages, metadata) => {
+  run: async (pages, metadata, ctx) => {
     const base = mk("scoped-permissions", "Scoped API permissions", 1.5);
-    const portal = await cachedPortal(pages, metadata.baseUrl);
-    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
+    const keyDocs = await cachedKeyDocs(pages, metadata.baseUrl, ctx?.isAllowedTarget);
 
     const portalText = portal.found ? portal.text : "";
     const text = [portalText, keyDocs?.text ?? ""].filter(Boolean).join(" ");
@@ -437,13 +451,13 @@ const b4: Check = {
 
 const b5: Check = {
   ...mk("pkce-s256", "PKCE S256 support", 1.5),
-  run: async (pages, metadata) => {
+  run: async (pages, metadata, ctx) => {
     const base = mk("pkce-s256", "PKCE S256 support", 1.5);
     const parsed = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
     if (parsed?.codeChallengeMethodsSupported?.includes("S256"))
       return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
 
-    const portal = await cachedPortal(pages, metadata.baseUrl);
+    const portal = await cachedPortal(pages, metadata.baseUrl, ctx?.isAllowedTarget);
     if (!portal.found) {
       if (portal.probeFailed)
         return res(base, "skip", 0, "Could not verify portal (network unreachable)");
@@ -535,10 +549,11 @@ const c3: Check = {
 
 const d1: Check = {
   ...mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0),
-  run: async (_pages, metadata) => {
+  run: async (_pages, metadata, ctx) => {
     const base = mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0);
     const probe = await probeUrl(
       `${metadata.baseUrl}/.well-known/http-message-signatures-directory`,
+      ctx?.isAllowedTarget,
     );
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No HTTP message signatures directory found");
@@ -560,9 +575,12 @@ const d1: Check = {
 
 const d2: Check = {
   ...mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0),
-  run: async (_pages, metadata) => {
+  run: async (_pages, metadata, ctx) => {
     const base = mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0);
-    const probe = await probeUrl(`${metadata.baseUrl}/.well-known/api-catalog`);
+    const probe = await probeUrl(
+      `${metadata.baseUrl}/.well-known/api-catalog`,
+      ctx?.isAllowedTarget,
+    );
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No API catalog at /.well-known/api-catalog");
     try {
@@ -621,9 +639,9 @@ const d3: Check = {
 
 const d4: Check = {
   ...mk("mcp-server-card", "MCP server card (mcp.json)", 1.0),
-  run: async (_pages, metadata) => {
+  run: async (_pages, metadata, ctx) => {
     const base = mk("mcp-server-card", "MCP server card (mcp.json)", 1.0);
-    const probe = await probeUrl(`${metadata.baseUrl}/.well-known/mcp.json`);
+    const probe = await probeUrl(`${metadata.baseUrl}/.well-known/mcp.json`, ctx?.isAllowedTarget);
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No MCP server card at /.well-known/mcp.json");
     try {

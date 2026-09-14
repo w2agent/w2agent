@@ -51,6 +51,7 @@ export async function runGenerate(
     ...(options.allowedOffOriginHosts
       ? { allowedOffOriginHosts: options.allowedOffOriginHosts }
       : {}),
+    ...(options.isAllowedTarget ? { isAllowedTarget: options.isAllowedTarget } : {}),
   };
 
   onProgress?.("Crawling site...");

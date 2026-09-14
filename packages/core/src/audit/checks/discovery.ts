@@ -82,7 +82,7 @@ export const llmsTxtLinksResolve: Check = {
   category: "agent-discovery",
   weight: 1,
   severity: "warning",
-  run: async (_pages, metadata) => {
+  run: async (_pages, metadata, ctx) => {
     if (!metadata.llmsTxt) {
       return {
         id: "llms-txt-links-resolve",
@@ -118,7 +118,11 @@ export const llmsTxtLinksResolve: Check = {
     const toCheck = urls.slice(0, 10);
     const results = await Promise.all(
       toCheck.map(async (url) => {
-        const result = await fetchText(url, { timeout: 5000, userAgent: "w2agent/0.1" });
+        const result = await fetchText(url, {
+          timeout: 5000,
+          userAgent: "w2agent/0.1",
+          isAllowedTarget: ctx?.isAllowedTarget,
+        });
         return { url, ok: result !== null && result.status >= 200 && result.status < 400 };
       }),
     );

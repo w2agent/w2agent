@@ -1,7 +1,7 @@
 import robotsParser from "robots-parser";
 import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
-import { fetchPage, fetchText } from "../shared/fetcher.js";
+import { fetchPage, fetchText, guardedFetch } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { parseMcpResourceLink } from "./shared/oauth-parser.js";
 import type {
@@ -84,10 +84,14 @@ export async function fetchUnderUas(
     }
 
     try {
-      const res = await fetch(homepageUrl, {
-        headers: { "User-Agent": ua },
-        signal: AbortSignal.timeout(options.timeout ?? 5000),
-      });
+      const res = await guardedFetch(
+        homepageUrl,
+        {
+          headers: { "User-Agent": ua },
+          signal: AbortSignal.timeout(options.timeout ?? 5000),
+        },
+        options.isAllowedTarget,
+      );
       let contentLength = 0;
       if (res.body) {
         const reader = res.body.getReader();
@@ -371,7 +375,7 @@ async function fillFromSitemap(
   }
 }
 
-async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpInitResult> {
+async function probeMcpInit(url: string, options: AuditOptions): Promise<McpInitResult> {
   const result: McpInitResult = { mcpEndpointUrl: url, success: false };
   try {
     const initRequest = {
@@ -384,15 +388,19 @@ async function probeMcpInit(url: string, _options: AuditOptions): Promise<McpIni
         clientInfo: { name: "w2agent-audit", version: "0.1.0" },
       },
     };
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
+    const response = await guardedFetch(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(initRequest),
+        signal: AbortSignal.timeout(5000),
       },
-      body: JSON.stringify(initRequest),
-      signal: AbortSignal.timeout(5000),
-    });
+      options.isAllowedTarget,
+    );
     result.status = response.status;
     const headers: Record<string, string> = {};
     response.headers.forEach((v, k) => {

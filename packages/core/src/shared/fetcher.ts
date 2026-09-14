@@ -40,10 +40,133 @@ async function readBodyCapped(response: Response, maxBytes: number): Promise<str
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+export type IsAllowedTarget = NonNullable<AuditOptions["isAllowedTarget"]>;
+
+export class TargetNotAllowedError extends Error {
+  constructor(
+    readonly url: string,
+    reason: string,
+  ) {
+    super(`Fetch target not allowed: ${url} (${reason})`);
+    this.name = "TargetNotAllowedError";
+  }
+}
+
+const MAX_REDIRECTS = 20;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+const CROSS_ORIGIN_STRIPPED_HEADERS = ["authorization", "cookie", "proxy-authorization"];
+const BODY_HEADERS = [
+  "content-type",
+  "content-length",
+  "content-encoding",
+  "content-language",
+  "content-location",
+];
+
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | null | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function assertAllowedTarget(
+  url: string,
+  isAllowedTarget: IsAllowedTarget,
+  signal: AbortSignal | null | undefined,
+): Promise<void> {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    throw new TargetNotAllowedError(url, "invalid URL");
+  }
+  if (protocol !== "http:" && protocol !== "https:") {
+    throw new TargetNotAllowedError(url, `unsupported protocol ${protocol}`);
+  }
+  const verdict = Promise.resolve()
+    .then(() => isAllowedTarget(url))
+    .then(
+      (allowed) => allowed === true,
+      () => false,
+    );
+  // A hook slower than the caller's timeout must abort like a slow fetch would.
+  const allowed = await untilAborted(verdict, signal);
+  if (!allowed) throw new TargetNotAllowedError(url, "refused by isAllowedTarget");
+}
+
+export async function guardedFetch(
+  url: string,
+  init: RequestInit = {},
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<Response> {
+  if (!isAllowedTarget) return fetch(url, init);
+
+  await assertAllowedTarget(url, isAllowedTarget, init.signal);
+  if ((init.redirect ?? "follow") !== "follow") return fetch(url, init);
+
+  let current = url;
+  let method = (init.method ?? "GET").toUpperCase();
+  let body = init.body;
+  let headers = init.headers;
+  let redirects = 0;
+
+  while (true) {
+    const response = await fetch(current, {
+      ...init,
+      method,
+      body,
+      headers,
+      redirect: "manual",
+    });
+    const location = response.headers.get("location");
+    if (!REDIRECT_STATUSES.has(response.status) || location === null) return response;
+
+    await response.body?.cancel().catch(() => {});
+
+    if (redirects >= MAX_REDIRECTS) {
+      throw new TargetNotAllowedError(current, `more than ${MAX_REDIRECTS} redirects`);
+    }
+    redirects++;
+
+    let next: string;
+    try {
+      next = new URL(location, current).href;
+    } catch {
+      throw new TargetNotAllowedError(location, "invalid redirect Location");
+    }
+    await assertAllowedTarget(next, isAllowedTarget, init.signal);
+
+    const stripped: string[] = [];
+    if (new URL(next).origin !== new URL(current).origin) {
+      stripped.push(...CROSS_ORIGIN_STRIPPED_HEADERS);
+    }
+    if (
+      ((response.status === 301 || response.status === 302) && method === "POST") ||
+      (response.status === 303 && method !== "GET" && method !== "HEAD")
+    ) {
+      method = "GET";
+      body = undefined;
+      stripped.push(...BODY_HEADERS);
+    }
+    if (stripped.length > 0 && headers !== undefined) {
+      const kept = new Headers(headers);
+      for (const name of stripped) kept.delete(name);
+      headers = kept;
+    }
+    current = next;
+  }
+}
+
 async function retryableFetch(
   url: string,
   init: Omit<RequestInit, "signal">,
   timeout: number,
+  isAllowedTarget?: IsAllowedTarget,
 ): Promise<Response | null> {
   const MAX_RETRIES = 3;
 
@@ -52,7 +175,11 @@ async function retryableFetch(
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
+      const response = await guardedFetch(
+        url,
+        { ...init, signal: controller.signal },
+        isAllowedTarget,
+      );
 
       // Non-retryable status: return immediately (includes 2xx, 3xx, 4xx except 429, 5xx except 503)
       if (response.status !== 429 && response.status !== 503) {
@@ -102,7 +229,7 @@ async function retryableFetch(
 
 export async function fetchPage(
   url: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent">,
+  options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
 ): Promise<FetchedPage> {
   const start = Date.now();
 
@@ -116,6 +243,7 @@ export async function fetchPage(
       redirect: "follow",
     },
     options.timeout,
+    options.isAllowedTarget,
   );
 
   if (!response) {
@@ -135,7 +263,7 @@ export async function fetchPage(
 
 export async function fetchText(
   url: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent">,
+  options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
 ): Promise<{ text: string; status: number } | null> {
   const response = await retryableFetch(
     url,
@@ -144,6 +272,7 @@ export async function fetchText(
       redirect: "follow",
     },
     options.timeout,
+    options.isAllowedTarget,
   );
 
   if (!response) return null;
@@ -154,20 +283,24 @@ export async function fetchText(
 
 export async function checkContentNegotiation(
   url: string,
-  options: Pick<AuditOptions, "timeout" | "userAgent">,
+  options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
 ): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeout);
 
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": options.userAgent,
-        Accept: "text/markdown",
+    const response = await guardedFetch(
+      url,
+      {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": options.userAgent,
+          Accept: "text/markdown",
+        },
+        redirect: "follow",
       },
-      redirect: "follow",
-    });
+      options.isAllowedTarget,
+    );
     const contentType = response.headers.get("content-type") || "";
     return contentType.includes("text/markdown");
   } catch {

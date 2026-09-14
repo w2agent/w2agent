@@ -164,10 +164,11 @@ export const contentNegotiation: Check = {
   category: "bot-accessibility",
   weight: 0.5,
   severity: "info",
-  run: async (_pages, metadata) => {
+  run: async (_pages, metadata, ctx) => {
     const supports = await checkContentNegotiation(`${metadata.baseUrl}/`, {
       timeout: 10000,
       userAgent: "w2agent/0.1",
+      isAllowedTarget: ctx?.isAllowedTarget,
     });
 
     return {

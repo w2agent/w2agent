@@ -3,7 +3,8 @@ import { crawlSite } from "../src/audit/crawler.js";
 import type { FetchedPage } from "../src/audit/types.js";
 import { DEFAULT_OPTIONS } from "../src/audit/types.js";
 
-vi.mock("../src/shared/fetcher.js", () => ({
+vi.mock("../src/shared/fetcher.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/shared/fetcher.js")>()),
   fetchPage: vi.fn(),
   fetchText: vi.fn(),
 }));
