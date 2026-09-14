@@ -1,6 +1,6 @@
 export type Severity = "error" | "warning" | "info";
 
-export type CheckStatus = "pass" | "fail" | "partial" | "skip";
+export type CheckStatus = "pass" | "fail" | "partial" | "skip" | "error";
 
 export interface CheckResult {
   id: string;
@@ -100,10 +100,10 @@ export interface MultiUaResponse {
   status: number;
   contentLength: number;
   finalUrl: string;
-  /** True when fetch returned a non-5xx response with a non-empty body. */
+  /** True when the final response was 2xx with a non-empty body. */
   reachable: boolean;
-  /** Why this entry was produced. "ok" = real fetch landed; others = measurement skipped. */
-  outcome: "ok" | "fetch-error" | "budget-skipped" | "timeout" | "blocked-by-robots";
+  /** "ok" = response received; "budget-skipped" = never fetched (time budget exhausted). */
+  outcome: "ok" | "fetch-error" | "budget-skipped" | "timeout";
 }
 
 export interface SiteMetadata {

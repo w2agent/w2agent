@@ -82,10 +82,12 @@ describe("probeSiteMetadata", () => {
     expect(metadata.mcpEndpoint).toBe(`${SITE}/mcp`);
     expect(metadata.mcpInit?.success).toBe(true);
     expect(metadata.mcpInit?.serverInfo?.name).toBe("site-mcp");
-    expect(Object.keys(metadata.multiUaResponses ?? {}).sort()).toEqual(
-      ["chatgpt", "claude", "deepseek", "gemini", "perplexity"].sort(),
-    );
-    expect(metadata.multiUaResponses?.claude.status).toBe(200);
+    expect(Object.keys(metadata.multiUaResponses ?? {}).sort()).toEqual([
+      "google",
+      "openai",
+      "perplexity",
+    ]);
+    expect(metadata.multiUaResponses?.openai.status).toBe(200);
     expect(metadata.sitemapXml).toBe(SITEMAP);
   });
 

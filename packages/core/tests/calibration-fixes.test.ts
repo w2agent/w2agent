@@ -1,13 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
-import {
-  simChatgpt,
-  simClaude,
-  simDeepseek,
-  simGemini,
-  simPerplexity,
-} from "../src/audit/checks/multi-ua-sim.js";
+import { allChecks } from "../src/audit/checks/index.js";
+import { reachChecks, reachGoogle, reachOpenai } from "../src/audit/checks/reach.js";
 import { crawlSite, fetchUnderUas } from "../src/audit/crawler.js";
+import { BOT_TOKENS } from "../src/audit/shared/bot-tokens.js";
 import type { FetchedPage, SiteMetadata } from "../src/audit/types.js";
 
 const publicApi = agentAuthChecks.find((c) => c.id === "public-api")!;
@@ -764,183 +760,181 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
   });
 });
 
-describe("multi-UA simulation (D1)", () => {
+describe("user-agent reach checks (P1-7)", () => {
   const page = makePage("<html><body>content</body></html>", "https://example.com/");
+  const AuditOpts = { timeout: 5000 } as import("../src/audit/types.js").AuditOptions;
+  const resp = (
+    over: Partial<import("../src/audit/types.js").MultiUaResponse>,
+  ): import("../src/audit/types.js").MultiUaResponse => ({
+    status: 200,
+    contentLength: 5000,
+    finalUrl: "https://example.com/",
+    reachable: true,
+    outcome: "ok",
+    ...over,
+  });
+  const metaWith = (openai?: import("../src/audit/types.js").MultiUaResponse): SiteMetadata => ({
+    ...makeMeta("https://example.com"),
+    multiUaResponses: openai ? { openai } : {},
+  });
+  const uaOf = (token: string) => BOT_TOKENS.find((b) => b.token === token)?.uaString;
 
-  // Test 1: pass when reachable + expectations met
-  it("sim-claude passes when reachable and llmsTxt present", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      llmsTxt: "# llms.txt\n",
-      multiUaResponses: {
-        claude: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("pass");
-    expect(result.score).toBe(100);
+  it("registers exactly the three documented user fetchers at weight 0.5, no Claude or DeepSeek", () => {
+    expect(reachChecks.map((c) => c.id)).toEqual([
+      "reach-openai-user-agent",
+      "reach-perplexity-user-agent",
+      "reach-google-user-agent",
+    ]);
+    expect(reachChecks.map((c) => c.weight)).toEqual([0.5, 0.5, 0.5]);
+    const ids = allChecks.map((c) => c.id);
+    expect(ids.filter((id) => /^sim-|claude-user|deepseek/.test(id))).toEqual([]);
   });
 
-  // Test 2: fail when UA got a real response but site is unreachable (4xx empty body)
-  it("sim-claude fails when claude UA is blocked (outcome=ok, reachable=false)", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        claude: {
-          status: 403,
-          contentLength: 0,
-          finalUrl: "https://example.com/",
-          reachable: false,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("fail");
-    expect(result.score).toBe(0);
+  it("passes on a 2xx with a body", async () => {
+    const result = await reachOpenai.run([page], metaWith(resp({})));
+    expect(result).toMatchObject({ status: "pass", score: 100, weight: 0.5 });
   });
 
-  // Test 3: partial when reachable but expectations missing
-  it("sim-claude returns partial when reachable but no llmsTxt/openapi/mcpInit", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        claude: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("partial");
-    expect(result.score).toBe(50);
+  // A bot-challenge page is a 403 with HTML; the old `status < 500` rule counted it as reachable.
+  it("fails on a 403 challenge page even though it has a body", async () => {
+    const result = await reachOpenai.run([page], metaWith(resp({ status: 403, reachable: false })));
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toContain("403");
   });
 
-  // Test 4: skip when no multiUaResponses key for that UA
-  it("sim-claude skips when multiUaResponses has no claude key", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {},
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("skip");
-  });
-
-  // Test 4b: skip when multiUaResponses is absent entirely
-  it("sim-claude skips when multiUaResponses is undefined", async () => {
-    const meta: SiteMetadata = makeMeta("https://example.com");
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("skip");
-  });
-
-  // Test 4c: skip when outcome is fetch-error (instrumentation noise, not a real measurement)
-  it("sim-claude skips when outcome is fetch-error (was previously fail — confirms fix)", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        claude: {
-          status: 0,
-          contentLength: 0,
-          finalUrl: "https://example.com/",
-          reachable: false,
-          outcome: "fetch-error",
-        },
-      },
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("skip");
-  });
-
-  // Test 4d: fail when outcome is blocked-by-robots (real measurement result)
-  it("sim-claude fails when outcome is blocked-by-robots", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        claude: {
-          status: 0,
-          contentLength: 0,
-          finalUrl: "https://example.com/",
-          reachable: false,
-          outcome: "blocked-by-robots",
-        },
-      },
-    };
-    const result = await simClaude.run([page], meta);
-    expect(result.status).toBe("fail");
-    expect(result.message).toContain("robots.txt");
-  });
-
-  // Test 5: fetchUnderUas populates all 5 keys
-  it("fetchUnderUas populates all 5 UA keys with varied results", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => {
-      const ua = (init?.headers as Record<string, string>)?.["User-Agent"] ?? "";
-      if (ua.includes("ClaudeBot")) {
-        return new Response("<html>allowed</html>", { status: 200 });
-      }
-      if (ua.includes("ChatGPT")) {
-        return new Response("<html>allowed</html>", { status: 200 });
-      }
-      if (ua.includes("Google-Extended")) {
-        return new Response("", { status: 403 });
-      }
-      if (ua.includes("PerplexityBot")) {
-        return new Response(
-          "<html>long content here for perplexity bot testing purposes to exceed threshold</html>",
-          {
-            status: 200,
-          },
-        );
-      }
-      if (ua.includes("DeepSeekBot")) {
-        return new Response("<html>ok</html>", { status: 200 });
-      }
-      return new Response("", { status: 404 });
-    });
-
-    const result = await fetchUnderUas("https://example.com/", {
-      timeout: 5000,
-    } as import("../src/audit/types.js").AuditOptions);
-    fetchSpy.mockRestore();
-
-    expect(Object.keys(result)).toEqual(
-      expect.arrayContaining(["claude", "chatgpt", "gemini", "perplexity", "deepseek"]),
+  it("fails on an empty 200", async () => {
+    const result = await reachOpenai.run(
+      [page],
+      metaWith(resp({ contentLength: 0, reachable: false })),
     );
-    expect(result.claude.reachable).toBe(true);
-    expect(result.claude.outcome).toBe("ok");
-    expect(result.gemini.reachable).toBe(false);
-    expect(result.gemini.status).toBe(403);
-    expect(result.gemini.outcome).toBe("ok");
+    expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 
-  // Test 5b: fetchUnderUas sets blocked-by-robots when robots.txt disallows a bot
-  it("fetchUnderUas sets outcome=blocked-by-robots when robots.txt disallows ClaudeBot", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+  // The per-request signal is a fixed options.timeout, never clamped to the budget,
+  // so a timeout is the site being slow for this UA: a measured failure.
+  it("fails on a per-request timeout or fetch error", async () => {
+    for (const outcome of ["timeout", "fetch-error"] as const) {
+      const result = await reachOpenai.run(
+        [page],
+        metaWith(resp({ status: 0, contentLength: 0, reachable: false, outcome })),
+      );
+      expect(result, outcome).toMatchObject({ status: "fail", score: 0 });
+      expect(result.message).toContain(outcome);
+    }
+  });
+
+  // C-3: a skip renormalized the category so a slow crawler raised the score.
+  it("reports budget-skipped as error (unmeasured), not skip", async () => {
+    const result = await reachOpenai.run(
+      [page],
+      metaWith(resp({ status: 0, contentLength: 0, reachable: false, outcome: "budget-skipped" })),
+    );
+    expect(result).toMatchObject({ status: "error", score: 0 });
+    expect(result.message).toContain("Unmeasured");
+  });
+
+  it("reports a missing response entry as error (unmeasured)", async () => {
+    expect((await reachOpenai.run([page], metaWith())).status).toBe("error");
+    expect((await reachOpenai.run([page], makeMeta("https://example.com"))).status).toBe("error");
+  });
+
+  it("sends each vendor's documented UA string verbatim and nothing else", async () => {
+    const sent: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => {
+      sent.push((init?.headers as Record<string, string>)?.["User-Agent"] ?? "");
       return new Response("<html>ok</html>", { status: 200 });
     });
-
-    const robotsTxt = "User-agent: ClaudeBot\nDisallow: /\n";
-    const result = await fetchUnderUas(
-      "https://example.com/",
-      { timeout: 5000 } as import("../src/audit/types.js").AuditOptions,
-      robotsTxt,
-    );
+    const result = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
-    expect(result.claude.outcome).toBe("blocked-by-robots");
-    expect(result.claude.reachable).toBe(false);
-    // Other bots not blocked should still fetch
-    expect(result.chatgpt.outcome).toBe("ok");
+    expect(sent).toEqual([uaOf("ChatGPT-User"), uaOf("Perplexity-User"), uaOf("Google-Agent")]);
+    expect(sent.every((ua) => typeof ua === "string" && ua.length > 0)).toBe(true);
+    expect(uaOf("Google-Agent")).toContain("Chrome/W.X.Y.Z");
+    expect(Object.keys(result)).toEqual(["openai", "perplexity", "google"]);
   });
 
+  it("records the final status per UA, with reachable only for 2xx + body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => {
+      const ua = (init?.headers as Record<string, string>)?.["User-Agent"] ?? "";
+      if (ua.includes("ChatGPT-User"))
+        return new Response("<html>challenge</html>", { status: 403 });
+      if (ua.includes("Perplexity-User")) return new Response("", { status: 200 });
+      return new Response("<html>ok</html>", { status: 200 });
+    });
+    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    fetchSpy.mockRestore();
+
+    expect(result.openai).toMatchObject({ status: 403, outcome: "ok", reachable: false });
+    expect(result.perplexity).toMatchObject({ status: 200, contentLength: 0, reachable: false });
+    expect(result.google).toMatchObject({ status: 200, outcome: "ok", reachable: true });
+  });
+
+  it("classifies a TimeoutError as timeout, which the check fails", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new DOMException("timed out", "TimeoutError");
+    });
+    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    fetchSpy.mockRestore();
+    expect(result.openai.outcome).toBe("timeout");
+    expect((await reachOpenai.run([page], metaWith(result.openai))).status).toBe("fail");
+  });
+
+  it("marks UAs after the time budget as budget-skipped without fetching them", async () => {
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const sent: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => {
+      sent.push((init?.headers as Record<string, string>)?.["User-Agent"] ?? "");
+      now += 20_000;
+      return new Response("<html>ok</html>", { status: 200 });
+    });
+    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    fetchSpy.mockRestore();
+    nowSpy.mockRestore();
+
+    expect(sent).toHaveLength(1);
+    expect(result.openai.outcome).toBe("ok");
+    expect(result.perplexity.outcome).toBe("budget-skipped");
+    expect(result.google.outcome).toBe("budget-skipped");
+    expect((await reachGoogle.run([page], metaWith(result.google))).status).toBe("error");
+  });
+
+  // Robots posture is ai-agent-access's job, and these user fetchers may ignore robots.txt.
+  it("fetches even when robots.txt disallows ChatGPT-User; reach reflects HTTP only", async () => {
+    const sent: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith("/robots.txt")) {
+        return new Response("User-agent: ChatGPT-User\nDisallow: /\n", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      sent.push((init?.headers as Record<string, string>)?.["User-Agent"] ?? "");
+      return new Response("<html>ok</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    });
+    const out = await crawlSite("https://example.com/", {
+      maxPages: 1,
+      timeout: 5000,
+      verbose: false,
+      userAgent: "test",
+      requestDelay: 0,
+      concurrency: 1,
+    });
+    fetchSpy.mockRestore();
+
+    expect(out.metadata.robotsTxt).toContain("ChatGPT-User");
+    expect(sent).toContain(uaOf("ChatGPT-User"));
+    expect(out.metadata.multiUaResponses?.openai).toMatchObject({ outcome: "ok", status: 200 });
+    const result = await reachOpenai.run(out.pages, out.metadata);
+    expect(result.status).toBe("pass");
+  });
+});
+
+describe("retired well-known probes", () => {
   it("crawler no longer probes retired well-known paths (agents.json, ai-plugin.json, ARA)", async () => {
     const requested: string[] = [];
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
@@ -975,155 +969,5 @@ describe("multi-UA simulation (D1)", () => {
       ).toBe(false);
       expect(out.metadata.wellKnown[retired], retired).toBeUndefined();
     }
-  });
-
-  it("sim-chatgpt passes when reachable and an OpenAPI spec was found", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      openapi: { specUrl: "https://example.com/openapi.json", version: "3.1.0", endpoints: [] },
-      multiUaResponses: {
-        chatgpt: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simChatgpt.run([page], meta);
-    expect(result).toMatchObject({ status: "pass", score: 100 });
-  });
-
-  it("sim-chatgpt is partial without OpenAPI even if an ai-plugin.json were present (dead surface)", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
-      multiUaResponses: {
-        chatgpt: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simChatgpt.run([page], meta);
-    expect(result).toMatchObject({ status: "partial", score: 50 });
-  });
-
-  it("sim-gemini passes when page HTML has JSON-LD script tag", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        gemini: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const pageWithJsonLd = makePage(
-      '<html><head><script type="application/ld+json">{}</script></head></html>',
-      "https://example.com/",
-    );
-    const result = await simGemini.run([pageWithJsonLd], meta);
-    expect(result.status).toBe("pass");
-    expect(result.score).toBe(100);
-  });
-
-  it("sim-gemini returns partial when reachable but no JSON-LD", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        gemini: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simGemini.run(
-      [makePage("<html><body>no json-ld here</body></html>")],
-      meta,
-    );
-    expect(result.status).toBe("partial");
-    expect(result.score).toBe(50);
-  });
-
-  it("sim-perplexity passes when contentLength > 1000", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        perplexity: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simPerplexity.run([makePage()], meta);
-    expect(result.status).toBe("pass");
-    expect(result.score).toBe(100);
-  });
-
-  it("sim-perplexity returns partial when contentLength <= 1000 but reachable", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        perplexity: {
-          status: 200,
-          contentLength: 100,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simPerplexity.run([makePage()], meta);
-    expect(result.status).toBe("partial");
-    expect(result.score).toBe(50);
-  });
-
-  it("sim-deepseek passes when reachable", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        deepseek: {
-          status: 200,
-          contentLength: 5000,
-          finalUrl: "https://example.com/",
-          reachable: true,
-          outcome: "ok",
-        },
-      },
-    };
-    const result = await simDeepseek.run([makePage()], meta);
-    expect(result.status).toBe("pass");
-    expect(result.score).toBe(100);
-  });
-
-  it("sim-deepseek skips when outcome is fetch-error", async () => {
-    const meta: SiteMetadata = {
-      ...makeMeta("https://example.com"),
-      multiUaResponses: {
-        deepseek: {
-          status: 0,
-          contentLength: 0,
-          finalUrl: "https://example.com/",
-          reachable: false,
-          outcome: "fetch-error",
-        },
-      },
-    };
-    const result = await simDeepseek.run([makePage()], meta);
-    expect(result.status).toBe("skip");
   });
 });

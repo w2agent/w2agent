@@ -146,6 +146,35 @@ describe("formatVerboseReport tracked checks", () => {
     expect(onlySkip).not.toContain("No signing directory");
   });
 
+  // An unmeasured check was not scored; printing "0" with a red cross would read as a site failure.
+  it("renders an error (unmeasured) check as unmeasured, not as a failing 0", () => {
+    const output = formatVerboseReport(
+      makeReport({
+        categories: [
+          {
+            id: "agent-protocols",
+            name: "Agent Protocols",
+            weight: 0.15,
+            score: null,
+            checks: [
+              makeCheck({
+                id: "reach-openai-user-agent",
+                name: "Reachable as ChatGPT-User",
+                status: "error",
+                message: "Unmeasured — crawler time budget exhausted",
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const line = output.split("\n").find((l) => l.includes("Reachable as ChatGPT-User")) ?? "";
+    expect(line).toContain("unmeasured");
+    expect(line).toContain("?");
+    expect(line).not.toContain("✗");
+    expect(line).not.toMatch(/\s0$/);
+  });
+
   it("omits the tracked heading when no checks are tracked", () => {
     const output = formatVerboseReport(
       makeReport({

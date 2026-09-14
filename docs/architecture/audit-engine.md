@@ -81,7 +81,7 @@ interface CheckResult {
   id: string;
   name: string;
   category: CategoryId;
-  status: "pass" | "fail" | "partial" | "skip";
+  status: "pass" | "fail" | "partial" | "skip" | "error"; // error = unmeasured, excluded from scoring
   score: number;           // 0-100
   maxScore: number;        // always 100
   weight: number;

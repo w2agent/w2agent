@@ -257,6 +257,17 @@ function computeWarnings(results: CheckResult[], metadata: SiteMetadata): AuditW
     });
   }
 
+  const unmeasured = scored.filter((r) => r.status === "error").map((r) => r.id);
+  if (unmeasured.length > 0) {
+    warnings.push({
+      id: "unmeasured-checks",
+      title: "Some checks could not be measured",
+      message:
+        "These checks were not measured in this run (for example, the crawler ran out of time, or this crawl did not fetch the page under agent user-agents) and were left out of the score. They are not a finding about the site.",
+      details: unmeasured.join(", "),
+    });
+  }
+
   return warnings;
 }
 
@@ -286,7 +297,9 @@ function computeCategories(results: CheckResult[]): CategoryResult[] {
 }
 
 export function computeCategoryScore(checks: CheckResult[]): number | null {
-  const applicable = checks.filter((c) => c.status !== "skip" && !c.tracked);
+  const applicable = checks.filter(
+    (c) => c.status !== "skip" && c.status !== "error" && !c.tracked,
+  );
   if (applicable.length === 0) return null;
   const totalWeight = applicable.reduce((sum, c) => sum + c.weight, 0);
   if (totalWeight === 0) return null;
@@ -314,7 +327,7 @@ function computeTopIssues(
   _overallScore: number,
 ): TopIssue[] {
   const failedChecks = results
-    .filter((r) => r.score < 100 && r.status !== "skip" && !r.tracked)
+    .filter((r) => r.score < 100 && r.status !== "skip" && r.status !== "error" && !r.tracked)
     .sort((a, b) => {
       // Sort by potential impact (how many overall points fixing would add)
       const aImpact = estimateImpact(a, categories);
@@ -335,7 +348,9 @@ function estimateImpact(check: CheckResult, categories: CategoryResult[]): numbe
   if (!category) return 0;
 
   const categoryWeight = category.weight;
-  const applicableChecks = category.checks.filter((c) => c.status !== "skip" && !c.tracked);
+  const applicableChecks = category.checks.filter(
+    (c) => c.status !== "skip" && c.status !== "error" && !c.tracked,
+  );
   if (applicableChecks.length === 0) return 0;
 
   const totalCheckWeight = applicableChecks.reduce((sum, c) => sum + c.weight, 0);

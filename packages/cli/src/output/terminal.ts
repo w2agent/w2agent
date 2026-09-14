@@ -123,7 +123,7 @@ export function formatVerboseReport(report: AuditReport): string {
     lines.push(`  ${chalk.bold(category.name)} — ${scoreStr}`);
     for (const check of category.checks) {
       if (check.tracked) {
-        if (check.status !== "skip") tracked.push(check);
+        if (check.status !== "skip" && check.status !== "error") tracked.push(check);
         continue;
       }
       const icon =
@@ -133,10 +133,14 @@ export function formatVerboseReport(report: AuditReport): string {
             ? chalk.yellow("~")
             : check.status === "skip"
               ? chalk.gray("-")
-              : chalk.red("✗");
-      lines.push(
-        `    ${icon} ${padRight(check.name, 40)} ${scoreColor(check.score)(`${check.score}`)}`,
-      );
+              : check.status === "error"
+                ? chalk.gray("?")
+                : chalk.red("✗");
+      const scoreStr =
+        check.status === "error"
+          ? chalk.gray("unmeasured")
+          : scoreColor(check.score)(`${check.score}`);
+      lines.push(`    ${icon} ${padRight(check.name, 40)} ${scoreStr}`);
       if (check.status !== "pass" && check.message) {
         lines.push(`      ${chalk.gray(check.message)}`);
       }

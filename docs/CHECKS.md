@@ -61,6 +61,11 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 | Action schemas | `action-schemas` | SearchAction, OrderAction in JSON-LD |
 | Auth discovery | `auth-discovery` | OAuth/auth endpoints discoverable |
 | WebMCP declarative | `webmcp-declarative` | Forms use `toolname` attribute for WebMCP declarative API |
+| Reachable as ChatGPT-User | `reach-openai-user-agent` | Homepage fetched with OpenAI's documented ChatGPT-User UA string (weight 0.5). 100 = final 2xx with non-empty body; 0 = non-2xx (403 challenge, 429, 5xx), empty body, timeout, or fetch error. HTTP only — robots.txt posture is scored by `ai-agent-access`. Crawler time budget exhausted before the fetch → `error` (unmeasured, excluded from the score, `unmeasured-checks` warning) |
+| Reachable as Perplexity-User | `reach-perplexity-user-agent` | Same as above with Perplexity's documented Perplexity-User UA string |
+| Reachable as Google-Agent | `reach-google-user-agent` | Same as above with Google's documented Google-Agent UA string (sent verbatim, including its `Chrome/W.X.Y.Z` version placeholder) |
+
+No Claude-User reach check: Anthropic publishes the robots token but no UA string.
 
 ## Technical Foundations (10%)
 

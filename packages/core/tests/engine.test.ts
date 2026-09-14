@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
+import { reachChecks, reachGoogle, reachPerplexity } from "../src/audit/checks/reach.js";
 import {
   applyNaCascade,
   clearChecks,
@@ -11,7 +12,16 @@ import {
   registerChecks,
   runAudit,
 } from "../src/audit/engine.js";
-import type { CategoryResult, CheckResult, FetchedPage, SiteMetadata } from "../src/audit/types.js";
+import type {
+  AuditReport,
+  CategoryResult,
+  Check,
+  CheckResult,
+  FetchedPage,
+  MultiUaResponse,
+  SiteMetadata,
+} from "../src/audit/types.js";
+import { mapFailedChecksToFormats } from "../src/generate/from-audit.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
@@ -75,7 +85,7 @@ describe("individual check execution", () => {
       expect(r.score).toBeGreaterThanOrEqual(0);
       expect(r.score).toBeLessThanOrEqual(100);
       expect(r.maxScore).toBe(100);
-      expect(["pass", "fail", "partial", "skip"]).toContain(r.status);
+      expect(["pass", "fail", "partial", "skip", "error"]).toContain(r.status);
     };
 
     const promises: Promise<void>[] = [];
@@ -514,5 +524,95 @@ describe("applyNaCascade (§5.6)", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+// C-3: an unmeasured check (our crawler ran out of time) must neither cost the site
+// points nor raise its score by dropping out silently — it is excluded and flagged.
+describe("error (unmeasured) status", () => {
+  const ok = {
+    status: 200,
+    contentLength: 5000,
+    finalUrl: "https://example.com/",
+    reachable: true,
+  };
+  const protocolAnchor: Check = {
+    id: "anchor",
+    name: "anchor",
+    category: "agent-protocols",
+    weight: 1,
+    severity: "info",
+    run: () => ({
+      id: "anchor",
+      name: "anchor",
+      category: "agent-protocols",
+      status: "partial",
+      score: 50,
+      maxScore: 100,
+      weight: 1,
+      message: "anchor",
+      severity: "info",
+    }),
+  };
+
+  async function audit(openai: MultiUaResponse | undefined, checks: Check[]) {
+    const metadata: SiteMetadata = {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+      multiUaResponses: {
+        ...(openai && { openai }),
+        perplexity: { ...ok, outcome: "ok" },
+        google: { ...ok, outcome: "ok" },
+      },
+    };
+    const report = await runAudit(
+      "https://example.com",
+      { prefetchedPages: [makePage("<html><body>hi</body></html>")], prefetchedMetadata: metadata },
+      undefined,
+      checks,
+    );
+    const category = report.categories.find((c) => c.id === "agent-protocols");
+    return { report, score: category?.score };
+  }
+
+  it("scores a budget-skipped reach check like an absent one, warns, and keeps it out of fixes", async () => {
+    const skipped: MultiUaResponse = {
+      status: 0,
+      contentLength: 0,
+      finalUrl: "https://example.com/",
+      reachable: false,
+      outcome: "budget-skipped",
+    };
+    const blocked: MultiUaResponse = { ...ok, status: 403, reachable: false, outcome: "ok" };
+
+    const unmeasured = await audit(skipped, [protocolAnchor, ...reachChecks]);
+    const absent = await audit(undefined, [protocolAnchor, reachPerplexity, reachGoogle]);
+    const failed = await audit(blocked, [protocolAnchor, ...reachChecks]);
+
+    const row = unmeasured.report.categories
+      .flatMap((c) => c.checks)
+      .find((c) => c.id === "reach-openai-user-agent");
+    expect(row?.status).toBe("error");
+    expect(unmeasured.score).toBe(absent.score);
+    expect(failed.score).toBeLessThan(unmeasured.score as number);
+
+    const warning = unmeasured.report.warnings.find((w) => w.id === "unmeasured-checks");
+    expect(warning?.details).toBe("reach-openai-user-agent");
+    expect(failed.report.warnings.map((w) => w.id)).not.toContain("unmeasured-checks");
+    expect(absent.report.warnings.map((w) => w.id)).not.toContain("unmeasured-checks");
+
+    const issueIds = (r: AuditReport) => r.topIssues.map((i) => i.checkId);
+    expect(issueIds(unmeasured.report)).not.toContain("reach-openai-user-agent");
+    expect(issueIds(failed.report)).toContain("reach-openai-user-agent");
+
+    const unfixableIds = (r: AuditReport) => mapFailedChecksToFormats(r).unfixable.map((c) => c.id);
+    expect(unfixableIds(unmeasured.report)).not.toContain("reach-openai-user-agent");
+    expect(unfixableIds(failed.report)).toContain("reach-openai-user-agent");
+  });
+
+  it("computeCategoryScore excludes error rows from the denominator", () => {
+    const pass = { ...r("a", "pass", "agent-protocols") };
+    const err = { ...r("b", "fail", "agent-protocols"), status: "error" as const };
+    expect(computeCategoryScore([pass, err])).toBe(100);
   });
 });

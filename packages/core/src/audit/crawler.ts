@@ -4,40 +4,28 @@ import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText, guardedFetch } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
+import { BOT_TOKENS } from "./shared/bot-tokens.js";
 import { isJsonContentType, mediaTypeEssence } from "./shared/json.js";
 import { probeMcpEndpoint } from "./shared/mcp-probe.js";
 import type { AuditOptions, FetchedPage, MultiUaResponse, SiteMetadata } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const AGENT_UAS: { key: string; ua: string; robotsName: string }[] = [
-  {
-    key: "claude",
-    ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +https://www.anthropic.com/claude-bot)",
-    robotsName: "ClaudeBot",
-  },
-  {
-    key: "chatgpt",
-    ua: "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
-    robotsName: "ChatGPT-User",
-  },
-  {
-    key: "gemini",
-    ua: "Mozilla/5.0 (compatible; Google-Extended/1.0)",
-    robotsName: "Google-Extended",
-  },
-  {
-    key: "perplexity",
-    ua: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://www.perplexity.ai/perplexitybot)",
-    robotsName: "PerplexityBot",
-  },
-  { key: "deepseek", ua: "Mozilla/5.0 (compatible; DeepSeekBot/1.0)", robotsName: "DeepSeekBot" },
+function uaFor(token: string): string {
+  const ua = BOT_TOKENS.find((b) => b.token === token)?.uaString;
+  if (!ua) throw new Error(`No documented UA string for ${token} in BOT_TOKENS`);
+  return ua;
+}
+
+const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = [
+  { key: "openai", token: "ChatGPT-User", ua: uaFor("ChatGPT-User") },
+  { key: "perplexity", token: "Perplexity-User", ua: uaFor("Perplexity-User") },
+  { key: "google", token: "Google-Agent", ua: uaFor("Google-Agent") },
 ];
 
 export async function fetchUnderUas(
   homepageUrl: string,
   options: AuditOptions,
-  robotsTxt?: string,
 ): Promise<Record<string, MultiUaResponse>> {
   const responses: Record<string, MultiUaResponse> = {};
   // Wall-clock budget for the entire multi-UA pass. Checked between fetches —
@@ -46,16 +34,7 @@ export async function fetchUnderUas(
   const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
   const start = Date.now();
 
-  const robotsRulesUrl = (() => {
-    try {
-      return `${new URL(homepageUrl).origin}/robots.txt`;
-    } catch {
-      return `${homepageUrl}/robots.txt`;
-    }
-  })();
-  const robots = robotsParser(robotsRulesUrl, robotsTxt ?? "");
-
-  for (const { key, ua, robotsName } of AGENT_UAS) {
+  for (const { key, ua } of AGENT_UAS) {
     if (Date.now() - start > budget) {
       responses[key] = {
         status: 0,
@@ -63,18 +42,6 @@ export async function fetchUnderUas(
         finalUrl: homepageUrl,
         reachable: false,
         outcome: "budget-skipped",
-      };
-      continue;
-    }
-
-    // Check robots.txt before fetching
-    if (robotsTxt && robots.isAllowed(homepageUrl, robotsName) === false) {
-      responses[key] = {
-        status: 0,
-        contentLength: 0,
-        finalUrl: homepageUrl,
-        reachable: false,
-        outcome: "blocked-by-robots",
       };
       continue;
     }
@@ -106,7 +73,7 @@ export async function fetchUnderUas(
         status: res.status,
         contentLength,
         finalUrl: res.url,
-        reachable: res.status < 500 && contentLength > 0,
+        reachable: res.status >= 200 && res.status < 300 && contentLength > 0,
         outcome: "ok",
       };
     } catch (err) {
@@ -267,7 +234,7 @@ export async function probeSiteMetadata(
   }
 
   onProgress?.("Simulating agent user-agents...");
-  metadata.multiUaResponses = await fetchUnderUas(url, options, metadata.robotsTxt);
+  metadata.multiUaResponses = await fetchUnderUas(url, options);
 
   return metadata;
 }
