@@ -9,7 +9,7 @@
 | robots.txt exists | `robots-txt-exists` | robots.txt is accessible |
 | AI agent access | `ai-agent-access` | robots.txt root access per vendor-documented token (`src/audit/shared/bot-tokens.ts`): user-initiated agent blocked = fail (error); search fetcher blocked = partial (warning); training crawlers reported only, never scored. No robots.txt (4xx, or a 200 HTML soft-404) = pass; robots.txt 5xx, including a 503 that persists through retries = fail (error; RFC 9309 unreachable = assume complete disallow); a 429 that persists through retries = `error` (unmeasured: rate-limited, the file was never seen); no response (network error, timeout) = `error` (unmeasured) |
 | XML sitemap exists | `sitemap-exists` | Valid sitemap.xml present |
-| Response time | `response-time` | Average page load <2s |
+| Response time | `response-time` | Average response time over measured pages (`responseTime > 0`): <500 ms = pass 100; <1500 ms = pass 70; <3000 ms = partial 35; else fail 0. No measured pages (e.g. spider backend timings of 0) = skip |
 | Content negotiation | `content-negotiation` | Responds to `Accept: text/markdown` |
 | Status codes | `status-codes` | No 4xx/5xx errors |
 

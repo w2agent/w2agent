@@ -115,11 +115,18 @@ describe("CHECK_TO_FORMAT", () => {
       "schema-org-present": "schema-org",
       "llms-txt-exists": "llms-txt",
       "faq-content": "faq",
-      "webmcp-declarative": "webmcp",
       "forms-structured": "webmcp",
     };
     for (const [checkId, format] of Object.entries(expectedMappings)) {
       expect(CHECK_TO_FORMAT[checkId]).toBe(format);
     }
+  });
+
+  it("has no entries for tracked WebMCP checks (skipped by mapFailedChecksToFormats); forms-structured drives webmcp generation", () => {
+    expect(CHECK_TO_FORMAT).not.toHaveProperty("webmcp-declarative");
+    expect(CHECK_TO_FORMAT).not.toHaveProperty("webmcp-imperative");
+    expect(Object.entries(CHECK_TO_FORMAT).filter(([, f]) => f === "webmcp")).toEqual([
+      ["forms-structured", "webmcp"],
+    ]);
   });
 });

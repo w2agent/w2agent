@@ -179,7 +179,8 @@ export const responseTime: Check = {
   weight: 1,
   severity: "warning",
   run: (pages) => {
-    if (pages.length === 0) {
+    const measured = pages.filter((p) => p.responseTime > 0);
+    if (measured.length === 0) {
       return {
         id: "response-time",
         name: "Response time",
@@ -188,30 +189,34 @@ export const responseTime: Check = {
         score: 0,
         maxScore: 100,
         weight: 1,
-        message: "No pages to measure",
+        message:
+          pages.length === 0
+            ? "No pages to measure"
+            : "Response time not measured (crawl backend reported no timings)",
         severity: "warning",
       };
     }
 
-    const avgTime = pages.reduce((sum, p) => sum + p.responseTime, 0) / pages.length;
+    const avgTime = measured.reduce((sum, p) => sum + p.responseTime, 0) / measured.length;
     let score: number;
-    if (avgTime <= 500) score = 100;
-    else if (avgTime <= 1000) score = 80;
-    else if (avgTime <= 2000) score = 60;
-    else if (avgTime <= 3000) score = 30;
-    else score = 0;
+    let status: "pass" | "partial" | "fail";
+    if (avgTime < 500) [score, status] = [100, "pass"];
+    else if (avgTime < 1500) [score, status] = [70, "pass"];
+    else if (avgTime < 3000) [score, status] = [35, "partial"];
+    else [score, status] = [0, "fail"];
 
+    const unmeasured = pages.length - measured.length;
     return {
       id: "response-time",
       name: "Response time",
       category: "bot-accessibility",
-      status: score >= 60 ? "pass" : score > 0 ? "partial" : "fail",
+      status,
       score,
       maxScore: 100,
       weight: 1,
-      message: `Average response time: ${Math.round(avgTime)}ms`,
-      details: pages.map((p) => `${p.url}: ${p.responseTime}ms`).join("\n"),
-      severity: score < 60 ? "warning" : "info",
+      message: `Average response time: ${Math.round(avgTime)}ms${unmeasured > 0 ? ` (${unmeasured} unmeasured page(s) excluded)` : ""}`,
+      details: measured.map((p) => `${p.url}: ${p.responseTime}ms`).join("\n"),
+      severity: status === "pass" ? "info" : "warning",
     };
   },
 };

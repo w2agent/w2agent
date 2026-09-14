@@ -12,7 +12,6 @@ export const CHECK_TO_FORMAT: Record<string, GenerateFormat> = {
   "llms-txt-valid": "llms-txt",
   "llms-txt-links-resolve": "llms-txt",
   "faq-content": "faq",
-  "webmcp-declarative": "webmcp",
   "forms-structured": "webmcp",
 };
 

@@ -186,14 +186,49 @@ describe("sitemap-exists", () => {
 });
 
 describe("response-time", () => {
+  const run = (...times: number[]) =>
+    responseTime.run(
+      times.map((t, i) => ({ ...basePage, url: `https://example.com/p${i}`, responseTime: t })),
+      baseMeta,
+    );
+
   it("scores 100 for fast pages", () => {
-    const result = responseTime.run([{ ...basePage, responseTime: 200 }], baseMeta);
-    expect(result.score).toBe(100);
+    expect(run(200)).toMatchObject({ status: "pass", score: 100, severity: "info" });
   });
 
-  it("scores lower for slow pages", () => {
-    const result = responseTime.run([{ ...basePage, responseTime: 3500 }], baseMeta);
-    expect(result.score).toBe(0);
+  it("fails very slow pages", () => {
+    expect(run(3500)).toMatchObject({ status: "fail", score: 0, severity: "warning" });
+  });
+
+  it("uses few coarse buckets with strict < boundaries so run-to-run jitter rarely moves the score", () => {
+    expect(run(499)).toMatchObject({ status: "pass", score: 100, severity: "info" });
+    expect(run(500)).toMatchObject({ status: "pass", score: 70, severity: "info" });
+    expect(run(1499)).toMatchObject({ status: "pass", score: 70, severity: "info" });
+    expect(run(1500)).toMatchObject({ status: "partial", score: 35, severity: "warning" });
+    expect(run(2999)).toMatchObject({ status: "partial", score: 35, severity: "warning" });
+    expect(run(3000)).toMatchObject({ status: "fail", score: 0, severity: "warning" });
+  });
+
+  it("skips when every page is unmeasured (responseTime 0) so spider-crawled sites don't earn free full marks", () => {
+    const result = run(0, 0, 0);
+    expect(result).toMatchObject({ status: "skip", score: 0 });
+    expect(result.message).toContain("not measured");
+  });
+
+  it("skips with no pages because there is nothing to time", () => {
+    expect(responseTime.run([], baseMeta)).toMatchObject({
+      status: "skip",
+      score: 0,
+      message: "No pages to measure",
+    });
+  });
+
+  it("averages only measured pages so unmeasured zeros can't drag a slow site into a faster bucket", () => {
+    const result = run(0, 2000);
+    expect(result).toMatchObject({ status: "partial", score: 35 });
+    expect(result.message).toContain("2000ms");
+    expect(result.message).toContain("1 unmeasured");
+    expect(result.details).toBe("https://example.com/p1: 2000ms");
   });
 });
 
