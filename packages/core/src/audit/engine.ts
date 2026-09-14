@@ -210,7 +210,6 @@ export function applyNaCascade(
     // Keeps the rubric from punishing sites that haven't adopted an emerging standard they don't claim.
     { id: "mcp-auth", naWhen: noMcpEndpoint, sentinel: true },
     { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "mcp-server-card", naWhen: noMcpEndpoint, sentinel: true },
   ];
   for (const { id, naWhen, sentinel } of cascade) {
     const r = byId.get(id);

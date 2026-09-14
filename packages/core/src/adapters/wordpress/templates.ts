@@ -93,13 +93,16 @@ function w2agent_generate_agent_card() {
 
     return json_encode([
         'name' => $site_name,
-        'description' => $site_desc,
-        'url' => $site_url,
-        'capabilities' => [
-            'llms_txt' => $site_url . '/llms.txt',
-            'robots_txt' => $site_url . '/robots.txt',
+        'description' => $site_desc ?: $site_name,
+        'supportedInterfaces' => [
+            ['url' => $site_url, 'protocolBinding' => 'JSONRPC', 'protocolVersion' => '1.0'],
         ],
-        'protocols' => ['llms-txt', 'robots-txt', 'schema-org'],
+        'provider' => ['organization' => $site_name, 'url' => $site_url],
+        'version' => '1.0.0',
+        'capabilities' => new stdClass(),
+        'defaultInputModes' => ['text/plain'],
+        'defaultOutputModes' => ['text/plain'],
+        'skills' => [],
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 }
 

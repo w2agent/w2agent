@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import robotsParser from "robots-parser";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { aiAgentAccess } from "../src/audit/checks/bot-accessibility.js";
+import { wellKnownAgentCard } from "../src/audit/checks/discovery.js";
+import { validateAgentCard } from "../src/audit/shared/agent-card.js";
 import { BOT_TOKENS } from "../src/audit/shared/bot-tokens.js";
 import type { FetchedPage } from "../src/audit/types.js";
 import { generateAgentCard } from "../src/generate/agent-card.js";
 import { generateAgentsMd } from "../src/generate/agents-md.js";
+import { runGenerate } from "../src/generate/engine.js";
 import { generateFaq } from "../src/generate/faq.js";
 import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
 import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
@@ -658,11 +661,67 @@ describe("generateAgentCard", () => {
     const card = generateAgentCard(ctx);
     expect(card.name).toBe("My Site");
     expect(card.description).toBe("A great site");
-    expect(card.url).toBe("https://example.com");
     expect(card.version).toBe("1.0.0");
+    expect(card.provider).toEqual({ organization: "My Site", url: "https://example.com" });
   });
 
-  it("detects llms.txt capability", () => {
+  it("emits the A2A v1.0 shape, not the v0.3 url/preferredTransport fields or invented capability flags", () => {
+    const card = generateAgentCard(
+      makeCtx({
+        pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
+        rawPages: [],
+      }),
+    ) as unknown as Record<string, unknown>;
+    expect(card).toMatchObject({
+      supportedInterfaces: [
+        { url: "https://example.com", protocolBinding: "JSONRPC", protocolVersion: "1.0" },
+      ],
+      capabilities: {},
+      defaultInputModes: ["text/plain"],
+      defaultOutputModes: ["text/plain"],
+    });
+    expect(card).not.toHaveProperty("url");
+    expect(card).not.toHaveProperty("preferredTransport");
+    expect(card.capabilities).toEqual({});
+  });
+
+  it("without an A2A endpoint the card validates as v1.0 but is flagged as a stub (the site has no A2A agent)", () => {
+    const card = generateAgentCard(
+      makeCtx({
+        pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
+        rawPages: [],
+      }),
+    );
+    expect(validateAgentCard(card, "https://example.com")).toEqual({
+      shape: "v1.0",
+      missing: [],
+      stubUrls: ["https://example.com"],
+    });
+  });
+
+  it("with an A2A endpoint the card round-trips through the checker as a passing v1.0 card", () => {
+    const html =
+      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head></html>';
+    const ctx = makeCtx({
+      pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
+      rawPages: [makeFetchedPage("https://example.com", html)],
+      metadata: { baseUrl: "https://example.com", llmsTxt: "# My Site", wellKnown: {} },
+    });
+    const card = generateAgentCard(ctx, { a2aEndpoint: "https://example.com/a2a/v1" });
+    expect(card.supportedInterfaces[0].url).toBe("https://example.com/a2a/v1");
+    expect(validateAgentCard(card, "https://example.com")).toEqual({
+      shape: "v1.0",
+      missing: [],
+      stubUrls: [],
+    });
+    const result = wellKnownAgentCard.run([], {
+      baseUrl: "https://example.com",
+      wellKnown: { "agent-card.json": JSON.stringify(card) },
+    });
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("detects llms.txt skill", () => {
     const ctx = makeCtx({
       pages: [
         { url: "https://example.com/", title: "My Site", description: "Desc", markdown: "Content" },
@@ -676,11 +735,10 @@ describe("generateAgentCard", () => {
     });
 
     const card = generateAgentCard(ctx);
-    expect(card.capabilities.llmsTxt).toBe(true);
-    expect(card.skills.some((s) => s.id === "llms-txt")).toBe(true);
+    expect(card.skills.find((s) => s.id === "llms-txt")?.tags).toContain("llms-txt");
   });
 
-  it("detects SearchAction capability", () => {
+  it("detects SearchAction and structured-data skills", () => {
     const html =
       '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head><body></body></html>';
     const ctx = makeCtx({
@@ -689,8 +747,32 @@ describe("generateAgentCard", () => {
     });
 
     const card = generateAgentCard(ctx);
-    expect(card.capabilities.searchAction).toBe(true);
-    expect(card.capabilities.structuredData).toBe(true);
+    expect(card.skills.map((s) => s.id)).toEqual(["search", "structured-data"]);
+    for (const skill of card.skills) expect(skill.tags.length).toBeGreaterThan(0);
+  });
+
+  it("runGenerate passes options.a2aEndpoint into agent-card.json", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return url === "https://example.com/"
+        ? new Response("<html><head><title>My Site</title></head><body><p>hi</p></body></html>", {
+            headers: { "content-type": "text/html" },
+          })
+        : new Response("not found", { status: 404, headers: { "content-type": "text/html" } });
+    });
+    try {
+      const result = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["agent-card"],
+        a2aEndpoint: "https://example.com/a2a/v1",
+      });
+      const file = result.files.find((f) => f.filename === "agent-card.json");
+      expect(JSON.parse(file?.content ?? "{}").supportedInterfaces[0].url).toBe(
+        "https://example.com/a2a/v1",
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("provides fallback description when none exists", () => {

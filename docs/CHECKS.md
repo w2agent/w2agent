@@ -45,7 +45,8 @@
 | llms.txt | `llms-txt-exists` | /llms.txt present |
 | llms.txt valid | `llms-txt-valid` | Follows spec (H1, blockquote, URLs) |
 | llms.txt links | `llms-txt-links-resolve` | URLs in llms.txt return 200 |
-| Agent card | `well-known-agent-card` | /.well-known/agent-card.json |
+| Agent card | `well-known-agent-card` | /.well-known/agent-card.json validated against A2A v1.0 (100 = `name`, `description`, `version`, non-empty `supportedInterfaces[]` each with `url`/`protocolBinding`/`protocolVersion`, `capabilities` object, `defaultInputModes`/`defaultOutputModes`, `skills[]` each with `id`/`name`/`description`/`tags`; 50 = v0.3 shape (`url` + `preferredTransport`), or a "stub" whose interface URL is the site homepage; 0 = absent, not JSON, or neither shape) |
+| MCP server card (tracked, weight 0) | `mcp-server-card` | First valid of: `<MCP endpoint>/server-card`, up to 3 `/.well-known/ai-catalog.json` entries of type `application/mcp-server-card+json` (fetched, off-origin allowed, through the fetch allow-hook), legacy `/.well-known/mcp/server-card.json`. 100 = JSON object with `name`, `version`, `description`; 0 = a card was found but misses a field (message names it and where); skip = none. Not scored until SEP-2127 merges |
 | Markdown alternate | `markdown-alternate` | `<link rel="alternate" type="text/markdown">` |
 
 Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara`, `well-known-ai-plugin`.
@@ -54,7 +55,7 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
-| MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer challenge with `resource_metadata` (auth-gated), 50=deprecated HTTP+SSE (incl. auth-gated), 0=no endpoint). No endpoint → MCP-tier auth checks and `mcp-server-card` are N/A |
+| MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer challenge with `resource_metadata` (auth-gated), 50=deprecated HTTP+SSE (incl. auth-gated), 0=no endpoint). No endpoint → MCP-tier auth checks are N/A |
 | API endpoints | `api-endpoints` | OpenAPI, GraphQL links |
 | Structured forms | `forms-structured` | Forms have labels and names |
 | UCP | `well-known-ucp` | /.well-known/ucp |

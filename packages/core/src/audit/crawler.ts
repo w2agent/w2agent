@@ -184,7 +184,8 @@ export async function probeSiteMetadata(
     "oauth-protected-resource",
     "http-message-signatures-directory",
     "api-catalog",
-    "mcp.json",
+    "ai-catalog.json",
+    "mcp/server-card.json",
   ];
   const [rootProbe, wellKnownProbe, apiCatalogProbe, ...wellKnownResults] = await Promise.all([
     fetchText(`${baseUrl}/${randomUUID()}`, options),

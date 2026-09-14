@@ -196,7 +196,18 @@ describe("catch-all / soft-404 guard", () => {
         case "/api/":
           return json({ ok: true });
         case "/.well-known/agent-card.json":
-          return json({ name: "Example", url: SITE });
+          return json({
+            name: "Example",
+            description: "Example agent",
+            supportedInterfaces: [
+              { url: `${SITE}/a2a`, protocolBinding: "JSONRPC", protocolVersion: "1.0" },
+            ],
+            version: "1.0.0",
+            capabilities: {},
+            defaultInputModes: ["text/plain"],
+            defaultOutputModes: ["text/plain"],
+            skills: [],
+          });
         case "/.well-known/oauth-protected-resource":
           return json({ resource: SITE, authorization_servers: [SITE] });
         case "/.well-known/oauth-authorization-server":
@@ -234,7 +245,12 @@ describe("catch-all / soft-404 guard", () => {
     expect(metadata.wellKnown.mcp).toBeUndefined();
     expect(metadata.wellKnown["oauth-authorization-server"]).toBeUndefined();
     expect(metadata.wellKnown["oauth-protected-resource"]).toBe(JSON.stringify(realPrm));
-    for (const path of ["http-message-signatures-directory", "api-catalog", "mcp.json"]) {
+    for (const path of [
+      "http-message-signatures-directory",
+      "api-catalog",
+      "ai-catalog.json",
+      "mcp/server-card.json",
+    ]) {
       expect(metadata.wellKnown[path], path).toBeUndefined();
     }
 
@@ -253,6 +269,43 @@ describe("catch-all / soft-404 guard", () => {
     // The real PRM still counts, but the {} soft-404 served at the AS metadata path has no issuer.
     expect(byId.get("oauth-discovery")).toMatchObject({ status: "partial", score: 50 });
     expect(report.warnings.some((w) => w.id === "catch-all-responses")).toBe(true);
+  });
+
+  it("ai-catalog.json is kept under application/ai-catalog+json and dropped when served as HTML", async () => {
+    const catalog = JSON.stringify({
+      specVersion: "1.0",
+      entries: [
+        {
+          identifier: "urn:air:github.com:mcp:github-mcp-server",
+          type: "application/mcp-server-card+json",
+          url: "https://api.githubcopilot.com/mcp/server-card",
+        },
+      ],
+    });
+    for (const [type, expected] of [
+      ["application/ai-catalog+json", catalog],
+      ["text/html", undefined],
+    ] as const) {
+      mockSite((url) =>
+        url.pathname === "/.well-known/ai-catalog.json"
+          ? new Response(catalog, { headers: { "content-type": type } })
+          : html("nope", 404),
+      );
+      const metadata = await probeSiteMetadata(SITE, metaOptions);
+      expect(metadata.wellKnown["ai-catalog.json"], type).toBe(expected);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("the retired /.well-known/mcp.json is no longer probed", async () => {
+    const fetchSpy = mockSite(() => html("nope", 404));
+    await probeSiteMetadata(SITE, metaOptions);
+    const urls = fetchSpy.mock.calls.map(([input]) =>
+      input instanceof Request ? input.url : String(input),
+    );
+    expect(urls).not.toContain(`${SITE}/.well-known/mcp.json`);
+    expect(urls).toContain(`${SITE}/.well-known/ai-catalog.json`);
+    expect(urls).toContain(`${SITE}/.well-known/mcp/server-card.json`);
   });
 
   it("robots.txt and llms.txt HTML shells are absent; the llms.txt subdomain fallback skips shells too", async () => {
@@ -289,7 +342,7 @@ describe("catch-all / soft-404 guard", () => {
 
   it("a connection reset mid-body on one well-known path does not abort the metadata probe", async () => {
     mockSite((url) => {
-      if (url.pathname === "/.well-known/mcp.json") {
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
         let sent = false;
         const body = new ReadableStream<Uint8Array>({
           pull(controller) {
@@ -310,7 +363,7 @@ describe("catch-all / soft-404 guard", () => {
     });
 
     const metadata = await probeSiteMetadata(SITE, metaOptions);
-    expect(metadata.wellKnown["mcp.json"]).toBeUndefined();
+    expect(metadata.wellKnown["mcp/server-card.json"]).toBeUndefined();
     expect(metadata.wellKnown["agent-card.json"]).toBe(JSON.stringify({ name: "Example" }));
     expect(metadata.wellKnown["api-catalog"]).toBeDefined();
   });
@@ -330,8 +383,8 @@ describe("catch-all / soft-404 guard", () => {
   });
 });
 
-describe("crawler gate covers the signatures directory, api-catalog and mcp.json", () => {
-  const PATHS = ["http-message-signatures-directory", "api-catalog", "mcp.json"];
+describe("crawler gate covers the signatures directory, api-catalog and the legacy MCP server card", () => {
+  const PATHS = ["http-message-signatures-directory", "api-catalog", "mcp/server-card.json"];
   const SIGNING_TYPE = "application/http-message-signatures-directory+json";
   const LINKSET_TYPE =
     'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"';
@@ -341,12 +394,16 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
       signature_agent: SITE,
     }),
     "api-catalog": CLOUDFLARE_API_CATALOG,
-    "mcp.json": JSON.stringify({ name: "MCP", version: "1.0.0", capabilities: { tools: {} } }),
+    "mcp/server-card.json": JSON.stringify({
+      name: "MCP",
+      version: "1.0.0",
+      description: "Example MCP server",
+    }),
   };
   const SPEC_TYPES: Record<string, string> = {
     "http-message-signatures-directory": SIGNING_TYPE,
     "api-catalog": LINKSET_TYPE,
-    "mcp.json": "application/json",
+    "mcp/server-card.json": "application/mcp-server-card+json",
   };
   const serve = (make: (path: string, body: string) => Response) =>
     mockSite((url) => {
@@ -382,12 +439,12 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
     for (const path of PATHS) expect(metadata.wellKnown[path], path).toBeUndefined();
   });
 
-  it("rejects api-catalog and the signing directory served as plain application/json, still accepts mcp.json", async () => {
+  it("rejects api-catalog and the signing directory served as plain application/json, still accepts the server card", async () => {
     serve(withType(200, () => "application/json; charset=utf-8"));
     const metadata = await probeSiteMetadata(SITE, metaOptions);
     expect(metadata.wellKnown["api-catalog"]).toBeUndefined();
     expect(metadata.wellKnown["http-message-signatures-directory"]).toBeUndefined();
-    expect(metadata.wellKnown["mcp.json"]).toBe(BODIES["mcp.json"]);
+    expect(metadata.wellKnown["mcp/server-card.json"]).toBe(BODIES["mcp/server-card.json"]);
 
     const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
     const byId = checksById(report);
@@ -428,7 +485,7 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
       withType(200, (path) =>
         path === "api-catalog"
           ? SIGNING_TYPE
-          : path === "mcp.json"
+          : path === "mcp/server-card.json"
             ? "application/json"
             : LINKSET_TYPE,
       ),
@@ -465,6 +522,8 @@ describe("isJsonContentType", () => {
     " Application/JSON ",
     "application/linkset+json",
     "application/http-message-signatures-directory+json; charset=utf-8",
+    "application/ai-catalog+json",
+    "application/mcp-server-card+json",
   ])("accepts %s", (ct) => {
     expect(isJsonContentType(ct)).toBe(true);
   });

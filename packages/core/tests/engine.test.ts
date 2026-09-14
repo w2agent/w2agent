@@ -334,27 +334,23 @@ describe("applyNaCascade (§5.6)", () => {
     expect(results[1]).toMatchObject({ status: "partial", score: 50 });
   });
 
-  it("no confirmed MCP endpoint → mcp-auth and mcp-server-card become skip", () => {
-    const results = [
-      r("mcp-discovery", "fail"),
-      r("mcp-auth", "fail"),
-      r("mcp-server-card", "fail"),
-    ];
+  it("no confirmed MCP endpoint → mcp-auth becomes skip", () => {
+    const results = [r("mcp-discovery", "fail"), r("mcp-auth", "fail")];
     applyNaCascade(results, NO_MCP);
-    for (const id of ["mcp-auth", "mcp-server-card"]) {
-      expect(results.find((x) => x.id === id)?.status).toBe("skip");
+    expect(results.find((x) => x.id === "mcp-auth")?.status).toBe("skip");
+  });
+
+  it("mcp-server-card has no cascade row: an ai-catalog or legacy card found without an MCP endpoint keeps its result", () => {
+    for (const status of ["pass", "fail"] as const) {
+      const [card] = applyNaCascade([r("mcp-server-card", status, "agent-discovery")], NO_MCP);
+      expect(card.status).toBe(status);
     }
   });
 
   it("confirmed MCP endpoint → MCP-tier checks stay fail (no skip when MCP is present)", () => {
-    const results = [
-      r("mcp-discovery", "pass"),
-      r("mcp-auth", "fail"),
-      r("mcp-server-card", "fail"),
-    ];
+    const results = [r("mcp-discovery", "pass"), r("mcp-auth", "fail")];
     applyNaCascade(results, WITH_MCP);
     expect(results.find((x) => x.id === "mcp-auth")?.status).toBe("fail");
-    expect(results.find((x) => x.id === "mcp-server-card")?.status).toBe("fail");
   });
 
   it("MCP-tier cascade keys on the endpoint sentinel, not mcp-discovery's status", () => {
@@ -365,8 +361,8 @@ describe("applyNaCascade (§5.6)", () => {
     expect(results.find((x) => x.id === "mcp-auth")?.status).toBe("skip");
   });
 
-  it("no MCP endpoint demotes MCP-tier rows that scored pass/partial and zeroes their score (a stub mcp.json must not score on a non-MCP site)", () => {
-    const results = [r("mcp-server-card", "pass"), r("mcp-auth", "partial")];
+  it("no MCP endpoint demotes MCP-tier rows that scored pass/partial and zeroes their score", () => {
+    const results = [r("mcp-auth", "partial")];
     applyNaCascade(results, NO_MCP);
     for (const x of results) {
       expect({ id: x.id, status: x.status, score: x.score }).toEqual({
@@ -378,12 +374,9 @@ describe("applyNaCascade (§5.6)", () => {
   });
 
   it("with an MCP endpoint, pass/partial MCP-tier rows keep their status and score", () => {
-    const results = [r("mcp-server-card", "pass"), r("mcp-auth", "partial")];
+    const results = [r("mcp-auth", "partial")];
     applyNaCascade(results, WITH_MCP);
-    expect(results.map((x) => [x.status, x.score])).toEqual([
-      ["pass", 100],
-      ["partial", 50],
-    ]);
+    expect(results.map((x) => [x.status, x.score])).toEqual([["partial", 50]]);
   });
 
   it("A3 fail (developer-portal) → agent-auth-docs/scoped-permissions become skip", () => {
@@ -484,7 +477,7 @@ describe("applyNaCascade (§5.6)", () => {
     );
     const authCat = report.categories.find((c) => c.id === "agent-auth");
     expect(authCat).toBeDefined();
-    expect(authCat?.checks.length).toBe(12);
+    expect(authCat?.checks.length).toBe(11);
     expect(Number.isFinite(report.overallScore)).toBe(true);
   });
 

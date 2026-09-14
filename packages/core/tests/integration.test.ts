@@ -29,7 +29,22 @@ function makeCoreFiles(): GeneratedFile[] {
     { filename: "llms.txt", content: "# Example\n\n> A test site\n", size: 25 },
     { filename: "llms-full.txt", content: "# Full content\n", size: 16 },
     { filename: "robots.txt", content: "User-agent: *\nAllow: /\n", size: 23 },
-    { filename: "agent-card.json", content: '{"name":"Example"}', size: 18 },
+    {
+      filename: "agent-card.json",
+      content: JSON.stringify({
+        name: "Example",
+        description: "A test site",
+        supportedInterfaces: [
+          { url: "https://example.com/a2a", protocolBinding: "JSONRPC", protocolVersion: "1.0" },
+        ],
+        version: "1.0.0",
+        capabilities: {},
+        defaultInputModes: ["text/plain"],
+        defaultOutputModes: ["text/plain"],
+        skills: [],
+      }),
+      size: 300,
+    },
   ];
 }
 

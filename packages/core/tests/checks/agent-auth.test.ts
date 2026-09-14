@@ -847,38 +847,6 @@ describe("agent-auth: D2 api-catalog-rfc9727", () => {
   });
 });
 
-// --- D4 mcp-server-card ---
-describe("agent-auth: D4 mcp-server-card", () => {
-  const check = agentAuthChecks.find((c) => c.id === "mcp-server-card")!;
-  const withCard = (body: unknown): SiteMetadata => ({
-    ...baseMeta,
-    wellKnown: { "mcp.json": JSON.stringify(body) },
-  });
-
-  it("pass when mcp.json has name+version+capabilities", () => {
-    const meta = withCard({ name: "MyMCP", version: "1.0.0", capabilities: { tools: true } });
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass", score: 100 });
-  });
-
-  it("partial when mcp.json has name+version but no capabilities", () => {
-    const meta = withCard({ name: "MyMCP", version: "1.0.0" });
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial", score: 50 });
-  });
-
-  it.each([
-    {},
-    { error: "not found", path: "/.well-known/mcp.json" },
-    { name: "MyMCP", capabilities: { tools: true } },
-    { version: "1.0.0", capabilities: { tools: true } },
-  ])("fail 0 without both name and version (%j) — not partial", (body) => {
-    expect(check.run([basePage], withCard(body))).toMatchObject({ status: "fail", score: 0 });
-  });
-
-  it("fail when the crawler did not accept the file", () => {
-    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
-  });
-});
-
 // --- meta: check registry ---
 describe("agent-auth: check registry", () => {
   const EXPECTED_IDS = [
@@ -893,10 +861,9 @@ describe("agent-auth: check registry", () => {
     "cimd-support",
     "agent-operator-signing",
     "api-catalog-rfc9727",
-    "mcp-server-card",
   ];
 
-  it("exports exactly the expected checks, with the six v2 OAuth/MCP-auth ids retired", () => {
+  it("exports exactly the expected checks, with the six v2 OAuth/MCP-auth ids retired and mcp-server-card moved to agent-discovery", () => {
     expect(agentAuthChecks.map((c) => c.id).sort()).toEqual([...EXPECTED_IDS].sort());
     for (const retired of [
       "oauth-support",
@@ -916,7 +883,7 @@ describe("agent-auth: check registry", () => {
     }
   });
 
-  it("scored weights (excluding the cimd-support bonus and mcp-server-card, which T2 moves) sum to 16.5", () => {
+  it("scored weights (excluding the cimd-support bonus) sum to 16.5", () => {
     const weights = Object.fromEntries(agentAuthChecks.map((c) => [c.id, c.weight]));
     expect(weights).toMatchObject({
       "oauth-discovery": 3,
@@ -925,7 +892,7 @@ describe("agent-auth: check registry", () => {
       "cimd-support": 0.5,
     });
     const sum = agentAuthChecks
-      .filter((c) => !c.tracked && c.id !== "cimd-support" && c.id !== "mcp-server-card")
+      .filter((c) => !c.tracked && c.id !== "cimd-support")
       .reduce((total, c) => total + c.weight, 0);
     expect(sum).toBe(16.5);
   });

@@ -133,19 +133,13 @@ describe("MCP discovery against observed real-world and catch-all sites", () => 
     expect(byId.get("mcp-auth")).toMatchObject({ status: "partial", score: 50 });
   });
 
-  it("SPA catch-all (200 text/html for every path and method) → no endpoint, fail, and C1/C2/B3/D4 skip even with a valid mcp.json", async () => {
+  it("SPA catch-all (200 text/html for every path and method) → no endpoint, fail, and mcp-auth skip", async () => {
     const SITE = "https://spa.example";
-    mockSite((url) => {
-      if (url.pathname === "/.well-known/mcp.json") {
-        return json({ name: "Stub", version: "1.0.0", capabilities: { tools: {} } });
-      }
-      return html(SPA_SHELL);
-    });
+    mockSite(() => html(SPA_SHELL));
 
     const metadata = await probeSiteMetadata(SITE, metaOptions);
     expect(metadata.mcpEndpoint).toBeUndefined();
     expect(metadata.mcpInit).toBeUndefined();
-    expect(metadata.wellKnown["mcp.json"]).toBeDefined();
 
     const byId = checksById(await runAudit(SITE, OPTIONS, undefined, allChecks));
     expect(byId.get("mcp-discovery")).toMatchObject({ status: "fail", score: 0 });

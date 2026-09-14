@@ -216,7 +216,7 @@ export async function runGenerate(
   // Generate agent-card.json
   if (options.formats.includes("agent-card")) {
     onProgress?.("Generating agent-card.json...");
-    const agentCard = generateAgentCard(ctx);
+    const agentCard = generateAgentCard(ctx, { a2aEndpoint: options.a2aEndpoint });
     files.push(makeFile("agent-card.json", `${JSON.stringify(agentCard, null, 2)}\n`));
   }
 

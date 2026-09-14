@@ -656,25 +656,4 @@ const d2: Check = {
   },
 };
 
-const d4: Check = {
-  ...mk("mcp-server-card", "MCP server card (mcp.json)", 1.0),
-  run: (_pages, metadata) => {
-    const base = mk("mcp-server-card", "MCP server card (mcp.json)", 1.0);
-    const raw = metadata.wellKnown["mcp.json"];
-    if (raw === undefined)
-      return res(base, "fail", 0, "No MCP server card at /.well-known/mcp.json");
-    const parsed = parseJsonObject(raw);
-    if (!parsed?.name || !parsed.version)
-      return res(base, "fail", 0, "MCP server card is missing name or version");
-    if (parsed.capabilities)
-      return res(base, "pass", 100, `MCP server card: ${parsed.name} v${parsed.version}`);
-    return res(
-      base,
-      "partial",
-      50,
-      "MCP server card found but missing required field capabilities",
-    );
-  },
-};
-
-export const agentAuthChecks: Check[] = [a1, a2, a3, a4, b1, b4, b5, c1, c2, d1, d2, d4];
+export const agentAuthChecks: Check[] = [a1, a2, a3, a4, b1, b4, b5, c1, c2, d1, d2];

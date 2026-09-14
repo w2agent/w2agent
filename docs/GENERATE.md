@@ -67,7 +67,7 @@ Auto-detected Schema.org JSON-LD for the site.
 
 #### agent-card.json
 
-Agent discovery card at `/.well-known/agent-card.json`.
+A2A v1.0 agent card at `/.well-known/agent-card.json`: `name`, `description`, `version`, `provider`, `supportedInterfaces` (one `JSONRPC` / `1.0` interface), `capabilities`, `defaultInputModes` / `defaultOutputModes` (`text/plain`), and `skills` with `tags`. The interface URL is the `a2aEndpoint` generate option; without it the card points at the site base URL, which the `well-known-agent-card` check reports as a stub (partial) because the site has no A2A agent.
 
 #### faq.json
 

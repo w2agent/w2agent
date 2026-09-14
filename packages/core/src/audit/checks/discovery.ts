@@ -1,7 +1,13 @@
-import { fetchText } from "../../shared/fetcher.js";
+import {
+  fetchText,
+  guardedFetch,
+  type IsAllowedTarget,
+  readBodyCapped,
+} from "../../shared/fetcher.js";
 import { parseHTML } from "../../shared/html-parser.js";
-import { isAgentCard } from "../shared/json.js";
-import type { Check } from "../types.js";
+import { validateAgentCard } from "../shared/agent-card.js";
+import { isJsonContentType, mediaTypeEssence, parseJsonObject } from "../shared/json.js";
+import type { Check, CheckResult, SiteMetadata } from "../types.js";
 
 export const llmsTxtExists: Check = {
   id: "llms-txt-exists",
@@ -149,6 +155,24 @@ export const llmsTxtLinksResolve: Check = {
   },
 };
 
+function agentCardResult(
+  status: CheckResult["status"],
+  score: number,
+  message: string,
+): CheckResult {
+  return {
+    id: "well-known-agent-card",
+    name: "/.well-known/agent-card.json",
+    category: "agent-discovery",
+    status,
+    score,
+    maxScore: 100,
+    weight: 1,
+    message,
+    severity: "info",
+  };
+}
+
 export const wellKnownAgentCard: Check = {
   id: "well-known-agent-card",
   name: "/.well-known/agent-card.json",
@@ -156,21 +180,156 @@ export const wellKnownAgentCard: Check = {
   weight: 1,
   severity: "info",
   run: (_pages, metadata) => {
-    const valid = isAgentCard(metadata.wellKnown["agent-card.json"]);
+    const card = parseJsonObject(metadata.wellKnown["agent-card.json"]);
+    if (!card) return agentCardResult("fail", 0, "No /.well-known/agent-card.json found");
 
-    return {
-      id: "well-known-agent-card",
-      name: "/.well-known/agent-card.json",
-      category: "agent-discovery",
-      status: valid ? "pass" : "fail",
-      score: valid ? 100 : 0,
-      maxScore: 100,
-      weight: 1,
-      message: valid
-        ? "agent-card.json found and valid JSON"
-        : "No /.well-known/agent-card.json found",
-      severity: "info",
-    };
+    const { shape, missing, stubUrls } = validateAgentCard(card, metadata.baseUrl);
+    const stub =
+      stubUrls.length > 0
+        ? `a stub: its interface URL ${stubUrls[0]} is the site homepage, not an A2A endpoint`
+        : "";
+    if (shape === "v1.0") {
+      if (stub) return agentCardResult("partial", 50, `A2A v1.0 agent card is ${stub}`);
+      return agentCardResult("pass", 100, `A2A v1.0 agent card: ${card.name}`);
+    }
+    if (shape === "v0.3") {
+      const needs = `v1.0 requires ${missing.join(", ")}`;
+      return agentCardResult(
+        "partial",
+        50,
+        stub
+          ? `A2A v0.3 agent card (url + preferredTransport) is ${stub}; ${needs}`
+          : `A2A v0.3 agent card (url + preferredTransport); ${needs}`,
+      );
+    }
+    return agentCardResult(
+      "fail",
+      0,
+      `agent-card.json is not an A2A agent card — missing or invalid: ${missing.join(", ")}`,
+    );
+  },
+};
+
+const MCP_SERVER_CARD_TYPE = "application/mcp-server-card+json";
+const MAX_CATALOG_ENTRIES = 3;
+const SERVER_CARD_TIMEOUT_MS = 5000;
+const MAX_SERVER_CARD_BYTES = 256 * 1024;
+const SERVER_CARD_FIELDS = ["name", "version", "description"];
+
+function serverCardResult(
+  status: CheckResult["status"],
+  score: number,
+  message: string,
+): CheckResult {
+  return {
+    id: "mcp-server-card",
+    name: "MCP server card",
+    category: "agent-discovery",
+    status,
+    score,
+    maxScore: 100,
+    weight: 0,
+    message,
+    severity: "info",
+  };
+}
+
+async function fetchServerCard(
+  url: string,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<string | undefined> {
+  try {
+    const res = await guardedFetch(
+      url,
+      {
+        headers: { Accept: "application/mcp-server-card+json, application/json;q=0.9" },
+        signal: AbortSignal.timeout(SERVER_CARD_TIMEOUT_MS),
+      },
+      isAllowedTarget,
+    );
+    if (res.status !== 200 || !isJsonContentType(res.headers.get("content-type") ?? "")) {
+      await res.body?.cancel().catch(() => {});
+      return undefined;
+    }
+    return await readBodyCapped(res, MAX_SERVER_CARD_BYTES);
+  } catch {
+    return undefined;
+  }
+}
+
+function catalogServerCardUrls(metadata: SiteMetadata): string[] {
+  const entries = parseJsonObject(metadata.wellKnown["ai-catalog.json"])?.entries;
+  if (!Array.isArray(entries)) return [];
+  const catalogUrl = `${metadata.baseUrl}/.well-known/ai-catalog.json`;
+  const urls: string[] = [];
+  for (const entry of entries) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { type, url } = entry as Record<string, unknown>;
+    if (typeof type !== "string" || mediaTypeEssence(type) !== MCP_SERVER_CARD_TYPE) continue;
+    if (typeof url !== "string") continue;
+    try {
+      const resolved = new URL(url, catalogUrl);
+      if (resolved.protocol === "https:" || resolved.protocol === "http:") urls.push(resolved.href);
+    } catch {}
+  }
+  return urls.slice(0, MAX_CATALOG_ENTRIES);
+}
+
+export const mcpServerCard: Check = {
+  id: "mcp-server-card",
+  name: "MCP server card",
+  category: "agent-discovery",
+  weight: 0,
+  severity: "info",
+  tracked: true,
+  run: async (_pages, metadata, ctx) => {
+    const candidates: Array<{ where: string; load: () => Promise<string | undefined> }> = [];
+    if (metadata.mcpEndpoint !== undefined) {
+      const url = `${metadata.mcpEndpoint.replace(/\/+$/, "")}/server-card`;
+      candidates.push({
+        where: `${url} (MCP endpoint)`,
+        load: () => fetchServerCard(url, ctx?.isAllowedTarget),
+      });
+    }
+    for (const url of catalogServerCardUrls(metadata)) {
+      candidates.push({
+        where: `${url} (ai-catalog.json entry)`,
+        load: () => fetchServerCard(url, ctx?.isAllowedTarget),
+      });
+    }
+    candidates.push({
+      where: "/.well-known/mcp/server-card.json (legacy)",
+      load: async () => metadata.wellKnown["mcp/server-card.json"],
+    });
+
+    const invalid: string[] = [];
+    for (const { where, load } of candidates) {
+      const card = parseJsonObject(await load());
+      if (!card) continue;
+      const missing = SERVER_CARD_FIELDS.filter(
+        (f) => typeof card[f] !== "string" || (card[f] as string).trim() === "",
+      );
+      if (missing.length === 0) {
+        return serverCardResult(
+          "pass",
+          100,
+          `MCP server card at ${where}: ${card.name} v${card.version}`,
+        );
+      }
+      invalid.push(`${where} is missing ${missing.join(", ")}`);
+    }
+    if (invalid.length > 0) {
+      return serverCardResult(
+        "fail",
+        0,
+        `MCP server card found but invalid: ${invalid.join("; ")}`,
+      );
+    }
+    return serverCardResult(
+      "skip",
+      0,
+      "No MCP server card (<MCP endpoint>/server-card, ai-catalog.json entry, or /.well-known/mcp/server-card.json)",
+    );
   },
 };
 
@@ -217,5 +376,6 @@ export const discoveryChecks: Check[] = [
   llmsTxtValid,
   llmsTxtLinksResolve,
   wellKnownAgentCard,
+  mcpServerCard,
   markdownAlternate,
 ];
