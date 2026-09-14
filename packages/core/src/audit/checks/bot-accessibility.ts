@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { guardedFetch, type IsAllowedTarget, readBodyCapped } from "../../shared/fetcher.js";
 import { BOT_TOKENS } from "../shared/bot-tokens.js";
 import { mediaTypeEssence } from "../shared/json.js";
@@ -276,6 +277,33 @@ function markdownSuffixUrl(target: string): string {
   return url.href;
 }
 
+const HTML_START = /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]/i;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const SOFT_404_REASON = "nonexistent .md path also returns markdown (catch-all)";
+
+const variesOnAccept = (res: Response) =>
+  (res.headers.get("vary") ?? "")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .some((v) => v === "accept" || v === "*");
+
+async function markdownMissReason(res: Response, echoOf?: string): Promise<string | undefined> {
+  const type = mediaTypeEssence(res.headers.get("content-type") ?? "");
+  if (res.status < 200 || res.status >= 300 || !MARKDOWN_TYPES.has(type)) {
+    await res.body?.cancel().catch(() => {});
+    return `status ${res.status}, content-type ${type || "none"}`;
+  }
+  const body = await readBodyCapped(res, MAX_MARKDOWN_BYTES);
+  if (body.trim() === "") return "empty body";
+  if (HTML_START.test(body.trimStart().slice(0, 1024))) return "HTML body labelled as markdown";
+  if (echoOf !== undefined) {
+    const truncated = new TextEncoder().encode(body).byteLength >= MAX_MARKDOWN_BYTES;
+    const echoes = truncated ? echoOf.startsWith(body.slice(0, -4)) : body === echoOf;
+    if (echoes) return "catch-all: same body as the crawled page";
+  }
+  return undefined;
+}
+
 async function probeMarkdown(
   target: MarkdownTarget,
   method: MarkdownProbe["method"],
@@ -293,36 +321,43 @@ async function probeMarkdown(
     reason,
   });
   try {
-    const res = await guardedFetch(
-      url,
-      {
-        signal,
-        redirect: "follow",
-        headers: method === "accept" ? { Accept: "text/markdown" } : undefined,
-      },
-      isAllowedTarget,
-    );
-    const type = mediaTypeEssence(res.headers.get("content-type") ?? "");
-    if (res.status < 200 || res.status >= 300 || !MARKDOWN_TYPES.has(type)) {
-      await res.body?.cancel().catch(() => {});
-      return miss(`status ${res.status}, content-type ${type || "none"}`);
+    let res: Response;
+    let vary = false;
+    if (method === "accept") {
+      const headers = { Accept: "text/markdown" };
+      res = await guardedFetch(url, { signal, redirect: "manual", headers }, isAllowedTarget);
+      vary = variesOnAccept(res);
+      const location = res.headers.get("location");
+      if (REDIRECT_STATUSES.has(res.status) && location !== null) {
+        await res.body?.cancel().catch(() => {});
+        const next = new URL(location, url).href;
+        res = await guardedFetch(next, { signal, redirect: "follow", headers }, isAllowedTarget);
+      }
+    } else {
+      res = await guardedFetch(url, { signal, redirect: "follow" }, isAllowedTarget);
     }
-    const body = await readBodyCapped(res, MAX_MARKDOWN_BYTES);
-    const start = body.trimStart().slice(0, 14).toLowerCase();
-    if (body.trim() === "") return miss("empty body");
-    if (start.startsWith("<!doctype html") || start.startsWith("<html")) {
-      return miss("HTML body labelled as markdown");
-    }
-    if (catchAll && target.html !== undefined && body === target.html) {
-      return miss("catch-all: same body as the crawled page");
-    }
-    const vary = (res.headers.get("vary") ?? "")
-      .split(",")
-      .map((v) => v.trim().toLowerCase())
-      .some((v) => v === "accept" || v === "*");
+    const reason = await markdownMissReason(res, catchAll ? target.html : undefined);
+    if (reason !== undefined) return miss(reason);
     return { target, method, url, hit: true, vary, reason: "" };
   } catch {
     return miss("request failed, timed out or was refused");
+  }
+}
+
+async function nonexistentMarkdownServed(
+  origin: string,
+  signal: AbortSignal,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<boolean> {
+  try {
+    const res = await guardedFetch(
+      `${origin}/${randomUUID()}.md`,
+      { signal, redirect: "follow" },
+      isAllowedTarget,
+    );
+    return (await markdownMissReason(res)) === undefined;
+  } catch {
+    return false;
   }
 }
 
@@ -361,6 +396,24 @@ export const contentNegotiation: Check = {
         ),
       ),
     );
+    const suffixOrigins = [
+      ...new Set(
+        probes.filter((p) => p.hit && p.method === "suffix").map((p) => new URL(p.url).origin),
+      ),
+    ];
+    const soft404Origins = new Set<string>();
+    await Promise.all(
+      suffixOrigins.map(async (origin) => {
+        if (await nonexistentMarkdownServed(origin, signal, ctx?.isAllowedTarget)) {
+          soft404Origins.add(origin);
+        }
+      }),
+    );
+    for (const p of probes) {
+      if (p.hit && p.method === "suffix" && soft404Origins.has(new URL(p.url).origin)) {
+        Object.assign(p, { hit: false, reason: SOFT_404_REASON });
+      }
+    }
 
     const labelsOf = (list: MarkdownProbe[]) =>
       [...new Set(list.map((p) => p.target.label))].join(" and ");
@@ -385,7 +438,7 @@ export const contentNegotiation: Check = {
     if (acceptHits.length > 0) parts.push(`Accept: text/markdown (${labelsOf(acceptHits)})`);
     const varyNote =
       acceptNoVary.length > 0
-        ? `; add Vary: Accept to the Accept: text/markdown response (${labelsOf(acceptNoVary)}) so caches don't serve markdown to browsers`
+        ? `; add Vary: Accept to the first Accept: text/markdown response, the redirect if it redirects (${labelsOf(acceptNoVary)}) so caches don't serve markdown to browsers`
         : "";
     const snippetPath = targets[targets.length - 1]
       ? new URL(markdownSuffixUrl(targets[targets.length - 1].url)).pathname

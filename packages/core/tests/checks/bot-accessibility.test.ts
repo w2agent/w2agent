@@ -210,7 +210,7 @@ describe("response-time", () => {
     expect(run(3000)).toMatchObject({ status: "fail", score: 0, severity: "warning" });
   });
 
-  it("skips when every page is unmeasured (responseTime 0) so spider-crawled sites don't earn free full marks", () => {
+  it("skips when every page is unmeasured (responseTime 0) so untimed pre-fetched pages don't earn free full marks", () => {
     const result = run(0, 0, 0);
     expect(result).toMatchObject({ status: "skip", score: 0 });
     expect(result.message).toContain("not measured");
@@ -250,7 +250,7 @@ describe("status-codes", () => {
 });
 
 describe("content-negotiation", () => {
-  type Handler = (accept: string | null) => Response;
+  type Handler = (accept: string | null, url: string) => Response;
   const MD = "# Example\n\nHello agents.";
   const md = (body = MD, headers: Record<string, string> = {}) =>
     new Response(body, { headers: { "content-type": "text/markdown; charset=utf-8", ...headers } });
@@ -273,10 +273,11 @@ describe("content-negotiation", () => {
       const url = input instanceof Request ? input.url : String(input);
       const accept = new Headers(init?.headers as HeadersInit | undefined).get("accept");
       requests.push({ url, accept });
-      return (routes[url] ?? fallback)(accept);
+      return (routes[url] ?? fallback)(accept, url);
     });
   }
-  const fetchedUrls = () => [...new Set(requests.map((r) => r.url))].sort();
+  const targetUrls = () =>
+    [...new Set(requests.map((r) => r.url))].filter((u) => !/\/[0-9a-f-]{36}\.md$/.test(u)).sort();
   const run = (pages: FetchedPage[] = [basePage], meta: Partial<SiteMetadata> = {}, ctx = {}) =>
     contentNegotiation.run(pages, { ...baseMeta, ...meta }, ctx);
 
@@ -340,7 +341,7 @@ describe("content-negotiation", () => {
     const result = await run([basePage, docs]);
     expect(result).toMatchObject({ status: "pass", score: 100 });
     expect(result.message).toContain(".md URL (docs page)");
-    expect(fetchedUrls()).toEqual([
+    expect(targetUrls()).toEqual([
       "https://example.com/",
       "https://example.com/docs/intro.md",
       "https://example.com/docs/intro/?ref=nav#top",
@@ -358,7 +359,7 @@ describe("content-negotiation", () => {
     ];
     const result = await run(pages, { baseUrl: "https://www.example.com" });
     expect(result).toMatchObject({ status: "fail", score: 0 });
-    expect(fetchedUrls()).toEqual([
+    expect(targetUrls()).toEqual([
       "https://docs.example.com/getting-started",
       "https://docs.example.com/getting-started.md",
       "https://www.example.com/",
@@ -392,7 +393,7 @@ describe("content-negotiation", () => {
     const result = await run(pages);
     expect(result).toMatchObject({ status: "fail", score: 0 });
     expect(result.message).toContain("checked homepage");
-    expect(fetchedUrls()).toEqual(["https://example.com/", "https://example.com/index.md"]);
+    expect(targetUrls()).toEqual(["https://example.com/", "https://example.com/index.md"]);
   });
 
   it("never probes a crawled docs page that lives on another site", async () => {
@@ -405,7 +406,7 @@ describe("content-negotiation", () => {
       { ...basePage, url: "https://example.com.evil.test/docs/" },
     ];
     await run(pages);
-    expect(fetchedUrls()).toEqual(["https://example.com/", "https://example.com/index.md"]);
+    expect(targetUrls()).toEqual(["https://example.com/", "https://example.com/index.md"]);
   });
 
   it("an SPA catch-all serving its HTML shell at /index.md is not markdown", async () => {
@@ -472,5 +473,175 @@ describe("content-negotiation", () => {
     const result = await run();
     expect(result).toMatchObject({ status: "pass", score: 100 });
     expect(result.details).toContain("miss (request failed");
+  });
+
+  describe("HTML sniff", () => {
+    it("an HTML document behind a leading comment or BOM is still HTML, even on a catch-all whose shell differs per request", async () => {
+      const page = { ...basePage, html: "<!--id=1--><!doctype html><html><body>app</body></html>" };
+      serve({
+        "https://example.com/": () => html(page.html),
+        "https://example.com/index.md": () =>
+          md("<!--id=2--><!doctype html><html><body>app</body></html>"),
+      });
+      const result = await run([page], { catchAll: true });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("HTML body");
+
+      serve({}, () => md("﻿\n<!-- build 42 -->\n<HEAD><title>x</title></HEAD><p>hi</p>"));
+      expect(await run()).toMatchObject({ status: "fail", score: 0 });
+    });
+
+    it("README-style markdown that opens with a centred <div> or carries inline HTML is still markdown", async () => {
+      const readme =
+        '<div align="center">\n  <img src="/logo.png" alt="logo"><br>\n  <b>Example</b>\n</div>\n\n# Example\n\nSee <a href="/docs">the docs</a>.\n';
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/index.md": () => md(readme),
+      });
+      expect(await run([basePage], { catchAll: true })).toMatchObject({
+        status: "pass",
+        score: 100,
+      });
+    });
+  });
+
+  describe("catch-all body longer than the 64 KB read cap", () => {
+    it.each([
+      ["ASCII", "a"],
+      ["a multibyte character split at the cut", "é"],
+    ])("a truncated read that matches the start of the crawled page is the catch-all echoing (%s)", async (_, filler) => {
+      const lead = `<div>${"a".repeat(64 * 1024 - 6)}`;
+      const shell = `${lead}${filler.repeat(3000)}</div><script src="/app.js"></script>`;
+      const page = { ...basePage, html: shell };
+      serve({}, () => md(shell, { vary: "Accept" }));
+      const result = await run([page], { catchAll: true });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("catch-all: same body");
+    });
+
+    it("a truncated read that diverges from the crawled page is still markdown", async () => {
+      const page = { ...basePage, html: `<div>${"a".repeat(70 * 1024)}</div>` };
+      serve({}, () => md(`# Docs\n\n${"b".repeat(70 * 1024)}`, { vary: "Accept" }));
+      expect(await run([page], { catchAll: true })).toMatchObject({ status: "pass", score: 100 });
+    });
+  });
+
+  describe("soft-404 .md control probe", () => {
+    const CONTROL = /^https:\/\/example\.com\/[0-9a-f-]{36}\.md$/;
+    const softMarkdown404: Handler = () => md("# Page not found");
+
+    it("a site answering every .md path with markdown fails — /index.md is its not-found page, not a twin", async () => {
+      serve({ "https://example.com/": () => html() }, softMarkdown404);
+      const result = await run();
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("nonexistent .md path also returns markdown (catch-all)");
+      expect(requests.some((r) => CONTROL.test(r.url))).toBe(true);
+    });
+
+    it("a normal site whose nonexistent .md path 404s keeps its /index.md pass", async () => {
+      serve({ "https://example.com/": () => html(), "https://example.com/index.md": () => md() });
+      expect(await run()).toMatchObject({ status: "pass", score: 100 });
+      expect(requests.filter((r) => CONTROL.test(r.url))).toHaveLength(1);
+    });
+
+    it("sends no control probe when no .md URL hit", async () => {
+      serve({ "https://example.com/": htmlUnlessMarkdown(md(MD, { vary: "Accept" })) });
+      expect(await run()).toMatchObject({ status: "pass", score: 100 });
+      expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
+    });
+
+    it("the control URL goes through isAllowedTarget; a refused control is never fetched and the .md hit stands", async () => {
+      serve({ "https://example.com/": () => html() }, softMarkdown404);
+      const isAllowedTarget = vi.fn((url: string) => !CONTROL.test(url));
+      const result = await run([basePage], {}, { isAllowedTarget });
+      expect(isAllowedTarget.mock.calls.some(([url]) => CONTROL.test(url))).toBe(true);
+      expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("demotes only the origin whose control returned markdown", async () => {
+      const docs = { ...basePage, url: "https://docs.example.com/guide" };
+      serve(
+        {
+          "https://example.com/": () => html(),
+          "https://example.com/index.md": () => md(),
+          "https://docs.example.com/guide": () => html(),
+          "https://docs.example.com/guide.md": () => md(),
+        },
+        (_, url) => (url.startsWith("https://docs.example.com/") ? md("# Not found") : notFound()),
+      );
+      const result = await run([basePage, docs]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).toContain(".md URL (homepage)");
+      expect(result.message).not.toContain("docs page");
+      expect(result.details).toContain(
+        "docs page .md URL https://docs.example.com/guide.md: miss (nonexistent .md path also returns markdown (catch-all))",
+      );
+    });
+  });
+
+  describe("Accept negotiation that redirects", () => {
+    const redirect = (headers: Record<string, string>) => () =>
+      new Response(null, { status: 302, headers: { location: "/markdown", ...headers } });
+
+    it.each([
+      ["without a hook", {}],
+      ["with an allowing hook", { isAllowedTarget: () => true }],
+    ])("Vary: Accept on the negotiated URL's redirect passes — the redirect target is its own URL (%s)", async (_, ctx) => {
+      serve({
+        "https://example.com/": htmlUnlessMarkdown(redirect({ vary: "Accept" })),
+        "https://example.com/markdown": () => md(),
+      });
+      const result = await run([basePage], {}, ctx);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).not.toContain("add Vary");
+      expect(requests).toContainEqual({
+        url: "https://example.com/markdown",
+        accept: "text/markdown",
+      });
+    });
+
+    it("Vary: Accept only on the redirect target does not cover the negotiated URL — partial", async () => {
+      serve({
+        "https://example.com/": htmlUnlessMarkdown(redirect({})),
+        "https://example.com/markdown": () => md(MD, { vary: "Accept" }),
+      });
+      const result = await run();
+      expect(result).toMatchObject({ status: "partial", score: 50 });
+      expect(result.message).toContain("add Vary: Accept");
+    });
+
+    it("a redirect without Vary anywhere is partial", async () => {
+      serve({
+        "https://example.com/": htmlUnlessMarkdown(redirect({})),
+        "https://example.com/markdown": () => md(),
+      });
+      expect(await run()).toMatchObject({ status: "partial", score: 50 });
+    });
+
+    it("the redirect target still has to be 2xx markdown", async () => {
+      serve({
+        "https://example.com/": htmlUnlessMarkdown(redirect({ vary: "Accept" })),
+        "https://example.com/markdown": () => html(),
+      });
+      expect(await run()).toMatchObject({ status: "fail", score: 0 });
+    });
+
+    it("a redirect to a target refused by isAllowedTarget is a miss without throwing or fetching it", async () => {
+      serve({
+        "https://example.com/": htmlUnlessMarkdown(redirect({ vary: "Accept" })),
+        "https://example.com/markdown": () => md(),
+      });
+      const result = await run(
+        [basePage],
+        {},
+        {
+          isAllowedTarget: (url: string) => url !== "https://example.com/markdown",
+        },
+      );
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("miss (request failed");
+      expect(requests.some((r) => r.url === "https://example.com/markdown")).toBe(false);
+    });
   });
 });
