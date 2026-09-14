@@ -7,6 +7,18 @@ function mockResponse(status: number, body = "", headers: Record<string, string>
   return new Response(body, { status, headers });
 }
 
+function midBodyReset(): Response {
+  let sent = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent) return controller.error(new TypeError("terminated: ECONNRESET"));
+      sent = true;
+      controller.enqueue(new TextEncoder().encode('{"name":'));
+    },
+  });
+  return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+}
+
 describe("fetchPage", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -113,6 +125,12 @@ describe("fetchPage", () => {
     expect(result.html.length).toBeGreaterThan(0);
   });
 
+  it("returns a status-0 page when the connection resets mid-body, instead of rejecting", async () => {
+    vi.mocked(fetch).mockResolvedValue(midBodyReset());
+    const result = await fetchPage("https://example.com/page", opts);
+    expect(result).toMatchObject({ status: 0, html: "" });
+  });
+
   it("ignores Retry-After header values over 30s (uses normal backoff)", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(mockResponse(429, "", { "retry-after": "60" })) // 60s > 30s cap
@@ -177,6 +195,11 @@ describe("fetchText", () => {
     expect(result).not.toBeNull();
     expect(result?.text.length).toBeLessThanOrEqual(MAX_TEXT_BYTES);
     expect(result?.text.length).toBeGreaterThan(0);
+  });
+
+  it("returns null when the connection resets mid-body, instead of rejecting", async () => {
+    vi.mocked(fetch).mockResolvedValue(midBodyReset());
+    await expect(fetchText("https://example.com/.well-known/mcp.json", opts)).resolves.toBeNull();
   });
 
   it("returns null immediately on network error — no retry", async () => {

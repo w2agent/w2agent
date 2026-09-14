@@ -144,7 +144,7 @@ function is2xx(r: TextResult): r is NonNullable<TextResult> {
 function isTextFile(r: TextResult): r is NonNullable<TextResult> {
   if (r?.status !== 200) return false;
   const isHtmlType = r.contentType.split(";")[0].trim().toLowerCase() === "text/html";
-  return !(isHtmlType && /^\uFEFF?\s*</.test(r.text));
+  return !(isHtmlType && /^\uFEFF?\s*(<|$)/.test(r.text));
 }
 
 export interface CrawlResult {

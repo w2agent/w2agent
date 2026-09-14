@@ -246,11 +246,11 @@ export async function fetchPage(
     options.isAllowedTarget,
   );
 
-  if (!response) {
+  const html = response ? await readBodyCapped(response, MAX_HTML_BYTES).catch(() => null) : null;
+  if (!response || html === null) {
     return { url, status: 0, html: "", headers: {}, responseTime: Date.now() - start };
   }
 
-  const html = await readBodyCapped(response, MAX_HTML_BYTES);
   const responseTime = Date.now() - start;
 
   const headers: Record<string, string> = {};
@@ -277,7 +277,8 @@ export async function fetchText(
 
   if (!response) return null;
 
-  const text = await readBodyCapped(response, MAX_TEXT_BYTES);
+  const text = await readBodyCapped(response, MAX_TEXT_BYTES).catch(() => null);
+  if (text === null) return null;
   return { text, status: response.status, contentType: response.headers.get("content-type") ?? "" };
 }
 

@@ -263,6 +263,48 @@ describe("catch-all / soft-404 guard", () => {
     expect(metadata.llmsTxt).toBe("# Docs\n");
   });
 
+  it.each([
+    "",
+    "  \n",
+  ])("an apex llms.txt served as empty text/html (%j) does not block the docs. subdomain fallback", async (apexBody) => {
+    mockSite((url) => {
+      if (url.hostname === "docs.example.com" && url.pathname === "/llms.txt") {
+        return new Response("# Docs\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url.pathname === "/llms.txt") return html(apexBody);
+      return html("nope", 404);
+    });
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.llmsTxt).toBe("# Docs\n");
+  });
+
+  it("a connection reset mid-body on one well-known path does not abort the metadata probe", async () => {
+    mockSite((url) => {
+      if (url.pathname === "/.well-known/mcp.json") {
+        let sent = false;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent) return controller.error(new TypeError("terminated: ECONNRESET"));
+            sent = true;
+            controller.enqueue(new TextEncoder().encode('{"name":'));
+          },
+        });
+        return new Response(body, { headers: { "content-type": "application/json" } });
+      }
+      if (url.pathname === "/.well-known/agent-card.json") return json({ name: "Example" });
+      if (url.pathname === "/.well-known/api-catalog") {
+        return json({ apis: [{ name: "Users", url: `${SITE}/api/users` }] });
+      }
+      return html("nope", 404);
+    });
+
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["mcp.json"]).toBeUndefined();
+    expect(metadata.wellKnown["agent-card.json"]).toBe(JSON.stringify({ name: "Example" }));
+    expect(metadata.wellKnown["api-catalog"]).toBeDefined();
+  });
+
   it("robots.txt and llms.txt with real content are kept even when mislabelled text/html", async () => {
     const robots = "User-agent: *\nDisallow: /admin\n";
     const llms = "# Example\n\n> Docs index\n";
