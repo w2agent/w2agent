@@ -1,7 +1,7 @@
 import { detectPlatform, getAdapter } from "../adapters/registry.js";
 import { fetchPage } from "../shared/fetcher.js";
 import { getSiteTypeChecks } from "../site-types/checks.js";
-import { detectSiteType } from "../site-types/index.js";
+import { detectSiteType, type SiteType } from "../site-types/index.js";
 import { crawlPages, crawlSite } from "./crawler.js";
 import type {
   AuditOptions,
@@ -110,7 +110,7 @@ export async function runAudit(
       return check.tracked ? { ...result, tracked: true } : result;
     }),
   );
-  applyNaCascade(results, metadata);
+  applyNaCascade(results, metadata, detectedSiteType?.siteType);
 
   // Group by category
   const categories = computeCategories(results);
@@ -184,6 +184,7 @@ function isFailOrNa(r: CheckResult | undefined): boolean {
 export function applyNaCascade(
   results: CheckResult[],
   metadata: Pick<SiteMetadata, "mcpEndpoint">,
+  siteType?: SiteType,
 ): CheckResult[] {
   const byId = new Map(results.map((r) => [r.id, r]));
   const noMcpEndpoint = () => metadata.mcpEndpoint === undefined;
@@ -193,6 +194,7 @@ export function applyNaCascade(
     id: string;
     naWhen: (m: Map<string, CheckResult>) => boolean;
     sentinel?: boolean;
+    message?: string;
   }> = [
     { id: "openapi-spec", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "developer-portal", naWhen: (m) => isFailOrNa(m.get("public-api")) },
@@ -210,15 +212,21 @@ export function applyNaCascade(
     // Keeps the rubric from punishing sites that haven't adopted an emerging standard they don't claim.
     { id: "mcp-auth", naWhen: noMcpEndpoint, sentinel: true },
     { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    // Non-sentinel: a valid UCP profile on a store the detector missed keeps its pass.
+    {
+      id: "well-known-ucp",
+      naWhen: () => siteType !== "ecommerce",
+      message: "Not applicable — site not detected as ecommerce (UCP is a commerce protocol)",
+    },
   ];
-  for (const { id, naWhen, sentinel } of cascade) {
+  for (const { id, naWhen, sentinel, message } of cascade) {
     const r = byId.get(id);
     if (!r) continue;
     if (!sentinel && (r.status === "pass" || r.status === "partial")) continue;
     if (naWhen(byId)) {
       r.status = "skip";
       if (sentinel) r.score = 0;
-      r.message = `Not applicable — dependency unmet (${id} cascade)`;
+      r.message = message ?? `Not applicable — dependency unmet (${id} cascade)`;
     }
   }
   return results;

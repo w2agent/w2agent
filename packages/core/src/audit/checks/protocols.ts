@@ -181,6 +181,34 @@ export const formsStructured: Check = {
   },
 };
 
+const UCP_VERSION_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isNonEmptyObjectOfArrays(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.values(value);
+  return entries.length > 0 && entries.every(Array.isArray);
+}
+
+function ucpProblems(raw: string | undefined): string[] {
+  if (raw === undefined) return ["No UCP (Universal Commerce Protocol) profile found"];
+  const ucp = parseJsonObject(raw)?.ucp;
+  if (ucp === null || typeof ucp !== "object" || Array.isArray(ucp)) {
+    return ["/.well-known/ucp is not a JSON object with a top-level `ucp` object"];
+  }
+  const { version, services, payment_handlers } = ucp as Record<string, unknown>;
+  const problems: string[] = [];
+  if (typeof version !== "string" || !UCP_VERSION_RE.test(version)) {
+    problems.push("`ucp.version` is missing or not a YYYY-MM-DD date");
+  }
+  if (!isNonEmptyObjectOfArrays(services)) {
+    problems.push("`ucp.services` is missing, empty, or has non-array values");
+  }
+  if (!isNonEmptyObjectOfArrays(payment_handlers)) {
+    problems.push("`ucp.payment_handlers` is missing, empty, or has non-array values");
+  }
+  return problems;
+}
+
 export const wellKnownUcp: Check = {
   id: "well-known-ucp",
   name: "/.well-known/ucp",
@@ -188,20 +216,20 @@ export const wellKnownUcp: Check = {
   weight: 0.5,
   severity: "info",
   run: (_pages, metadata) => {
-    const ucp = parseJsonObject(metadata.wellKnown.ucp)?.ucp;
-    const exists = typeof ucp === "object" && ucp !== null && !Array.isArray(ucp);
+    const problems = ucpProblems(metadata.wellKnown.ucp);
+    const valid = problems.length === 0;
 
     return {
       id: "well-known-ucp",
       name: "/.well-known/ucp",
       category: "agent-protocols",
-      status: exists ? "pass" : "fail",
-      score: exists ? 100 : 0,
+      status: valid ? "pass" : "fail",
+      score: valid ? 100 : 0,
       maxScore: 100,
       weight: 0.5,
-      message: exists
-        ? "UCP endpoint found"
-        : "No UCP (Universal Commerce Protocol) endpoint found",
+      message: valid
+        ? "UCP profile found with version, services, and payment handlers"
+        : problems.join("; "),
       severity: "info",
     };
   },

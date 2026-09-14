@@ -58,7 +58,7 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 | MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer challenge with `resource_metadata` (auth-gated), 50=deprecated HTTP+SSE (incl. auth-gated), 0=no endpoint). No endpoint → MCP-tier auth checks are N/A |
 | API endpoints | `api-endpoints` | OpenAPI, GraphQL links |
 | Structured forms | `forms-structured` | Forms have labels and names |
-| UCP | `well-known-ucp` | /.well-known/ucp |
+| UCP | `well-known-ucp` | /.well-known/ucp (weight 0.5). 100 = JSON with a top-level `ucp` object carrying `version` (a `YYYY-MM-DD` date), a non-empty `services` object and a non-empty `payment_handlers` object whose values are arrays; 0 = absent or any of those missing/invalid (message names which). N/A unless the site is detected as ecommerce; a valid profile on a site not detected as ecommerce still passes |
 | Action schemas | `action-schemas` | SearchAction, OrderAction in JSON-LD |
 | Auth discovery | `auth-discovery` | OAuth/auth endpoints discoverable |
 | WebMCP declarative | `webmcp-declarative` | Forms use `toolname` attribute for WebMCP declarative API |
@@ -67,6 +67,8 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 | Reachable as Google-Agent | `reach-google-user-agent` | Same as above with Google's documented Google-Agent UA string (sent verbatim, including its `Chrome/W.X.Y.Z` version placeholder) |
 
 No Claude-User reach check: Anthropic publishes the robots token but no UA string.
+
+UCP is a documented scoring-policy exception: it fails the stability bar (breaking schema change in the 2026-08-25 release) but stays scored at 0.5, ecommerce-only, because it is a shipped spec under Google/Shopify governance with platform-default adoption on every Shopify store. If the next UCP release breaks the profile schema again, it is demoted to tracked.
 
 ## Technical Foundations (10%)
 

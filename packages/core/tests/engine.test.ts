@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { allChecks } from "../src/audit/checks/index.js";
+import { wellKnownUcp } from "../src/audit/checks/protocols.js";
 import { reachChecks, reachGoogle, reachPerplexity } from "../src/audit/checks/reach.js";
 import {
   applyNaCascade,
@@ -449,6 +450,25 @@ describe("applyNaCascade (§5.6)", () => {
     expect(results[2].status).toBe("fail");
   });
 
+  it("well-known-ucp is NA unless the site is detected as ecommerce; a found profile is never demoted", () => {
+    const ucp = (status: CheckResult["status"], siteType?: "ecommerce" | "local-business") => {
+      const [row] = applyNaCascade(
+        [r("well-known-ucp", status, "agent-protocols")],
+        WITH_MCP,
+        siteType,
+      );
+      return row;
+    };
+    // UCP is a commerce protocol: a blog or a local business without one is not penalized.
+    expect(ucp("fail").status).toBe("skip");
+    expect(ucp("fail").message).toMatch(/not detected as ecommerce/);
+    expect(ucp("fail", "local-business").status).toBe("skip");
+    // A detected store without a profile is a finding.
+    expect(ucp("fail", "ecommerce").status).toBe("fail");
+    // The detector can miss a real store: its valid profile keeps full credit.
+    expect(ucp("pass")).toMatchObject({ status: "pass", score: 100 });
+  });
+
   it("skip in byId is treated as NA (already cascaded checks propagate further)", () => {
     // developer-portal starts fail → cascade marks it skip (it's in cascade list as downstream of public-api)
     // agent-auth-docs depends on developer-portal → should also skip
@@ -460,6 +480,65 @@ describe("applyNaCascade (§5.6)", () => {
     applyNaCascade(results, NO_MCP);
     expect(results.find((x) => x.id === "developer-portal")?.status).toBe("skip");
     expect(results.find((x) => x.id === "agent-auth-docs")?.status).toBe("skip");
+  });
+
+  describe("runAudit wires detected site type into the well-known-ucp gate", () => {
+    const PRODUCT_PAGE =
+      '<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Wool Runner"}</script></head><body><p>shoes</p></body></html>';
+    const protocolStub: Check = {
+      id: "protocol-stub",
+      name: "stub",
+      category: "agent-protocols",
+      weight: 1,
+      severity: "info",
+      run: () => ({
+        id: "protocol-stub",
+        name: "stub",
+        category: "agent-protocols",
+        status: "pass",
+        score: 100,
+        maxScore: 100,
+        weight: 1,
+        message: "ok",
+        severity: "info",
+      }),
+    };
+    const audit = async (html: string, ucpBody?: string) => {
+      const report = await runAudit(
+        "https://example.com",
+        {
+          prefetchedPages: [makePage(html)],
+          prefetchedMetadata: { baseUrl: "https://example.com", wellKnown: { ucp: ucpBody } },
+          categories: ["agent-protocols"],
+        },
+        undefined,
+        [wellKnownUcp, protocolStub],
+      );
+      const cat = report.categories.find((c) => c.id === "agent-protocols");
+      return { cat, ucp: cat?.checks.find((c) => c.id === "well-known-ucp"), report };
+    };
+
+    it("non-ecommerce site without UCP → skip, and the category renormalizes without it", async () => {
+      const { cat, ucp, report } = await audit(loadFixture("basic-page.html"));
+      expect(report.siteType?.siteType).not.toBe("ecommerce");
+      expect(ucp?.status).toBe("skip");
+      expect(cat?.score).toBe(100);
+    });
+
+    it("ecommerce-detected site without UCP → fail 0 counts against agent-protocols", async () => {
+      const { cat, ucp, report } = await audit(PRODUCT_PAGE);
+      expect(report.siteType?.siteType).toBe("ecommerce");
+      expect(ucp).toMatchObject({ status: "fail", score: 0 });
+      // (100 × 1 + 0 × 0.5) / 1.5
+      expect(cat?.score).toBe(67);
+    });
+
+    it("non-ecommerce site with a valid profile keeps its pass", async () => {
+      const profile = loadFixture("ucp-allbirds.json");
+      const { ucp, report } = await audit(loadFixture("basic-page.html"), profile);
+      expect(report.siteType?.siteType).not.toBe("ecommerce");
+      expect(ucp).toMatchObject({ status: "pass", score: 100 });
+    });
   });
 
   it("all-skip agent-auth category → category score null + overallScore is finite", async () => {

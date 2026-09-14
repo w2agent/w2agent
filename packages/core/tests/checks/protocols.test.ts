@@ -157,15 +157,68 @@ describe("action-schemas", () => {
 });
 
 describe("well-known-ucp", () => {
-  it("passes when UCP exists", () => {
-    const result = wellKnownUcp.run([basePage], {
-      ...baseMeta,
-      wellKnown: { ucp: '{"ucp": {"version": "2026-08-25"}}' },
-    });
-    expect(result).toMatchObject({ status: "pass", score: 100 });
+  // Trimmed live profile from https://www.allbirds.com/.well-known/ucp (Shopify default, 2026-09-14).
+  const ALLBIRDS = readFileSync(resolve(__dirname, "../fixtures/ucp-allbirds.json"), "utf-8");
+  const runUcp = (body: string | undefined) =>
+    wellKnownUcp.run([basePage], { ...baseMeta, wellKnown: { ucp: body } });
+  const withUcp = (edit: (ucp: Record<string, unknown>) => void) => {
+    const doc = JSON.parse(ALLBIRDS);
+    edit(doc.ucp);
+    return JSON.stringify(doc);
+  };
+
+  it("passes a real Shopify-default profile (version date + services + payment_handlers)", () => {
+    expect(runUcp(ALLBIRDS)).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("fails 0 when no profile was fetched", () => {
+    const result = runUcp(undefined);
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toMatch(/No UCP/);
+  });
+
+  // Existence alone earns nothing: an agent can't transact without a dated version, a service
+  // endpoint, and a payment handler, so each missing piece zeroes the check and is named.
+  it.each([
+    ["version is not a date", (u: Record<string, unknown>) => (u.version = "1.0"), /version/],
+    ["version missing", (u: Record<string, unknown>) => delete u.version, /version/],
+    ["services missing", (u: Record<string, unknown>) => delete u.services, /services/],
+    ["services empty", (u: Record<string, unknown>) => (u.services = {}), /services/],
+    [
+      "services value not an array",
+      (u: Record<string, unknown>) => (u.services = { "dev.ucp.shopping": { transport: "mcp" } }),
+      /services/,
+    ],
+    [
+      "payment_handlers missing",
+      (u: Record<string, unknown>) => delete u.payment_handlers,
+      /payment_handlers/,
+    ],
+    [
+      "payment_handlers empty",
+      (u: Record<string, unknown>) => (u.payment_handlers = {}),
+      /payment_handlers/,
+    ],
+    [
+      "payment_handlers value not an array",
+      (u: Record<string, unknown>) => (u.payment_handlers = { "com.google.pay": {} }),
+      /payment_handlers/,
+    ],
+  ])("fails 0 when %s", (_label, edit, named) => {
+    const result = runUcp(withUcp(edit));
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toMatch(named);
+  });
+
+  it("names only the invalid field (a valid version is not reported)", () => {
+    const result = runUcp(withUcp((u) => delete u.payment_handlers));
+    expect(result.message).not.toMatch(/version|services/);
   });
 
   it.each([
+    "{}",
+    '{"ucp": {"version": "2026-08-25"}}',
+    '{"ucp": {"version": "1.0", "services": {"a": []}, "payment_handlers": {"b": []}}}',
     "[]",
     "true",
     '"ucp"',
@@ -173,9 +226,8 @@ describe("well-known-ucp", () => {
     '{"ucp": []}',
     '{"ucp": "2026-08-25"}',
     '{"error":"not found","path":"/.well-known/ucp"}',
-  ])("fails when the body is not an object with a ucp object member (%s)", (body) => {
-    const result = wellKnownUcp.run([basePage], { ...baseMeta, wellKnown: { ucp: body } });
-    expect(result).toMatchObject({ status: "fail", score: 0 });
+  ])("fails when the body is not a valid ucp profile (%s)", (body) => {
+    expect(runUcp(body)).toMatchObject({ status: "fail", score: 0 });
   });
 });
 
