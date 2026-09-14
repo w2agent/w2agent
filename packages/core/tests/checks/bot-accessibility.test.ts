@@ -250,7 +250,12 @@ describe("status-codes", () => {
 });
 
 describe("content-negotiation", () => {
-  type Handler = (accept: string | null, url: string) => Response;
+  type Handler = (
+    accept: string | null,
+    url: string,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  const REDIRECTS = new Set([301, 302, 303, 307, 308]);
   const MD = "# Example\n\nHello agents.";
   const md = (body = MD, headers: Record<string, string> = {}) =>
     new Response(body, { headers: { "content-type": "text/markdown; charset=utf-8", ...headers } });
@@ -267,13 +272,23 @@ describe("content-negotiation", () => {
         : html();
 
   let requests: { url: string; accept: string | null }[] = [];
+  // Behaves like fetch: follows redirects unless redirect is "manual", and the
+  // returned response's url is the final URL.
   function serve(routes: Record<string, Handler>, fallback: Handler = notFound) {
     requests = [];
     return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const url = input instanceof Request ? input.url : String(input);
+      let url = input instanceof Request ? input.url : String(input);
       const accept = new Headers(init?.headers as HeadersInit | undefined).get("accept");
-      requests.push({ url, accept });
-      return (routes[url] ?? fallback)(accept, url);
+      for (let hop = 0; ; hop++) {
+        requests.push({ url, accept });
+        const res = await (routes[url] ?? fallback)(accept, url, init);
+        const location = res.headers.get("location");
+        if (init?.redirect === "manual" || hop >= 5 || !REDIRECTS.has(res.status) || !location) {
+          if (!res.url) Object.defineProperty(res, "url", { value: url });
+          return res;
+        }
+        url = new URL(location, url).href;
+      }
     });
   }
   const targetUrls = () =>
@@ -430,13 +445,20 @@ describe("content-negotiation", () => {
     expect(await run()).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it("on a catch-all site, a 'markdown' body identical to the crawled page is the catch-all echoing, not markdown", async () => {
+  it("a 'markdown' body identical to the crawled page is the page echoing, not markdown — whether or not the catch-all guard flagged the site", async () => {
     const shell = '<div id="root"></div><script src="/app.js"></script>';
     const page = { ...basePage, html: shell };
     serve({}, () => md(shell, { vary: "Accept" }));
     expect(await run([page], { catchAll: true })).toMatchObject({ status: "fail", score: 0 });
     serve({}, () => md(shell, { vary: "Accept" }));
-    expect(await run([page])).toMatchObject({ status: "pass", score: 100 });
+    const result = await run([page], { catchAll: false });
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.details).toContain("catch-all: same body");
+  });
+
+  it("short real markdown that differs from the crawled page is a hit", async () => {
+    serve({}, () => md("# Hi", { vary: "Accept" }));
+    expect(await run([basePage], { catchAll: true })).toMatchObject({ status: "pass", score: 100 });
   });
 
   it("a 404 carrying text/markdown is a miss — an error page is not the content", async () => {
@@ -503,6 +525,54 @@ describe("content-negotiation", () => {
         score: 100,
       });
     });
+
+    const suffixOnly = (body: string) =>
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/index.md": () => md(body),
+      });
+
+    it("an HTML document behind a comment longer than any fixed sniff window is still HTML", async () => {
+      suffixOnly(`<!-- ${"x".repeat(1100)} -->\n<!doctype html><html><body>app</body></html>`);
+      const result = await run();
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("HTML body");
+    });
+
+    it("stacked comments before an upper-case <HTML> are skipped — still HTML", async () => {
+      suffixOnly("<!--x--><!--y-->\n<HTML><body>app</body></HTML>");
+      expect((await run()).details).toContain("HTML body");
+    });
+
+    it("an unterminated leading comment is treated as HTML, never as markdown", async () => {
+      suffixOnly("<!-- build 42\n# looks like markdown");
+      expect((await run()).details).toContain("HTML body");
+    });
+
+    it("markdown that teaches HTML (a fenced <head> example near the top) is still markdown", async () => {
+      suffixOnly("# HTML guide\n\n```html\n<head>\n  <title>x</title>\n</head>\n```\n");
+      expect(await run()).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it('a README opening with <div align="center"> is still markdown', async () => {
+      suffixOnly('<div align="center">\n  <b>Example</b>\n</div>\n\n# Example\n');
+      expect(await run()).toMatchObject({ status: "pass", score: 100 });
+    });
+  });
+
+  describe("echo of the crawled page with a byte-order mark", () => {
+    const BOM = String.fromCharCode(0xfeff);
+    it.each([
+      ["the markdown body", BOM, ""],
+      ["the crawled page", "", BOM],
+    ])("a >64 KB shell identical to the crawled page except a BOM on %s is an echo, not markdown", async (_, bodyBom, pageBom) => {
+      const shell = `<div id="root">${"a".repeat(70 * 1024)}</div>`;
+      const page = { ...basePage, html: `${pageBom}${shell}` };
+      serve({}, () => md(`${bodyBom}${shell}`, { vary: "Accept" }));
+      const result = await run([page], { catchAll: false });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("catch-all: same body");
+    });
   });
 
   describe("catch-all body longer than the 64 KB read cap", () => {
@@ -550,16 +620,126 @@ describe("content-negotiation", () => {
       expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
     });
 
-    it("the control URL goes through isAllowedTarget; a refused control is never fetched and the .md hit stands", async () => {
-      serve({ "https://example.com/": () => html() }, softMarkdown404);
+    it("a control refused by isAllowedTarget is never fetched and demotes the .md hit — an unverified twin never counts", async () => {
+      serve({ "https://example.com/": () => html(), "https://example.com/index.md": () => md() });
       const isAllowedTarget = vi.fn((url: string) => !CONTROL.test(url));
       const result = await run([basePage], {}, { isAllowedTarget });
       expect(isAllowedTarget.mock.calls.some(([url]) => CONTROL.test(url))).toBe(true);
       expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
-      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("miss (catch-all control inconclusive)");
     });
 
-    it("demotes only the origin whose control returned markdown", async () => {
+    it("a control that throws demotes the .md hit", async () => {
+      serve(
+        { "https://example.com/": () => html(), "https://example.com/index.md": () => md() },
+        (_, url) => {
+          if (CONTROL.test(url)) throw new TypeError("socket hang up");
+          return notFound();
+        },
+      );
+      const result = await run();
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("miss (catch-all control inconclusive)");
+    });
+
+    it("a control that never answers is aborted by its own 5 s budget (not the probes' exhausted 10 s signal) and demotes the .md hit", async () => {
+      const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+      const timeouts = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockImplementation((ms) => realTimeout(ms === 5000 ? 20 : ms));
+      const signals = new Map<string, AbortSignal | null | undefined>();
+      serve(
+        { "https://example.com/": () => html(), "https://example.com/index.md": () => md() },
+        (_, url, init) => {
+          signals.set(url, init?.signal);
+          if (!CONTROL.test(url)) return notFound();
+          return new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          });
+        },
+      );
+      const result = await run();
+      expect(timeouts).toHaveBeenCalledWith(5000);
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("miss (catch-all control inconclusive)");
+      const controlSignal = [...signals].find(([url]) => CONTROL.test(url))?.[1];
+      expect(controlSignal).toBeDefined();
+      expect(controlSignal).not.toBe(signals.get("https://example.com/"));
+    });
+
+    it("a /docs/<slug>.md soft-404 route is caught by a control in the hit's own directory, even when the root 404s", async () => {
+      const docs = { ...basePage, url: "https://example.com/docs/intro" };
+      serve(
+        { "https://example.com/": () => html(), "https://example.com/docs/intro": () => html() },
+        (_, url) =>
+          /^https:\/\/example\.com\/docs\/[^/]+\.md$/.test(url)
+            ? md("# Page not found")
+            : notFound(),
+      );
+      const result = await run([basePage, docs]);
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain(
+        "docs page .md URL https://example.com/docs/intro.md: miss (nonexistent .md path also returns markdown (catch-all))",
+      );
+      expect(
+        requests.some((r) => /^https:\/\/example\.com\/docs\/[0-9a-f-]{36}\.md$/.test(r.url)),
+      ).toBe(true);
+    });
+
+    it.each([
+      ["without a hook", {}],
+      ["with an allowing hook", { isAllowedTarget: () => true }],
+    ])("an /index.md that redirects to another origin's markdown soft-404 is controlled on that origin (%s)", async (_, ctx) => {
+      serve(
+        {
+          "https://example.com/": () => html(),
+          "https://example.com/index.md": () =>
+            new Response(null, {
+              status: 302,
+              headers: { location: "https://cdn.example.net/site/missing.md" },
+            }),
+        },
+        (_, url) =>
+          url.startsWith("https://cdn.example.net/site/") ? md("# Page not found") : notFound(),
+      );
+      const result = await run([basePage], {}, ctx);
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("nonexistent .md path also returns markdown (catch-all)");
+      expect(
+        requests.some((r) => /^https:\/\/cdn\.example\.net\/site\/[0-9a-f-]{36}\.md$/.test(r.url)),
+      ).toBe(true);
+      expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
+    });
+
+    it("sends one control per directory of the .md hits' final URLs", async () => {
+      const pages = [basePage, { ...basePage, url: "https://example.com/documentation" }];
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/index.md": () => md(),
+        "https://example.com/documentation.md": () => md(),
+      });
+      expect(await run(pages)).toMatchObject({ status: "pass", score: 100 });
+      expect(requests.filter((r) => /\/[0-9a-f-]{36}\.md$/.test(r.url)).map((r) => r.url)).toEqual([
+        expect.stringMatching(CONTROL),
+      ]);
+
+      const docs = { ...basePage, url: "https://example.com/docs/intro/" };
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/index.md": () => md(),
+        "https://example.com/docs/intro.md": () => md(),
+      });
+      expect(await run([basePage, docs])).toMatchObject({ status: "pass", score: 100 });
+      const controls = requests.filter((r) => /\/[0-9a-f-]{36}\.md$/.test(r.url)).map((r) => r.url);
+      expect(controls).toHaveLength(2);
+      expect(controls.filter((u) => CONTROL.test(u))).toHaveLength(1);
+      expect(
+        controls.filter((u) => /^https:\/\/example\.com\/docs\/[0-9a-f-]{36}\.md$/.test(u)),
+      ).toHaveLength(1);
+    });
+
+    it("demotes only the directory whose control returned markdown", async () => {
       const docs = { ...basePage, url: "https://docs.example.com/guide" };
       serve(
         {
@@ -601,14 +781,16 @@ describe("content-negotiation", () => {
       });
     });
 
-    it("Vary: Accept only on the redirect target does not cover the negotiated URL — partial", async () => {
+    it("an i18n redirect sent to everyone (no Vary) to a page that negotiates with Vary: Accept passes — the redirect doesn't depend on Accept", async () => {
       serve({
-        "https://example.com/": htmlUnlessMarkdown(redirect({})),
-        "https://example.com/markdown": () => md(MD, { vary: "Accept" }),
+        "https://example.com/": () =>
+          new Response(null, { status: 302, headers: { location: "/en/" } }),
+        "https://example.com/en/": htmlUnlessMarkdown(md(MD, { vary: "Accept" })),
       });
       const result = await run();
-      expect(result).toMatchObject({ status: "partial", score: 50 });
-      expect(result.message).toContain("add Vary: Accept");
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).not.toContain("add Vary");
+      expect(result.fixSnippet).toBeUndefined();
     });
 
     it("a redirect without Vary anywhere is partial", async () => {

@@ -194,7 +194,7 @@ export const responseTime: Check = {
         message:
           pages.length === 0
             ? "No pages to measure"
-            : "Response time not measured (crawl backend reported no timings)",
+            : "Response time not measured (no page carries a timing)",
         severity: "warning",
       };
     }
@@ -237,6 +237,7 @@ interface MarkdownProbe {
   target: MarkdownTarget;
   method: "accept" | "suffix";
   url: string;
+  finalUrl: string;
   hit: boolean;
   vary: boolean;
   reason: string;
@@ -277,9 +278,29 @@ function markdownSuffixUrl(target: string): string {
   return url.href;
 }
 
-const HTML_START = /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]/i;
+const HTML_START = /^<(!doctype\s+html|html|head|body)[\s>]/i;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const CONTROL_TIMEOUT_MS = 5000;
 const SOFT_404_REASON = "nonexistent .md path also returns markdown (catch-all)";
+const CONTROL_INCONCLUSIVE_REASON = "catch-all control inconclusive";
+
+const stripBom = (text: string) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
+function isHtmlDocument(body: string): boolean {
+  let rest = stripBom(body).trimStart();
+  while (rest.startsWith("<!--")) {
+    const end = rest.indexOf("-->", 2);
+    if (end === -1) return true;
+    rest = rest.slice(end + 3).trimStart();
+  }
+  return HTML_START.test(rest);
+}
+
+function echoesPage(body: string, pageHtml: string): boolean {
+  const text = stripBom(body);
+  const page = stripBom(pageHtml);
+  return text.length > 64 ? page.startsWith(text.slice(0, -4)) : page === text;
+}
 
 const variesOnAccept = (res: Response) =>
   (res.headers.get("vary") ?? "")
@@ -287,7 +308,7 @@ const variesOnAccept = (res: Response) =>
     .map((v) => v.trim().toLowerCase())
     .some((v) => v === "accept" || v === "*");
 
-async function markdownMissReason(res: Response, echoOf?: string): Promise<string | undefined> {
+async function markdownMissReason(res: Response, echoOf: string[]): Promise<string | undefined> {
   const type = mediaTypeEssence(res.headers.get("content-type") ?? "");
   if (res.status < 200 || res.status >= 300 || !MARKDOWN_TYPES.has(type)) {
     await res.body?.cancel().catch(() => {});
@@ -295,11 +316,9 @@ async function markdownMissReason(res: Response, echoOf?: string): Promise<strin
   }
   const body = await readBodyCapped(res, MAX_MARKDOWN_BYTES);
   if (body.trim() === "") return "empty body";
-  if (HTML_START.test(body.trimStart().slice(0, 1024))) return "HTML body labelled as markdown";
-  if (echoOf !== undefined) {
-    const truncated = new TextEncoder().encode(body).byteLength >= MAX_MARKDOWN_BYTES;
-    const echoes = truncated ? echoOf.startsWith(body.slice(0, -4)) : body === echoOf;
-    if (echoes) return "catch-all: same body as the crawled page";
+  if (isHtmlDocument(body)) return "HTML body labelled as markdown";
+  if (echoOf.some((page) => echoesPage(body, page))) {
+    return "catch-all: same body as the crawled page";
   }
   return undefined;
 }
@@ -308,7 +327,6 @@ async function probeMarkdown(
   target: MarkdownTarget,
   method: MarkdownProbe["method"],
   signal: AbortSignal,
-  catchAll: boolean,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<MarkdownProbe> {
   const url = method === "accept" ? target.url : markdownSuffixUrl(target.url);
@@ -316,6 +334,7 @@ async function probeMarkdown(
     target,
     method,
     url,
+    finalUrl: url,
     hit: false,
     vary: false,
     reason,
@@ -332,32 +351,35 @@ async function probeMarkdown(
         await res.body?.cancel().catch(() => {});
         const next = new URL(location, url).href;
         res = await guardedFetch(next, { signal, redirect: "follow", headers }, isAllowedTarget);
+        vary = vary || variesOnAccept(res);
       }
     } else {
       res = await guardedFetch(url, { signal, redirect: "follow" }, isAllowedTarget);
     }
-    const reason = await markdownMissReason(res, catchAll ? target.html : undefined);
+    const finalUrl = res.url || url;
+    const reason = await markdownMissReason(res, target.html === undefined ? [] : [target.html]);
     if (reason !== undefined) return miss(reason);
-    return { target, method, url, hit: true, vary, reason: "" };
+    return { target, method, url, finalUrl, hit: true, vary, reason: "" };
   } catch {
     return miss("request failed, timed out or was refused");
   }
 }
 
-async function nonexistentMarkdownServed(
-  origin: string,
+async function catchAllControl(
+  directory: string,
+  echoOf: string[],
   signal: AbortSignal,
   isAllowedTarget?: IsAllowedTarget,
-): Promise<boolean> {
+): Promise<string | undefined> {
   try {
     const res = await guardedFetch(
-      `${origin}/${randomUUID()}.md`,
+      `${directory}${randomUUID()}.md`,
       { signal, redirect: "follow" },
       isAllowedTarget,
     );
-    return (await markdownMissReason(res)) === undefined;
+    return (await markdownMissReason(res, echoOf)) === undefined ? SOFT_404_REASON : undefined;
   } catch {
-    return false;
+    return CONTROL_INCONCLUSIVE_REASON;
   }
 }
 
@@ -388,32 +410,33 @@ export const contentNegotiation: Check = {
     }
 
     const signal = AbortSignal.timeout(MARKDOWN_TIMEOUT_MS);
-    const catchAll = metadata.catchAll === true;
     const probes = await Promise.all(
       targets.flatMap((t) =>
         (["accept", "suffix"] as const).map((m) =>
-          probeMarkdown(t, m, signal, catchAll, ctx?.isAllowedTarget),
+          probeMarkdown(t, m, signal, ctx?.isAllowedTarget),
         ),
       ),
     );
-    const suffixOrigins = [
-      ...new Set(
-        probes.filter((p) => p.hit && p.method === "suffix").map((p) => new URL(p.url).origin),
-      ),
-    ];
-    const soft404Origins = new Set<string>();
+    const byDirectory = new Map<string, MarkdownProbe[]>();
+    for (const p of probes) {
+      if (!p.hit || p.method !== "suffix") continue;
+      const directory = new URL(".", p.finalUrl).href;
+      byDirectory.set(directory, [...(byDirectory.get(directory) ?? []), p]);
+    }
+    const controlSignal = AbortSignal.timeout(CONTROL_TIMEOUT_MS);
     await Promise.all(
-      suffixOrigins.map(async (origin) => {
-        if (await nonexistentMarkdownServed(origin, signal, ctx?.isAllowedTarget)) {
-          soft404Origins.add(origin);
-        }
+      [...byDirectory].map(async ([directory, hits]) => {
+        const echoOf = hits.flatMap((p) => (p.target.html === undefined ? [] : [p.target.html]));
+        const demoted = await catchAllControl(
+          directory,
+          echoOf,
+          controlSignal,
+          ctx?.isAllowedTarget,
+        );
+        if (demoted === undefined) return;
+        for (const p of hits) Object.assign(p, { hit: false, reason: demoted });
       }),
     );
-    for (const p of probes) {
-      if (p.hit && p.method === "suffix" && soft404Origins.has(new URL(p.url).origin)) {
-        Object.assign(p, { hit: false, reason: SOFT_404_REASON });
-      }
-    }
 
     const labelsOf = (list: MarkdownProbe[]) =>
       [...new Set(list.map((p) => p.target.label))].join(" and ");
@@ -438,7 +461,7 @@ export const contentNegotiation: Check = {
     if (acceptHits.length > 0) parts.push(`Accept: text/markdown (${labelsOf(acceptHits)})`);
     const varyNote =
       acceptNoVary.length > 0
-        ? `; add Vary: Accept to the first Accept: text/markdown response, the redirect if it redirects (${labelsOf(acceptNoVary)}) so caches don't serve markdown to browsers`
+        ? `; add Vary: Accept to the Accept: text/markdown response or its redirect (${labelsOf(acceptNoVary)}) so caches don't serve markdown to browsers`
         : "";
     const snippetPath = targets[targets.length - 1]
       ? new URL(markdownSuffixUrl(targets[targets.length - 1].url)).pathname
