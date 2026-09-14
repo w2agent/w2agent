@@ -167,6 +167,7 @@ async function retryableFetch(
   init: Omit<RequestInit, "signal">,
   timeout: number,
   isAllowedTarget?: IsAllowedTarget,
+  exhausted?: { status: number },
 ): Promise<Response | null> {
   const MAX_RETRIES = 3;
 
@@ -188,6 +189,7 @@ async function retryableFetch(
 
       // Retryable status — if no retries left, discard body and return null
       if (attempt >= MAX_RETRIES) {
+        if (exhausted) exhausted.status = response.status;
         await response.body?.cancel();
         return null;
       }
@@ -264,7 +266,7 @@ export async function fetchPage(
 export async function fetchText(
   url: string,
   options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
-  request: { accept?: string } = {},
+  request: { accept?: string; retriesExhausted?: { status: number } } = {},
 ): Promise<{ text: string; status: number; contentType: string } | null> {
   const response = await retryableFetch(
     url,
@@ -277,6 +279,7 @@ export async function fetchText(
     },
     options.timeout,
     options.isAllowedTarget,
+    request.retriesExhausted,
   );
 
   if (!response) return null;

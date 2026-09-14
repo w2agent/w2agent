@@ -1,4 +1,8 @@
-import { robotsAccessFixLines } from "../audit/shared/robots-fix.js";
+import {
+  applyRobotsAccessFixRemovals,
+  describeRobotsAccessFixRemovals,
+  planRobotsAccessFix,
+} from "../audit/shared/robots-fix.js";
 import type { GenerateContext } from "./types.js";
 
 export function generateRobotsTxt(ctx: GenerateContext): string {
@@ -27,14 +31,22 @@ function generateFull(baseUrl: string): string {
 }
 
 function appendMissingRules(existing: string, baseUrl: string): string {
-  const lines = existing.trimEnd().split("\n");
+  const eol = existing.includes("\r\n") ? "\r\n" : "\n";
   const content = existing.toLowerCase();
+  const fix = planRobotsAccessFix(existing, baseUrl);
+  const lines = fix ? applyRobotsAccessFixRemovals(existing, fix) : existing.split(/\r\n|\r|\n/);
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
   const additions: string[] = [];
 
-  const accessFix = robotsAccessFixLines(existing, baseUrl);
-  if (accessFix.length > 0) {
-    additions.push(...accessFix);
-    additions.push("");
+  if (fix) {
+    if (fix.removals.length > 0) {
+      additions.push("# Moved out of their original groups (other agents keep their rules):");
+      additions.push(...describeRobotsAccessFixRemovals(fix));
+    }
+    for (const group of fix.groups) {
+      additions.push(...group);
+      additions.push("");
+    }
   }
 
   if (!content.includes("sitemap:")) {
@@ -53,5 +65,6 @@ function appendMissingRules(existing: string, baseUrl: string): string {
   lines.push("# --- w2agent: suggested AI bot rules ---");
   lines.push(...additions);
 
-  return `${lines.join("\n").trimEnd()}\n`;
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  return `${lines.join(eol)}${eol}`;
 }

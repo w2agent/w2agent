@@ -188,6 +188,24 @@ describe("fetchText", () => {
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
+  it("reports the last observed status through retriesExhausted, and leaves it unset on a network error", async () => {
+    for (const status of [503, 429]) {
+      vi.mocked(fetch).mockReset().mockResolvedValue(mockResponse(status));
+      const seen = { status: 0 };
+      const promise = fetchText("https://example.com/robots.txt", opts, { retriesExhausted: seen });
+      await vi.runAllTimersAsync();
+      expect(await promise).toBeNull();
+      expect(seen.status).toBe(status);
+      expect(fetch).toHaveBeenCalledTimes(4);
+    }
+    vi.mocked(fetch).mockReset().mockRejectedValue(new TypeError("ECONNREFUSED"));
+    const seen = { status: 0 };
+    expect(
+      await fetchText("https://example.com/robots.txt", opts, { retriesExhausted: seen }),
+    ).toBeNull();
+    expect(seen.status).toBe(0);
+  });
+
   it("truncates text response body to MAX_TEXT_BYTES when response is oversized", async () => {
     const oversized = "x".repeat(MAX_TEXT_BYTES + 50_000);
     vi.mocked(fetch).mockResolvedValue(mockResponse(200, oversized));

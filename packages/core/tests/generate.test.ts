@@ -441,29 +441,92 @@ describe("generateRobotsTxt", () => {
     expect(withRobots(existing)).toBe(existing);
   });
 
-  it("named-group block: emits a removal instruction instead of a group that would merge and still lose", () => {
-    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nDisallow: /*\n${TAIL}`;
+  // Appending "User-agent: ChatGPT-User / Allow: /" alone would merge into the owner's group,
+  // where the longer "Disallow: /*" still wins; so the token is moved out of its group.
+  it("named-group block: moves the token into its own group, so the merged rules no longer block it", () => {
+    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nDisallow: /*\nDisallow: /private/\n${TAIL}`;
     const result = withRobots(existing);
 
-    expect(result.slice(existing.trimEnd().length)).not.toMatch(/^(User-agent|Allow|Disallow):/m);
-    expect(result).toContain(
-      '# ChatGPT-User is blocked by a group that names it (User-agent: ChatGPT-User). Remove from that group: "Disallow: /*" (line 5)',
+    expect(accessOf(existing).status).toBe("fail");
+    expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
+    expect(blockedFor(result, "ChatGPT-User", "/private/x")).toBe(true);
+    expect(result).toContain("#    line 4: User-agent: ChatGPT-User");
+    expect(result).toContain("#    line 5: Disallow: /*");
+  });
+
+  // R2-1: blank lines don't end a group, so deleting only the rule would glue the
+  // token's User-agent line onto the next group and inherit its root block.
+  it("sole-agent group followed by a * root block: the token ends up allowed", () => {
+    const existing = `User-agent: ChatGPT-User\nDisallow: /*\n\nUser-agent: *\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(blockedFor(result, "SomeOtherBot")).toBe(true);
+    expect(blockedFor(result, "GPTBot")).toBe(true);
+    expect(result).not.toMatch(/^Disallow: \/\*$/m);
+  });
+
+  it("removes an emptied group's rules too, so they never attach to the preceding group", () => {
+    const existing = `User-agent: GPTBot\nDisallow: /private/\n\nUser-agent: ChatGPT-User\nDisallow: /*\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(blockedFor(result, "GPTBot", "/")).toBe(false);
+    expect(blockedFor(result, "GPTBot", "/private/x")).toBe(true);
+  });
+
+  // R2-2 / D-2: a shared group's opt-out for a training crawler must survive the fix.
+  it("shared group with a training token: only the user token is split out; GPTBot stays blocked", () => {
+    const existing = `User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\nDisallow: /private/\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User", "/")).toBe(false);
+    expect(blockedFor(result, "ChatGPT-User", "/private/x")).toBe(true);
+    expect(blockedFor(result, "GPTBot", "/")).toBe(true);
+    expect(blockedFor(result, "GPTBot", "/private/x")).toBe(true);
+    expect(result.startsWith("User-agent: GPTBot\nDisallow: /*\nDisallow: /private/\n")).toBe(true);
+  });
+
+  it("shared * + token group: * keeps blocking everything else", () => {
+    const existing = `User-agent: *\nUser-agent: ChatGPT-User\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(blockedFor(result, "SomeOtherBot")).toBe(true);
+    expect(blockedFor(result, "GPTBot")).toBe(true);
+    expect(result.startsWith("User-agent: *\nDisallow: /\n")).toBe(true);
+  });
+
+  it("combines named and *-inherited tokens only when their rule sets match", () => {
+    const existing = `User-agent: *\nDisallow: /*\nDisallow: /tmp/\n\nUser-agent: ChatGPT-User\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(result).toContain("User-agent: ChatGPT-User\nAllow: /\n");
+    expect(result).toMatch(
+      /User-agent: Claude-User\n(User-agent: [^\n]+\n)*Disallow: \/tmp\/\nAllow: \/\n/,
     );
+    expect(blockedFor(result, "ChatGPT-User", "/tmp/a")).toBe(false);
+    expect(blockedFor(result, "Claude-User", "/tmp/a")).toBe(true);
+  });
+
+  it("keeps CRLF line endings and still unblocks the token", () => {
+    const existing =
+      "User-agent: ChatGPT-User\r\nDisallow: /*\r\n\r\nUser-agent: *\r\nDisallow: /private/\r\n";
+    const result = withRobots(existing);
+    expect(result.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
   });
 
   it("matches groups by exact token, so an Applebot-Extended group does not cover Applebot", () => {
     const existing = `User-agent: *\nDisallow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n${TAIL}`;
     const result = withRobots(existing);
     expect(result).toContain("User-agent: Applebot\n");
-    expect(result).not.toContain("Applebot is blocked by a group");
+    expect(result).not.toContain("line 4: User-agent: Applebot-Extended");
+    expect(result).toContain("User-agent: Applebot-Extended\nAllow: /\n");
     expect(blockedFor(result, "Applebot")).toBe(false);
   });
 
   it("treats a versioned User-agent line as naming the token, like robots-parser does", () => {
     const existing = `User-agent: ChatGPT-User/1.0\nDisallow: /\n${TAIL}`;
     const result = withRobots(existing);
-    expect(result).toContain("ChatGPT-User is blocked by a group that names it");
-    expect(result).not.toContain("User-agent: ChatGPT-User\n");
+    expect(result).toContain("#    line 1: User-agent: ChatGPT-User/1.0");
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
   });
 });
 

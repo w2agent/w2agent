@@ -22,9 +22,17 @@ interface RobotsRule {
 }
 
 interface RobotsGroup {
-  agents: string[];
+  agentLines: Array<{ agent: string; line: number }>;
   rules: RobotsRule[];
+  scopedLines: number[];
 }
+
+export interface RobotsAccessFix {
+  removals: Array<{ line: number; text: string }>;
+  groups: string[][];
+}
+
+const LINE_BREAK = /\r\n|\r|\n/;
 
 function normalizeAgent(agent: string): string {
   const lower = agent.toLowerCase();
@@ -37,7 +45,7 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
   let current: RobotsGroup | undefined;
   let lastWasAgent = false;
 
-  robotsTxt.split(/\r\n|\r|\n/).forEach((raw, i) => {
+  robotsTxt.split(LINE_BREAK).forEach((raw, i) => {
     const hash = raw.indexOf("#");
     const text = hash > -1 ? raw.slice(0, hash) : raw;
     const colon = text.indexOf(":");
@@ -48,16 +56,20 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
 
     if (key === "user-agent") {
       if (!lastWasAgent || !current) {
-        current = { agents: [], rules: [] };
+        current = { agentLines: [], rules: [], scopedLines: [] };
         groups.push(current);
       }
-      if (value) current.agents.push(normalizeAgent(value));
+      if (value) current.agentLines.push({ agent: normalizeAgent(value), line: i + 1 });
       lastWasAgent = true;
       return;
     }
     lastWasAgent = false;
-    if (current && (key === "allow" || key === "disallow")) {
+    if (!current) return;
+    if (key === "allow" || key === "disallow") {
       current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value, line: i + 1 });
+      current.scopedLines.push(i + 1);
+    } else if (key === "crawl-delay") {
+      current.scopedLines.push(i + 1);
     }
   });
 
@@ -70,42 +82,88 @@ function blocksRoot(rule: RobotsRule, baseUrl: string): boolean {
   return probe.isAllowed(`${baseUrl}/`, "probe") === false;
 }
 
-export function robotsAccessFixLines(robotsTxt: string, baseUrl: string): string[] {
+export function planRobotsAccessFix(
+  robotsTxt: string,
+  baseUrl: string,
+): RobotsAccessFix | undefined {
   const blocked = findBlockedTokens(robotsTxt, baseUrl);
   const candidates = [...blocked.user, ...blocked.search];
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return undefined;
 
   const groups = parseGroups(robotsTxt);
-  const instructions: string[] = [];
-  const inherited: string[] = [];
+  const removeLines = new Set<number>();
+  const byRules = new Map<string, string[]>();
+  const wildcardRules = groups.filter((g) => g.agentLines.some((a) => a.agent === "*"));
+
+  const addGroup = (token: string, rules: RobotsRule[]) => {
+    const key = [
+      ...rules
+        .filter((r) => r.value && r.value !== "/" && !blocksRoot(r, baseUrl))
+        .map((r) => `${r.directive}: ${r.value}`),
+      "Allow: /",
+    ].join("\n");
+    byRules.set(key, [...(byRules.get(key) ?? []), token]);
+  };
 
   for (const token of candidates) {
     const agent = normalizeAgent(token);
-    const owners = groups.filter((g) => g.agents.includes(agent) && g.rules.length > 0);
+    const naming = groups.filter((g) => g.agentLines.some((a) => a.agent === agent));
+    const owners = naming.filter((g) => g.rules.length > 0);
     if (owners.length === 0) {
-      inherited.push(token);
+      addGroup(
+        token,
+        wildcardRules.flatMap((g) => g.rules),
+      );
       continue;
     }
-    const rootLines = owners
-      .flatMap((g) => g.rules)
-      .filter((r) => blocksRoot(r, baseUrl))
-      .map((r) => `"Disallow: ${r.value}" (line ${r.line})`);
-    instructions.push(
-      `# ${token} is blocked by a group that names it (User-agent: ${token}). Remove from that group: ${rootLines.join(", ")}`,
+    for (const g of naming) {
+      for (const a of g.agentLines) if (a.agent === agent) removeLines.add(a.line);
+    }
+    addGroup(
+      token,
+      owners.flatMap((g) => g.rules),
     );
   }
 
-  const lines = [...instructions];
-  if (inherited.length > 0) {
-    const wildcardRules = groups
-      .filter((g) => g.agents.includes("*"))
-      .flatMap((g) => g.rules)
-      .filter((r) => r.value && !blocksRoot(r, baseUrl));
+  for (const g of groups) {
+    if (g.agentLines.length > 0 && g.agentLines.every((a) => removeLines.has(a.line))) {
+      for (const line of g.scopedLines) removeLines.add(line);
+    }
+  }
+
+  const rawLines = robotsTxt.split(LINE_BREAK);
+  return {
+    removals: [...removeLines]
+      .sort((a, b) => a - b)
+      .map((line) => ({ line, text: rawLines[line - 1].trim() })),
+    groups: [...byRules].map(([rules, tokens]) => [
+      ...tokens.map((t) => `User-agent: ${t}`),
+      ...rules.split("\n"),
+    ]),
+  };
+}
+
+export function applyRobotsAccessFixRemovals(robotsTxt: string, fix: RobotsAccessFix): string[] {
+  const removed = new Set(fix.removals.map((r) => r.line));
+  return robotsTxt.split(LINE_BREAK).filter((_, i) => !removed.has(i + 1));
+}
+
+export function describeRobotsAccessFixRemovals(fix: RobotsAccessFix): string[] {
+  return fix.removals.map((r) => `#    line ${r.line}: ${r.text}`);
+}
+
+export function robotsAccessFixSnippet(fix: RobotsAccessFix): string {
+  const lines = ["# Allow AI agents and search fetchers in robots.txt:"];
+  if (fix.removals.length > 0) {
     lines.push(
-      ...inherited.map((t) => `User-agent: ${t}`),
-      ...wildcardRules.map((r) => `${r.directive}: ${r.value}`),
-      "Allow: /",
+      "# 1. Delete these lines (only the agents below move out; every other agent keeps its rules):",
+      ...describeRobotsAccessFixRemovals(fix),
+      "# 2. Append:",
     );
   }
-  return lines;
+  fix.groups.forEach((g, i) => {
+    if (i > 0) lines.push("");
+    lines.push(...g);
+  });
+  return lines.join("\n");
 }

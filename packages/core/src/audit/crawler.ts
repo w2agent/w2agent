@@ -152,8 +152,9 @@ export async function probeSiteMetadata(
   const homepageHtml = opts.homepageHtml ?? (await fetchPage(url, options)).html;
 
   onProgress?.("Fetching robots.txt...");
+  const robotsRetriesExhausted = { status: 0 };
   const [robotsResult, sitemapResult, llmsResult, openapiResult] = await Promise.all([
-    fetchText(`${baseUrl}/robots.txt`, options),
+    fetchText(`${baseUrl}/robots.txt`, options, { retriesExhausted: robotsRetriesExhausted }),
     fetchText(`${baseUrl}/sitemap.xml`, options),
     fetchText(`${baseUrl}/llms.txt`, options),
     probeOpenAPIPaths(baseUrl, options, { homepageHtml }),
@@ -219,7 +220,7 @@ export async function probeSiteMetadata(
   const metadata: SiteMetadata = {
     baseUrl,
     robotsTxt: isTextFile(robotsResult) ? robotsResult.text : undefined,
-    robotsTxtStatus: robotsResult?.status ?? 0,
+    robotsTxtStatus: robotsResult?.status ?? robotsRetriesExhausted.status,
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
     llmsTxt: isTextFile(llmsResult) ? llmsResult.text : llmsTxtFallback,
     wellKnown,

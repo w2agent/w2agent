@@ -1,6 +1,10 @@
 import { checkContentNegotiation } from "../../shared/fetcher.js";
 import { BOT_TOKENS } from "../shared/bot-tokens.js";
-import { findBlockedTokens, robotsAccessFixLines } from "../shared/robots-fix.js";
+import {
+  findBlockedTokens,
+  planRobotsAccessFix,
+  robotsAccessFixSnippet,
+} from "../shared/robots-fix.js";
 import type { Check } from "../types.js";
 
 export const robotsTxtExists: Check = {
@@ -52,8 +56,7 @@ export const aiAgentAccess: Check = {
           ...base,
           status: "error",
           score: 0,
-          message:
-            "Unmeasured — robots.txt fetch failed (network error, timeout, or retries exhausted)",
+          message: "Unmeasured — robots.txt fetch failed (network error or timeout)",
           details: GOOGLE_AGENT_NOTE,
           severity: "info",
         };
@@ -92,11 +95,8 @@ export const aiAgentAccess: Check = {
       .filter(Boolean)
       .join("\n");
 
-    const fixLines = robotsAccessFixLines(metadata.robotsTxt, metadata.baseUrl);
-    const fixSnippet =
-      fixLines.length > 0
-        ? `# Allow AI agents and search fetchers in robots.txt:\n${fixLines.join("\n")}`
-        : undefined;
+    const fix = planRobotsAccessFix(metadata.robotsTxt, metadata.baseUrl);
+    const fixSnippet = fix ? robotsAccessFixSnippet(fix) : undefined;
 
     if (blocked.user.length > 0) {
       return {

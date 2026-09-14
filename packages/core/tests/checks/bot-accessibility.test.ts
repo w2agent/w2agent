@@ -49,13 +49,30 @@ describe("ai-agent-access", () => {
 
   // Appending "User-agent: ChatGPT-User / Allow: /" merges into the owner's group, where the
   // longer "Disallow: /*" still wins — the old snippet left the check failing after applying it.
-  it("named-group block: the snippet tells the owner which root Disallow line to remove, not a merge group", () => {
-    const robotsTxt = "User-agent: ChatGPT-User\nDisallow: /*";
-    const result = run(robotsTxt);
-    expect(result.fixSnippet).toContain(
-      '# ChatGPT-User is blocked by a group that names it (User-agent: ChatGPT-User). Remove from that group: "Disallow: /*" (line 2)',
-    );
-    expect(result.fixSnippet).not.toMatch(/^(User-agent|Allow):/m);
+  it("named-group block: the snippet describes the same edit the generator makes (delete the token's lines, append its own group)", () => {
+    const robotsTxt =
+      "User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\n\nUser-agent: *\nDisallow: /";
+    const snippet = run(robotsTxt).fixSnippet ?? "";
+    expect(
+      snippet.startsWith(
+        [
+          "# Allow AI agents and search fetchers in robots.txt:",
+          "# 1. Delete these lines (only the agents below move out; every other agent keeps its rules):",
+          "#    line 2: User-agent: ChatGPT-User",
+          "# 2. Append:",
+          "User-agent: ChatGPT-User",
+        ].join("\n"),
+      ),
+    ).toBe(true);
+
+    const deleted = robotsTxt
+      .split("\n")
+      .filter((_, i) => i !== 1)
+      .join("\n");
+    const applied = `${deleted}\n\n${snippet}`;
+    expect(run(applied)).toMatchObject({ status: "pass", score: 100 });
+    const robots = robotsParser("https://example.com/robots.txt", applied);
+    expect(robots.isAllowed("https://example.com/", "GPTBot")).toBe(false);
   });
 
   it("wildcard block: applying the snippet makes the check pass and keeps * path restrictions", () => {
@@ -74,7 +91,7 @@ describe("ai-agent-access", () => {
     const result = run("User-agent: PerplexityBot\nDisallow: /");
     expect(result).toMatchObject({ status: "partial", score: 50, severity: "warning" });
     expect(result.message).toContain("PerplexityBot");
-    expect(result.fixSnippet).toContain("PerplexityBot is blocked by a group that names it");
+    expect(result.fixSnippet).toContain("#    line 1: User-agent: PerplexityBot");
   });
 
   it("stays pass 100 when only training crawlers are blocked — opting out of training is neutral (D-2)", () => {
@@ -115,14 +132,20 @@ describe("ai-agent-access", () => {
   });
 
   it("fails on a 5xx robots.txt — RFC 9309 'unreachable' means crawlers must assume complete disallow", () => {
-    const result = runStatus(500);
-    expect(result).toMatchObject({ status: "fail", score: 0, severity: "error" });
-    expect(result.message).toContain("returned 500");
-    expect(result.message).toContain("assume complete disallow");
+    for (const status of [500, 503]) {
+      const result = runStatus(status);
+      expect(result).toMatchObject({ status: "fail", score: 0, severity: "error" });
+      expect(result.message).toContain(`returned ${status}`);
+      expect(result.message).toContain("assume complete disallow");
+    }
   });
 
-  // fetchText returns null for network errors, timeouts, and 429/503 after retries, so a
-  // persistent 503 lands here too: we did not observe a status, so it is unmeasured, not a finding.
+  // RFC 9309 treats every 4xx as "unavailable", 429 included.
+  it("passes on a persistent 429 — it is a 4xx", () => {
+    expect(runStatus(429)).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  // 0 means we never saw a response (network error, timeout): unmeasured, not a finding.
   it("reports error (unmeasured) when the robots.txt fetch got no response", () => {
     expect(runStatus(0)).toMatchObject({ status: "error", score: 0 });
   });
