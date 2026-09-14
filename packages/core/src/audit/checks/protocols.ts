@@ -308,14 +308,11 @@ function classifyForm($: CheerioAPI, $form: CheerioNode): FormKind {
   if (inputs.some(($input) => inputType($input) === "password")) return "login";
 
   const fieldInputs = inputs.filter(($input) => !NON_FIELD_INPUT_TYPES.has(inputType($input)));
-  const textInputs = fieldInputs.filter(($input) => inputType($input) === "text");
-  if (textInputs.length === 1 && SEARCH_FIELD_NAMES.has(lowerAttr(textInputs[0], "name"))) {
-    return "search";
-  }
   const fieldCount = fieldInputs.length + $form.find("select, textarea").length;
-  if (fieldCount === 1 && fieldInputs.length === 1 && inputType(fieldInputs[0]) === "email") {
-    return "newsletter";
-  }
+  if (fieldCount !== 1 || fieldInputs.length !== 1) return "task";
+  const type = inputType(fieldInputs[0]);
+  if (type === "text" && SEARCH_FIELD_NAMES.has(lowerAttr(fieldInputs[0], "name"))) return "search";
+  if (type === "email") return "newsletter";
   return "task";
 }
 
@@ -327,23 +324,19 @@ export const webmcpDeclarative: Check = {
   severity: "info",
   tracked: true,
   run: (pages) => {
-    let taskForms = 0;
-    let taskToolForms = 0;
-    let excludedToolForms = 0;
+    let plainTaskForms = 0;
     const webmcpDetails: string[] = [];
 
     for (const page of pages) {
       const parsed = parseHTML(page.html);
       parsed.$("form").each((_, form) => {
         const $form = parsed.$(form);
-        const kind = classifyForm(parsed.$, $form);
-        if (kind === "task") taskForms++;
         const toolname = $form.attr("toolname");
-        if (!toolname) return;
-        if (kind === "task") taskToolForms++;
-        else excludedToolForms++;
-        const note = kind === "task" ? "" : ` (${kind} form, not counted as a task form)`;
-        webmcpDetails.push(`${page.url}: <form toolname="${toolname}">${note}`);
+        if (toolname) {
+          webmcpDetails.push(`${page.url}: <form toolname="${toolname}">`);
+        } else if (classifyForm(parsed.$, $form) === "task") {
+          plainTaskForms++;
+        }
       });
     }
 
@@ -370,13 +363,12 @@ export const webmcpDeclarative: Check = {
       };
     }
 
-    const excludedNote =
-      excludedToolForms > 0 ? ` (+${excludedToolForms} search/login/newsletter form(s))` : "";
+    const toolForms = webmcpDetails.length;
     return {
       ...base,
       status: "pass",
       score: 100,
-      message: `${taskToolForms}/${taskForms} task forms declare WebMCP tools${excludedNote}`,
+      message: `${toolForms}/${plainTaskForms + toolForms} task forms declare WebMCP tools`,
       details: webmcpDetails.join("\n"),
     };
   },
@@ -406,13 +398,41 @@ function originTrialFeature(token: string): string | undefined {
   }
 }
 
-async function scriptHasWebmcp(url: string, isAllowedTarget?: IsAllowedTarget): Promise<boolean> {
+const SCRIPT_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_SCRIPT_REDIRECTS = 3;
+
+type ScriptSite = { base: URL; pageOrigin: string };
+
+function isSiteScript(url: URL, { base, pageOrigin }: ScriptSite): boolean {
+  const stripWww = (host: string) => host.replace(/^www\./, "");
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.protocol === base.protocol &&
+    (url.origin === pageOrigin || url.origin === base.origin) &&
+    stripWww(url.hostname) === stripWww(base.hostname)
+  );
+}
+
+async function scriptHasWebmcp(
+  url: string,
+  site: ScriptSite,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<boolean> {
   try {
-    const res = await guardedFetch(
-      url,
-      { signal: AbortSignal.timeout(SCRIPT_TIMEOUT_MS) },
-      isAllowedTarget,
-    );
+    const signal = AbortSignal.timeout(SCRIPT_TIMEOUT_MS);
+    let current = url;
+    let res = await guardedFetch(current, { redirect: "manual", signal }, isAllowedTarget);
+    for (let hops = 0; res.status >= 300 && res.status < 400; hops++) {
+      await res.body?.cancel().catch(() => {});
+      const location = res.headers.get("location");
+      if (!SCRIPT_REDIRECT_STATUSES.has(res.status) || location === null) return false;
+      if (hops >= MAX_SCRIPT_REDIRECTS) return false;
+      const next = new URL(location, current);
+      if (!isSiteScript(next, site)) return false;
+      next.hash = "";
+      current = next.href;
+      res = await guardedFetch(current, { redirect: "manual", signal }, isAllowedTarget);
+    }
     const declared = Number(res.headers.get("content-length"));
     if (res.status < 200 || res.status >= 300 || declared > MAX_SCRIPT_BYTES) {
       await res.body?.cancel().catch(() => {});
@@ -434,10 +454,10 @@ export const webmcpImperative: Check = {
   run: async (pages, metadata, ctx) => {
     const found: string[] = [];
     const trialFeatures: string[] = [];
-    const externalScripts: string[] = [];
-    let origin: string | undefined;
+    const externalScripts = new Map<string, ScriptSite>();
+    let siteBase: URL | undefined;
     try {
-      origin = new URL(metadata.baseUrl).origin;
+      siteBase = new URL(metadata.baseUrl);
     } catch {}
 
     for (const page of pages) {
@@ -455,22 +475,33 @@ export const webmcpImperative: Check = {
         if (feature) trialFeatures.push(`origin-trial token for ${feature} on ${page.url}`);
       });
 
-      parsed.$("script[src]").each((_, script) => {
+      if (!siteBase || externalScripts.size >= MAX_EXTERNAL_SCRIPTS) continue;
+      let scriptBase: URL;
+      try {
+        scriptBase = new URL(page.url);
+      } catch {
+        continue;
+      }
+      const site: ScriptSite = { base: siteBase, pageOrigin: scriptBase.origin };
+      try {
+        scriptBase = new URL(parsed.$("base[href]").first().attr("href") ?? page.url, page.url);
+      } catch {}
+      for (const script of parsed.$("script[src]").toArray()) {
         try {
-          const src = new URL(parsed.$(script).attr("src") ?? "", page.url);
-          if (src.protocol !== "http:" && src.protocol !== "https:") return;
-          if (src.origin !== origin || externalScripts.includes(src.href)) return;
-          externalScripts.push(src.href);
+          const src = new URL(parsed.$(script).attr("src") ?? "", scriptBase);
+          if (!isSiteScript(src, site) || externalScripts.has(src.href)) continue;
+          externalScripts.set(src.href, site);
+          if (externalScripts.size >= MAX_EXTERNAL_SCRIPTS) break;
         } catch {}
-      });
+      }
     }
 
     if (found.length === 0) {
-      const scripts = externalScripts.slice(0, MAX_EXTERNAL_SCRIPTS);
+      const scripts = [...externalScripts];
       const hits = await Promise.all(
-        scripts.map((url) => scriptHasWebmcp(url, ctx?.isAllowedTarget)),
+        scripts.map(([url, site]) => scriptHasWebmcp(url, site, ctx?.isAllowedTarget)),
       );
-      scripts.forEach((url, i) => {
+      scripts.forEach(([url], i) => {
         if (hits[i]) found.push(`script ${url}`);
       });
     }

@@ -248,7 +248,7 @@ describe("webmcp-declarative", () => {
     expect(result).toMatchObject({ status: "skip", score: 0, weight: 0, tracked: true });
   });
 
-  it("counts only task forms in the denominator: search, login and newsletter forms are excluded", () => {
+  it("excludes unannotated search, login and newsletter forms from the denominator; every toolname form counts", () => {
     const html = `
       <form role="search" toolname="siteSearch"><input type="text" name="term" /></form>
       <form action="/login"><input type="text" name="user" /><input type="password" name="pw" /></form>
@@ -257,9 +257,10 @@ describe("webmcp-declarative", () => {
       <form action="/contact"><input name="name" /><textarea name="msg"></textarea></form>`;
     const result = webmcpDeclarative.run([page(html)], baseMeta);
     expect(result).toMatchObject({ status: "pass", score: 100, tracked: true });
-    expect(result.message).toContain("1/2 task forms declare WebMCP tools");
+    expect(result.message).toBe("2/3 task forms declare WebMCP tools");
     expect(result.details).toContain('https://example.com: <form toolname="bookTable">');
-    expect(result.details).toContain('<form toolname="siteSearch"> (search form');
+    expect(result.details).toContain('https://example.com: <form toolname="siteSearch">');
+    expect(result.details).not.toContain("not counted");
   });
 
   it.each([
@@ -279,12 +280,32 @@ describe("webmcp-declarative", () => {
     expect(webmcpDeclarative.run([page(tagged)], baseMeta).message).toContain("1/1 task forms");
   });
 
-  it("a toolname on an excluded form still counts as detected", () => {
+  it("a toolname on a search-shaped form counts in both numerator and denominator", () => {
     const html = '<form role="search" toolname="siteSearch"><input name="q" /></form>';
     const result = webmcpDeclarative.run([page(html)], baseMeta);
     expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("0/0 task forms");
-    expect(result.details).toContain("not counted as a task form");
+    expect(result.message).toBe("1/1 task forms declare WebMCP tools");
+  });
+
+  // A site that annotated its checkout and signup forms declared real tools; "0/0" would
+  // read as "no task forms" and contradict the pass.
+  it("toolname forms shaped like newsletter or login forms are never reported as 0/0", () => {
+    const html = `
+      <form action="/checkout/email" toolname="setCheckoutEmail"><input type="hidden" name="cart" value="1" /><input type="email" name="email" /><button>Next</button></form>
+      <form action="/signup" toolname="createAccount"><input type="email" name="email" /><input type="password" name="pw" /></form>`;
+    const result = webmcpDeclarative.run([page(html)], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toBe("2/2 task forms declare WebMCP tools");
+    expect(result.details).not.toContain("not counted");
+  });
+
+  it("a text input named query in a multi-field support form does not make it a search form", () => {
+    const html = `
+      <form action="/support"><input type="text" name="query" /><input type="email" name="email" /><textarea name="details"></textarea></form>
+      <form toolname="t"><input name="a" /><input name="b" /></form>`;
+    expect(webmcpDeclarative.run([page(html)], baseMeta).message).toBe(
+      "1/2 task forms declare WebMCP tools",
+    );
   });
 
   it("a newsletter form with a name field besides the email is a task form", () => {
@@ -389,6 +410,171 @@ describe("webmcp-imperative", () => {
     );
     expect(result).toMatchObject({ status: "skip", score: 0 });
     expect(fetchedUrls(spy)).toEqual([]);
+  });
+
+  it("fetches a same-origin script from a www page when baseUrl is the apex", async () => {
+    const WWW = "https://www.example.com";
+    const spy = serve({ [`${WWW}/theme.js`]: () => js(REGISTER) });
+    const result = await webmcpImperative.run(
+      [page('<script src="/theme.js"></script>', `${WWW}/`)],
+      baseMeta,
+    );
+    expect(fetchedUrls(spy)).toEqual([`${WWW}/theme.js`]);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("never fetches scripts on other subdomains, other schemes or look-alike hosts", async () => {
+    const spy = serve({});
+    const result = await webmcpImperative.run(
+      [
+        page(
+          '<script src="https://api.example.com/x.js"></script><script src="http://example.com/x.js"></script><script src="https://example.com.evil.test/x.js"></script><script src="https://www.example.com/x.js"></script>',
+        ),
+      ],
+      baseMeta,
+    );
+    expect(fetchedUrls(spy)).toEqual([]);
+    expect(result).toMatchObject({ status: "skip" });
+  });
+
+  it("never fetches a script from a crawled page that lives on another site", async () => {
+    const spy = serve({ "https://other.test/x.js": () => js(REGISTER) });
+    const result = await webmcpImperative.run(
+      [page('<script src="/x.js"></script>', "https://other.test/landing")],
+      baseMeta,
+    );
+    expect(fetchedUrls(spy)).toEqual([]);
+    expect(result).toMatchObject({ status: "skip" });
+  });
+
+  it("resolves script src against the page's <base href>", async () => {
+    const spy = serve({ [`${SITE}/assets/tools.js`]: () => js(REGISTER) });
+    const result = await webmcpImperative.run(
+      [page('<base href="/assets/"><script src="tools.js"></script>', `${SITE}/docs/page`)],
+      baseMeta,
+    );
+    expect(fetchedUrls(spy)).toEqual([`${SITE}/assets/tools.js`]);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("stops collecting script candidates after 5 on a page with 50 000 script tags", async () => {
+    const spy = serve({});
+    const html = page(
+      Array.from({ length: 50_000 }, (_, i) => `<script src="/s${i}.js"></script>`).join(""),
+    );
+    let urlsBuilt = 0;
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        constructor(...args: ConstructorParameters<typeof URL>) {
+          super(...args);
+          urlsBuilt++;
+        }
+      },
+    );
+    try {
+      const result = await webmcpImperative.run([html], baseMeta);
+      expect(urlsBuilt).toBeLessThan(100);
+      expect(fetchedUrls(spy)).toEqual([0, 1, 2, 3, 4].map((i) => `${SITE}/s${i}.js`));
+      expect(result).toMatchObject({ status: "skip" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  describe("redirects", () => {
+    // Behaves like undici: raw 3xx only when the caller asks for redirect: "manual",
+    // otherwise follows Location itself (invisible to the spy), as a real fetch would.
+    function serveRedirects(routes: Record<string, () => Response>) {
+      return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        let url = input instanceof Request ? input.url : String(input);
+        for (let hop = 0; hop < 20; hop++) {
+          const res = routes[url]?.() ?? new Response("not found", { status: 404 });
+          const location = res.headers.get("location");
+          if (init?.redirect === "manual" || res.status < 300 || res.status >= 400 || !location) {
+            return res;
+          }
+          url = new URL(location, url).href;
+        }
+        throw new TypeError("redirect loop");
+      });
+    }
+    const to =
+      (location: string, status = 302) =>
+      () =>
+        new Response(null, { status, headers: { location } });
+
+    it("a same-origin script redirecting to another host is not detected", async () => {
+      serveRedirects({
+        [`${SITE}/redir.js`]: to("https://cdn.other.test/app.js"),
+        "https://cdn.other.test/app.js": () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [page('<script src="/redir.js"></script>')],
+        baseMeta,
+      );
+      expect(result).toMatchObject({ status: "skip", score: 0 });
+    });
+
+    it.each([
+      301, 302, 303, 307, 308,
+    ])("follows a %i to a same-site script through the fetch guard", async (status) => {
+      const spy = serveRedirects({
+        [`${SITE}/redir.js`]: to(`${SITE}/app.js`, status),
+        [`${SITE}/app.js`]: () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [page('<script src="/redir.js"></script>')],
+        baseMeta,
+      );
+      expect(fetchedUrls(spy)).toEqual([`${SITE}/redir.js`, `${SITE}/app.js`]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("follows a redirect from a www page's script to the apex baseUrl origin", async () => {
+      const WWW = "https://www.example.com";
+      const spy = serveRedirects({
+        [`${WWW}/old.js`]: to(`${SITE}/app.js`, 301),
+        [`${SITE}/app.js`]: () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [page('<script src="/old.js"></script>', `${WWW}/`)],
+        baseMeta,
+      );
+      expect(fetchedUrls(spy)).toEqual([`${WWW}/old.js`, `${SITE}/app.js`]);
+      expect(result).toMatchObject({ status: "pass" });
+    });
+
+    it("follows at most 3 redirects", async () => {
+      const chain = (hops: number) => {
+        const routes: Record<string, () => Response> = { [`${SITE}/app.js`]: () => js(REGISTER) };
+        for (let i = 0; i < hops; i++) {
+          routes[`${SITE}/r${i}.js`] = to(i === hops - 1 ? "/app.js" : `/r${i + 1}.js`);
+        }
+        return routes;
+      };
+      serveRedirects(chain(3));
+      const three = await webmcpImperative.run([page('<script src="/r0.js"></script>')], baseMeta);
+      expect(three).toMatchObject({ status: "pass" });
+      vi.restoreAllMocks();
+      serveRedirects(chain(4));
+      const four = await webmcpImperative.run([page('<script src="/r0.js"></script>')], baseMeta);
+      expect(four).toMatchObject({ status: "skip" });
+    });
+
+    it("a redirect hop refused by isAllowedTarget is not fetched or detected", async () => {
+      const spy = serveRedirects({
+        [`${SITE}/redir.js`]: to("/private.js"),
+        [`${SITE}/private.js`]: () => js(REGISTER),
+      });
+      const result = await webmcpImperative.run(
+        [page('<script src="/redir.js"></script>')],
+        baseMeta,
+        { isAllowedTarget: (url) => !url.endsWith("/private.js") },
+      );
+      expect(fetchedUrls(spy)).toEqual([`${SITE}/redir.js`]);
+      expect(result).toMatchObject({ status: "skip" });
+    });
   });
 
   it("fetches at most 5 unique same-origin scripts, deduped across pages in page order", async () => {
