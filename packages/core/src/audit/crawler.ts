@@ -4,7 +4,7 @@ import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText, guardedFetch } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
-import { isJsonContentType } from "./shared/json.js";
+import { isJsonContentType, mediaTypeEssence } from "./shared/json.js";
 import { probeMcpEndpoint } from "./shared/mcp-probe.js";
 import type { AuditOptions, FetchedPage, MultiUaResponse, SiteMetadata } from "./types.js";
 
@@ -129,6 +129,11 @@ function stripWww(hostname: string): string {
 
 const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
 
+const WELL_KNOWN_MEDIA_TYPES: Record<string, string> = {
+  "api-catalog": "application/linkset+json",
+  "http-message-signatures-directory": "application/http-message-signatures-directory+json",
+};
+
 type TextResult = Awaited<ReturnType<typeof fetchText>>;
 
 function is2xx(r: TextResult): r is NonNullable<TextResult> {
@@ -223,9 +228,12 @@ export async function probeSiteMetadata(
   const wellKnown: Record<string, string | undefined> = {};
   wellKnownPaths.forEach((path, i) => {
     const result = wellKnownResults[i];
+    const requiredType = WELL_KNOWN_MEDIA_TYPES[path];
     const accepted =
       result?.status === 200 &&
-      isJsonContentType(result.contentType) &&
+      (requiredType
+        ? mediaTypeEssence(result.contentType) === requiredType
+        : isJsonContentType(result.contentType)) &&
       result.text !== catchAllBody;
     wellKnown[path] = accepted ? result.text : undefined;
   });

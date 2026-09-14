@@ -20,6 +20,8 @@ vi.mock("node:crypto", async (importOriginal) => ({
 }));
 
 const SITE = "https://example.com";
+const CLOUDFLARE_API_CATALOG =
+  '{"linkset":[{"anchor":"https://developers.cloudflare.com/api/","service-desc":[{"href":"https://developers.cloudflare.com/openapi.json","type":"application/json"}],"service-doc":[{"href":"https://developers.cloudflare.com/api/","type":"text/html"}],"status":[{"href":"https://www.cloudflarestatus.com/api/v2/status.json","type":"application/json"}]}]}';
 const OPTIONS: Partial<AuditOptions> = { maxPages: 1, requestDelay: 0, timeout: 1000 };
 const SPA_SHELL =
   '<!doctype html><html><head><title>App</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
@@ -31,7 +33,7 @@ const WELL_KNOWN_CHECK_IDS = [
   "oauth-support",
   "oauth-protected-resource",
   "api-catalog-rfc9727",
-  "web-bot-auth-directory",
+  "agent-operator-signing",
   "mcp-server-card",
   "llms-txt-exists",
   "robots-txt-exists",
@@ -153,7 +155,7 @@ describe("catch-all / soft-404 guard", () => {
     const metadata = await probeSiteMetadata(SITE, metaOptions);
     expect(metadata.catchAll).toBe(true);
     expect(metadata.wellKnown["agent-card.json"]).toBeDefined();
-    expect(metadata.wellKnown["api-catalog"]).toBeDefined();
+    expect(metadata.wellKnown["api-catalog"]).toBeUndefined();
 
     const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
     const byId = checksById(report);
@@ -162,7 +164,7 @@ describe("catch-all / soft-404 guard", () => {
       "well-known-ucp",
       "oauth-support",
       "oauth-protected-resource",
-      "web-bot-auth-directory",
+      "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
     ]) {
@@ -238,7 +240,7 @@ describe("catch-all / soft-404 guard", () => {
       "well-known-ucp",
       "mcp-discovery",
       "oauth-support",
-      "web-bot-auth-directory",
+      "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
     ]) {
@@ -294,7 +296,9 @@ describe("catch-all / soft-404 guard", () => {
       }
       if (url.pathname === "/.well-known/agent-card.json") return json({ name: "Example" });
       if (url.pathname === "/.well-known/api-catalog") {
-        return json({ apis: [{ name: "Users", url: `${SITE}/api/users` }] });
+        return new Response(CLOUDFLARE_API_CATALOG, {
+          headers: { "content-type": "application/linkset+json" },
+        });
       }
       return html("nope", 404);
     });
@@ -322,31 +326,41 @@ describe("catch-all / soft-404 guard", () => {
 
 describe("crawler gate covers the signatures directory, api-catalog and mcp.json", () => {
   const PATHS = ["http-message-signatures-directory", "api-catalog", "mcp.json"];
-  const BODIES: Record<string, unknown> = {
-    "http-message-signatures-directory": { keys: [{ kty: "OKP" }] },
-    "api-catalog": { apis: [{ name: "Users", url: `${SITE}/api/users` }] },
-    "mcp.json": { name: "MCP", version: "1.0.0", capabilities: { tools: {} } },
+  const SIGNING_TYPE = "application/http-message-signatures-directory+json";
+  const LINKSET_TYPE =
+    'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"';
+  const BODIES: Record<string, string> = {
+    "http-message-signatures-directory": JSON.stringify({
+      keys: [{ kty: "OKP", crv: "Ed25519", x: "abc" }],
+      signature_agent: SITE,
+    }),
+    "api-catalog": CLOUDFLARE_API_CATALOG,
+    "mcp.json": JSON.stringify({ name: "MCP", version: "1.0.0", capabilities: { tools: {} } }),
   };
-  const serve = (make: (body: unknown) => Response) =>
+  const SPEC_TYPES: Record<string, string> = {
+    "http-message-signatures-directory": SIGNING_TYPE,
+    "api-catalog": LINKSET_TYPE,
+    "mcp.json": "application/json",
+  };
+  const serve = (make: (path: string, body: string) => Response) =>
     mockSite((url) => {
       const path = url.pathname.replace("/.well-known/", "");
-      if (url.pathname.startsWith("/.well-known/") && path in BODIES) return make(BODIES[path]);
+      if (url.pathname.startsWith("/.well-known/") && path in BODIES)
+        return make(path, BODIES[path]);
       return html("nope", 404);
     });
+  const withType =
+    (status: number, type: (path: string) => string) => (path: string, body: string) =>
+      new Response(body, { status, headers: { "content-type": type(path) } });
 
-  it("accepts 200 JSON (incl. +json media types) and d1/d2/d4 pass without fetching", async () => {
-    serve(
-      (body) =>
-        new Response(JSON.stringify(body), {
-          headers: { "content-type": "application/http-message-signatures-directory+json" },
-        }),
-    );
+  it("accepts each path under its spec media type and the checks pass without fetching", async () => {
+    serve(withType(200, (path) => SPEC_TYPES[path]));
     const metadata = await probeSiteMetadata(SITE, metaOptions);
     vi.restoreAllMocks();
     const fetchSpy = mockSite(() => {
       throw new Error("d1/d2/d4 must read crawler metadata, not fetch");
     });
-    for (const id of ["web-bot-auth-directory", "api-catalog-rfc9727", "mcp-server-card"]) {
+    for (const id of ["agent-operator-signing", "api-catalog-rfc9727", "mcp-server-card"]) {
       const check = allChecks.find((c) => c.id === id) as Check;
       expect(await check.run([], metadata), id).toMatchObject({ status: "pass", score: 100 });
     }
@@ -354,16 +368,59 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
   });
 
   it.each([
-    ["206 JSON", (body: unknown) => json(body, 206)],
-    [
-      "200 text/html",
-      (body: unknown) =>
-        new Response(JSON.stringify(body), { headers: { "content-type": "text/html" } }),
-    ],
+    ["206 under the spec media type", withType(206, (path) => SPEC_TYPES[path])],
+    ["200 text/html", withType(200, () => "text/html")],
   ])("rejects %s", async (_label, make) => {
     serve(make);
     const metadata = await probeSiteMetadata(SITE, metaOptions);
     for (const path of PATHS) expect(metadata.wellKnown[path], path).toBeUndefined();
+  });
+
+  it("rejects api-catalog and the signing directory served as plain application/json, still accepts mcp.json", async () => {
+    serve(withType(200, () => "application/json; charset=utf-8"));
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["api-catalog"]).toBeUndefined();
+    expect(metadata.wellKnown["http-message-signatures-directory"]).toBeUndefined();
+    expect(metadata.wellKnown["mcp.json"]).toBe(BODIES["mcp.json"]);
+
+    const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
+    const byId = checksById(report);
+    expect(byId.get("agent-operator-signing")).toMatchObject({ status: "skip", score: 0 });
+    expect(byId.get("api-catalog-rfc9727")?.score).toBe(0);
+  });
+
+  it("rejects each path's spec media type on the other path", async () => {
+    serve(
+      withType(200, (path) =>
+        path === "api-catalog"
+          ? SIGNING_TYPE
+          : path === "mcp.json"
+            ? "application/json"
+            : LINKSET_TYPE,
+      ),
+    );
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["api-catalog"]).toBeUndefined();
+    expect(metadata.wellKnown["http-message-signatures-directory"]).toBeUndefined();
+  });
+
+  it.each([
+    ["api-catalog", CLOUDFLARE_API_CATALOG, LINKSET_TYPE],
+    [
+      "http-message-signatures-directory",
+      BODIES["http-message-signatures-directory"],
+      SIGNING_TYPE,
+    ],
+  ])("a catch-all echoing a valid %s body under its spec media type for every path earns nothing", async (path, body, type) => {
+    mockSite(() => new Response(body, { headers: { "content-type": type } }));
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    expect(metadata.wellKnown[path]).toBeUndefined();
+
+    const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
+    const byId = checksById(report);
+    expect(byId.get("api-catalog-rfc9727")?.score).toBe(0);
+    expect(byId.get("agent-operator-signing")?.status).not.toBe("pass");
   });
 });
 

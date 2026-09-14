@@ -1,5 +1,9 @@
+export function mediaTypeEssence(contentType: string): string {
+  return contentType.split(";")[0].trim().toLowerCase();
+}
+
 export function isJsonContentType(contentType: string): boolean {
-  const essence = contentType.split(";")[0].trim().toLowerCase();
+  const essence = mediaTypeEssence(contentType);
   return essence === "application/json" || /^[^/\s]+\/[^/\s]+\+json$/.test(essence);
 }
 

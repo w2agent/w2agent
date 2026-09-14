@@ -584,63 +584,126 @@ describe("agent-auth: C3 mcp-pkce-s256", () => {
   });
 });
 
-// --- D1 web-bot-auth-directory ---
-describe("agent-auth: D1 web-bot-auth-directory", () => {
-  const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
-  const withDir = (body: string): SiteMetadata => ({
-    ...baseMeta,
+// --- D1 agent-operator-signing (tracked) ---
+// Observed live: GET https://chatgpt.com/.well-known/http-message-signatures-directory
+const CHATGPT_SIGNING_DIRECTORY =
+  '{"keys":[{"crv":"Ed25519","kty":"OKP","x":"7F_3jDlxaquwh291MiACkcS3Opq88NksyHiakzS-Y1g","kid":"otMqcjr17mGyruktGvJU8oojQTSMHlVm7uO-lrcqbdg","use":"sig","nbf":1735689600,"exp":1789960723}],"signature_agent":"https://chatgpt.com","purpose":"ai"}';
+
+describe("agent-auth: D1 agent-operator-signing (tracked)", () => {
+  const check = agentAuthChecks.find((c) => c.id === "agent-operator-signing")!;
+  const withDir = (body: string, baseUrl = "https://chatgpt.com"): SiteMetadata => ({
+    baseUrl,
     wellKnown: { "http-message-signatures-directory": body },
   });
+  const chatgptWith = (patch: Record<string, unknown>) =>
+    JSON.stringify({ ...JSON.parse(CHATGPT_SIGNING_DIRECTORY), ...patch });
 
-  it("pass when the crawler accepted a JWKS directory with a keys array", () => {
-    const body = JSON.stringify({ keys: [{ kty: "OKP", crv: "Ed25519", x: "abc" }] });
-    expect(check.run([basePage], withDir(body))).toMatchObject({ status: "pass", score: 100 });
+  it("is tracked with weight 0 — the directory belongs to the bot operator, not the audited site", () => {
+    expect(check).toMatchObject({ tracked: true, weight: 0, category: "agent-auth" });
+    expect(agentAuthChecks.map((c) => c.id)).not.toContain("web-bot-auth-directory");
+  });
+
+  it("pass for ChatGPT's live directory audited at its own origin", () => {
+    expect(check.run([basePage], withDir(CHATGPT_SIGNING_DIRECTORY))).toMatchObject({
+      status: "pass",
+      score: 100,
+    });
+  });
+
+  it.each([
+    "https://example.com",
+    "https://www.chatgpt.com",
+  ])("fail when signature_agent is another origin than the audited site (%s)", (baseUrl) => {
+    expect(check.run([basePage], withDir(CHATGPT_SIGNING_DIRECTORY, baseUrl))).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
+  });
+
+  it.each([
+    ["missing signature_agent", { signature_agent: undefined }],
+    ["unparseable signature_agent", { signature_agent: "chatgpt" }],
+    ["RSA key only", { keys: [{ kty: "RSA", n: "abc", e: "AQAB" }] }],
+    ["OKP key without x", { keys: [{ kty: "OKP", crv: "Ed25519" }] }],
+    ["X25519 key", { keys: [{ kty: "OKP", crv: "X25519", x: "abc" }] }],
+    ["empty keys", { keys: [] }],
+  ])("fail 0 on an incomplete directory: %s", (_label, patch) => {
+    expect(check.run([basePage], withDir(chatgptWith(patch)))).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
   });
 
   it.each([
     "{}",
     '{"error":"not found","path":"/.well-known/http-message-signatures-directory"}',
-    '{"keys":{}}',
     "[]",
-  ])("fail 0 when the JSON body is not a keys directory (%s) — a JSON catch-all earns nothing", (body) => {
+  ])("fail 0 on a non-directory JSON body (%s)", (body) => {
     expect(check.run([basePage], withDir(body))).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it("fail when the crawler did not accept the file", () => {
-    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
+  it("skip (not reported as a failure) when the site publishes no directory", () => {
+    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "skip", score: 0 });
   });
 });
 
 // --- D2 api-catalog-rfc9727 ---
+// Observed live: GET https://developers.cloudflare.com/.well-known/api-catalog
+const CLOUDFLARE_API_CATALOG =
+  '{"linkset":[{"anchor":"https://developers.cloudflare.com/api/","service-desc":[{"href":"https://developers.cloudflare.com/openapi.json","type":"application/json"}],"service-doc":[{"href":"https://developers.cloudflare.com/api/","type":"text/html"}],"status":[{"href":"https://www.cloudflarestatus.com/api/v2/status.json","type":"application/json"}]}]}';
+
 describe("agent-auth: D2 api-catalog-rfc9727", () => {
   const check = agentAuthChecks.find((c) => c.id === "api-catalog-rfc9727")!;
   const withCatalog = (body: unknown): SiteMetadata => ({
     ...baseMeta,
-    wellKnown: { "api-catalog": JSON.stringify(body) },
+    wellKnown: { "api-catalog": typeof body === "string" ? body : JSON.stringify(body) },
+  });
+  const entry = { anchor: "https://example.com/api/", item: [{ href: "https://example.com/v1" }] };
+
+  it("pass for Cloudflare's live RFC 9727 linkset", () => {
+    expect(check.run([basePage], withCatalog(CLOUDFLARE_API_CATALOG))).toMatchObject({
+      status: "pass",
+      score: 100,
+    });
   });
 
-  it("pass when apis array with name+url entries", () => {
+  it("pass with one valid API entry even when a sibling link context carries no API relation", () => {
     const meta = withCatalog({
-      apis: [{ name: "Users API", url: "https://example.com/api/users" }],
+      linkset: [{ anchor: "https://example.com/", status: [{ href: "https://s.example" }] }, entry],
     });
     expect(check.run([basePage], meta)).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("partial when an apis array exists but entries miss required fields", () => {
-    const meta = withCatalog({ apis: [{ name: "Users API" }] });
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial", score: 50 });
-  });
-
   it.each([
-    {},
-    { error: "not found", path: "/.well-known/api-catalog" },
-    { apis: "Users API" },
-  ])("fail 0 when the object has no apis array (%j) — not partial", (body) => {
+    [
+      "the invented apis[] format",
+      { apis: [{ name: "Users API", url: "https://example.com/api" }] },
+    ],
+    ["an empty apis[]", { apis: [] }],
+    ["no linkset", {}],
+    ["a JSON catch-all body", { error: "not found", path: "/.well-known/api-catalog" }],
+    ["linkset not an array", { linkset: entry }],
+    ["an empty linkset", { linkset: [] }],
+    ["an entry without anchor", { linkset: [{ item: [{ href: "https://example.com/v1" }] }] }],
+    ["an entry with only an anchor", { linkset: [{ anchor: "https://example.com/api/" }] }],
+    [
+      "only non-API relations",
+      { linkset: [{ anchor: "https://x/", status: [{ href: "https://s" }] }] },
+    ],
+    ["an item target without href", { linkset: [{ anchor: "https://x/", item: [{ type: "a" }] }] }],
+    ["an empty service-desc", { linkset: [{ anchor: "https://x/", "service-desc": [] }] }],
+  ])("fail 0 for %s", (_label, body) => {
     expect(check.run([basePage], withCatalog(body))).toMatchObject({ status: "fail", score: 0 });
   });
 
   it("fail when the crawler did not accept the file", () => {
     expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("messages describe the RFC 9727 linkset, not the invented apis[] format", () => {
+    for (const meta of [baseMeta, withCatalog({ apis: [] }), withCatalog({ linkset: [] })]) {
+      expect(check.run([basePage], meta).message).not.toMatch(/apis/);
+    }
   });
 });
 
@@ -735,7 +798,7 @@ describe("agent-auth: check registry", () => {
     "mcp-auth-mechanism",
     "mcp-oauth-metadata",
     "mcp-pkce-s256",
-    "web-bot-auth-directory",
+    "agent-operator-signing",
     "api-catalog-rfc9727",
     "agent-allowlist",
     "mcp-server-card",

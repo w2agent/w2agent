@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { agentAuthChecks } from "../src/audit/checks/agent-auth.js";
 import { computeCategoryScore, runAudit } from "../src/audit/engine.js";
 import type {
   AuditReport,
@@ -189,5 +190,51 @@ describe("mapFailedChecksToFormats with tracked checks", () => {
     const mapped = mapFailedChecksToFormats(report);
     expect(mapped.formats).toEqual([]);
     expect(mapped.unfixable).toEqual([]);
+  });
+});
+
+describe("agent-operator-signing is tracked (P1-4)", () => {
+  // A Web Bot Auth directory identifies a bot operator; publishing one or not
+  // must never move the audited site's agent-auth score.
+  const signing = agentAuthChecks.find((c) => c.id === "agent-operator-signing") as Check;
+  const allowlist = agentAuthChecks.find((c) => c.id === "agent-allowlist") as Check;
+  const directory = JSON.stringify({
+    keys: [{ kty: "OKP", crv: "Ed25519", x: "7F_3jDlxaquwh291MiACkcS3Opq88NksyHiakzS-Y1g" }],
+    signature_agent: "https://chatgpt.com",
+  });
+
+  async function auditSigning(baseUrl: string, dir: string | undefined): Promise<AuditReport> {
+    const metadata: SiteMetadata = {
+      baseUrl,
+      wellKnown: { "http-message-signatures-directory": dir },
+      robotsTxt: "User-agent: GPTBot\nAllow: /\n\nUser-agent: *\nDisallow:",
+    };
+    const pages: FetchedPage[] = [
+      {
+        url: baseUrl,
+        status: 200,
+        html: "<html><head><title>T</title></head><body><p>hi</p></body></html>",
+        headers: { "content-type": "text/html" },
+        responseTime: 100,
+      },
+    ];
+    return runAudit(baseUrl, { prefetchedPages: pages, prefetchedMetadata: metadata }, undefined, [
+      signing,
+      allowlist,
+    ]);
+  }
+
+  it("pass, fail and absent directories leave the agent-auth score and top issues unchanged", async () => {
+    const variants = [
+      { report: await auditSigning("https://chatgpt.com", directory), status: "pass" },
+      { report: await auditSigning("https://example.com", directory), status: "fail" },
+      { report: await auditSigning("https://example.com", undefined), status: "skip" },
+    ];
+    for (const { report, status } of variants) {
+      expect(findResult(report, "agent-operator-signing")).toMatchObject({ status, tracked: true });
+      expect(findResult(report, "agent-allowlist")).toMatchObject({ status: "partial", score: 50 });
+      expect(report.categories.find((c) => c.id === "agent-auth")?.score).toBe(50);
+      expect(report.topIssues.map((i) => i.checkId)).not.toContain("agent-operator-signing");
+    }
   });
 });

@@ -549,18 +549,67 @@ const c3: Check = {
   },
 };
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function originOf(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 const d1: Check = {
-  ...mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0),
+  ...mk("agent-operator-signing", "Agent operator signing directory", 0),
+  tracked: true,
   run: (_pages, metadata) => {
-    const base = mk("web-bot-auth-directory", "HTTP message signatures directory", 1.0);
+    const base = mk("agent-operator-signing", "Agent operator signing directory", 0);
     const raw = metadata.wellKnown["http-message-signatures-directory"];
     if (raw === undefined)
-      return res(base, "fail", 0, "No HTTP message signatures directory found");
-    if (!Array.isArray(parseJsonObject(raw)?.keys))
-      return res(base, "fail", 0, "HTTP message signatures directory has no keys array");
-    return res(base, "pass", 100, "HTTP message signatures directory present and valid");
+      return res(
+        base,
+        "skip",
+        0,
+        "No agent operator signing directory — only sites that operate a signing bot publish one",
+      );
+    const dir = parseJsonObject(raw);
+    const keys = dir?.keys;
+    const hasEd25519Key =
+      Array.isArray(keys) &&
+      keys.some(
+        (k) => isObject(k) && k.kty === "OKP" && k.crv === "Ed25519" && typeof k.x === "string",
+      );
+    if (!hasEd25519Key)
+      return res(base, "fail", 0, "Signing directory has no Ed25519 JWK (kty OKP, crv Ed25519, x)");
+    const agentOrigin = originOf(dir?.signature_agent);
+    const siteOrigin = new URL(metadata.baseUrl).origin;
+    if (agentOrigin !== siteOrigin)
+      return res(
+        base,
+        "fail",
+        0,
+        `Signing directory signature_agent (${agentOrigin ?? "missing"}) does not match ${siteOrigin}`,
+      );
+    return res(base, "pass", 100, `Agent operator signing directory for ${siteOrigin}`);
   },
 };
+
+const LINKSET_API_RELATIONS = ["item", "service-desc", "service-doc"];
+
+function isApiLinkContext(entry: unknown): boolean {
+  if (!isObject(entry) || typeof entry.anchor !== "string") return false;
+  return LINKSET_API_RELATIONS.some((rel) => {
+    const targets = entry[rel];
+    return (
+      Array.isArray(targets) &&
+      targets.length > 0 &&
+      targets.every((t) => isObject(t) && typeof t.href === "string")
+    );
+  });
+}
 
 const d2: Check = {
   ...mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0),
@@ -568,23 +617,23 @@ const d2: Check = {
     const base = mk("api-catalog-rfc9727", "API catalog (RFC 9727)", 1.0);
     const raw = metadata.wellKnown["api-catalog"];
     if (raw === undefined)
-      return res(base, "fail", 0, "No API catalog at /.well-known/api-catalog");
-    const apis = parseJsonObject(raw)?.apis;
-    if (!Array.isArray(apis)) return res(base, "fail", 0, "API catalog has no apis array");
-    if (
-      apis.length > 0 &&
-      apis.every(
-        (api): api is Record<string, unknown> =>
-          typeof api === "object" && api !== null && "name" in api && "url" in api,
-      )
-    )
-      return res(base, "pass", 100, `API catalog found with ${apis.length} API(s)`);
-    return res(
-      base,
-      "partial",
-      50,
-      "API catalog found but missing required fields (apis[].name and apis[].url)",
-    );
+      return res(
+        base,
+        "fail",
+        0,
+        "No API catalog at /.well-known/api-catalog (application/linkset+json)",
+      );
+    const linkset = parseJsonObject(raw)?.linkset;
+    if (!Array.isArray(linkset)) return res(base, "fail", 0, "API catalog has no linkset array");
+    const apis = linkset.filter(isApiLinkContext).length;
+    if (apis === 0)
+      return res(
+        base,
+        "fail",
+        0,
+        "API catalog linkset has no entry with an anchor and item/service-desc/service-doc links",
+      );
+    return res(base, "pass", 100, `API catalog linkset found with ${apis} API(s)`);
   },
 };
 
