@@ -218,9 +218,12 @@ export async function probeSiteMetadata(
     "api-catalog",
     "mcp.json",
   ];
-  const [rootProbe, wellKnownProbe, ...wellKnownResults] = await Promise.all([
+  const [rootProbe, wellKnownProbe, apiCatalogProbe, ...wellKnownResults] = await Promise.all([
     fetchText(`${baseUrl}/${randomUUID()}`, options),
     fetchText(`${baseUrl}/.well-known/${randomUUID()}`, options),
+    fetchText(`${baseUrl}/.well-known/${randomUUID()}`, options, {
+      accept: WELL_KNOWN_MEDIA_TYPES["api-catalog"],
+    }),
     ...wellKnownPaths.map((path) =>
       path === "api-catalog"
         ? fetchText(`${baseUrl}/.well-known/${path}`, options, {
@@ -230,6 +233,7 @@ export async function probeSiteMetadata(
     ),
   ]);
   const catchAllBody = is2xx(wellKnownProbe) ? wellKnownProbe.text : undefined;
+  const apiCatalogCatchAllBody = is2xx(apiCatalogProbe) ? apiCatalogProbe.text : undefined;
 
   const wellKnown: Record<string, string | undefined> = {};
   wellKnownPaths.forEach((path, i) => {
@@ -240,7 +244,8 @@ export async function probeSiteMetadata(
       (requiredType
         ? mediaTypeEssence(result.contentType) === requiredType
         : isJsonContentType(result.contentType)) &&
-      result.text !== catchAllBody;
+      result.text !== catchAllBody &&
+      (path !== "api-catalog" || result.text !== apiCatalogCatchAllBody);
     wellKnown[path] = accepted ? result.text : undefined;
   });
 

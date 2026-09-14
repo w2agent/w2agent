@@ -404,6 +404,19 @@ describe("crawler gate covers the signatures directory, api-catalog and mcp.json
     expect(await check.run([], metadata)).toMatchObject({ status: "pass", score: 100 });
   });
 
+  it("a catch-all serving HTML by default but the same linkset+json body for every path on Accept → api-catalog not accepted, fail", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const accept = new Headers(init?.headers).get("accept") ?? "";
+      return accept.includes("application/linkset+json")
+        ? new Response(CLOUDFLARE_API_CATALOG, { headers: { "content-type": LINKSET_TYPE } })
+        : html(SPA_SHELL);
+    });
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["api-catalog"]).toBeUndefined();
+    const check = allChecks.find((c) => c.id === "api-catalog-rfc9727") as Check;
+    expect(await check.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
+  });
+
   it("rejects each path's spec media type on the other path", async () => {
     serve(
       withType(200, (path) =>
