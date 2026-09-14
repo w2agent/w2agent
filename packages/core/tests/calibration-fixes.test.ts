@@ -773,9 +773,12 @@ describe("user-agent reach checks (P1-7)", () => {
     outcome: "ok",
     ...over,
   });
-  const metaWith = (openai?: import("../src/audit/types.js").MultiUaResponse): SiteMetadata => ({
+  const metaWith = (
+    response?: import("../src/audit/types.js").MultiUaResponse,
+    key = "openai",
+  ): SiteMetadata => ({
     ...makeMeta("https://example.com"),
-    multiUaResponses: openai ? { openai } : {},
+    multiUaResponses: response ? { [key]: response } : {},
   });
   const uaOf = (token: string) => BOT_TOKENS.find((b) => b.token === token)?.uaString;
 
@@ -896,7 +899,9 @@ describe("user-agent reach checks (P1-7)", () => {
     expect(result.openai.outcome).toBe("ok");
     expect(result.perplexity.outcome).toBe("budget-skipped");
     expect(result.google.outcome).toBe("budget-skipped");
-    expect((await reachGoogle.run([page], metaWith(result.google))).status).toBe("error");
+    const google = await reachGoogle.run([page], metaWith(result.google, "google"));
+    expect(google.status).toBe("error");
+    expect(google.message).toContain("time budget exhausted");
   });
 
   // Robots posture is ai-agent-access's job, and these user fetchers may ignore robots.txt.

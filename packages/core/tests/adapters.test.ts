@@ -382,14 +382,33 @@ describe("WordPress checks", () => {
     expect((result as any).status).toBe("pass");
   });
 
-  it("wp-robots-default-blocking fails when AI bots blocked", () => {
+  // D-2: must agree with ai-agent-access, which scores training opt-outs as neutral.
+  it("wp-robots-default-blocking passes when only training crawlers are blocked", () => {
     const check = wordpressAdapter.checks.find((c) => c.id === "wp-robots-default-blocking")!;
     const meta = {
       ...baseMeta,
-      robotsTxt: "User-agent: GPTBot\nDisallow: /\nUser-agent: ClaudeBot\nDisallow: /\n",
+      robotsTxt: "User-agent: GPTBot\nDisallow: /\n\nUser-agent: ClaudeBot\nDisallow: /\n",
     };
-    const result = check.run([], meta);
-    expect((result as any).status).toBe("fail");
+    expect(check.run([], meta)).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("wp-robots-default-blocking deducts 20 per blocked user/search token, evaluated by robots-parser", () => {
+    const check = wordpressAdapter.checks.find((c) => c.id === "wp-robots-default-blocking")!;
+    const meta = {
+      ...baseMeta,
+      robotsTxt:
+        "User-agent: ChatGPT-User\nUser-agent: PerplexityBot\nDisallow: /\n\nUser-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /private\n",
+    };
+    const result = check.run([], meta) as any;
+    expect(result).toMatchObject({ status: "fail", score: 60 });
+    expect(result.message).toContain("ChatGPT-User, PerplexityBot");
+    expect(result.message).not.toContain("GPTBot,");
+  });
+
+  it("wp-robots-default-blocking does not treat a path-only disallow as blocking", () => {
+    const check = wordpressAdapter.checks.find((c) => c.id === "wp-robots-default-blocking")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: ChatGPT-User\nDisallow: /wp-admin/\n" };
+    expect(check.run([], meta)).toMatchObject({ status: "pass", score: 100 });
   });
 });
 
@@ -542,11 +561,31 @@ describe("Astro checks", () => {
     expect((result as any).status).toBe("pass");
   });
 
-  it("astro-robots-txt fails when AI bots blocked", () => {
+  // D-2: must agree with ai-agent-access, which scores training opt-outs as neutral.
+  it("astro-robots-txt passes when only training crawlers are blocked", () => {
     const check = astroAdapter.checks.find((c) => c.id === "astro-robots-txt")!;
-    const meta = { ...baseMeta, robotsTxt: "User-agent: GPTBot\nDisallow: /\n" };
-    const result = check.run([], meta);
-    expect((result as any).status).toBe("fail");
+    const meta = {
+      ...baseMeta,
+      robotsTxt: "User-agent: GPTBot\nUser-agent: ClaudeBot\nUser-agent: CCBot\nDisallow: /\n",
+    };
+    expect(check.run([], meta)).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("astro-robots-txt fails when a user-initiated or search token is blocked at the root", () => {
+    const check = astroAdapter.checks.find((c) => c.id === "astro-robots-txt")!;
+    const meta = {
+      ...baseMeta,
+      robotsTxt: "User-agent: Claude-User\nDisallow: /\n\nUser-agent: *\nDisallow: /admin\n",
+    };
+    const result = check.run([], meta) as any;
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toBe("robots.txt blocks AI bots: Claude-User");
+  });
+
+  it("astro-robots-txt does not treat a path-only disallow as blocking", () => {
+    const check = astroAdapter.checks.find((c) => c.id === "astro-robots-txt")!;
+    const meta = { ...baseMeta, robotsTxt: "User-agent: ChatGPT-User\nDisallow: /drafts/\n" };
+    expect(check.run([], meta)).toMatchObject({ status: "pass", score: 100 });
   });
 });
 

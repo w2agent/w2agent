@@ -109,6 +109,8 @@ export interface MultiUaResponse {
 export interface SiteMetadata {
   baseUrl: string;
   robotsTxt?: string;
+  /** HTTP status of the robots.txt fetch; 0 = no response (network error, timeout, or 429/503 retries exhausted). */
+  robotsTxtStatus?: number;
   sitemapXml?: string;
   llmsTxt?: string;
   wellKnown: Record<string, string | undefined>;

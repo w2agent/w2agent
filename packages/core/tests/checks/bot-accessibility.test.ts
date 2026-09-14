@@ -1,3 +1,4 @@
+import robotsParser from "robots-parser";
 import { describe, expect, it } from "vitest";
 import {
   aiAgentAccess,
@@ -44,14 +45,36 @@ describe("ai-agent-access", () => {
     expect(result).toMatchObject({ status: "fail", score: 0, severity: "error" });
     expect(result.message).toContain("ChatGPT-User");
     expect(result.message).toContain("declares intent to block");
-    expect(result.fixSnippet).toContain("User-agent: ChatGPT-User\nAllow: /");
+  });
+
+  // Appending "User-agent: ChatGPT-User / Allow: /" merges into the owner's group, where the
+  // longer "Disallow: /*" still wins — the old snippet left the check failing after applying it.
+  it("named-group block: the snippet tells the owner which root Disallow line to remove, not a merge group", () => {
+    const robotsTxt = "User-agent: ChatGPT-User\nDisallow: /*";
+    const result = run(robotsTxt);
+    expect(result.fixSnippet).toContain(
+      '# ChatGPT-User is blocked by a group that names it (User-agent: ChatGPT-User). Remove from that group: "Disallow: /*" (line 2)',
+    );
+    expect(result.fixSnippet).not.toMatch(/^(User-agent|Allow):/m);
+  });
+
+  it("wildcard block: applying the snippet makes the check pass and keeps * path restrictions", () => {
+    const robotsTxt =
+      "User-agent: *\nDisallow: /*\nDisallow: /private/\n\nUser-agent: GPTBot\nDisallow: /";
+    const result = run(robotsTxt);
+    const applied = `${robotsTxt}\n\n${result.fixSnippet}`;
+    expect(run(applied)).toMatchObject({ status: "pass", score: 100 });
+    const robots = robotsParser("https://example.com/robots.txt", applied);
+    expect(robots.isAllowed("https://example.com/private/a", "ChatGPT-User")).toBe(false);
+    expect(robots.isAllowed("https://example.com/", "GPTBot")).toBe(false);
+    expect(result.fixSnippet).not.toContain("GPTBot");
   });
 
   it("only warns (partial 50) when an AI search fetcher is blocked — lost discoverability, not refused agents", () => {
     const result = run("User-agent: PerplexityBot\nDisallow: /");
     expect(result).toMatchObject({ status: "partial", score: 50, severity: "warning" });
     expect(result.message).toContain("PerplexityBot");
-    expect(result.fixSnippet).toContain("User-agent: PerplexityBot\nAllow: /");
+    expect(result.fixSnippet).toContain("PerplexityBot is blocked by a group that names it");
   });
 
   it("stays pass 100 when only training crawlers are blocked — opting out of training is neutral (D-2)", () => {
@@ -82,10 +105,31 @@ describe("ai-agent-access", () => {
     expect(run("User-agent: *\nDisallow: /private")).toMatchObject({ status: "pass", score: 100 });
   });
 
-  it("passes when there is no robots.txt — nothing is blocked (absence is scored by robots-txt-exists)", () => {
-    const result = run(undefined);
+  const runStatus = (robotsTxtStatus: number | undefined) =>
+    aiAgentAccess.run([basePage], { ...baseMeta, robotsTxtStatus });
+
+  it("passes on a 4xx robots.txt — RFC 9309 'unavailable' means crawlers may access everything", () => {
+    const result = runStatus(404);
     expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("nothing is blocked");
+    expect(result.message).toContain("crawlers may access everything");
+  });
+
+  it("fails on a 5xx robots.txt — RFC 9309 'unreachable' means crawlers must assume complete disallow", () => {
+    const result = runStatus(500);
+    expect(result).toMatchObject({ status: "fail", score: 0, severity: "error" });
+    expect(result.message).toContain("returned 500");
+    expect(result.message).toContain("assume complete disallow");
+  });
+
+  // fetchText returns null for network errors, timeouts, and 429/503 after retries, so a
+  // persistent 503 lands here too: we did not observe a status, so it is unmeasured, not a finding.
+  it("reports error (unmeasured) when the robots.txt fetch got no response", () => {
+    expect(runStatus(0)).toMatchObject({ status: "error", score: 0 });
+  });
+
+  it("passes on a 200 HTML soft-404 (robotsTxt absent) and on hand-built metadata with no status", () => {
+    expect(runStatus(200)).toMatchObject({ status: "pass", score: 100 });
+    expect(run(undefined)).toMatchObject({ status: "pass", score: 100 });
   });
 
   it("never evaluates Google-Agent — it has no robots.txt token; only notes it in details", () => {

@@ -1,3 +1,4 @@
+import { findBlockedTokens } from "../../audit/shared/robots-fix.js";
 import type { Check, FetchedPage, SiteMetadata } from "../../audit/types.js";
 
 export const wpRestApiCheck: Check = {
@@ -64,7 +65,7 @@ export const wpSecurityBlockingCheck: Check = {
           : `Security plugin(s) detected: ${found.join(", ")}. May block AI crawlers.`,
       details:
         found.length > 0
-          ? "Check plugin settings to whitelist AI bot user agents (GPTBot, ClaudeBot, etc.)"
+          ? "Check plugin settings to whitelist AI bot user agents (ChatGPT-User, Claude-User, OAI-SearchBot, etc.)"
           : undefined,
     };
   },
@@ -77,13 +78,8 @@ export const wpRobotsBlockingCheck: Check = {
   weight: 1,
   severity: "warning",
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
-    const robots = metadata.robotsTxt || "";
-    const aiBots = ["gptbot", "claudebot", "anthropic", "chatgpt", "google-extended", "ccbot"];
-    const blocked = aiBots.filter(
-      (bot) =>
-        robots.toLowerCase().includes(`user-agent: ${bot}`) &&
-        robots.toLowerCase().includes("disallow: /"),
-    );
+    const { user, search } = findBlockedTokens(metadata.robotsTxt || "", metadata.baseUrl);
+    const blocked = [...user, ...search];
 
     return {
       id: this.id,

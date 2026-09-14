@@ -7,7 +7,7 @@
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | robots.txt exists | `robots-txt-exists` | robots.txt is accessible |
-| AI agent access | `ai-agent-access` | robots.txt root access per vendor-documented token (`src/audit/shared/bot-tokens.ts`): user-initiated agent blocked = fail (error); search fetcher blocked = partial (warning); training crawlers reported only, never scored |
+| AI agent access | `ai-agent-access` | robots.txt root access per vendor-documented token (`src/audit/shared/bot-tokens.ts`): user-initiated agent blocked = fail (error); search fetcher blocked = partial (warning); training crawlers reported only, never scored. No robots.txt (4xx, or a 200 HTML soft-404) = pass; robots.txt 5xx = fail (error; RFC 9309 unreachable = assume complete disallow); no response (network error, timeout, 429/503 retries exhausted) = `error` (unmeasured) |
 | XML sitemap exists | `sitemap-exists` | Valid sitemap.xml present |
 | Response time | `response-time` | Average page load <2s |
 | Content negotiation | `content-negotiation` | Responds to `Accept: text/markdown` |
@@ -90,7 +90,7 @@ These checks run automatically when a platform is detected.
 |-------|----|-----------------|
 | REST API Accessible | `wp-rest-api-accessible` | Is `/wp-json/wp/v2/` reachable? |
 | Security Plugin Bot Blocking | `wp-security-blocking-bots` | Wordfence/Sucuri/iThemes blocking AI bots? |
-| Robots.txt AI Bot Rules | `wp-robots-default-blocking` | Does WP robots.txt block AI crawlers? |
+| Robots.txt AI Bot Rules | `wp-robots-default-blocking` | Does WP robots.txt block user-initiated or search AI tokens at the root (same token table and robots-parser evaluation as `ai-agent-access`; training opt-outs not penalised)? 100 − 20 per blocked token |
 | Page Builder Markup | `wp-page-builder-soup` | Elementor/Divi/WPBakery div-heavy markup hurting parsability? |
 
 ### Next.js (3 checks)
@@ -123,7 +123,7 @@ These checks run automatically when a platform is detected.
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | Sitemap Integration | `astro-sitemap-integration` | Is `@astrojs/sitemap` generating a sitemap? |
-| robots.txt | `astro-robots-txt` | Does robots.txt exist and allow AI bots? |
+| robots.txt | `astro-robots-txt` | Does robots.txt exist and leave user-initiated and search AI tokens unblocked at the root (same evaluation as `ai-agent-access`; training opt-outs not penalised)? |
 | Rendering Mode | `astro-ssr-mode` | Are pages fully rendered (static or SSR)? |
 
 ### Docusaurus (2 checks)

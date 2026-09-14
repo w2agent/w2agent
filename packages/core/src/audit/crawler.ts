@@ -219,6 +219,7 @@ export async function probeSiteMetadata(
   const metadata: SiteMetadata = {
     baseUrl,
     robotsTxt: isTextFile(robotsResult) ? robotsResult.text : undefined,
+    robotsTxtStatus: robotsResult?.status ?? 0,
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
     llmsTxt: isTextFile(llmsResult) ? llmsResult.text : llmsTxtFallback,
     wellKnown,

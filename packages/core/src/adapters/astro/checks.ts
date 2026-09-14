@@ -1,3 +1,4 @@
+import { findBlockedTokens } from "../../audit/shared/robots-fix.js";
 import type { Check, FetchedPage, SiteMetadata } from "../../audit/types.js";
 
 export const astroSitemapIntegrationCheck: Check = {
@@ -51,19 +52,8 @@ export const astroRobotsTxtCheck: Check = {
       };
     }
 
-    // Check if AI bots are blocked
-    const aiBots = [
-      "gptbot",
-      "claudebot",
-      "chatgpt-user",
-      "anthropic",
-      "cohere-ai",
-      "perplexitybot",
-    ];
-    const blocked = aiBots.filter((bot) => {
-      const pattern = new RegExp(`user-agent:\\s*${bot}[\\s\\S]*?disallow:\\s*/`, "i");
-      return pattern.test(robotsTxt);
-    });
+    const { user, search } = findBlockedTokens(robotsTxt, metadata.baseUrl);
+    const blocked = [...user, ...search];
 
     if (blocked.length > 0) {
       return {

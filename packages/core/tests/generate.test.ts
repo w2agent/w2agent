@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import robotsParser from "robots-parser";
 import { describe, expect, it } from "vitest";
-import { ROBOTS_TOKENS } from "../src/audit/shared/bot-tokens.js";
+import { aiAgentAccess } from "../src/audit/checks/bot-accessibility.js";
+import { BOT_TOKENS } from "../src/audit/shared/bot-tokens.js";
 import type { FetchedPage } from "../src/audit/types.js";
 import { generateAgentCard } from "../src/generate/agent-card.js";
 import { generateAgentsMd } from "../src/generate/agents-md.js";
@@ -388,55 +390,80 @@ function makeFetchedPage(url: string, html: string): FetchedPage {
 // --- robots-txt generation ---
 
 describe("generateRobotsTxt", () => {
-  it("generates full robots.txt when none exists", () => {
-    const ctx = makeCtx();
-    const result = generateRobotsTxt(ctx);
+  const withRobots = (robotsTxt: string) =>
+    generateRobotsTxt(
+      makeCtx({ metadata: { baseUrl: "https://example.com", robotsTxt, wellKnown: {} } }),
+    );
+  const TAIL =
+    "\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
+  const blockedFor = (robotsTxt: string, token: string, path = "/") =>
+    robotsParser("https://example.com/robots.txt", robotsTxt).isAllowed(
+      `https://example.com${path}`,
+      token,
+    ) === false;
+  const accessOf = (robotsTxt: string) =>
+    aiAgentAccess.run([], { baseUrl: "https://example.com", robotsTxt, wellKnown: {} });
 
-    expect(result).toContain("User-agent: *");
-    expect(result).toContain("Allow: /");
-    expect(result).toContain("User-agent: GPTBot");
-    expect(result).toContain("User-agent: ClaudeBot");
-    expect(result).toContain("User-agent: PerplexityBot");
-    expect(result).toContain("Sitemap: https://example.com/sitemap.xml");
-    expect(result).toContain("# llms.txt: https://example.com/llms.txt");
+  // A named group overrides User-agent: * for that bot, so per-token groups would
+  // silently lift every path restriction the owner later adds under *.
+  it("generates a plain allow-all robots.txt with no per-token groups when none exists", () => {
+    const result = generateRobotsTxt(makeCtx());
+    expect(result).toBe(`User-agent: *\nAllow: /\n${TAIL}`);
   });
 
-  it("emits only vendor-documented tokens — delisted or undocumented tokens are never suggested", () => {
-    const result = generateRobotsTxt(makeCtx());
-    expect(result).toContain("User-agent: Claude-User");
+  it("wildcard block: appends one group for user/search tokens that keeps the site's * path rules", () => {
+    const existing = `User-agent: *\nDisallow: /*\nDisallow: /private/\n${TAIL}`;
+    const result = withRobots(existing);
+
+    expect(accessOf(existing).status).toBe("fail");
+    expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
+    expect(result.match(/^Allow: \/$/gm)).toHaveLength(1);
+    for (const bot of BOT_TOKENS.filter((b) => b.robotsToken && b.purpose !== "training")) {
+      expect(result).toContain(`User-agent: ${bot.token}\n`);
+      expect(blockedFor(result, bot.token, "/"), bot.token).toBe(false);
+      expect(blockedFor(result, bot.token, "/private/x"), bot.token).toBe(true);
+    }
+  });
+
+  it("never emits training tokens — opting out of training is the owner's call (D-2)", () => {
+    const result = withRobots(`User-agent: *\nDisallow: /\n${TAIL}`);
+    for (const bot of BOT_TOKENS.filter((b) => b.purpose === "training")) {
+      expect(result).not.toContain(`User-agent: ${bot.token}`);
+      expect(blockedFor(result, bot.token), bot.token).toBe(true);
+    }
     for (const stale of ["Claude-Web", "anthropic-ai", "cohere-ai", "Bytespider", "Google-Agent"]) {
       expect(result).not.toContain(`User-agent: ${stale}`);
     }
   });
 
-  it("appends missing bot rules to existing robots.txt", () => {
-    const ctx = makeCtx({
-      metadata: {
-        baseUrl: "https://example.com",
-        robotsTxt: "User-agent: *\nAllow: /\n\nUser-agent: GPTBot\nAllow: /\n",
-        wellKnown: {},
-      },
-    });
-    const result = generateRobotsTxt(ctx);
-
-    expect(result).toContain("User-agent: *");
-    expect(result).toContain("# --- w2agent: suggested AI bot rules ---");
-    expect(result).toContain("User-agent: ClaudeBot");
-    // GPTBot already exists, should not be duplicated
-    const gptbotMatches = result.match(/User-agent: GPTBot/g);
-    expect(gptbotMatches).toHaveLength(1);
+  it("appends no group when nothing user/search is blocked, even with * path rules", () => {
+    const existing = `User-agent: *\nDisallow: /private/\n\nUser-agent: GPTBot\nDisallow: /\n${TAIL}`;
+    expect(withRobots(existing)).toBe(existing);
   });
 
-  it("returns existing robots.txt unchanged if all bots covered", () => {
-    const existing =
-      ROBOTS_TOKENS.map((b) => `User-agent: ${b}\nAllow: /`).join("\n\n") +
-      "\n\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
+  it("named-group block: emits a removal instruction instead of a group that would merge and still lose", () => {
+    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nDisallow: /*\n${TAIL}`;
+    const result = withRobots(existing);
 
-    const ctx = makeCtx({
-      metadata: { baseUrl: "https://example.com", robotsTxt: existing, wellKnown: {} },
-    });
-    const result = generateRobotsTxt(ctx);
-    expect(result).toBe(existing);
+    expect(result.slice(existing.trimEnd().length)).not.toMatch(/^(User-agent|Allow|Disallow):/m);
+    expect(result).toContain(
+      '# ChatGPT-User is blocked by a group that names it (User-agent: ChatGPT-User). Remove from that group: "Disallow: /*" (line 5)',
+    );
+  });
+
+  it("matches groups by exact token, so an Applebot-Extended group does not cover Applebot", () => {
+    const existing = `User-agent: *\nDisallow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(result).toContain("User-agent: Applebot\n");
+    expect(result).not.toContain("Applebot is blocked by a group");
+    expect(blockedFor(result, "Applebot")).toBe(false);
+  });
+
+  it("treats a versioned User-agent line as naming the token, like robots-parser does", () => {
+    const existing = `User-agent: ChatGPT-User/1.0\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(result).toContain("ChatGPT-User is blocked by a group that names it");
+    expect(result).not.toContain("User-agent: ChatGPT-User\n");
   });
 });
 

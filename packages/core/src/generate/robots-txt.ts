@@ -1,4 +1,4 @@
-import { ROBOTS_TOKENS } from "../audit/shared/bot-tokens.js";
+import { robotsAccessFixLines } from "../audit/shared/robots-fix.js";
 import type { GenerateContext } from "./types.js";
 
 export function generateRobotsTxt(ctx: GenerateContext): string {
@@ -19,12 +19,6 @@ function generateFull(baseUrl: string): string {
   lines.push("Allow: /");
   lines.push("");
 
-  for (const bot of ROBOTS_TOKENS) {
-    lines.push(`User-agent: ${bot}`);
-    lines.push("Allow: /");
-    lines.push("");
-  }
-
   lines.push(`Sitemap: ${baseUrl}/sitemap.xml`);
   lines.push(`# llms.txt: ${baseUrl}/llms.txt`);
   lines.push("");
@@ -37,12 +31,10 @@ function appendMissingRules(existing: string, baseUrl: string): string {
   const content = existing.toLowerCase();
   const additions: string[] = [];
 
-  for (const bot of ROBOTS_TOKENS) {
-    if (!content.includes(bot.toLowerCase())) {
-      additions.push(`User-agent: ${bot}`);
-      additions.push("Allow: /");
-      additions.push("");
-    }
+  const accessFix = robotsAccessFixLines(existing, baseUrl);
+  if (accessFix.length > 0) {
+    additions.push(...accessFix);
+    additions.push("");
   }
 
   if (!content.includes("sitemap:")) {

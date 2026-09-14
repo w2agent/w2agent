@@ -304,6 +304,25 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("records the robots.txt fetch status, 0 when there was no response", async () => {
+    const cases: Array<[Awaited<ReturnType<typeof fetchText>>, number, boolean]> = [
+      [{ text: "User-agent: *", status: 200, contentType: "text/plain" }, 200, true],
+      [{ text: "down", status: 500, contentType: "text/plain" }, 500, false],
+      [{ text: "<html>nope</html>", status: 200, contentType: "text/html" }, 200, false],
+      [null, 0, false],
+    ];
+    for (const [robots, status, hasText] of cases) {
+      mockFetchText.mockImplementation(async (url: string) =>
+        url.endsWith("/robots.txt") ? robots : null,
+      );
+      const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
+      await vi.runAllTimersAsync();
+      const { metadata } = await promise;
+      expect(metadata.robotsTxtStatus).toBe(status);
+      expect(metadata.robotsTxt !== undefined).toBe(hasText);
+    }
+  });
+
   it("fetches oauth-authorization-server and oauth-protected-resource well-known paths", async () => {
     mockFetchText.mockImplementation(async (url: string) => {
       if (url.endsWith("/robots.txt"))

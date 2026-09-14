@@ -1,6 +1,6 @@
-import robotsParser from "robots-parser";
 import { checkContentNegotiation } from "../../shared/fetcher.js";
-import { BOT_TOKENS, type BotPurpose } from "../shared/bot-tokens.js";
+import { BOT_TOKENS } from "../shared/bot-tokens.js";
+import { findBlockedTokens, robotsAccessFixLines } from "../shared/robots-fix.js";
 import type { Check } from "../types.js";
 
 export const robotsTxtExists: Check = {
@@ -46,28 +46,42 @@ export const aiAgentAccess: Check = {
     };
 
     if (!metadata.robotsTxt) {
+      const status = metadata.robotsTxtStatus;
+      if (status === 0) {
+        return {
+          ...base,
+          status: "error",
+          score: 0,
+          message:
+            "Unmeasured — robots.txt fetch failed (network error, timeout, or retries exhausted)",
+          details: GOOGLE_AGENT_NOTE,
+          severity: "info",
+        };
+      }
+      if (status !== undefined && status >= 500) {
+        return {
+          ...base,
+          status: "fail",
+          score: 0,
+          message: `robots.txt returned ${status}; per RFC 9309 crawlers must assume complete disallow`,
+          details: GOOGLE_AGENT_NOTE,
+          severity: "error",
+        };
+      }
       return {
         ...base,
         status: "pass",
         score: 100,
-        message: "No robots.txt — nothing is blocked",
+        message: "No robots.txt — crawlers may access everything",
         details: GOOGLE_AGENT_NOTE,
         severity: "info",
       };
     }
 
-    const robots = robotsParser(`${metadata.baseUrl}/robots.txt`, metadata.robotsTxt);
-    const blocked: Record<BotPurpose, string[]> = { user: [], search: [], training: [] };
-    const trainingAllowed: string[] = [];
-
-    for (const bot of BOT_TOKENS) {
-      if (!bot.robotsToken) continue;
-      if (robots.isAllowed(`${metadata.baseUrl}/`, bot.token) === false) {
-        blocked[bot.purpose].push(bot.token);
-      } else if (bot.purpose === "training") {
-        trainingAllowed.push(bot.token);
-      }
-    }
+    const blocked = findBlockedTokens(metadata.robotsTxt, metadata.baseUrl);
+    const trainingAllowed = BOT_TOKENS.filter(
+      (b) => b.robotsToken && b.purpose === "training" && !blocked.training.includes(b.token),
+    ).map((b) => b.token);
 
     const details = [
       blocked.user.length > 0 ? `User-initiated blocked: ${blocked.user.join(", ")}` : undefined,
@@ -78,10 +92,10 @@ export const aiAgentAccess: Check = {
       .filter(Boolean)
       .join("\n");
 
-    const fixable = [...blocked.user, ...blocked.search];
+    const fixLines = robotsAccessFixLines(metadata.robotsTxt, metadata.baseUrl);
     const fixSnippet =
-      fixable.length > 0
-        ? `# Allow AI agents and search fetchers in robots.txt:\n${fixable.map((t) => `User-agent: ${t}\nAllow: /`).join("\n\n")}`
+      fixLines.length > 0
+        ? `# Allow AI agents and search fetchers in robots.txt:\n${fixLines.join("\n")}`
         : undefined;
 
     if (blocked.user.length > 0) {
