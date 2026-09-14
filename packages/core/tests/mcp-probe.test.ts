@@ -285,6 +285,7 @@ describe("probeMcpEndpoint protocol handling", () => {
       "error param first",
       'Bearer error="invalid_token", resource_metadata="https://example.com/prm"',
     ],
+    ["second Bearer challenge", "Bearer realm=a, Bearer resource_metadata=https://example.com/prm"],
   ])("a 401 whose Bearer challenge carries resource_metadata confirms the endpoint (%s)", async (_label, header) => {
     mockSite((url, call) =>
       url.href === ENDPOINT && call.method === "POST"

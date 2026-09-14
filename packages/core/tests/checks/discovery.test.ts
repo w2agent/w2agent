@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../../src/audit/checks/agent-auth.js";
 import {
   discoveryChecks,
+  findMcpServerCard,
   llmsTxtExists,
   llmsTxtLinksResolve,
   llmsTxtValid,
@@ -202,9 +203,45 @@ describe("well-known-agent-card (A2A v1.0 validation, P1-10)", () => {
     expect(result.message).toContain("stub");
   });
 
-  it("v0.3 needs both url and preferredTransport: url alone fails", () => {
-    const { preferredTransport: _, ...urlOnly } = V03_CARD;
-    expect(run(urlOnly)).toMatchObject({ status: "fail", score: 0 });
+  it("a canonical A2A 0.3 card without preferredTransport (optional, defaults to JSONRPC) is v0.3 partial 50", () => {
+    const { preferredTransport: _, ...canonical } = V03_CARD;
+    const result = run(canonical);
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toContain("v0.3");
+  });
+
+  it("a v0.3 card with preferredTransport but no capabilities or skills is still v0.3 partial 50", () => {
+    expect(
+      run({ name: "Agent", url: "https://example.com/a2a", preferredTransport: "JSONRPC" }),
+    ).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it.each([
+    ["{name, url} alone", {}],
+    ["capabilities without skills", { capabilities: {} }],
+    ["skills without capabilities", { skills: [] }],
+  ])("%s is not a v0.3 card: fail 0", (_label, extra) => {
+    expect(run({ name: "Agent", url: "https://example.com/a2a", ...extra })).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
+  });
+
+  it.each([
+    "/a2a",
+    "/",
+  ])("a v0.3 card whose url is relative (%s) is not an A2A card: fail 0", (url) => {
+    expect(run({ ...V03_CARD, url })).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it.each([
+    "/a2a",
+    "/",
+    "ftp://example.com/a2a",
+  ])("a v1.0 card whose interface url is not an absolute http(s) URL (%s) fails 0 naming supportedInterfaces", (url) => {
+    const result = run(withInterfaces(url));
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).toContain("supportedInterfaces");
   });
 
   it("a name-only card fails 0 and names the missing v1.0 fields", () => {
@@ -324,6 +361,71 @@ describe("mcp-server-card (tracked, P1-9)", () => {
     expect(result).toMatchObject({ status: "pass", score: 100, weight: 0 });
     expect(result.message).toContain("MCP endpoint");
     expect(requested(spy)).toEqual(["https://mcp.example.com/mcp/server-card"]);
+  });
+
+  it("a catch-all site that echoes card-shaped JSON on every path earns no server card from same-origin fetches", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse(CARD, "application/json"));
+    const result = await mcpServerCard.run([basePage], {
+      ...baseMeta,
+      catchAll: true,
+      mcpEndpoint: "https://example.com/mcp",
+      wellKnown: {
+        "ai-catalog.json": JSON.stringify({
+          entries: [{ type: "application/mcp-server-card+json", url: "/cards/mcp.json" }],
+        }),
+      },
+    });
+    expect(result.status).toBe("skip");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("under catch-all, an off-origin endpoint and catalog entry are still fetched and credited", async () => {
+    const spy = serve({
+      "https://api.githubcopilot.com/mcp/server-card": () => jsonResponse(CARD),
+    });
+    const result = await mcpServerCard.run([basePage], {
+      ...baseMeta,
+      catchAll: true,
+      mcpEndpoint: MCP_ENDPOINT,
+      wellKnown: { "ai-catalog.json": JSON.stringify(GITHUB_CATALOG) },
+    });
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(requested(spy)).toEqual([
+      "https://mcp.example.com/mcp/server-card",
+      "https://api.githubcopilot.com/mcp/server-card",
+    ]);
+  });
+
+  it("the fetched shapes share one wall-clock budget, and the legacy card is still read after it is spent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
+    const started = Date.now();
+    const result = await findMcpServerCard(
+      {
+        ...baseMeta,
+        mcpEndpoint: MCP_ENDPOINT,
+        wellKnown: {
+          "ai-catalog.json": JSON.stringify({
+            entries: [1, 2, 3].map((n) => ({
+              type: "application/mcp-server-card+json",
+              url: `https://cards${n}.example.net/card.json`,
+            })),
+          }),
+          "mcp/server-card.json": JSON.stringify(CARD),
+        },
+      },
+      undefined,
+      150,
+    );
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+    expect(result.message).toContain("legacy");
   });
 
   it("shape 2: an ai-catalog.json entry of type application/mcp-server-card+json is fetched off-origin and passes", async () => {

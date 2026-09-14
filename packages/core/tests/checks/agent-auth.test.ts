@@ -662,6 +662,47 @@ describe("agent-auth: mcp-auth", () => {
     expect(r["oauth-discovery"].status).toBe("pass");
     expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
     expect(r["mcp-auth"].message).toContain("oauth-discovery");
+    expect(fetched.filter((u) => u === rootPrm)).toHaveLength(1);
+  });
+
+  it("mcp-auth waits for the shared discovery and reuses its PRM fetch instead of resolving on its own first", async () => {
+    const rootPrm = "https://example.com/.well-known/oauth-protected-resource";
+    routeFetch((url) => {
+      if (url === "https://example.com/api/")
+        return unauthorized(`Bearer resource_metadata="${rootPrm}"`);
+      if (url === rootPrm)
+        return jsonResp({ resource: "https://example.com", authorization_servers: [AUTH0] });
+      if (url === `${AUTH0}.well-known/oauth-authorization-server`) return jsonResp(auth0As);
+      return undefined;
+    });
+    const meta = {
+      ...mcpMeta(401, `Bearer resource_metadata="${rootPrm}"`, "https://example.com/mcp"),
+      baseUrl: "https://example.com",
+    };
+    const r = await runChecks(["mcp-auth"], meta);
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(fetched.filter((u) => u === rootPrm)).toHaveLength(1);
+    expect(fetched.indexOf("https://example.com/api/")).toBeLessThan(fetched.indexOf(rootPrm));
+  });
+
+  it("a root PRM the crawler already retrieved is not fetched again for mcp-auth", async () => {
+    const rootPrm = "https://example.com/.well-known/oauth-protected-resource";
+    const rootDoc = { resource: "https://example.com", authorization_servers: [AUTH0] };
+    routeFetch((url) => {
+      if (url === rootPrm) return jsonResp(rootDoc);
+      if (url === `${AUTH0}.well-known/oauth-authorization-server`) return jsonResp(auth0As);
+      return undefined;
+    });
+    const base = mcpMeta(401, `Bearer resource_metadata="${rootPrm}"`, "https://example.com/mcp");
+    const meta = {
+      ...base,
+      baseUrl: "https://example.com",
+      wellKnown: { "oauth-protected-resource": JSON.stringify(rootDoc) },
+    };
+    const r = await runChecks(["oauth-discovery", "mcp-auth"], meta);
+    expect(r["oauth-discovery"].status).toBe("pass");
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(fetched).not.toContain(rootPrm);
   });
 
   it("scores separately when the MCP endpoint has its own PRM document", async () => {

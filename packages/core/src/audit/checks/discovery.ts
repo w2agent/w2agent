@@ -198,8 +198,8 @@ export const wellKnownAgentCard: Check = {
         "partial",
         50,
         stub
-          ? `A2A v0.3 agent card (url + preferredTransport) is ${stub}; ${needs}`
-          : `A2A v0.3 agent card (url + preferredTransport); ${needs}`,
+          ? `A2A v0.3 agent card (top-level url) is ${stub}; ${needs}`
+          : `A2A v0.3 agent card (top-level url); ${needs}`,
       );
     }
     return agentCardResult(
@@ -213,6 +213,7 @@ export const wellKnownAgentCard: Check = {
 const MCP_SERVER_CARD_TYPE = "application/mcp-server-card+json";
 const MAX_CATALOG_ENTRIES = 3;
 const SERVER_CARD_TIMEOUT_MS = 5000;
+const SERVER_CARD_BUDGET_MS = 10000;
 const MAX_SERVER_CARD_BYTES = 256 * 1024;
 const SERVER_CARD_FIELDS = ["name", "version", "description"];
 
@@ -236,14 +237,17 @@ function serverCardResult(
 
 async function fetchServerCard(
   url: string,
+  deadline: number,
   isAllowedTarget?: IsAllowedTarget,
 ): Promise<string | undefined> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return undefined;
   try {
     const res = await guardedFetch(
       url,
       {
         headers: { Accept: "application/mcp-server-card+json, application/json;q=0.9" },
-        signal: AbortSignal.timeout(SERVER_CARD_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(SERVER_CARD_TIMEOUT_MS, remaining)),
       },
       isAllowedTarget,
     );
@@ -275,6 +279,61 @@ function catalogServerCardUrls(metadata: SiteMetadata): string[] {
   return urls.slice(0, MAX_CATALOG_ENTRIES);
 }
 
+export async function findMcpServerCard(
+  metadata: SiteMetadata,
+  isAllowedTarget?: IsAllowedTarget,
+  budgetMs = SERVER_CARD_BUDGET_MS,
+): Promise<CheckResult> {
+  const deadline = Date.now() + budgetMs;
+  const siteOrigin = new URL(metadata.baseUrl).origin;
+  const trusted = (url: string) => metadata.catchAll !== true || new URL(url).origin !== siteOrigin;
+  const candidates: Array<{ where: string; load: () => Promise<string | undefined> }> = [];
+  if (metadata.mcpEndpoint !== undefined) {
+    const url = `${metadata.mcpEndpoint.replace(/\/+$/, "")}/server-card`;
+    if (trusted(url)) {
+      candidates.push({
+        where: `${url} (MCP endpoint)`,
+        load: () => fetchServerCard(url, deadline, isAllowedTarget),
+      });
+    }
+  }
+  for (const url of catalogServerCardUrls(metadata).filter(trusted)) {
+    candidates.push({
+      where: `${url} (ai-catalog.json entry)`,
+      load: () => fetchServerCard(url, deadline, isAllowedTarget),
+    });
+  }
+  candidates.push({
+    where: "/.well-known/mcp/server-card.json (legacy)",
+    load: async () => metadata.wellKnown["mcp/server-card.json"],
+  });
+
+  const invalid: string[] = [];
+  for (const { where, load } of candidates) {
+    const card = parseJsonObject(await load());
+    if (!card) continue;
+    const missing = SERVER_CARD_FIELDS.filter(
+      (f) => typeof card[f] !== "string" || (card[f] as string).trim() === "",
+    );
+    if (missing.length === 0) {
+      return serverCardResult(
+        "pass",
+        100,
+        `MCP server card at ${where}: ${card.name} v${card.version}`,
+      );
+    }
+    invalid.push(`${where} is missing ${missing.join(", ")}`);
+  }
+  if (invalid.length > 0) {
+    return serverCardResult("fail", 0, `MCP server card found but invalid: ${invalid.join("; ")}`);
+  }
+  return serverCardResult(
+    "skip",
+    0,
+    "No MCP server card (<MCP endpoint>/server-card, ai-catalog.json entry, or /.well-known/mcp/server-card.json)",
+  );
+}
+
 export const mcpServerCard: Check = {
   id: "mcp-server-card",
   name: "MCP server card",
@@ -282,55 +341,7 @@ export const mcpServerCard: Check = {
   weight: 0,
   severity: "info",
   tracked: true,
-  run: async (_pages, metadata, ctx) => {
-    const candidates: Array<{ where: string; load: () => Promise<string | undefined> }> = [];
-    if (metadata.mcpEndpoint !== undefined) {
-      const url = `${metadata.mcpEndpoint.replace(/\/+$/, "")}/server-card`;
-      candidates.push({
-        where: `${url} (MCP endpoint)`,
-        load: () => fetchServerCard(url, ctx?.isAllowedTarget),
-      });
-    }
-    for (const url of catalogServerCardUrls(metadata)) {
-      candidates.push({
-        where: `${url} (ai-catalog.json entry)`,
-        load: () => fetchServerCard(url, ctx?.isAllowedTarget),
-      });
-    }
-    candidates.push({
-      where: "/.well-known/mcp/server-card.json (legacy)",
-      load: async () => metadata.wellKnown["mcp/server-card.json"],
-    });
-
-    const invalid: string[] = [];
-    for (const { where, load } of candidates) {
-      const card = parseJsonObject(await load());
-      if (!card) continue;
-      const missing = SERVER_CARD_FIELDS.filter(
-        (f) => typeof card[f] !== "string" || (card[f] as string).trim() === "",
-      );
-      if (missing.length === 0) {
-        return serverCardResult(
-          "pass",
-          100,
-          `MCP server card at ${where}: ${card.name} v${card.version}`,
-        );
-      }
-      invalid.push(`${where} is missing ${missing.join(", ")}`);
-    }
-    if (invalid.length > 0) {
-      return serverCardResult(
-        "fail",
-        0,
-        `MCP server card found but invalid: ${invalid.join("; ")}`,
-      );
-    }
-    return serverCardResult(
-      "skip",
-      0,
-      "No MCP server card (<MCP endpoint>/server-card, ai-catalog.json entry, or /.well-known/mcp/server-card.json)",
-    );
-  },
+  run: (_pages, metadata, ctx) => findMcpServerCard(metadata, ctx?.isAllowedTarget),
 };
 
 export const markdownAlternate: Check = {

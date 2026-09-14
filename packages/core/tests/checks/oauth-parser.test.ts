@@ -133,6 +133,12 @@ describe("parseWwwAuthenticate (RFC 9110 §11.6.1)", () => {
     expect(bearerResourceMetadata(`Bearer resource_metadata=${PRM}`)).toBe(PRM);
   });
 
+  it("takes resource_metadata from the first Bearer challenge that carries it, not only the first Bearer", () => {
+    expect(
+      bearerResourceMetadata("Bearer realm=a, Bearer resource_metadata=https://example.com/prm"),
+    ).toBe("https://example.com/prm");
+  });
+
   it("reads quoted values with escapes and several params in one challenge", () => {
     const header = `Bearer error="invalid_token", error_description="say \\"hi\\"", resource_metadata="${PRM}"`;
     expect(parseWwwAuthenticate(header)).toEqual([

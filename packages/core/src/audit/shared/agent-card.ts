@@ -27,10 +27,20 @@ function isSiteRoot(url: string, siteOrigin: string): boolean {
   }
 }
 
+function isAbsoluteHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function isInterface(value: unknown): boolean {
   return (
     isObject(value) &&
-    isText(value.url) &&
+    isAbsoluteHttpUrl(value.url) &&
     isText(value.protocolBinding) &&
     isText(value.protocolVersion)
   );
@@ -53,7 +63,7 @@ function missingV1Fields(card: Record<string, unknown>): string[] {
   }
   const interfaces = card.supportedInterfaces;
   if (!Array.isArray(interfaces) || interfaces.length === 0 || !interfaces.every(isInterface)) {
-    missing.push("supportedInterfaces[] {url, protocolBinding, protocolVersion}");
+    missing.push("supportedInterfaces[] {absolute url, protocolBinding, protocolVersion}");
   }
   if (!isObject(card.capabilities)) missing.push("capabilities");
   if (!isStringArray(card.defaultInputModes)) missing.push("defaultInputModes");
@@ -74,7 +84,11 @@ export function validateAgentCard(card: unknown, baseUrl: string): AgentCardVali
     const urls = (card.supportedInterfaces as Array<{ url: string }>).map((i) => i.url);
     return { shape: "v1.0", missing, stubUrls: urls.filter((u) => isSiteRoot(u, siteOrigin)) };
   }
-  if (isText(card.name) && isText(card.url) && isText(card.preferredTransport)) {
+  if (
+    isText(card.name) &&
+    isAbsoluteHttpUrl(card.url) &&
+    (isText(card.preferredTransport) || (isObject(card.capabilities) && Array.isArray(card.skills)))
+  ) {
     return {
       shape: "v0.3",
       missing,

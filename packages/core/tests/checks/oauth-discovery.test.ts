@@ -64,6 +64,10 @@ describe("sameIssuer", () => {
 
   it.each([
     ["https://access.stripe.com/mcp", "https://access.stripe.com/mcp/"],
+    ["https://idp.example:443/tenant", "https://idp.example/tenant"],
+    ["https://idp.example:443", "https://idp.example/"],
+    ["https://IDP.example/tenant", "https://idp.example/tenant"],
+    ["HTTPS://idp.example", "https://idp.example"],
     ["https://honest.example", "https://attacker.example"],
     ["https://as.example/tenant1", "https://as.example/tenant2"],
     ["https://as.example", "not a url"],
@@ -188,6 +192,45 @@ describe("discoverOAuth chain", () => {
     const d = await discoverOAuth({ baseUrl: "https://example.com", resourceProbes: [challenge] });
     expect(d.outcome).toBe("prm-only");
     expect(d.as).toBeUndefined();
+  });
+
+  it("an incomplete RFC 8414 document does not stop the walk: a complete openid-configuration is used", async () => {
+    mockFetch((url) => {
+      if (url === PRM_URL) return json(prm);
+      if (url === `${AS}.well-known/oauth-authorization-server`) return json({ issuer: AS });
+      if (url === `${AS}.well-known/openid-configuration`) return json(asMeta);
+      return json({}, 404);
+    });
+    const d = await discoverOAuth({ baseUrl: "https://example.com", resourceProbes: [challenge] });
+    expect(d).toMatchObject({
+      outcome: "full",
+      as: { tokenEndpoint: asMeta.token_endpoint },
+      asMetadataUrl: `${AS}.well-known/openid-configuration`,
+    });
+  });
+
+  it("a PRM rejected for one resource is still validated for a later resource it covers", async () => {
+    const shared = "https://example.com/.well-known/oauth-protected-resource/mcp";
+    mockFetch((url) => {
+      if (url === shared)
+        return json({ resource: "https://example.com/mcp", authorization_servers: [AS] });
+      if (url === `${AS}.well-known/oauth-authorization-server`) return json(asMeta);
+      return json({}, 404);
+    });
+    const header = `Bearer resource_metadata="${shared}"`;
+    const d = await discoverOAuth({
+      baseUrl: "https://example.com",
+      resourceProbes: [
+        { ...API, wwwAuthenticate: header },
+        { url: "https://example.com/mcp", status: 401, wwwAuthenticate: header },
+      ],
+    });
+    expect(d).toMatchObject({
+      outcome: "full",
+      prmUrl: shared,
+      resourceUrl: "https://example.com/mcp",
+    });
+    expect(urls.filter((u) => u === shared)).toHaveLength(1);
   });
 
   it("a later resource probe that resolves fully wins over an earlier partial one", async () => {

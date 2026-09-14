@@ -13,6 +13,8 @@ const PER_FETCH_MS = 5000;
 const MAX_METADATA_BYTES = 256 * 1024;
 
 type Deadline = { end: number };
+/** Retrieved PRM bodies by URL, shared by the checks of one audit. */
+export type PrmBodyCache = Map<string, string>;
 
 /** MCP SDK `checkResourceAllowed`: same origin and requested path within the configured path. */
 export function resourceMatches(requested: string, configured: string): boolean {
@@ -31,9 +33,13 @@ export function resourceMatches(requested: string, configured: string): boolean 
   return reqPath.startsWith(confPath);
 }
 
+/** Issuers must be identical strings; only an origin-only issuer may differ by its trailing "/". */
 export function sameIssuer(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  if (long !== `${short}/` || /[?#]/.test(short)) return false;
   try {
-    return new URL(a).href === new URL(b).href;
+    return new URL(short).pathname === "/";
   } catch {
     return false;
   }
@@ -126,13 +132,15 @@ async function resolvePrmWithin(
   resourceUrl: string,
   wwwAuthenticate: string | undefined,
   deadline: Deadline,
-  isAllowedTarget?: IsAllowedTarget,
+  isAllowedTarget: IsAllowedTarget | undefined,
+  cache: PrmBodyCache,
 ): Promise<PrmResolution> {
   const linked = bearerResourceMetadata(wwwAuthenticate);
   const candidates = linked ? [linked] : wellKnownPrmUrls(resourceUrl);
   for (const url of candidates) {
-    const text = await fetchMetadata(url, deadline, isAllowedTarget);
+    const text = cache.get(url) ?? (await fetchMetadata(url, deadline, isAllowedTarget));
     if (text === null) continue;
+    cache.set(url, text);
     const parsed = parseProtectedResourceMetadata(text);
     const problem = validatePrm(parsed, resourceUrl);
     if (problem || !parsed)
@@ -156,13 +164,18 @@ async function resolveAsWithin(
   if (!isHttpUrl(issuer))
     return { problem: `authorization server ${issuer} is not an http(s) URL` };
   let problem = `no authorization server metadata found for ${issuer}`;
+  let incomplete: AsResolution | undefined;
   for (const url of asMetadataUrls(issuer)) {
     const parsed = parseOAuthMetadata((await fetchMetadata(url, deadline, isAllowedTarget)) ?? "");
     if (!parsed) continue;
-    if (sameIssuer(parsed.issuer, issuer)) return { url, as: parsed };
+    if (sameIssuer(parsed.issuer, issuer)) {
+      if (hasEndpoints(parsed)) return { url, as: parsed };
+      incomplete ??= { url, as: parsed };
+      continue;
+    }
     problem = `authorization server metadata at ${url} has issuer ${parsed.issuer}, expected ${issuer}`;
   }
-  return { problem };
+  return incomplete ?? { problem };
 }
 
 function withinBudget<T>(
@@ -183,10 +196,11 @@ export function resolveProtectedResource(
   wwwAuthenticate: string | undefined,
   isAllowedTarget?: IsAllowedTarget,
   budgetMs = OAUTH_DISCOVERY_BUDGET_MS,
+  cache: PrmBodyCache = new Map(),
 ): Promise<PrmResolution> {
   return withinBudget<PrmResolution>(
     budgetMs,
-    (deadline) => resolvePrmWithin(resourceUrl, wwwAuthenticate, deadline, isAllowedTarget),
+    (deadline) => resolvePrmWithin(resourceUrl, wwwAuthenticate, deadline, isAllowedTarget, cache),
     () => ({ problem: "protected resource metadata discovery exceeded its time budget" }),
   );
 }
@@ -226,6 +240,7 @@ export function discoverOAuth(
   input: OAuthDiscoveryInput,
   isAllowedTarget?: IsAllowedTarget,
   budgetMs = OAUTH_DISCOVERY_BUDGET_MS,
+  cache: PrmBodyCache = new Map(),
 ): Promise<OAuthDiscovery> {
   const problems: string[] = [];
   let best: OAuthDiscovery | undefined;
@@ -248,19 +263,22 @@ export function discoverOAuth(
   };
 
   const run = async (deadline: Deadline): Promise<OAuthDiscovery> => {
+    const origin = new URL(input.baseUrl).origin;
+    const rootPrmUrl = `${origin}/.well-known/oauth-protected-resource`;
+    if (input.wellKnownPrm !== undefined && !cache.has(rootPrmUrl))
+      cache.set(rootPrmUrl, input.wellKnownPrm);
     const seenPrm = new Set<string>();
     const consider = async (
       resourceUrl: string,
       resolution: PrmResolution,
     ): Promise<OAuthDiscovery | undefined> => {
-      if (resolution.url) {
-        if (seenPrm.has(resolution.url)) return undefined;
-        seenPrm.add(resolution.url);
-      }
       if (!resolution.prm || !resolution.url) {
-        if (resolution.problem) problems.push(resolution.problem);
+        if (resolution.problem && !problems.includes(resolution.problem))
+          problems.push(resolution.problem);
         return undefined;
       }
+      if (seenPrm.has(resolution.url)) return undefined;
+      seenPrm.add(resolution.url);
       const partial: OAuthDiscovery = {
         outcome: "prm-only",
         resourceUrl,
@@ -280,14 +298,14 @@ export function discoverOAuth(
         probe.wwwAuthenticate,
         deadline,
         isAllowedTarget,
+        cache,
       );
       const full = await consider(probe.url, resolution);
       if (full) return full;
     }
 
     if (input.wellKnownPrm !== undefined) {
-      const origin = new URL(input.baseUrl).origin;
-      const url = `${origin}/.well-known/oauth-protected-resource`;
+      const url = rootPrmUrl;
       const parsed = parseProtectedResourceMetadata(input.wellKnownPrm);
       const problem = validatePrm(parsed, `${origin}/`);
       const full = await consider(
@@ -303,7 +321,6 @@ export function discoverOAuth(
 
     const rootAs = parseOAuthMetadata(input.wellKnownAs);
     if (rootAs) {
-      const origin = new URL(input.baseUrl).origin;
       if (!sameIssuer(rootAs.issuer, origin)) {
         problems.push(
           `root authorization server metadata has issuer ${rootAs.issuer}, expected ${origin}`,

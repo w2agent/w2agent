@@ -157,6 +157,7 @@ export function bearerChallenge(header: string | undefined): AuthChallenge | und
 }
 
 export function bearerResourceMetadata(header: string | undefined): string | undefined {
-  const value = bearerChallenge(header)?.params.resource_metadata;
-  return value ? value : undefined;
+  return parseWwwAuthenticate(header).find(
+    (c) => c.scheme.toLowerCase() === "bearer" && c.params.resource_metadata,
+  )?.params.resource_metadata;
 }

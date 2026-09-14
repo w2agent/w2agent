@@ -2,7 +2,9 @@ import { guardedFetch, type IsAllowedTarget, TargetNotAllowedError } from "../..
 import { parseJsonObject } from "../shared/json.js";
 import {
   discoverOAuth,
+  OAUTH_DISCOVERY_BUDGET_MS,
   type OAuthDiscovery,
+  type PrmBodyCache,
   type ResourceProbe,
   resolveProtectedResource,
 } from "../shared/oauth-discovery.js";
@@ -207,6 +209,12 @@ function cachedApiProbes(
 }
 
 const discoveryCache = new WeakMap<object, Promise<OAuthDiscovery>>();
+const prmBodyCache = new WeakMap<object, PrmBodyCache>();
+
+function cachedPrmBodies(pages: object): PrmBodyCache {
+  if (!prmBodyCache.has(pages)) prmBodyCache.set(pages, new Map());
+  return prmBodyCache.get(pages)!;
+}
 
 function cachedDiscovery(
   pages: object,
@@ -246,6 +254,8 @@ function cachedDiscovery(
             wellKnownAs: metadata.wellKnown["oauth-authorization-server"],
           },
           isAllowedTarget,
+          OAUTH_DISCOVERY_BUDGET_MS,
+          cachedPrmBodies(pages),
         ),
       ),
     );
@@ -518,7 +528,14 @@ const c1: Check = {
     const header = init.rawHeaders?.["www-authenticate"];
     if (!bearerChallenge(header))
       return res(base, "fail", 0, "MCP endpoint returns 401 without a Bearer challenge");
-    const resolved = await resolveProtectedResource(endpoint, header, ctx?.isAllowedTarget);
+    const discovery = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
+    const resolved = await resolveProtectedResource(
+      endpoint,
+      header,
+      ctx?.isAllowedTarget,
+      OAUTH_DISCOVERY_BUDGET_MS,
+      cachedPrmBodies(pages),
+    );
     if (!resolved.prm)
       return res(
         base,
@@ -526,7 +543,6 @@ const c1: Check = {
         50,
         `MCP endpoint sends a Bearer challenge, but ${resolved.problem ?? "no valid protected resource metadata was found"}`,
       );
-    const discovery = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
     if (discovery.prmUrl === resolved.url)
       return res(
         base,
