@@ -123,7 +123,7 @@ export function formatVerboseReport(report: AuditReport): string {
     lines.push(`  ${chalk.bold(category.name)} — ${scoreStr}`);
     for (const check of category.checks) {
       if (check.tracked) {
-        tracked.push(check);
+        if (check.status !== "skip") tracked.push(check);
         continue;
       }
       const icon =

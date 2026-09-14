@@ -115,6 +115,37 @@ describe("formatVerboseReport tracked checks", () => {
     expect(output.indexOf("Not found")).toBeGreaterThan(heading);
   });
 
+  // A tracked check skips when the site has no such file; those are reported only when present.
+  it("hides skipped tracked checks, and the heading when only skips remain", () => {
+    const skip = makeCheck({
+      id: "agent-operator-signing",
+      name: "Agent operator signing directory",
+      status: "skip",
+      message: "No signing directory",
+      tracked: true,
+    });
+    const category = (checks: ReturnType<typeof makeCheck>[]) =>
+      makeReport({
+        categories: [{ id: "agent-auth", name: "Agent Auth", weight: 0.2, score: 100, checks }],
+      });
+    const withFail = formatVerboseReport(
+      category([makeCheck({ id: "t", name: "Emerging Standard Check", tracked: true }), skip]),
+    );
+    expect(withFail).toContain("Tracked (not scored)");
+    expect(withFail).toContain("Emerging Standard Check");
+    expect(withFail).not.toContain("Agent operator signing directory");
+
+    const onlySkip = formatVerboseReport(
+      category([
+        makeCheck({ id: "scored", name: "Scored Check", status: "pass", score: 100 }),
+        skip,
+      ]),
+    );
+    expect(onlySkip).not.toContain("Tracked (not scored)");
+    expect(onlySkip).not.toContain("Agent operator signing directory");
+    expect(onlySkip).not.toContain("No signing directory");
+  });
+
   it("omits the tracked heading when no checks are tracked", () => {
     const output = formatVerboseReport(
       makeReport({
