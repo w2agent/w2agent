@@ -13,7 +13,7 @@ The engine is intentionally LLM-free — all analysis is pure HTTP/HTML inspecti
 
 - **Check registry pattern** — checks registered dynamically via `registerCheck()`, not hardcoded. Allows platform to inject additional checks without forking core.
 - **Crawl-once reuse** — the same `crawlSite()` output feeds both audit checks and generate pipeline. No redundant fetching.
-- **Weighted category scoring** — 6 categories with different weights reflect the relative importance of each aspect of AI-readiness.
+- **Weighted category scoring** — 7 categories with different weights reflect the relative importance of each aspect of AI-readiness.
 - **Platform adapter merging** — platform-specific checks (e.g., WordPress PHP checks) are appended to core checks at runtime, not pre-registered.
 - **Top issues ranked by impact** — failed checks sorted by estimated overall score impact, not just severity. A low-weight check that fails contributes less than a high-weight one.
 
@@ -97,12 +97,13 @@ interface CheckResult {
 
 | Category | ID | Weight |
 |----------|----|--------|
-| Bot Accessibility | `bot-accessibility` | 0.20 |
-| Structured Data | `structured-data` | 0.20 |
-| Content Quality | `content-quality` | 0.20 |
-| Agent Discovery | `agent-discovery` | 0.15 |
-| Agent Protocols | `agent-protocols` | 0.15 |
+| Bot Accessibility | `bot-accessibility` | 0.15 |
+| Structured Data | `structured-data` | 0.15 |
+| Content Quality | `content-quality` | 0.15 |
+| Agent Discovery | `agent-discovery` | 0.12 |
+| Agent Protocols | `agent-protocols` | 0.13 |
 | Technical Foundations | `technical` | 0.10 |
+| Auth & Access | `agent-auth` | 0.20 |
 
 ### Grading Scale
 
@@ -116,7 +117,7 @@ interface CheckResult {
 
 ## Check Inventory
 
-47 core checks across 6 files in `packages/core/src/audit/checks/`:
+54 core checks (`allChecks`) across 8 files in `packages/core/src/audit/checks/`:
 
 | File | Category | Example Checks |
 |------|----------|---------------|
@@ -126,15 +127,17 @@ interface CheckResult {
 | `discovery.ts` | Agent Discovery | llms.txt exists/valid, agent-card.json, .well-known endpoints |
 | `protocols.ts` | Agent Protocols | MCP server, OpenAPI spec, forms, action schemas |
 | `technical.ts` | Technical | HTTPS, security headers, canonical URLs, JavaScript-free content |
+| `agent-auth.ts` | Auth & Access | Public API, OpenAPI spec, OAuth discovery, PKCE, MCP authorization |
+| `reach.ts` | Agent Protocols | Homepage reachable under documented user-initiated agent UAs |
 
-Plus 3–4 platform-specific checks per adapter (e.g., WordPress PHP syntax, Next.js content negotiation).
+Plus 2–4 platform-specific checks per adapter (e.g., WordPress PHP syntax, Next.js content negotiation).
 
 ## Platform Check Merging
 
 When a platform is detected, its adapter's `checks` array is appended to the core check list:
 
 ```
-core checks (47) + adapter.checks (3-4) = all checks (~50)
+core checks (54) + adapter.checks (2-4) = all checks (56-58, plus up to 3 site-type checks when a site type is detected)
 ```
 
 Platform checks run in the same `Promise.all()` pass — no separate phase. They have the same `CheckResult` interface and participate in category scoring identically.

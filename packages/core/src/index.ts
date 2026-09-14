@@ -31,6 +31,7 @@ export {
   AUDIT_CRAWL_PROFILE_ID,
   CATEGORY_CONFIG,
   DEFAULT_OPTIONS,
+  RUBRIC_VERSION,
 } from "./audit/types.js";
 export type { DiscoveredPage } from "./crawl/index.js";
 export {

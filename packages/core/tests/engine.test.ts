@@ -22,7 +22,9 @@ import type {
   MultiUaResponse,
   SiteMetadata,
 } from "../src/audit/types.js";
+import { RUBRIC_VERSION } from "../src/audit/types.js";
 import { mapFailedChecksToFormats } from "../src/generate/from-audit.js";
+import { RUBRIC_VERSION as indexRubricVersion } from "../src/index.js";
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
@@ -235,7 +237,12 @@ describe("NA semantics", () => {
     expect(computeOverallScore(categories)).toBe(100);
   });
 
-  it("runAudit stamps rubricVersion='2.0' on report", async () => {
+  it("RUBRIC_VERSION is 3.0 and the package index re-exports that same constant", () => {
+    expect(RUBRIC_VERSION).toBe("3.0");
+    expect(indexRubricVersion).toBe(RUBRIC_VERSION);
+  });
+
+  it("runAudit stamps RUBRIC_VERSION on report", async () => {
     const pages: FetchedPage[] = [
       makePage("<html><head><title>Test</title></head><body><p>hello</p></body></html>"),
     ];
@@ -250,7 +257,7 @@ describe("NA semantics", () => {
       undefined,
       allChecks,
     );
-    expect(report.rubricVersion).toBe("2.0");
+    expect(report.rubricVersion).toBe(RUBRIC_VERSION);
   });
 });
 

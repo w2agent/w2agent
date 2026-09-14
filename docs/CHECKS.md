@@ -1,8 +1,8 @@
 # w2agent Check Reference
 
-41 core checks across 6 categories + 19 platform-specific checks (60 total).
+54 core checks (`allChecks`; 4 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (73 total). Rubric 3.0; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here.
 
-## Bot Accessibility (20%)
+## Bot Accessibility (15%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
@@ -13,7 +13,7 @@
 | Content negotiation | `content-negotiation` | Probes the homepage and one docs page (first 2xx crawled page on the site under `/docs` or `/documentation`, or on the `docs.` subdomain) two ways: `GET` with `Accept: text/markdown`, and the `.md` twin (`/` → `/index.md`, else trailing slash stripped + `.md`, query dropped). A hit needs a 2xx, `text/markdown` (or `text/x-markdown`), a non-empty body that is not an HTML document (after a leading BOM, whitespace, HTML comments, `<?…?>` processing instructions such as an XML prolog, and non-HTML `<!DOCTYPE …>` declarations, it does not start with `<!doctype html`, `<html>`, `<head>` or `<body>`; an unterminated leading comment, prolog or doctype counts as HTML), and a body that does not reproduce the crawled page (BOM ignored on both sides; exact comparison, except that a read cut at the 64 KB cap counts as the same when, minus its last 4 chars, it is a prefix of the page). The copy test applies only when the site is flagged catch-all or the crawled page was not declared `text/markdown`, `text/x-markdown` or `text/plain` (a missing content-type counts as HTML), so a site that serves markdown at a crawled URL is not penalised for returning that same markdown. A negotiation request that redirects (301/302/303/307/308) is judged on the redirect target's status, type and body; `Vary: Accept` on either the first response or the final one counts. After the probes, each `.md` hit is checked with a control `GET` to `<random UUID>.md` in the directory of the requested `.md` URL and, when it redirected elsewhere, also in the directory of its final URL (one control per distinct directory, own 5 s timeout, same fetch guard). The hit stands only if every one of its controls gets a response that fails the hit test; a control that also passes it, or is refused, fails or times out, makes that directory's `.md` hits misses. So an `/index.md` that redirects to a shared markdown error document fails, because a nonexistent `/<uuid>.md` redirects there too. The Next.js and Nuxt integrations that `w2agent generate` emits pass this check: they serve `/index.md` as `text/markdown` and send `Accept: text/markdown` at `/` there with `Vary: Accept`. Any `.md` hit, or a negotiation hit with `Vary: Accept` (or `*`) = pass 100; negotiation hits without `Vary: Accept` only = partial 50; no hit (including refused/failed requests) = fail 0 |
 | Status codes | `status-codes` | No 4xx/5xx errors |
 
-## Structured Data (20%)
+## Structured Data (15%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
@@ -25,7 +25,7 @@
 | Heading hierarchy | `heading-hierarchy` | Proper H1→H2→H3 nesting |
 | Semantic HTML | `semantic-html` | Uses article, section, nav, main |
 
-## Content Quality (20%)
+## Content Quality (15%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
@@ -38,7 +38,7 @@
 | Freshness signals | `freshness-signals` | datePublished, dateModified |
 | Author attribution | `author-attribution` | Author name visible |
 
-## Agent Discovery (15%)
+## Agent Discovery (12%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
@@ -51,7 +51,7 @@
 
 Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara`, `well-known-ai-plugin`.
 
-## Agent Protocols (15%)
+## Agent Protocols (13%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
@@ -60,7 +60,6 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 | Structured forms | `forms-structured` | Forms have labels and names |
 | UCP | `well-known-ucp` | /.well-known/ucp (weight 0.5). 100 = JSON with a top-level `ucp` object carrying `version` (a `YYYY-MM-DD` date), a non-empty `services` object and a non-empty `payment_handlers` object whose values are arrays; 0 = absent or any of those missing/invalid (message names which). N/A unless the site is detected as ecommerce; a valid profile on a site not detected as ecommerce still passes |
 | Action schemas | `action-schemas` | SearchAction, OrderAction in JSON-LD |
-| Auth discovery | `auth-discovery` | OAuth/auth endpoints discoverable |
 | WebMCP declarative (tracked, weight 0) | `webmcp-declarative` | Forms with a `toolname` attribute. 100 = at least one found (message: `n/m task forms declare WebMCP tools`; every `toolname` form counts in both n and m; forms without `toolname` count in m unless they are search forms (`role="search"`, inside `<search>`, an `input[type=search]`, or a text input named `q`/`query`/`s` as the only field), login forms (a password input) or newsletter forms (a single email input)); skip = none |
 | WebMCP imperative (tracked, weight 0) | `webmcp-imperative` | `document.modelContext` (CG draft 2026-09-10), the deprecated `navigator.modelContext` alias, or `modelContext.registerTool` in inline scripts on crawled pages; if none, up to 5 unique `<script src>` files on the audited site, resolved against `<base href>` (same scheme and port as the audited URL, host equal to the audited host up to a leading `www.`, whichever page the tag is on; ≤256 KB each, through the fetch allow-hook; 301/302/303/307/308 followed only to another such URL, max 3 hops; refused, non-2xx, other redirects and failed fetches are ignored). An `origin-trial` meta token whose feature names WebMCP counts as detected even without registration code (details say so). 100 = detected; skip = none |
 | Reachable as ChatGPT-User | `reach-openai-user-agent` | Homepage fetched with OpenAI's documented ChatGPT-User UA string (weight 0.5). 100 = final 2xx with non-empty body; 0 = non-2xx (403 challenge, 429, 5xx), empty body, timeout, or fetch error. HTTP only — robots.txt posture is scored by `ai-agent-access`. Crawler time budget exhausted before the fetch → `error` (unmeasured, excluded from the score, `unmeasured-checks` warning) |
@@ -82,16 +81,23 @@ UCP is a documented scoring-policy exception: it fails the stability bar (breaki
 | UTF-8 charset | `charset-utf8` | UTF-8 declared |
 | No JS dependency | `no-js-dependency` | Content accessible without JS |
 
-## Auth & Access (OAuth and MCP authorization rows)
+## Auth & Access (20%)
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
+| Public API surface | `public-api` | Weight 2. 100 = `/api/` or `api.<domain>/` answers 2xx/4xx with a JSON or YAML body, or 3+ API links on the homepage; 50 = 1–2 API links; 0 otherwise |
+| OpenAPI specification | `openapi-spec` | Weight 2. 100 = OpenAPI spec found with at least one endpoint; 50 = spec with no endpoints; 0 = none. N/A when `public-api` fails |
+| Developer portal | `developer-portal` | Weight 2. 100 = portal found with 1000+ chars of text; 50 = thin portal; 0 = none; skip when the portal probe had no network. Same-origin portal paths are not credited on a catch-all site. N/A when `public-api` fails |
+| Agent/bot auth documentation | `agent-auth-docs` | Weight 2. Counts "api key"/"oauth"/"rate limit" near "agent"/"bot"/"ai"/"scope"/"permission"/"token" in portal, key docs and homepage text: 3+ = 100, 1–2 = 50, 0 = 0. N/A when `developer-portal` fails |
+| Scoped API permissions | `scoped-permissions` | Weight 1.5. Scope patterns (`read:x`), scope/permission wording and graduated-access vocabulary in portal and key docs: 3+ = 100, 1–2 = 50, 0 = 0. N/A when `developer-portal` fails |
+| API catalog (RFC 9727) | `api-catalog-rfc9727` | Weight 1. 100 = `/.well-known/api-catalog` served as `application/linkset+json` with a `linkset` entry carrying `anchor` and a non-empty `item`/`service-desc`/`service-doc` array of `href` objects; 0 otherwise. N/A when `public-api` fails |
+| Agent operator signing directory (tracked, weight 0) | `agent-operator-signing` | `/.well-known/http-message-signatures-directory` served with its media type: 100 = an Ed25519 JWK and a `signature_agent` whose origin is the audited origin; 0 = key or origin missing; skip = absent. Tracked because the directory describes the bot operator, not the audited site |
 | OAuth discovery chain | `oauth-discovery` | Weight 3. Entry points, in precedence order: a 401 from `/api/`, `api.<domain>/`, or the discovered MCP endpoint (Bearer `resource_metadata` if present, else path-inserted then root `/.well-known/oauth-protected-resource`), then the crawled root PRM; the first entry that resolves a full chain wins, else the first valid PRM is scored. PRM must be JSON with a `resource` covering the requested URL (same origin, path prefix) and non-empty `authorization_servers`. AS metadata tried per MCP 2026-07-28 order (RFC 8414 / OIDC, path insertion), off-origin allowed through the fetch allow-hook; `issuer` must be the identical string (only an origin-only issuer may differ by a trailing `/`); an issuer-matched document without both endpoints does not stop the walk. 100 = full chain with `authorization_endpoint` + `token_endpoint`; 50 = valid PRM but no usable AS, or no PRM but a valid root AS whose issuer is the site origin; 0 otherwise. N/A when `public-api` fails and no MCP endpoint was found. 15 s budget |
-| PKCE S256 | `pkce-s256` | Weight 1.5. 100 = `code_challenge_methods_supported` includes `S256` on the complete AS (issuer match + both endpoints) resolved by `oauth-discovery` or its root-AS fallback; 50 = developer docs mention PKCE and S256; 0 otherwise |
+| PKCE S256 | `pkce-s256` | Weight 1.5. 100 = `code_challenge_methods_supported` includes `S256` on the complete AS (issuer match + both endpoints) resolved by `oauth-discovery` or its root-AS fallback; 50 = developer docs mention PKCE and S256; 0 otherwise; skip when no AS was resolved and the developer-portal probe had no network. N/A when `oauth-discovery` and `developer-portal` both fail or are N/A |
 | MCP authorization | `mcp-auth` | Weight 1.5. On an auth-gated MCP endpoint (401 Bearer challenge with `resource_metadata`): 100 = the linked PRM is valid for the endpoint and differs from the PRM `oauth-discovery` scored; 50 = linked PRM missing or invalid. Skip when the endpoint answers without authorization, or when its PRM is the document `oauth-discovery` already scored (the usual case for an MCP-only site) |
 | Client ID Metadata Documents | `cimd-support` | Weight 0.5 bonus. 100 when `oauth-discovery` resolves a full chain and the AS sets `client_id_metadata_document_supported: true`; otherwise skip (never lowers the score; `registration_endpoint` alone is neutral) |
 
-Retired: `oauth-support`, `oauth-protected-resource`, `oauth-metadata-rfc9728`, `mcp-auth-mechanism`, `mcp-oauth-metadata`, `mcp-pkce-s256`.
+Retired: `oauth-support`, `oauth-protected-resource`, `oauth-metadata-rfc9728`, `mcp-auth-mechanism`, `mcp-oauth-metadata`, `mcp-pkce-s256`, `agent-allowlist` (merged into `ai-agent-access`), `web-bot-auth-directory` (now tracked `agent-operator-signing`).
 
 ---
 

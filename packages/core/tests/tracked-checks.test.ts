@@ -9,6 +9,7 @@ import type {
   FetchedPage,
   SiteMetadata,
 } from "../src/audit/types.js";
+import { RUBRIC_VERSION } from "../src/audit/types.js";
 import { mapFailedChecksToFormats } from "../src/generate/from-audit.js";
 
 // Tracked checks (rubric §4.2) are reported but must never move the score, the
@@ -171,7 +172,7 @@ describe("mapFailedChecksToFormats with tracked checks", () => {
       pagesScanned: 1,
       overallScore: 0,
       grade: "F",
-      rubricVersion: "2.0",
+      rubricVersion: RUBRIC_VERSION,
       categories: [
         {
           id: "agent-discovery",
