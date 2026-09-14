@@ -118,7 +118,7 @@ export async function runAudit(
 
   // Top issues
   const topIssues = computeTopIssues(results, categories, overallScore);
-  const warnings = computeWarnings(results);
+  const warnings = computeWarnings(results, metadata);
 
   const duration = Date.now() - start;
 
@@ -213,7 +213,7 @@ export function applyNaCascade(results: CheckResult[]): CheckResult[] {
   return results;
 }
 
-function computeWarnings(results: CheckResult[]): AuditWarning[] {
+function computeWarnings(results: CheckResult[], metadata: SiteMetadata): AuditWarning[] {
   const warnings: AuditWarning[] = [];
 
   const noJsResult = results.find((r) => r.id === "no-js-dependency");
@@ -231,6 +231,15 @@ function computeWarnings(results: CheckResult[]): AuditWarning[] {
       message:
         "This site appears to use client-side rendering. Audit scores may be lower than actual quality — AI crawlers that don't execute JavaScript will see minimal content. Consider server-side rendering (SSR) or pre-rendering.",
       details: noJsResult?.details,
+    });
+  }
+
+  if (metadata.catchAll === true) {
+    warnings.push({
+      id: "catch-all-responses",
+      title: "Site returns 200 for non-existent paths",
+      message:
+        "This site answers 200 OK for URLs that do not exist (a catch-all route or soft-404 page). Machine-readable files such as /.well-known/* were only counted when served as real JSON, so files that returned the same page as any missing URL were not credited.",
     });
   }
 

@@ -3,6 +3,7 @@ import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText, guardedFetch } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
+import { isJsonContentType } from "./shared/json.js";
 import { parseMcpResourceLink } from "./shared/oauth-parser.js";
 import type {
   AuditOptions,
@@ -133,6 +134,16 @@ function stripWww(hostname: string): string {
 
 const LLMS_SUBDOMAINS = ["docs", "developers", "developer"];
 
+type TextResult = Awaited<ReturnType<typeof fetchText>>;
+
+function is2xx(r: TextResult): r is NonNullable<TextResult> {
+  return r !== null && r.status >= 200 && r.status < 300;
+}
+
+function isTextFile(r: TextResult): r is NonNullable<TextResult> {
+  return r?.status === 200 && !r.contentType.toLowerCase().includes("text/html");
+}
+
 export interface CrawlResult {
   pages: FetchedPage[];
   metadata: SiteMetadata;
@@ -180,7 +191,7 @@ export async function probeSiteMetadata(
   ]);
 
   let llmsTxtFallback: string | undefined;
-  if (!llmsResult || llmsResult.status !== 200) {
+  if (!isTextFile(llmsResult)) {
     // Subdomain fallback assumes baseUrl is an apex (or www.) domain.
     // If baseUrl is already a subdomain, probes will degrade to 404; that's acceptable.
     for (const sub of LLMS_SUBDOMAINS) {
@@ -188,7 +199,7 @@ export async function probeSiteMetadata(
         `${base.protocol}//${sub}.${stripWww(base.hostname)}/llms.txt`,
         options,
       );
-      if (r && r.status === 200) {
+      if (isTextFile(r)) {
         llmsTxtFallback = r.text;
         break;
       }
@@ -206,25 +217,31 @@ export async function probeSiteMetadata(
     "oauth-authorization-server",
     "oauth-protected-resource",
   ];
-  const wellKnownResults = await Promise.all(
-    wellKnownPaths.map(async (path) => {
-      const result = await fetchText(`${baseUrl}/.well-known/${path}`, options);
-      return [path, result?.status === 200 ? result.text : undefined] as const;
-    }),
-  );
+  const [rootProbe, wellKnownProbe, ...wellKnownResults] = await Promise.all([
+    fetchText(`${baseUrl}/${crypto.randomUUID()}`, options),
+    fetchText(`${baseUrl}/.well-known/${crypto.randomUUID()}`, options),
+    ...wellKnownPaths.map((path) => fetchText(`${baseUrl}/.well-known/${path}`, options)),
+  ]);
+  const catchAllBody = is2xx(wellKnownProbe) ? wellKnownProbe.text : undefined;
 
   const wellKnown: Record<string, string | undefined> = {};
-  for (const [path, content] of wellKnownResults) {
-    wellKnown[path] = content;
-  }
+  wellKnownPaths.forEach((path, i) => {
+    const result = wellKnownResults[i];
+    const accepted =
+      result?.status === 200 &&
+      isJsonContentType(result.contentType) &&
+      result.text !== catchAllBody;
+    wellKnown[path] = accepted ? result.text : undefined;
+  });
 
   const metadata: SiteMetadata = {
     baseUrl,
-    robotsTxt: robotsResult?.status === 200 ? robotsResult.text : undefined,
+    robotsTxt: isTextFile(robotsResult) ? robotsResult.text : undefined,
     sitemapXml: sitemapResult?.status === 200 ? sitemapResult.text : undefined,
-    llmsTxt: llmsResult?.status === 200 ? llmsResult.text : llmsTxtFallback,
+    llmsTxt: isTextFile(llmsResult) ? llmsResult.text : llmsTxtFallback,
     wellKnown,
     openapi: openapiResult ?? undefined,
+    catchAll: is2xx(rootProbe) || is2xx(wellKnownProbe),
   };
 
   if (wellKnown.mcp) {

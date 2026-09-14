@@ -113,6 +113,7 @@ export interface SiteMetadata {
   openapi?: ParsedOpenAPISpec;
   mcpInit?: McpInitResult;
   multiUaResponses?: Record<string, MultiUaResponse>;
+  catchAll?: boolean;
 }
 
 export interface Check {

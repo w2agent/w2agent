@@ -30,6 +30,15 @@ describe("parseOAuthMetadata", () => {
     expect(parseOAuthMetadata("{not valid")).toBeNull();
   });
 
+  it.each([
+    "[]",
+    "42",
+    '"issuer"',
+    "null",
+  ])("returns null for JSON that is not an object (%s) so it cannot score partial", (body) => {
+    expect(parseOAuthMetadata(body)).toBeNull();
+  });
+
   it("returns object with undefined fields when optional fields are missing", () => {
     const result = parseOAuthMetadata("{}");
     expect(result).not.toBeNull();

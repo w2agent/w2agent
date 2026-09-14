@@ -44,10 +44,11 @@ describe("crawlSite concurrency", () => {
     mockFetchPage.mockReset();
     mockFetchText.mockReset();
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) {
         const urls = Array.from({ length: 6 }, (_, i) => `${BASE_URL}/page-${i + 1}`);
-        return { text: makeSitemap(urls), status: 200 };
+        return { text: makeSitemap(urls), status: 200, contentType: "text/plain" };
       }
       return null;
     });
@@ -125,8 +126,10 @@ describe("crawlSite rate limiting and Crawl-delay", () => {
   it("applies requestDelay between consecutive request starts", async () => {
     const sitemap = makeSitemap([`${BASE_URL}/a`, `${BASE_URL}/b`, `${BASE_URL}/c`]);
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
-      if (url.endsWith("/sitemap.xml")) return { text: sitemap, status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
+      if (url.endsWith("/sitemap.xml"))
+        return { text: sitemap, status: 200, contentType: "text/plain" };
       return null;
     });
 
@@ -154,8 +157,9 @@ describe("crawlSite rate limiting and Crawl-delay", () => {
     const sitemap = makeSitemap([`${BASE_URL}/a`, `${BASE_URL}/b`]);
     mockFetchText.mockImplementation(async (url: string) => {
       if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *\nCrawl-delay: 5", status: 200 };
-      if (url.endsWith("/sitemap.xml")) return { text: sitemap, status: 200 };
+        return { text: "User-agent: *\nCrawl-delay: 5", status: 200, contentType: "text/plain" };
+      if (url.endsWith("/sitemap.xml"))
+        return { text: sitemap, status: 200, contentType: "text/plain" };
       return null;
     });
 
@@ -182,8 +186,9 @@ describe("crawlSite rate limiting and Crawl-delay", () => {
     const sitemap = makeSitemap([`${BASE_URL}/a`, `${BASE_URL}/b`]);
     mockFetchText.mockImplementation(async (url: string) => {
       if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *\nCrawl-delay: 60", status: 200 }; // 60s — too long
-      if (url.endsWith("/sitemap.xml")) return { text: sitemap, status: 200 };
+        return { text: "User-agent: *\nCrawl-delay: 60", status: 200, contentType: "text/plain" }; // 60s — too long
+      if (url.endsWith("/sitemap.xml"))
+        return { text: sitemap, status: 200, contentType: "text/plain" };
       return null;
     });
 
@@ -208,8 +213,9 @@ describe("crawlSite rate limiting and Crawl-delay", () => {
     const sitemap = makeSitemap([`${BASE_URL}/a`, `${BASE_URL}/b`]);
     mockFetchText.mockImplementation(async (url: string) => {
       if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *\nDisallow: /admin", status: 200 }; // no Crawl-delay
-      if (url.endsWith("/sitemap.xml")) return { text: sitemap, status: 200 };
+        return { text: "User-agent: *\nDisallow: /admin", status: 200, contentType: "text/plain" }; // no Crawl-delay
+      if (url.endsWith("/sitemap.xml"))
+        return { text: sitemap, status: 200, contentType: "text/plain" };
       return null;
     });
 
@@ -250,8 +256,10 @@ describe("crawlSite pageRankings enrichment", () => {
     // 6 pages in sitemap; /page-5 and /page-6 are top-ranked
     const urls = Array.from({ length: 6 }, (_, i) => `${BASE_URL}/page-${i + 1}`);
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
-      if (url.endsWith("/sitemap.xml")) return { text: makeSitemap(urls), status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
+      if (url.endsWith("/sitemap.xml"))
+        return { text: makeSitemap(urls), status: 200, contentType: "text/plain" };
       return null;
     });
 
@@ -284,7 +292,8 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     mockFetchText.mockReset();
     mockFetchPage.mockImplementation(async (url: string) => makePageResult(url));
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) return null;
       return null;
     });
@@ -297,12 +306,21 @@ describe("crawlSite well-known paths and MCP init probe", () => {
 
   it("fetches oauth-authorization-server and oauth-protected-resource well-known paths", async () => {
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) return null;
       if (url.endsWith("/.well-known/oauth-authorization-server"))
-        return { text: '{"issuer":"https://example.com"}', status: 200 };
+        return {
+          text: '{"issuer":"https://example.com"}',
+          status: 200,
+          contentType: "application/json",
+        };
       if (url.endsWith("/.well-known/oauth-protected-resource"))
-        return { text: '{"resource":"https://example.com"}', status: 200 };
+        return {
+          text: '{"resource":"https://example.com"}',
+          status: 200,
+          contentType: "application/json",
+        };
       return null;
     });
 
@@ -328,9 +346,11 @@ describe("crawlSite well-known paths and MCP init probe", () => {
 
   it("populates mcpInit on successful POST when wellKnown.mcp is present", async () => {
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      if (url.endsWith("/.well-known/mcp"))
+        return { text: "{}", status: 200, contentType: "application/json" };
       return null;
     });
 
@@ -358,9 +378,11 @@ describe("crawlSite well-known paths and MCP init probe", () => {
 
   it("captures Link header into mcpInit.oauthResourceMetadataUrl", async () => {
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      if (url.endsWith("/.well-known/mcp"))
+        return { text: "{}", status: 200, contentType: "application/json" };
       return null;
     });
 
@@ -393,9 +415,11 @@ describe("crawlSite well-known paths and MCP init probe", () => {
 
   it("sets mcpInit.success=false on network error", async () => {
     mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt")) return { text: "User-agent: *", status: 200 };
+      if (url.endsWith("/robots.txt"))
+        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
       if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp")) return { text: "{}", status: 200 };
+      if (url.endsWith("/.well-known/mcp"))
+        return { text: "{}", status: 200, contentType: "application/json" };
       return null;
     });
 

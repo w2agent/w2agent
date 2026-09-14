@@ -76,6 +76,14 @@ describe("well-known-agent-card", () => {
     const result = wellKnownAgentCard.run([basePage], baseMeta);
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
+
+  it.each(["[]", "null", "1"])("fails when the body is not a JSON object (%s)", (body) => {
+    const result = wellKnownAgentCard.run([basePage], {
+      ...baseMeta,
+      wellKnown: { "agent-card.json": body },
+    });
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
 });
 
 describe("well-known-agents-json", () => {

@@ -37,6 +37,11 @@ describe("mcp-discovery", () => {
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 
+  it("fails when /.well-known/mcp is not a JSON object", async () => {
+    const result = await mcpDiscovery.run([basePage], { ...baseMeta, wellKnown: { mcp: "[]" } });
+    expect(result).toMatchObject({ status: "fail", score: 0 });
+  });
+
   it("scores 100 when MCP endpoint returns valid initialize response", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
@@ -56,7 +61,7 @@ describe("mcp-discovery", () => {
   it("scores 50 when endpoint exists but returns non-200", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: "something" },
+      wellKnown: { mcp: "{}" },
       mcpInit: {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
@@ -70,7 +75,7 @@ describe("mcp-discovery", () => {
   it("scores 50 when endpoint returns invalid JSON", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: "exists" },
+      wellKnown: { mcp: "{}" },
       mcpInit: {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: false,
@@ -84,7 +89,7 @@ describe("mcp-discovery", () => {
   it("scores 50 when fetch throws (timeout/network)", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: "exists" },
+      wellKnown: { mcp: "{}" },
       mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: false },
     });
     expect(result).toMatchObject({ status: "partial", score: 50 });
@@ -94,7 +99,7 @@ describe("mcp-discovery", () => {
   it("parses SSE format responses", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: "exists" },
+      wellKnown: { mcp: "{}" },
       mcpInit: {
         mcpEndpointUrl: "https://example.com/.well-known/mcp",
         success: true,
@@ -155,6 +160,11 @@ describe("well-known-ucp", () => {
       wellKnown: { ucp: '{"version": "1.0"}' },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it.each(["[]", "true", '"ucp"'])("fails when the body is not a JSON object (%s)", (body) => {
+    const result = wellKnownUcp.run([basePage], { ...baseMeta, wellKnown: { ucp: body } });
+    expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 });
 

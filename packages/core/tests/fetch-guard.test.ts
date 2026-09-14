@@ -414,7 +414,7 @@ describe("crawler with a hook", () => {
     routes[`${SITE}/.well-known/mcp`] = (init) =>
       init?.method === "POST"
         ? new Response("", { status: 307, headers: { location: "http://127.0.0.1:9000/mcp" } })
-        : new Response("{}", { status: 200 });
+        : new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
     const metadata = await probeSiteMetadata(`${SITE}/`, options, { homepageHtml: "" });
     expect(
       calls.some((c) => c.url === `${SITE}/.well-known/mcp` && c.init?.method === "POST"),

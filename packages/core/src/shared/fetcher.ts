@@ -264,7 +264,7 @@ export async function fetchPage(
 export async function fetchText(
   url: string,
   options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
-): Promise<{ text: string; status: number } | null> {
+): Promise<{ text: string; status: number; contentType: string } | null> {
   const response = await retryableFetch(
     url,
     {
@@ -278,7 +278,7 @@ export async function fetchText(
   if (!response) return null;
 
   const text = await readBodyCapped(response, MAX_TEXT_BYTES);
-  return { text, status: response.status };
+  return { text, status: response.status, contentType: response.headers.get("content-type") ?? "" };
 }
 
 export async function checkContentNegotiation(

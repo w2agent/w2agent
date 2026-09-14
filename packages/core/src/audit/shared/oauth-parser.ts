@@ -1,3 +1,5 @@
+import { parseJsonObject } from "./json.js";
+
 export interface ParsedOAuthMetadata {
   issuer?: string;
   authorizationEndpoint?: string;
@@ -9,28 +11,24 @@ export interface ParsedOAuthMetadata {
 }
 
 export function parseOAuthMetadata(json: string | undefined): ParsedOAuthMetadata | null {
-  if (!json) return null;
-  try {
-    const o = JSON.parse(json) as Record<string, unknown>;
-    return {
-      issuer: typeof o.issuer === "string" ? o.issuer : undefined,
-      authorizationEndpoint:
-        typeof o.authorization_endpoint === "string" ? o.authorization_endpoint : undefined,
-      tokenEndpoint: typeof o.token_endpoint === "string" ? o.token_endpoint : undefined,
-      scopesSupported: Array.isArray(o.scopes_supported)
-        ? o.scopes_supported.filter((x): x is string => typeof x === "string")
-        : undefined,
-      codeChallengeMethodsSupported: Array.isArray(o.code_challenge_methods_supported)
-        ? o.code_challenge_methods_supported.filter((x): x is string => typeof x === "string")
-        : undefined,
-      responseTypesSupported: Array.isArray(o.response_types_supported)
-        ? o.response_types_supported.filter((x): x is string => typeof x === "string")
-        : undefined,
-      raw: o,
-    };
-  } catch {
-    return null;
-  }
+  const o = parseJsonObject(json);
+  if (!o) return null;
+  return {
+    issuer: typeof o.issuer === "string" ? o.issuer : undefined,
+    authorizationEndpoint:
+      typeof o.authorization_endpoint === "string" ? o.authorization_endpoint : undefined,
+    tokenEndpoint: typeof o.token_endpoint === "string" ? o.token_endpoint : undefined,
+    scopesSupported: Array.isArray(o.scopes_supported)
+      ? o.scopes_supported.filter((x): x is string => typeof x === "string")
+      : undefined,
+    codeChallengeMethodsSupported: Array.isArray(o.code_challenge_methods_supported)
+      ? o.code_challenge_methods_supported.filter((x): x is string => typeof x === "string")
+      : undefined,
+    responseTypesSupported: Array.isArray(o.response_types_supported)
+      ? o.response_types_supported.filter((x): x is string => typeof x === "string")
+      : undefined,
+    raw: o,
+  };
 }
 
 export interface ParsedMcpResourceLink {

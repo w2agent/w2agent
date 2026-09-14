@@ -1,5 +1,6 @@
 import { fetchText } from "../../shared/fetcher.js";
 import { parseHTML } from "../../shared/html-parser.js";
+import { parseJsonObject } from "../shared/json.js";
 import type { Check, SiteMetadata } from "../types.js";
 
 export const llmsTxtExists: Check = {
@@ -155,14 +156,7 @@ export const wellKnownAgentCard: Check = {
   weight: 1,
   severity: "info",
   run: (_pages, metadata) => {
-    const content = metadata.wellKnown["agent-card.json"];
-    let valid = false;
-    if (content) {
-      try {
-        JSON.parse(content);
-        valid = true;
-      } catch {}
-    }
+    const valid = parseJsonObject(metadata.wellKnown["agent-card.json"]) !== null;
 
     return {
       id: "well-known-agent-card",

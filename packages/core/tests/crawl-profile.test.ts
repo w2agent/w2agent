@@ -54,7 +54,10 @@ beforeEach(() => {
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response('{"name":"site-mcp"}', { status: 200 });
+      return new Response('{"name":"site-mcp"}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     }
     if (/^\/p\d+$/.test(path)) return html(`<html><body><p>page ${path}</p></body></html>`);
     if (path === "/guide/") return html("<html><body><p>guide index (slash)</p></body></html>");

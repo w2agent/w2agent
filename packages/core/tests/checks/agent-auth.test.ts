@@ -255,12 +255,17 @@ describe("agent-auth: B2 oauth-protected-resource", () => {
     expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
   });
 
-  it("partial when malformed JSON", () => {
+  it.each([
+    "{not valid json",
+    "[]",
+    "null",
+    '"string"',
+  ])("fail when the body is not a JSON object (%s) — a catch-all must not earn credit", (body) => {
     const meta: SiteMetadata = {
       ...baseMeta,
-      wellKnown: { "oauth-protected-resource": "{not valid json" },
+      wellKnown: { "oauth-protected-resource": body },
     };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
+    expect(check.run([basePage], meta)).toMatchObject({ status: "fail", score: 0 });
   });
 
   it("fail when wellKnown entry is undefined", () => {
@@ -593,7 +598,7 @@ describe("agent-auth: D1 web-bot-auth-directory", () => {
     expect(result.status).toBe("pass");
   });
 
-  it("partial when 200 but invalid JSON", async () => {
+  it("fail when 200 but not JSON (soft-404 page)", async () => {
     globalThis.fetch = mockFetch((url) => {
       if (url.includes("http-message-signatures-directory"))
         return new Response("not json", { status: 200 });
@@ -601,7 +606,7 @@ describe("agent-auth: D1 web-bot-auth-directory", () => {
     });
     const check = agentAuthChecks.find((c) => c.id === "web-bot-auth-directory")!;
     const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("partial");
+    expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 
   it("fail when 404", async () => {

@@ -1,4 +1,5 @@
 import { guardedFetch, type IsAllowedTarget, TargetNotAllowedError } from "../../shared/fetcher.js";
+import { isJsonContentType, parseJsonObject } from "../shared/json.js";
 import { parseMcpResourceLink, parseOAuthMetadata } from "../shared/oauth-parser.js";
 import type { Check, CheckResult } from "../types.js";
 
@@ -366,17 +367,9 @@ const b2: Check = {
   ...mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5),
   run: (_pages, metadata) => {
     const base = mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5);
-    const raw = metadata.wellKnown["oauth-protected-resource"];
-    if (raw === undefined)
+    if (parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) === null)
       return res(base, "fail", 0, "No OAuth protected resource metadata found");
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object")
-        return res(base, "pass", 100, "OAuth protected resource metadata present and valid");
-      return res(base, "partial", 50, "OAuth protected resource metadata present but malformed");
-    } catch {
-      return res(base, "partial", 50, "OAuth protected resource metadata present but invalid JSON");
-    }
+    return res(base, "pass", 100, "OAuth protected resource metadata present and valid");
   },
 };
 
@@ -395,7 +388,7 @@ const b3: Check = {
       const ownUrl = `${new URL(metadata.baseUrl).origin}/.well-known/oauth-protected-resource`;
       if (
         mcpInit.oauthResourceMetadataUrl === ownUrl &&
-        metadata.wellKnown["oauth-protected-resource"]
+        parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) !== null
       )
         return res(
           base,
@@ -503,7 +496,10 @@ const c2: Check = {
     const parsed = parseMcpResourceLink(linkHeader);
     if (!linkHeader || parsed.rels.length === 0)
       return res(base, "fail", 0, "No Link header in MCP initialization response");
-    if (parsed.resourceMetadataUrl && metadata.wellKnown["oauth-protected-resource"])
+    if (
+      parsed.resourceMetadataUrl &&
+      parseJsonObject(metadata.wellKnown["oauth-protected-resource"]) !== null
+    )
       return res(base, "pass", 100, "MCP Link header points to reachable OAuth resource metadata");
     return res(
       base,
@@ -521,24 +517,18 @@ const c3: Check = {
     const linkParsed = parseMcpResourceLink(metadata.mcpInit?.linkHeader);
     if (!linkParsed.resourceMetadataUrl)
       return res(base, "fail", 0, "No MCP resource metadata link — cannot verify PKCE support");
-    const prRaw = metadata.wellKnown["oauth-protected-resource"];
-    if (prRaw) {
-      try {
-        const pr = JSON.parse(prRaw) as Record<string, unknown>;
-        const asList = pr.authorization_servers;
-        if (Array.isArray(asList) && asList.length > 0) {
-          const baseOrigin = new URL(metadata.baseUrl).origin;
-          if (!String(asList[0]).startsWith(baseOrigin))
-            return res(
-              base,
-              "partial",
-              50,
-              "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it",
-            );
-        }
-      } catch {
-        /* ignore parse errors */
-      }
+    const asList = parseJsonObject(
+      metadata.wellKnown["oauth-protected-resource"],
+    )?.authorization_servers;
+    if (Array.isArray(asList) && asList.length > 0) {
+      const baseOrigin = new URL(metadata.baseUrl).origin;
+      if (!String(asList[0]).startsWith(baseOrigin))
+        return res(
+          base,
+          "partial",
+          50,
+          "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it",
+        );
     }
     const oauthMeta = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
     if (oauthMeta?.codeChallengeMethodsSupported?.includes("S256"))
@@ -557,19 +547,9 @@ const d1: Check = {
     );
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No HTTP message signatures directory found");
-    try {
-      const parsed = JSON.parse(probe.text);
-      if (parsed && typeof parsed === "object")
-        return res(base, "pass", 100, "HTTP message signatures directory present and valid");
-      return res(base, "partial", 50, "HTTP message signatures directory present but malformed");
-    } catch {
-      return res(
-        base,
-        "partial",
-        50,
-        "HTTP message signatures directory present but not valid JSON",
-      );
-    }
+    if (!isJsonContentType(probe.contentType) || parseJsonObject(probe.text) === null)
+      return res(base, "fail", 0, "HTTP message signatures directory is not a JSON object");
+    return res(base, "pass", 100, "HTTP message signatures directory present and valid");
   },
 };
 
@@ -583,26 +563,24 @@ const d2: Check = {
     );
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No API catalog at /.well-known/api-catalog");
-    try {
-      const parsed = JSON.parse(probe.text) as { apis?: unknown[] };
-      if (
-        Array.isArray(parsed.apis) &&
-        parsed.apis.length > 0 &&
-        parsed.apis.every(
-          (api): api is Record<string, unknown> =>
-            typeof api === "object" && api !== null && "name" in api && "url" in api,
-        )
+    const parsed = isJsonContentType(probe.contentType) ? parseJsonObject(probe.text) : null;
+    if (!parsed) return res(base, "fail", 0, "API catalog is not a JSON object");
+    const apis = parsed.apis;
+    if (
+      Array.isArray(apis) &&
+      apis.length > 0 &&
+      apis.every(
+        (api): api is Record<string, unknown> =>
+          typeof api === "object" && api !== null && "name" in api && "url" in api,
       )
-        return res(base, "pass", 100, `API catalog found with ${parsed.apis.length} API(s)`);
-      return res(
-        base,
-        "partial",
-        50,
-        "API catalog found but missing required fields (apis[].name and apis[].url)",
-      );
-    } catch {
-      return res(base, "partial", 50, "API catalog found but not valid JSON");
-    }
+    )
+      return res(base, "pass", 100, `API catalog found with ${apis.length} API(s)`);
+    return res(
+      base,
+      "partial",
+      50,
+      "API catalog found but missing required fields (apis[].name and apis[].url)",
+    );
   },
 };
 
@@ -644,19 +622,16 @@ const d4: Check = {
     const probe = await probeUrl(`${metadata.baseUrl}/.well-known/mcp.json`, ctx?.isAllowedTarget);
     if (!probe || probe.status < 200 || probe.status >= 300)
       return res(base, "fail", 0, "No MCP server card at /.well-known/mcp.json");
-    try {
-      const parsed = JSON.parse(probe.text) as Record<string, unknown>;
-      if (parsed.name && parsed.version && parsed.capabilities)
-        return res(base, "pass", 100, `MCP server card: ${parsed.name} v${parsed.version}`);
-      return res(
-        base,
-        "partial",
-        50,
-        "MCP server card found but missing required fields (name, version, or capabilities)",
-      );
-    } catch {
-      return res(base, "partial", 50, "MCP server card found but not valid JSON");
-    }
+    const parsed = isJsonContentType(probe.contentType) ? parseJsonObject(probe.text) : null;
+    if (!parsed) return res(base, "fail", 0, "MCP server card is not a JSON object");
+    if (parsed.name && parsed.version && parsed.capabilities)
+      return res(base, "pass", 100, `MCP server card: ${parsed.name} v${parsed.version}`);
+    return res(
+      base,
+      "partial",
+      50,
+      "MCP server card found but missing required fields (name, version, or capabilities)",
+    );
   },
 };
 

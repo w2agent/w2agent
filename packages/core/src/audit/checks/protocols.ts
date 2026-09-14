@@ -1,4 +1,5 @@
 import { parseHTML } from "../../shared/html-parser.js";
+import { parseJsonObject } from "../shared/json.js";
 import type { Check } from "../types.js";
 
 export const mcpDiscovery: Check = {
@@ -17,7 +18,7 @@ export const mcpDiscovery: Check = {
       severity: "info" as const,
     };
 
-    if (!metadata.wellKnown.mcp) {
+    if (parseJsonObject(metadata.wellKnown.mcp) === null) {
       return { ...base, status: "fail", score: 0, message: "No /.well-known/mcp endpoint found" };
     }
     const init = metadata.mcpInit;
@@ -196,7 +197,7 @@ export const wellKnownUcp: Check = {
   weight: 0.5,
   severity: "info",
   run: (_pages, metadata) => {
-    const exists = !!metadata.wellKnown.ucp;
+    const exists = parseJsonObject(metadata.wellKnown.ucp) !== null;
 
     return {
       id: "well-known-ucp",
