@@ -409,18 +409,35 @@ describe("crawler with a hook", () => {
     expect(Object.values(res).every((r) => r.outcome === "fetch-error")).toBe(true);
   });
 
-  it("probeMcpInit's POST does not follow a 307 onto a private host", async () => {
+  it("the MCP probe's POST does not follow a 307 onto a private host", async () => {
     routes[`${SITE}/`] = ok("<html></html>");
-    routes[`${SITE}/.well-known/mcp`] = (init) =>
+    routes[`${SITE}/mcp`] = (init) =>
       init?.method === "POST"
         ? new Response("", { status: 307, headers: { location: "http://127.0.0.1:9000/mcp" } })
-        : new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+        : new Response("", { status: 404 });
+    routes["http://127.0.0.1:9000/mcp"] = () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: { supportedVersions: ["2026-07-28"] } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     const metadata = await probeSiteMetadata(`${SITE}/`, options, { homepageHtml: "" });
-    expect(
-      calls.some((c) => c.url === `${SITE}/.well-known/mcp` && c.init?.method === "POST"),
-    ).toBe(true);
+    expect(calls.some((c) => c.url === `${SITE}/mcp` && c.init?.method === "POST")).toBe(true);
     expect(fetchedPrivate()).toEqual([]);
-    expect(metadata.mcpInit?.success).toBe(false);
+    expect(metadata.mcpEndpoint).toBeUndefined();
+    expect(metadata.mcpInit).toBeUndefined();
+  });
+
+  it("the MCP probe never fetches an mcp.<apex> candidate the hook refuses", async () => {
+    routes[`${SITE}/`] = ok("<html></html>");
+    const refuseMcpHost = (url: string) => isAllowedTarget(url) && !url.includes("//mcp.site.test");
+    const metadata = await probeSiteMetadata(
+      `${SITE}/`,
+      { ...options, isAllowedTarget: refuseMcpHost },
+      { homepageHtml: "" },
+    );
+    expect(calls.some((c) => c.url === `${SITE}/mcp`)).toBe(true);
+    expect(calls.filter((c) => c.url.includes("//mcp.site.test"))).toEqual([]);
+    expect(metadata.mcpEndpoint).toBeUndefined();
   });
 });
 

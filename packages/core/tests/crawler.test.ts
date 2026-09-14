@@ -336,71 +336,53 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     );
   });
 
-  it("skips MCP init probe when wellKnown.mcp is absent", async () => {
+  it("sets neither mcpInit nor mcpEndpoint when no MCP candidate confirms", async () => {
     const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
     await vi.runAllTimersAsync();
     const result = await promise;
 
     expect(result.metadata.mcpInit).toBeUndefined();
+    expect(result.metadata.mcpEndpoint).toBeUndefined();
+    expect(result.metadata.wellKnown).not.toHaveProperty("mcp");
   });
 
-  it("populates mcpInit on successful POST when wellKnown.mcp is present", async () => {
-    mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
-      if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp"))
-        return { text: "{}", status: 200, contentType: "application/json" };
-      return null;
-    });
+  function serveMcpAt(endpoint: string, headers: Record<string, string> = {}) {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url !== endpoint || init?.method !== "POST") return new Response("", { status: 404 });
+      const method = JSON.parse(String(init.body)).method;
+      if (method !== "initialize") {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "nope" } }),
+          { status: 404, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { serverInfo: { name: "test", version: "1.0" }, capabilities: {} },
+        }),
+        { status: 200, headers: { "content-type": "application/json", ...headers } },
+      );
+    }) as typeof fetch;
+  }
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-type": "application/json" }),
-      text: () =>
-        Promise.resolve(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            result: { serverInfo: { name: "test", version: "1.0" }, capabilities: {} },
-          }),
-        ),
-    });
+  it("populates mcpInit and mcpEndpoint when /mcp completes a handshake", async () => {
+    serveMcpAt(`${BASE_URL}/mcp`);
 
     const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
     await vi.runAllTimersAsync();
     const result = await promise;
 
+    expect(result.metadata.mcpEndpoint).toBe(`${BASE_URL}/mcp`);
     expect(result.metadata.mcpInit?.success).toBe(true);
     expect(result.metadata.mcpInit?.serverInfo?.name).toBe("test");
   });
 
   it("captures Link header into mcpInit.oauthResourceMetadataUrl", async () => {
-    mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
-      if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp"))
-        return { text: "{}", status: 200, contentType: "application/json" };
-      return null;
-    });
-
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({
-        "content-type": "application/json",
-        link: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-      }),
-      text: () =>
-        Promise.resolve(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            result: { serverInfo: { name: "test", version: "1.0" }, capabilities: {} },
-          }),
-        ),
+    serveMcpAt(`${BASE_URL}/mcp`, {
+      link: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
     });
 
     const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
@@ -413,23 +395,14 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     );
   });
 
-  it("sets mcpInit.success=false on network error", async () => {
-    mockFetchText.mockImplementation(async (url: string) => {
-      if (url.endsWith("/robots.txt"))
-        return { text: "User-agent: *", status: 200, contentType: "text/plain" };
-      if (url.endsWith("/sitemap.xml")) return null;
-      if (url.endsWith("/.well-known/mcp"))
-        return { text: "{}", status: 200, contentType: "application/json" };
-      return null;
-    });
-
+  it("a network error on every MCP candidate leaves mcpInit and mcpEndpoint unset without throwing", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("network error"));
 
     const promise = crawlSite(BASE_URL, { ...DEFAULT_OPTIONS, maxPages: 1 });
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(result.metadata.mcpInit?.success).toBe(false);
-    expect(result.metadata.mcpInit?.status).toBeUndefined();
+    expect(result.metadata.mcpInit).toBeUndefined();
+    expect(result.metadata.mcpEndpoint).toBeUndefined();
   });
 });

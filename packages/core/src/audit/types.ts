@@ -93,6 +93,7 @@ export interface McpInitResult {
   rawHeaders?: Record<string, string>;
   linkHeader?: string;
   oauthResourceMetadataUrl?: string;
+  transport?: "streamable-http" | "http+sse";
 }
 
 export interface MultiUaResponse {
@@ -113,6 +114,7 @@ export interface SiteMetadata {
   wellKnown: Record<string, string | undefined>;
   openapi?: ParsedOpenAPISpec;
   mcpInit?: McpInitResult;
+  mcpEndpoint?: string;
   multiUaResponses?: Record<string, MultiUaResponse>;
   catchAll?: boolean;
 }

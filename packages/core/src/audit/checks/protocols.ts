@@ -18,51 +18,42 @@ export const mcpDiscovery: Check = {
       severity: "info" as const,
     };
 
-    if (parseJsonObject(metadata.wellKnown.mcp) === null) {
-      return { ...base, status: "fail", score: 0, message: "No /.well-known/mcp endpoint found" };
-    }
-    const init = metadata.mcpInit;
-    if (init?.success && init.serverInfo) {
-      const details = `Server: ${init.serverInfo.name} v${init.serverInfo.version || "?"}`;
+    const endpoint = metadata.mcpEndpoint;
+    if (endpoint === undefined) {
       return {
         ...base,
-        status: "pass",
-        score: 100,
-        message: `MCP server found: ${init.serverInfo.name} with 0 tool(s)`,
-        details,
+        status: "fail",
+        score: 0,
+        message: "No MCP endpoint found (tried homepage links, /mcp and mcp.<domain>)",
       };
     }
+    const init = metadata.mcpInit;
+    const details = `Endpoint: ${endpoint}`;
     if (init?.status === 401) {
       return {
         ...base,
         status: "pass",
         score: 75,
         message: "MCP endpoint requires auth (401 — OAuth or other auth expected)",
-        details: `POST ${init.mcpEndpointUrl} → 401`,
+        details: `${details} → 401`,
       };
     }
-    if (init?.status !== undefined && !init.success && init.status >= 400) {
+    if (init?.transport === "http+sse") {
       return {
         ...base,
         status: "partial",
         score: 50,
-        message: `MCP endpoint found but returned ${init.status} on initialize`,
-        details: `POST ${init.mcpEndpointUrl} → ${init.status}`,
+        message: "MCP endpoint uses the deprecated HTTP+SSE transport",
+        details,
       };
     }
-    if (init?.status !== undefined) {
-      return {
-        ...base,
-        status: "partial",
-        score: 50,
-        message: "MCP endpoint found but returned invalid MCP response",
-      };
-    }
+    const server = init?.serverInfo;
     return {
       ...base,
-      status: "partial",
-      score: 50,
-      message: "MCP endpoint found but could not complete initialize handshake",
+      status: "pass",
+      score: 100,
+      message: server ? `MCP server found: ${server.name}` : "MCP server found",
+      details: server ? `${details}\nServer: ${server.name} v${server.version || "?"}` : details,
     };
   },
 };

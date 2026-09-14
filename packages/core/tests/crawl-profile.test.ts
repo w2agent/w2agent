@@ -47,14 +47,8 @@ beforeEach(() => {
     if (path === "/") return html(HOME_HTML);
     if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /", { status: 200 });
     if (path === "/sitemap.xml") return new Response(SITEMAP, { status: 200 });
-    if (path === "/.well-known/mcp") {
-      if (method === "POST") {
-        return new Response(MCP_INIT_BODY, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response('{"name":"site-mcp"}', {
+    if (path === "/mcp" && method === "POST") {
+      return new Response(MCP_INIT_BODY, {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -82,10 +76,10 @@ describe("AUDIT_CRAWL_PROFILE", () => {
 });
 
 describe("probeSiteMetadata", () => {
-  it("runs the MCP initialize probe and the multi-UA pass", async () => {
+  it("runs the MCP endpoint probe and the multi-UA pass", async () => {
     const metadata = await probeSiteMetadata(HOME, OPTIONS);
 
-    expect(metadata.wellKnown.mcp).toBeDefined();
+    expect(metadata.mcpEndpoint).toBe(`${SITE}/mcp`);
     expect(metadata.mcpInit?.success).toBe(true);
     expect(metadata.mcpInit?.serverInfo?.name).toBe("site-mcp");
     expect(Object.keys(metadata.multiUaResponses ?? {}).sort()).toEqual(

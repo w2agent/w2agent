@@ -110,7 +110,7 @@ export async function runAudit(
       return check.tracked ? { ...result, tracked: true } : result;
     }),
   );
-  applyNaCascade(results);
+  applyNaCascade(results, metadata);
 
   // Group by category
   const categories = computeCategories(results);
@@ -181,10 +181,19 @@ function isFailOrNa(r: CheckResult | undefined): boolean {
   return r.status === "fail" || r.status === "skip";
 }
 
-export function applyNaCascade(results: CheckResult[]): CheckResult[] {
+export function applyNaCascade(
+  results: CheckResult[],
+  metadata: Pick<SiteMetadata, "mcpEndpoint">,
+): CheckResult[] {
   const byId = new Map(results.map((r) => [r.id, r]));
+  const noMcpEndpoint = () => metadata.mcpEndpoint === undefined;
   // §5.6 cascade — order matches §3 dependency graph (acyclic; references only earlier checks).
-  const cascade: Array<{ id: string; naWhen: (m: Map<string, CheckResult>) => boolean }> = [
+  // sentinel rows demote even pass/partial targets and zero their score.
+  const cascade: Array<{
+    id: string;
+    naWhen: (m: Map<string, CheckResult>) => boolean;
+    sentinel?: boolean;
+  }> = [
     { id: "openapi-spec", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "developer-portal", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "agent-auth-docs", naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
@@ -195,21 +204,22 @@ export function applyNaCascade(results: CheckResult[]): CheckResult[] {
       id: "pkce-s256",
       naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")),
     },
-    // MCP-tier checks: NA when the site has no MCP signal at all (mcp-discovery is the sentinel).
+    // MCP-tier checks: NA when no MCP endpoint was confirmed (metadata.mcpEndpoint is the sentinel).
     // Keeps the rubric from punishing sites that haven't adopted an emerging standard they don't claim.
-    { id: "mcp-auth-mechanism", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
-    { id: "mcp-oauth-metadata", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
-    { id: "oauth-metadata-rfc9728", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
+    { id: "mcp-auth-mechanism", naWhen: noMcpEndpoint, sentinel: true },
+    { id: "mcp-oauth-metadata", naWhen: noMcpEndpoint, sentinel: true },
+    { id: "oauth-metadata-rfc9728", naWhen: noMcpEndpoint, sentinel: true },
     { id: "mcp-pkce-s256", naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
     { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "mcp-server-card", naWhen: (m) => isFailOrNa(m.get("mcp-discovery")) },
+    { id: "mcp-server-card", naWhen: noMcpEndpoint, sentinel: true },
   ];
-  for (const { id, naWhen } of cascade) {
+  for (const { id, naWhen, sentinel } of cascade) {
     const r = byId.get(id);
     if (!r) continue;
-    if (r.status === "pass" || r.status === "partial") continue;
+    if (!sentinel && (r.status === "pass" || r.status === "partial")) continue;
     if (naWhen(byId)) {
       r.status = "skip";
+      if (sentinel) r.score = 0;
       r.message = `Not applicable — dependency unmet (${id} cascade)`;
     }
   }

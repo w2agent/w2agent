@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   actionSchemas,
   apiEndpoints,
@@ -26,89 +26,82 @@ const basePage: FetchedPage = {
 };
 
 describe("mcp-discovery", () => {
-  const originalFetch = globalThis.fetch;
+  const ENDPOINT = "https://mcp.example.com/mcp";
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("fails when no MCP endpoint", async () => {
+  it("fails when no MCP endpoint was confirmed", async () => {
     const result = await mcpDiscovery.run([basePage], baseMeta);
     expect(result).toMatchObject({ status: "fail", score: 0 });
+    expect(result.message).not.toContain("well-known");
   });
 
-  it("fails when /.well-known/mcp is not a JSON object", async () => {
-    const result = await mcpDiscovery.run([basePage], { ...baseMeta, wellKnown: { mcp: "[]" } });
+  it.each([
+    ["a JSON body at /.well-known/mcp", { ...baseMeta, wellKnown: { mcp: '{"endpoints": []}' } }],
+    [
+      "an unconfirmed probe result",
+      { ...baseMeta, mcpInit: { mcpEndpointUrl: ENDPOINT, success: false, status: 405 } },
+    ],
+  ])("fails without the mcpEndpoint sentinel, even with %s", async (_label, meta) => {
+    const result = await mcpDiscovery.run([basePage], meta as SiteMetadata);
     expect(result).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it("scores 100 when MCP endpoint returns valid initialize response", async () => {
+  it("scores 100 for a handshake-confirmed endpoint and names the server and URL", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: '{"endpoints": []}' },
+      mcpEndpoint: ENDPOINT,
       mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        mcpEndpointUrl: ENDPOINT,
         success: true,
         status: 200,
+        transport: "streamable-http",
         serverInfo: { name: "test-server", version: "1.0.0" },
       },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
     expect(result.message).toContain("test-server");
     expect(result.details).toContain("test-server");
+    expect(result.details).toContain(ENDPOINT);
   });
 
-  it("scores 50 when endpoint exists but returns non-200", async () => {
+  it("scores 100 for a modern endpoint confirmed without serverInfo (e.g. -32022 error)", async () => {
     const result = await mcpDiscovery.run([basePage], {
       ...baseMeta,
-      wellKnown: { mcp: "{}" },
+      mcpEndpoint: ENDPOINT,
       mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
+        mcpEndpointUrl: ENDPOINT,
         success: false,
-        status: 405,
-      },
-    });
-    expect(result).toMatchObject({ status: "partial", score: 50 });
-    expect(result.message).toContain("405");
-  });
-
-  it("scores 50 when endpoint returns invalid JSON", async () => {
-    const result = await mcpDiscovery.run([basePage], {
-      ...baseMeta,
-      wellKnown: { mcp: "{}" },
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 200,
-      },
-    });
-    expect(result).toMatchObject({ status: "partial", score: 50 });
-    expect(result.message).toContain("invalid MCP response");
-  });
-
-  it("scores 50 when fetch throws (timeout/network)", async () => {
-    const result = await mcpDiscovery.run([basePage], {
-      ...baseMeta,
-      wellKnown: { mcp: "{}" },
-      mcpInit: { mcpEndpointUrl: "https://example.com/.well-known/mcp", success: false },
-    });
-    expect(result).toMatchObject({ status: "partial", score: 50 });
-    expect(result.message).toContain("could not complete");
-  });
-
-  it("parses SSE format responses", async () => {
-    const result = await mcpDiscovery.run([basePage], {
-      ...baseMeta,
-      wellKnown: { mcp: "{}" },
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        status: 200,
-        serverInfo: { name: "sse-server", version: "2.0.0" },
+        status: 400,
+        transport: "streamable-http",
       },
     });
     expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("sse-server");
+    expect(result.details).toContain(ENDPOINT);
+  });
+
+  it("scores 75 for an auth-gated endpoint (401 + Bearer)", async () => {
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      mcpEndpoint: ENDPOINT,
+      mcpInit: {
+        mcpEndpointUrl: ENDPOINT,
+        success: false,
+        status: 401,
+        transport: "streamable-http",
+      },
+    });
+    expect(result).toMatchObject({ status: "pass", score: 75 });
+    expect(result.details).toContain(ENDPOINT);
+  });
+
+  it("scores partial 50 for the deprecated HTTP+SSE transport", async () => {
+    const result = await mcpDiscovery.run([basePage], {
+      ...baseMeta,
+      mcpEndpoint: ENDPOINT,
+      mcpInit: { mcpEndpointUrl: ENDPOINT, success: false, status: 200, transport: "http+sse" },
+    });
+    expect(result).toMatchObject({ status: "partial", score: 50 });
+    expect(result.message).toMatch(/deprecated/i);
+    expect(result.details).toContain(ENDPOINT);
   });
 });
 
