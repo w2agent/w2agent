@@ -6,7 +6,7 @@
 
 | Bump | When |
 |------|------|
-| major | The check set changes (add, retire, merge, move to tracked) or any weight changes |
+| major | The check set changes (add, retire, merge, move to or from tracked) or any weight changes |
 | minor | A detection fix that changes pass rates without changing what the check is meant to measure |
 | patch | Messages or `fixSnippet` text only |
 
@@ -99,4 +99,4 @@ Weight `—` = the check does not exist in that version. `0 T` = tracked.
 
 ### Measured delta
 
-**Pending: owner-run dual-run.** From the platform repo: `pnpm tsx --env-file=.env.prod scripts/rescore-all.ts --rubric-compare --leaderboard-only`. It runs the frozen 2.0 engine (`vendor/frozen/w2agent-core-rubric-2.0.tgz`) and the 3.0 engine side by side. Record the per-category median delta by site type here before cutover. Per D-4: run it privately, publish the delta here, then cut over once.
+**Pending: owner-run dual-run.** From the platform repo: `pnpm tsx --env-file=.env.prod scripts/rescore-all.ts --rubric-compare --leaderboard-only`. It runs the frozen 2.0 engine (`vendor/frozen/w2agent-core-rubric-2.0.tgz`) and the 3.0 engine side by side. Record the per-category median delta by site type here before cutover. Per D-4, in this order: run it privately from the platform branch before any migration or deploy (it only reads `sites`), publish the delta here, then apply the platform migrations and deploy — the deploy is the cutover — and rescore every site promptly after it. The `2026-09-14` heading date is a placeholder until then.
