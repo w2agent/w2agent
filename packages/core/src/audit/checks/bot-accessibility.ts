@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { guardedFetch, type IsAllowedTarget, readBodyCapped } from "../../shared/fetcher.js";
+import {
+  guardedFetch,
+  type IsAllowedTarget,
+  readBodyCappedDetailed,
+} from "../../shared/fetcher.js";
 import { BOT_TOKENS } from "../shared/bot-tokens.js";
 import { mediaTypeEssence } from "../shared/json.js";
 import {
@@ -286,20 +290,37 @@ const CONTROL_INCONCLUSIVE_REASON = "catch-all control inconclusive";
 
 const stripBom = (text: string) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
 
-function isHtmlDocument(body: string): boolean {
-  let rest = stripBom(body).trimStart();
-  while (rest.startsWith("<!--")) {
-    const end = rest.indexOf("-->", 2);
-    if (end === -1) return true;
-    rest = rest.slice(end + 3).trimStart();
-  }
-  return HTML_START.test(rest);
+function leadingMarkupClose(text: string): string | undefined {
+  if (text.startsWith("<!--")) return "-->";
+  if (text.startsWith("<?")) return "?>";
+  if (/^<!doctype[\s>]/i.test(text)) return ">";
+  return undefined;
 }
 
-function echoesPage(body: string, pageHtml: string): boolean {
+function isHtmlDocument(body: string): boolean {
+  let rest = stripBom(body).trimStart();
+  while (!HTML_START.test(rest)) {
+    const close = leadingMarkupClose(rest);
+    if (close === undefined) return false;
+    const end = rest.indexOf(close, 2);
+    if (end === -1) return true;
+    rest = rest.slice(end + close.length).trimStart();
+  }
+  return true;
+}
+
+function echoesPage(body: string, truncated: boolean, pageHtml: string): boolean {
   const text = stripBom(body);
   const page = stripBom(pageHtml);
-  return text.length > 64 ? page.startsWith(text.slice(0, -4)) : page === text;
+  return truncated ? page.startsWith(text.slice(0, -4)) : page === text;
+}
+
+const RAW_TEXT_TYPES = new Set([...MARKDOWN_TYPES, "text/plain"]);
+
+function echoSource(page: FetchedPage | undefined, catchAll: boolean): string | undefined {
+  if (page === undefined) return undefined;
+  const type = mediaTypeEssence(page.headers["content-type"] ?? "");
+  return catchAll || !RAW_TEXT_TYPES.has(type) ? page.html : undefined;
 }
 
 const variesOnAccept = (res: Response) =>
@@ -314,10 +335,10 @@ async function markdownMissReason(res: Response, echoOf: string[]): Promise<stri
     await res.body?.cancel().catch(() => {});
     return `status ${res.status}, content-type ${type || "none"}`;
   }
-  const body = await readBodyCapped(res, MAX_MARKDOWN_BYTES);
+  const { text: body, truncated } = await readBodyCappedDetailed(res, MAX_MARKDOWN_BYTES);
   if (body.trim() === "") return "empty body";
   if (isHtmlDocument(body)) return "HTML body labelled as markdown";
-  if (echoOf.some((page) => echoesPage(body, page))) {
+  if (echoOf.some((page) => echoesPage(body, truncated, page))) {
     return "catch-all: same body as the crawled page";
   }
   return undefined;
@@ -403,10 +424,12 @@ export const contentNegotiation: Check = {
     const homepageHref = hrefOf(homepage);
     const targets: MarkdownTarget[] = [];
     if (homepageHref) {
+      const catchAll = metadata.catchAll === true;
       const crawled = pages.find((p) => hrefOf(p.url) === homepageHref);
-      targets.push({ label: "homepage", url: homepageHref, html: crawled?.html });
+      targets.push({ label: "homepage", url: homepageHref, html: echoSource(crawled, catchAll) });
       const docs = findDocsPage(pages, new URL(homepageHref), homepageHref);
-      if (docs) targets.push({ label: "docs page", url: docs.url, html: docs.html });
+      if (docs)
+        targets.push({ label: "docs page", url: docs.url, html: echoSource(docs, catchAll) });
     }
 
     const signal = AbortSignal.timeout(MARKDOWN_TIMEOUT_MS);
@@ -420,8 +443,9 @@ export const contentNegotiation: Check = {
     const byDirectory = new Map<string, MarkdownProbe[]>();
     for (const p of probes) {
       if (!p.hit || p.method !== "suffix") continue;
-      const directory = new URL(".", p.finalUrl).href;
-      byDirectory.set(directory, [...(byDirectory.get(directory) ?? []), p]);
+      for (const directory of new Set([new URL(".", p.url).href, new URL(".", p.finalUrl).href])) {
+        byDirectory.set(directory, [...(byDirectory.get(directory) ?? []), p]);
+      }
     }
     const controlSignal = AbortSignal.timeout(CONTROL_TIMEOUT_MS);
     await Promise.all(

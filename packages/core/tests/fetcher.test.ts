@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchPage, fetchText, MAX_HTML_BYTES, MAX_TEXT_BYTES } from "../src/shared/fetcher.js";
+import {
+  fetchPage,
+  fetchText,
+  MAX_HTML_BYTES,
+  MAX_TEXT_BYTES,
+  readBodyCappedDetailed,
+} from "../src/shared/fetcher.js";
 
 const opts = { timeout: 5000, userAgent: "test" };
 
@@ -18,6 +24,42 @@ function midBodyReset(): Response {
   });
   return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
 }
+
+// `truncated` decides whether content-negotiation compares a body by prefix (a cut read)
+// or exactly, so a body that fits the cap exactly must not be reported as cut.
+describe("readBodyCappedDetailed", () => {
+  const chunked = (...sizes: number[]) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const size of sizes) controller.enqueue(new Uint8Array(size).fill(97));
+          controller.close();
+        },
+      }),
+    );
+
+  it.each([
+    [[64]],
+    [[40, 24]],
+    [[64, 0]],
+  ])("a body of exactly the cap (chunks %j) is complete, not truncated", async (sizes) => {
+    expect(await readBodyCappedDetailed(chunked(...sizes), 64)).toEqual({
+      text: "a".repeat(64),
+      truncated: false,
+    });
+  });
+
+  it.each([
+    [[65]],
+    [[64, 1]],
+    [[40, 24, 1]],
+  ])("a body that loses bytes past the cap (chunks %j) is truncated", async (sizes) => {
+    expect(await readBodyCappedDetailed(chunked(...sizes), 64)).toEqual({
+      text: "a".repeat(64),
+      truncated: true,
+    });
+  });
+});
 
 describe("fetchPage", () => {
   beforeEach(() => {

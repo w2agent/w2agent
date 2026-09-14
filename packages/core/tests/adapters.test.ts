@@ -636,9 +636,9 @@ describe("WordPress integration generation", () => {
 });
 
 describe("Next.js integration generation", () => {
-  it("generates 9 files", () => {
+  it("generates 10 files", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(9);
+    expect(files).toHaveLength(10);
   });
 
   it("generates ISR route handlers (not just static files)", () => {
@@ -746,9 +746,9 @@ describe("Docusaurus integration generation", () => {
 });
 
 describe("Nuxt integration generation", () => {
-  it("generates 8 files", () => {
+  it("generates 9 files", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(8);
+    expect(files).toHaveLength(9);
   });
 
   it("generates Nitro cached event handlers", () => {

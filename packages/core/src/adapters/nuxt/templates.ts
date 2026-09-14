@@ -8,10 +8,13 @@ export function generateNuxtIntegration(
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
-  const llmsTxtRoute = `import { defineCachedEventHandler } from "#imports";
+  // Nitro's cached handlers only keep headers the handler sets on the response,
+  // so each route sets its Content-Type inside the handler.
+  const llmsTxtRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
 
 export default defineCachedEventHandler(
-  async () => {
+  async (event) => {
+    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
     // Read from generated static file, or customize with your own content source
     const fs = await import("node:fs");
     const path = await import("node:path");
@@ -24,18 +27,15 @@ export default defineCachedEventHandler(
     return "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
       "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
   },
-  {
-    swr: true,
-    maxAge: 3600,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  },
+  { swr: true, maxAge: 3600 },
 );
 `;
 
-  const llmsFullTxtRoute = `import { defineCachedEventHandler } from "#imports";
+  const llmsFullTxtRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
 
 export default defineCachedEventHandler(
-  async () => {
+  async (event) => {
+    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
     const fs = await import("node:fs");
     const path = await import("node:path");
     const filePath = path.join(process.cwd(), "public", "llms-full.txt");
@@ -44,39 +44,56 @@ export default defineCachedEventHandler(
     }
     return "# No content generated yet\\n\\nRun: npx w2agent generate ${siteUrl}\\n";
   },
-  {
-    swr: true,
-    maxAge: 3600,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  },
+  { swr: true, maxAge: 3600 },
 );
 `;
 
-  const agentCardRoute = `import { defineCachedEventHandler } from "#imports";
+  const agentCardRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
 
 const agentCard = ${agentCardContent};
 
 export default defineCachedEventHandler(
-  () => agentCard,
-  {
-    swr: true,
-    maxAge: 3600,
-    headers: { "Content-Type": "application/json" },
+  (event) => {
+    setResponseHeader(event, "Content-Type", "application/json");
+    return agentCard;
   },
+  { swr: true, maxAge: 3600 },
 );
 `;
 
-  const contentNegotiationMiddleware = `import { defineEventHandler, getRequestHeader, sendRedirect } from "h3";
+  // Markdown twin of the homepage: the llms.txt content served as text/markdown
+  const indexMdRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
+
+export default defineCachedEventHandler(
+  async (event) => {
+    setResponseHeader(event, "Content-Type", "text/markdown; charset=utf-8");
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const filePath = path.join(process.cwd(), "public", "llms.txt");
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, "utf-8");
+    }
+    const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
+    return "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
+      "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+  },
+  { swr: true, maxAge: 3600 },
+);
+`;
+
+  const contentNegotiationMiddleware = `import { defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader } from "h3";
 
 export default defineEventHandler((event) => {
   const url = event.path;
   const accept = getRequestHeader(event, "accept") || "";
 
-  // Content negotiation: AI bots requesting markdown/plain text at root get llms.txt
-  if (
-    url === "/" &&
-    (accept.includes("text/markdown") || accept.includes("text/plain"))
-  ) {
+  // Content negotiation: AI agents requesting markdown at root get /index.md, plain text gets llms.txt
+  if (url === "/" && accept.includes("text/markdown")) {
+    // The redirect depends on Accept — caches must not send browsers to markdown
+    setResponseHeader(event, "Vary", "Accept");
+    return sendRedirect(event, "/index.md", 302);
+  }
+  if (url === "/" && accept.includes("text/plain")) {
     return sendRedirect(event, "/llms.txt", 302);
   }
 });
@@ -182,6 +199,7 @@ your-nuxt-app/
     routes/
       llms.txt.ts                                      <- Cached Nitro handler
       llms-full.txt.ts                                 <- Cached Nitro handler
+      index.md.ts                                      <- llms.txt as text/markdown (homepage markdown twin)
       .well-known/agent-card.json.ts                   <- Cached A2A agent card (only with --a2a-endpoint)
     middleware/
       content-negotiation.ts                           <- AI bot content negotiation
@@ -194,7 +212,7 @@ your-nuxt-app/
 
 1. **Nitro handlers** serve content with 1hr cache + stale-while-revalidate
 2. **Build script** regenerates \`public/\` files on deploy via \`npx w2agent generate\`
-3. **Middleware** redirects AI bots requesting \`Accept: text/markdown\` to \`/llms.txt\`
+3. **Middleware** redirects \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (302 with \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
 4. **Fallback** — if static files are missing, handlers generate minimal content
 
 ## Regenerating
@@ -209,6 +227,7 @@ npx w2agent generate ${siteUrl} --output ./public/
 
   files.push(makeFile("nuxt/server/routes/llms.txt.ts", llmsTxtRoute));
   files.push(makeFile("nuxt/server/routes/llms-full.txt.ts", llmsFullTxtRoute));
+  files.push(makeFile("nuxt/server/routes/index.md.ts", indexMdRoute));
   if (agentCardContent) {
     files.push(makeFile("nuxt/server/routes/.well-known/agent-card.json.ts", agentCardRoute));
   }

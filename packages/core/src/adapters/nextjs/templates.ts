@@ -14,12 +14,15 @@ import { NextRequest, NextResponse } from "next/server";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Content negotiation: AI bots requesting markdown get redirected to /llms.txt
+  // Content negotiation: AI agents requesting markdown get /index.md, plain text gets /llms.txt
   const accept = request.headers.get("accept") || "";
-  if (
-    pathname === "/" &&
-    (accept.includes("text/markdown") || accept.includes("text/plain"))
-  ) {
+  if (pathname === "/" && accept.includes("text/markdown")) {
+    const response = NextResponse.rewrite(new URL("/index.md", request.url));
+    // "/" now depends on Accept — caches must not serve this markdown to browsers
+    response.headers.set("Vary", "Accept");
+    return response;
+  }
+  if (pathname === "/" && accept.includes("text/plain")) {
     return NextResponse.rewrite(new URL("/llms.txt", request.url));
   }
 
@@ -73,6 +76,32 @@ function generateLlmsTxtFromPages(): string {
   const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
   return "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
     "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+}
+`;
+
+  // Markdown twin of the homepage: the llms.txt content served as text/markdown
+  const indexMdRoute = `/* eslint-disable */
+import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
+
+export const revalidate = 3600;
+
+export async function GET() {
+  // Same content as /llms.txt: the generated file, or a minimal fallback
+  const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
+  const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
+  const content = fs.existsSync(filePath)
+    ? fs.readFileSync(filePath, "utf-8")
+    : "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
+      "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+  return new NextResponse(content, {
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Vary": "Accept",
+      "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+    },
+  });
 }
 `;
 
@@ -215,6 +244,7 @@ your-nextjs-app/
   app/
     llms.txt/route.ts                       <- Dynamic route handler (ISR)
     llms-full.txt/route.ts                  <- Dynamic route handler (ISR)
+    index.md/route.ts                       <- llms.txt as text/markdown (homepage markdown twin)
     .well-known/agent-card.json/route.ts    <- Agent card route (only with --a2a-endpoint)
 \`\`\`
 
@@ -222,7 +252,7 @@ your-nextjs-app/
 
 1. **Route handlers** serve content with ISR (revalidates every hour)
 2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx w2agent generate\`
-3. **Middleware** redirects AI bots requesting \`Accept: text/markdown\` to \`/llms.txt\`
+3. **Middleware** rewrites \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (text/markdown, \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
 
 ## Customization
@@ -243,6 +273,7 @@ npx w2agent generate ${siteUrl} --output ./.w2agent/
   files.push(makeFile("nextjs/middleware.ts", middlewareTs));
   files.push(makeFile("nextjs/app/llms.txt/route.ts", llmsTxtRoute));
   files.push(makeFile("nextjs/app/llms-full.txt/route.ts", llmsFullTxtRoute));
+  files.push(makeFile("nextjs/app/index.md/route.ts", indexMdRoute));
   if (agentCardContent) {
     files.push(makeFile("nextjs/app/.well-known/agent-card.json/route.ts", agentCardRoute));
   }

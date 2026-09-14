@@ -4,21 +4,31 @@ export const MAX_HTML_BYTES = 2 * 1024 * 1024; // 2 MB
 export const MAX_TEXT_BYTES = 1 * 1024 * 1024; // 1 MB
 
 export async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
+  return (await readBodyCappedDetailed(response, maxBytes)).text;
+}
+
+export async function readBodyCappedDetailed(
+  response: Response,
+  maxBytes: number,
+): Promise<{ text: string; truncated: boolean }> {
   const reader = response.body?.getReader();
-  if (!reader) return response.text();
+  if (!reader) return { text: await response.text(), truncated: false };
 
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done || !value) break;
 
+      // At exactly maxBytes the next non-empty chunk (if any) decides truncation.
       const space = maxBytes - total;
-      if (value.length >= space) {
+      if (value.length > space) {
         chunks.push(value.slice(0, space));
         total += space;
+        truncated = true;
         break;
       }
 
@@ -35,7 +45,7 @@ export async function readBodyCapped(response: Response, maxBytes: number): Prom
     buf.set(chunk, offset);
     offset += chunk.length;
   }
-  return new TextDecoder().decode(buf);
+  return { text: new TextDecoder().decode(buf), truncated };
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

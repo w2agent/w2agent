@@ -31,13 +31,19 @@ export default defineNuxtModule<ModuleOptions>({
       handler: resolver.resolve("./runtime/server/routes/llms-full-txt"),
     });
 
+    // index.md — llms.txt as text/markdown (homepage markdown twin)
+    addServerHandler({
+      route: "/index.md",
+      handler: resolver.resolve("./runtime/server/routes/index-md"),
+    });
+
     // /.well-known/agent-card.json — agent metadata
     addServerHandler({
       route: "/.well-known/agent-card.json",
       handler: resolver.resolve("./runtime/server/routes/agent-card"),
     });
 
-    // Content negotiation middleware — redirects AI bots to /llms.txt
+    // Content negotiation middleware — redirects AI agents at / to /index.md (markdown) or /llms.txt
     addServerHandler({
       middleware: true,
       handler: resolver.resolve("./runtime/server/middleware/content-negotiation"),

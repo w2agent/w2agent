@@ -1,5 +1,13 @@
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createApp, createRouter, defineEventHandler, type EventHandler, toWebHandler } from "h3";
 import robotsParser from "robots-parser";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { generateNextjsIntegration } from "../../src/adapters/nextjs/templates.js";
+import { generateNuxtIntegration } from "../../src/adapters/nuxt/templates.js";
 import {
   aiAgentAccess,
   contentNegotiation,
@@ -9,6 +17,7 @@ import {
   statusCodes,
 } from "../../src/audit/checks/bot-accessibility.js";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { NextRequest } from "../fixtures/generated/next-server.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -558,6 +567,21 @@ describe("content-negotiation", () => {
       suffixOnly('<div align="center">\n  <b>Example</b>\n</div>\n\n# Example\n');
       expect(await run()).toMatchObject({ status: "pass", score: 100 });
     });
+
+    it.each([
+      ["an XML prolog", '<?xml version="1.0"?><html><body>Error</body></html>'],
+      [
+        "a prolog, a comment and a non-HTML doctype",
+        `${String.fromCharCode(0xfeff)}<?xml version="1.0" encoding="UTF-8"?>\n<!-- err -->\n<!DOCTYPE error SYSTEM "e.dtd">\n<body>Error</body>`,
+      ],
+      ["an unterminated XML prolog", '<?xml version="1.0"\n# looks like markdown'],
+      ["an unterminated doctype", "<!DOCTYPE error\n# looks like markdown"],
+    ])("an HTML error page behind %s is still HTML, never markdown", async (_, body) => {
+      suffixOnly(body);
+      const result = await run();
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("HTML body");
+    });
   });
 
   describe("echo of the crawled page with a byte-order mark", () => {
@@ -569,6 +593,101 @@ describe("content-negotiation", () => {
       const shell = `<div id="root">${"a".repeat(70 * 1024)}</div>`;
       const page = { ...basePage, html: `${pageBom}${shell}` };
       serve({}, () => md(`${bodyBom}${shell}`, { vary: "Accept" }));
+      const result = await run([page], { catchAll: false });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("catch-all: same body");
+    });
+  });
+
+  describe("which bodies count as a copy of the crawled page", () => {
+    const htmlPage = (body: string, url = "https://example.com") => ({
+      ...basePage,
+      url,
+      html: body,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+
+    it("real markdown that shares a long opening comment with the crawled page is not a copy — only a read cut at the 64 KB cap is prefix-compared", async () => {
+      const comment = `<!-- ${"x".repeat(100)} -->\n`;
+      const page = htmlPage(`${comment}<!doctype html><html><body>Hi</body></html>`);
+      serve({
+        "https://example.com/": () => html(page.html),
+        "https://example.com/index.md": () => md(`${comment}# Hi`),
+      });
+      const result = await run([page]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("an untruncated markdown body that is a strict prefix of the crawled page is not a copy", async () => {
+      const doc = `# Intro\n\n${"Plain text that reads the same in both. ".repeat(10)}`;
+      const page = htmlPage(`${doc}\n<script src="/analytics.js"></script>`);
+      serve({
+        "https://example.com/": () => html(page.html),
+        "https://example.com/index.md": () => md(doc),
+      });
+      expect(await run([page], { catchAll: true })).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("a markdown body of exactly 64 KB that is a strict prefix of the crawled page is complete, so it is not a copy", async () => {
+      const lead = "# Docs\n\n";
+      const doc = `${lead}${"a".repeat(64 * 1024 - lead.length)}`;
+      const page = htmlPage(`${doc}\n<script src="/analytics.js"></script>`);
+      serve({
+        "https://example.com/": () => html(page.html),
+        "https://example.com/index.md": () => md(doc),
+      });
+      expect(await run([page], { catchAll: true })).toMatchObject({ status: "pass", score: 100 });
+    });
+
+    it("a site that serves markdown at / and /index.md, crawled as markdown, passes — a copy of a markdown page is the page itself", async () => {
+      const page = {
+        ...basePage,
+        url: "https://example.com/",
+        html: MD,
+        headers: { "content-type": "text/markdown" },
+      };
+      serve({
+        "https://example.com/": () => md(MD, { vary: "Accept" }),
+        "https://example.com/index.md": () => md(MD),
+      });
+      const result = await run([page], { catchAll: false });
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).toContain(".md URL (homepage)");
+      expect(result.message).toContain("Accept: text/markdown (homepage)");
+    });
+
+    it("a crawled docs page that is itself a raw .md file (text/plain) counts when negotiation returns it as markdown", async () => {
+      const docs = {
+        ...basePage,
+        url: "https://example.com/docs/intro.md",
+        html: MD,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      };
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/docs/intro.md": htmlUnlessMarkdown(md(MD, { vary: "Accept" })),
+      });
+      const result = await run([htmlPage(basePage.html), docs]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).toContain("Accept: text/markdown (docs page)");
+    });
+
+    it("on a catch-all site a copy of the crawled page is still rejected, even when the page was markdown", async () => {
+      const page = {
+        ...basePage,
+        url: "https://example.com/",
+        html: MD,
+        headers: { "content-type": "text/markdown" },
+      };
+      serve({}, () => md(MD, { vary: "Accept" }));
+      const result = await run([page], { catchAll: true });
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain("catch-all: same body");
+    });
+
+    it("a copy of a crawled text/html page is rejected without the catch-all flag, even when its body doesn't open like an HTML document", async () => {
+      const page = htmlPage('<div id="root"></div><script src="/app.js"></script>');
+      serve({}, () => md(page.html, { vary: "Accept" }));
       const result = await run([page], { catchAll: false });
       expect(result).toMatchObject({ status: "fail", score: 0 });
       expect(result.details).toContain("catch-all: same body");
@@ -709,7 +828,37 @@ describe("content-negotiation", () => {
       expect(
         requests.some((r) => /^https:\/\/cdn\.example\.net\/site\/[0-9a-f-]{36}\.md$/.test(r.url)),
       ).toBe(true);
-      expect(requests.some((r) => CONTROL.test(r.url))).toBe(false);
+      expect(requests.some((r) => CONTROL.test(r.url))).toBe(true);
+    });
+
+    it("an /index.md that redirects to a shared markdown error document fails — the requested directory is controlled too, not only the redirect target's", async () => {
+      serve({ "https://example.com/": () => html() }, (_, url) => {
+        if (url === "https://example.com/errors/not-found.md") return md("# Page not found");
+        if (/^https:\/\/example\.com\/[^/]+\.md$/.test(url)) {
+          return new Response(null, { status: 302, headers: { location: "/errors/not-found.md" } });
+        }
+        return notFound();
+      });
+      const result = await run();
+      expect(result).toMatchObject({ status: "fail", score: 0 });
+      expect(result.details).toContain(
+        "homepage .md URL https://example.com/index.md: miss (nonexistent .md path also returns markdown (catch-all))",
+      );
+      expect(
+        requests.some((r) => /^https:\/\/example\.com\/errors\/[0-9a-f-]{36}\.md$/.test(r.url)),
+      ).toBe(true);
+    });
+
+    it("an /index.md that redirects to a real twin in another directory keeps its pass when both directories' controls 404", async () => {
+      serve({
+        "https://example.com/": () => html(),
+        "https://example.com/index.md": () =>
+          new Response(null, { status: 301, headers: { location: "/content/home.md" } }),
+        "https://example.com/content/home.md": () => md(),
+      });
+      expect(await run()).toMatchObject({ status: "pass", score: 100 });
+      const controls = requests.filter((r) => /\/[0-9a-f-]{36}\.md$/.test(r.url)).map((r) => r.url);
+      expect(controls).toHaveLength(2);
     });
 
     it("sends one control per directory of the .md hits' final URLs", async () => {
@@ -824,6 +973,142 @@ describe("content-negotiation", () => {
       expect(result).toMatchObject({ status: "fail", score: 0 });
       expect(result.details).toContain("miss (request failed");
       expect(requests.some((r) => r.url === "https://example.com/markdown")).toBe(false);
+    });
+  });
+
+  // Runs the generated files themselves: Nuxt routes and middleware through real h3
+  // (Nitro's cached handler replays only headers the handler sets), Next.js middleware
+  // and route handlers against a next/server stand-in with Next's rewrite semantics.
+  describe("generated framework integration", () => {
+    const SITE = "https://example.com";
+    const HOME = "<!doctype html><html><body>home</body></html>";
+    const fixtures = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/generated");
+    let tmp: string;
+
+    beforeAll(() => {
+      tmp = mkdtempSync(join(tmpdir(), "w2agent-generated-"));
+    });
+    afterAll(() => {
+      rmSync(tmp, { recursive: true, force: true });
+    });
+
+    async function load(
+      files: { filename: string; content: string }[],
+      filename: string,
+    ): Promise<Record<string, unknown>> {
+      const file = files.find((f) => f.filename === filename);
+      if (!file) throw new Error(`not generated: ${filename}`);
+      const source = file.content
+        .replace(
+          /from "(#imports|h3)"/g,
+          `from ${JSON.stringify(join(fixtures, "nitro-imports.ts"))}`,
+        )
+        .replace(
+          /from "next\/server"/g,
+          `from ${JSON.stringify(join(fixtures, "next-server.ts"))}`,
+        );
+      const path = join(tmp, `${randomUUID()}.ts`);
+      writeFileSync(path, source);
+      return import(path);
+    }
+
+    const generated = (files: { filename: string }[], prefix: string, suffix: string) =>
+      files
+        .map((f) => f.filename)
+        .filter((f) => f.startsWith(prefix) && f.endsWith(suffix))
+        .map((f) => ({ filename: f, path: f.slice(prefix.length, -suffix.length) || "/" }));
+
+    async function nuxtSite(files: { filename: string; content: string }[]) {
+      const app = createApp();
+      const middleware = await load(files, "nuxt/server/middleware/content-negotiation.ts");
+      app.use(middleware.default as EventHandler);
+      const router = createRouter();
+      for (const route of generated(files, "nuxt/server/routes", ".ts")) {
+        router.get(route.path, (await load(files, route.filename)).default as EventHandler);
+      }
+      router.get(
+        "/",
+        defineEventHandler(() => HOME),
+      );
+      app.use(router);
+      return toWebHandler(app);
+    }
+
+    async function nextSite(files: { filename: string; content: string }[]) {
+      const middleware = (await load(files, "nextjs/middleware.ts")) as {
+        middleware: (req: NextRequest) => Response;
+        config: { matcher: string[] };
+      };
+      const routes = new Map<string, () => Promise<Response>>();
+      for (const route of generated(files, "nextjs/app", "/route.ts")) {
+        routes.set(route.path, (await load(files, route.filename)).GET as () => Promise<Response>);
+      }
+      const render = async (pathname: string) => {
+        const handler = routes.get(pathname);
+        if (handler) return handler();
+        return pathname === "/"
+          ? new Response(HOME, { headers: { "content-type": "text/html; charset=utf-8" } })
+          : new Response("<!doctype html><html><body>404</body></html>", {
+              status: 404,
+              headers: { "content-type": "text/html; charset=utf-8" },
+            });
+      };
+      return async (request: Request) => {
+        const url = new URL(request.url);
+        if (!middleware.config.matcher.includes(url.pathname)) return render(url.pathname);
+        const decision = middleware.middleware(
+          new NextRequest(request.url, { headers: request.headers }),
+        );
+        const rewrite = decision.headers.get("x-middleware-rewrite");
+        const res = await render(rewrite ? new URL(rewrite).pathname : url.pathname);
+        decision.headers.forEach((value, key) => {
+          if (!key.startsWith("x-middleware-")) res.headers.set(key, value);
+        });
+        return res;
+      };
+    }
+
+    const serveSite = (site: (req: Request) => Promise<Response> | Response) =>
+      serve({}, (accept, url) =>
+        site(new Request(url, { headers: accept === null ? {} : { accept } })),
+      );
+
+    it.each([
+      ["Next.js", () => nextSite(generateNextjsIntegration("", "", undefined, SITE))],
+      ["Nuxt", () => nuxtSite(generateNuxtIntegration("", "", undefined, SITE))],
+    ])("the generated %s integration passes content-negotiation", async (_, build) => {
+      serveSite(await build());
+      const result = await run([{ ...basePage, url: `${SITE}/`, html: HOME }]);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).toContain(".md URL (homepage)");
+      expect(result.message).toContain("Accept: text/markdown (homepage)");
+      expect(result.message).not.toContain("add Vary");
+    });
+
+    it("every generated Nuxt route serves its declared content type (Nitro ignores a `headers` option)", async () => {
+      const card = '{"name":"Agent"}';
+      const web = await nuxtSite(generateNuxtIntegration("", "", card, SITE));
+      const typeOf = async (path: string) =>
+        (await web(new Request(`${SITE}${path}`))).headers.get("content-type");
+      expect(await typeOf("/index.md")).toBe("text/markdown; charset=utf-8");
+      expect(await typeOf("/llms.txt")).toBe("text/plain; charset=utf-8");
+      expect(await typeOf("/llms-full.txt")).toBe("text/plain; charset=utf-8");
+      expect(await typeOf("/.well-known/agent-card.json")).toMatch(/^application\/json/);
+    });
+
+    it("the generated Next.js /index.md route works without the llms.txt route (kept user route or deleted)", async () => {
+      const files = generateNextjsIntegration("", "", undefined, SITE).filter(
+        (f) => !f.filename.startsWith("nextjs/app/llms.txt/"),
+      );
+      const route = (await load(files, "nextjs/app/index.md/route.ts")) as {
+        GET: () => Promise<Response>;
+      };
+      const res = await route.GET();
+      expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+      expect(await res.text()).toContain("# example.com");
+      expect(files.find((f) => f.filename === "nextjs/app/index.md/route.ts")?.content).not.toMatch(
+        /from "\.\.?\//,
+      );
     });
   });
 });

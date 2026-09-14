@@ -41,10 +41,11 @@ npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint ht
 |-------|-------------|
 | `GET /llms.txt` | AI content index |
 | `GET /llms-full.txt` | Full content dump |
+| `GET /index.md` | `llms.txt` content served as `text/markdown` |
 | `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json`; 404 when absent |
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
 
-Content-negotiation middleware is also added: AI bots requesting `Accept: text/markdown` at `/` are redirected to `/llms.txt`.
+Content-negotiation middleware is also added: at `/`, `Accept: text/markdown` is redirected to `/index.md` (with `Vary: Accept`) and `Accept: text/plain` to `/llms.txt`.
 
 ## Environment variables
 
