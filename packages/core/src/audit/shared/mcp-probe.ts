@@ -1,6 +1,6 @@
 import { guardedFetch } from "../../shared/fetcher.js";
 import type { AuditOptions, McpInitResult } from "../types.js";
-import { parseMcpResourceLink } from "./oauth-parser.js";
+import { bearerResourceMetadata } from "./oauth-parser.js";
 
 export const MCP_CANDIDATE_CAP = 5;
 const MCP_HREF_CANDIDATE_CAP = 2;
@@ -92,11 +92,9 @@ function essence(contentType: string | null): string {
 }
 
 function isMcpAuthChallenge(response: Response): boolean {
-  const challenge = response.headers.get("www-authenticate") ?? "";
   return (
     response.status === 401 &&
-    /(^|,)\s*bearer(\s|,|$)/i.test(challenge) &&
-    /(^|[\s,])resource_metadata\s*=/i.test(challenge)
+    bearerResourceMetadata(response.headers.get("www-authenticate") ?? undefined) !== undefined
   );
 }
 
@@ -207,11 +205,9 @@ function resultFrom(
     status: response.status,
     transport,
     rawHeaders,
-    linkHeader: rawHeaders.link,
   };
-  if (rawHeaders.link) {
-    result.oauthResourceMetadataUrl = parseMcpResourceLink(rawHeaders.link).resourceMetadataUrl;
-  }
+  const resourceMetadata = bearerResourceMetadata(rawHeaders["www-authenticate"]);
+  if (resourceMetadata) result.oauthResourceMetadataUrl = resourceMetadata;
   return result;
 }
 
@@ -316,14 +312,7 @@ async function probeCandidate(url: string, ctx: ProbeContext): Promise<McpInitRe
     if (init.status >= 200 && init.status < 300 && initMsg?.result && serverInfo) {
       const confirmed = resultFrom(initSent.url, init, "streamable-http");
       confirmed.success = true;
-      const result = initMsg.result as {
-        capabilities?: { auth?: { type?: string } };
-        _meta?: { auth?: { type?: string } };
-      };
-      confirmed.serverInfo = {
-        ...serverInfo,
-        authMechanism: result.capabilities?.auth?.type ?? result._meta?.auth?.type,
-      };
+      confirmed.serverInfo = serverInfo;
       return confirmed;
     }
     if (init.status !== 400 && init.status !== 404 && init.status !== 405) return null;

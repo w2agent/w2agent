@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentAuthChecks } from "../../src/audit/checks/agent-auth.js";
-import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import type { Check, CheckResult, FetchedPage, SiteMetadata } from "../../src/audit/types.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -207,123 +207,6 @@ describe("agent-auth: A4 agent-auth-docs", () => {
   });
 });
 
-// --- B1 oauth-support ---
-describe("agent-auth: B1 oauth-support", () => {
-  const check = agentAuthChecks.find((c) => c.id === "oauth-support")!;
-
-  it("pass when metadata has issuer + endpoints", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      wellKnown: {
-        "oauth-authorization-server": JSON.stringify({
-          issuer: "https://auth.example.com",
-          authorization_endpoint: "https://auth.example.com/authorize",
-          token_endpoint: "https://auth.example.com/token",
-        }),
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
-
-  it("partial when metadata is present but missing token_endpoint", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      wellKnown: {
-        "oauth-authorization-server": JSON.stringify({
-          issuer: "https://auth.example.com",
-          authorization_endpoint: "https://auth.example.com/authorize",
-        }),
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
-  });
-
-  it("fail when no oauth-authorization-server wellKnown", () => {
-    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail", score: 0 });
-  });
-});
-
-// --- B2 oauth-protected-resource ---
-describe("agent-auth: B2 oauth-protected-resource", () => {
-  const check = agentAuthChecks.find((c) => c.id === "oauth-protected-resource")!;
-
-  it("pass when valid JSON object present", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      wellKnown: { "oauth-protected-resource": '{"resource": "https://example.com"}' },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
-
-  it.each([
-    "{not valid json",
-    "[]",
-    "null",
-    '"string"',
-    "{}",
-    '{"resource":42}',
-    '{"error":"not found","path":"/.well-known/oauth-protected-resource"}',
-  ])("fail when the body is not an object with a string resource (%s) — a catch-all must not earn credit", (body) => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      wellKnown: { "oauth-protected-resource": body },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail", score: 0 });
-  });
-
-  it("fail when wellKnown entry is undefined", () => {
-    expect(check.run([basePage], baseMeta)).toMatchObject({ status: "fail" });
-  });
-});
-
-// --- B3 oauth-metadata-rfc9728 ---
-describe("agent-auth: B3 oauth-metadata-rfc9728", () => {
-  const check = agentAuthChecks.find((c) => c.id === "oauth-metadata-rfc9728")!;
-
-  it("pass when linkHeader + oauthResourceMetadataUrl + wellKnown all set", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-        oauthResourceMetadataUrl: "https://example.com/.well-known/oauth-protected-resource",
-      },
-      wellKnown: { "oauth-protected-resource": '{"resource": "x"}' },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
-
-  it("partial when linkHeader present but no target in wellKnown", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-        oauthResourceMetadataUrl: "https://example.com/.well-known/oauth-protected-resource",
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
-  });
-
-  it("fail when no linkHeader", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        status: 200,
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
-  });
-});
-
 // --- B4 scoped-permissions ---
 describe("agent-auth: B4 scoped-permissions", () => {
   afterEach(() => {
@@ -385,202 +268,459 @@ describe("agent-auth: B4 scoped-permissions", () => {
   });
 });
 
-// --- B5 pkce-s256 ---
-describe("agent-auth: B5 pkce-s256", () => {
+// --- oauth-discovery / pkce-s256 / mcp-auth / cimd-support ---
+type Route = (url: string) => Response | Promise<Response> | undefined;
+let fetched: string[] = [];
+
+function routeFetch(route: Route) {
+  fetched = [];
+  globalThis.fetch = vi.fn().mockImplementation(async (input: string) => {
+    const url = String(input);
+    fetched.push(url);
+    return (await route(url)) ?? notFound();
+  });
+}
+
+function unauthorized(wwwAuthenticate?: string): Response {
+  return new Response('{"error":"unauthorized"}', {
+    status: 401,
+    headers: {
+      "content-type": "application/json",
+      ...(wwwAuthenticate ? { "www-authenticate": wwwAuthenticate } : {}),
+    },
+  });
+}
+
+const byId = (id: string) => agentAuthChecks.find((c) => c.id === id)!;
+
+async function runChecks(ids: string[], meta: SiteMetadata, ctx?: Parameters<Check["run"]>[2]) {
+  const pages = [basePage];
+  const out: Record<string, CheckResult> = {};
+  for (const id of ids) out[id] = await byId(id).run(pages, meta, ctx);
+  return out;
+}
+
+const AUTH0 = "https://example.us.auth0.com/";
+const AUTH0_PRM_URL = "https://example.com/.well-known/oauth-protected-resource/api";
+const auth0As = {
+  issuer: AUTH0,
+  authorization_endpoint: `${AUTH0}authorize`,
+  token_endpoint: `${AUTH0}oauth/token`,
+  code_challenge_methods_supported: ["S256"],
+};
+
+function auth0Site(overrides: { prm?: unknown; as?: unknown } = {}): Route {
+  return (url) => {
+    if (url === "https://example.com/api/")
+      return unauthorized(`Bearer resource_metadata="${AUTH0_PRM_URL}"`);
+    if (url === AUTH0_PRM_URL)
+      return jsonResp(
+        overrides.prm ?? { resource: "https://example.com/api", authorization_servers: [AUTH0] },
+      );
+    if (url === `${AUTH0}.well-known/openid-configuration`)
+      return jsonResp(overrides.as ?? auth0As);
+    return undefined;
+  };
+}
+
+describe("agent-auth: oauth-discovery", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
-  it("pass when S256 in oauth metadata", async () => {
-    const check = agentAuthChecks.find((c) => c.id === "pkce-s256")!;
+  it("Auth0-hosted AS passes: API 401 → PRM → RFC 8414 404 → OIDC discovery with matching issuer", async () => {
+    routeFetch(auth0Site());
+    const r = await runChecks(["oauth-discovery", "pkce-s256"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["oauth-discovery"].message).toContain(AUTH0);
+    expect(r["pkce-s256"]).toMatchObject({ status: "pass", score: 100 });
+    expect(fetched).toContain(`${AUTH0}.well-known/oauth-authorization-server`);
+    expect(fetched.filter((u) => u === "https://example.com/api/")).toHaveLength(1);
+  });
+
+  it("Stripe-like: unquoted resource_metadata and an issuer with a path resolved by path insertion", async () => {
+    const prmUrl = "https://api.example.com/.well-known/oauth-protected-resource";
+    routeFetch((url) => {
+      if (url === "https://api.example.com/")
+        return unauthorized(`Bearer resource_metadata=${prmUrl}`);
+      if (url === prmUrl)
+        return jsonResp({
+          resource: "https://api.example.com",
+          authorization_servers: ["https://access.example.com/mcp"],
+        });
+      if (url === "https://access.example.com/.well-known/oauth-authorization-server/mcp")
+        return jsonResp({
+          issuer: "https://access.example.com/mcp",
+          authorization_endpoint: "https://access.example.com/mcp/authorize",
+          token_endpoint: "https://access.example.com/mcp/token",
+        });
+      return undefined;
+    });
+    const r = await runChecks(["oauth-discovery"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+    expect(fetched.some((u) => u.includes("openid-configuration"))).toBe(false);
+  });
+
+  it.each([
+    ["another origin", { resource: "https://other.example/api", authorization_servers: [AUTH0] }],
+    ["a sibling path", { resource: "https://example.com/apiv2", authorization_servers: [AUTH0] }],
+    [
+      "empty authorization_servers",
+      { resource: "https://example.com/api", authorization_servers: [] },
+    ],
+    ["no authorization_servers", { resource: "https://example.com/api" }],
+  ])("a PRM for %s does not pass and names where the chain broke", async (_label, prm) => {
+    routeFetch(auth0Site({ prm }));
+    const r = await runChecks(["oauth-discovery"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "fail", score: 0 });
+    expect(r["oauth-discovery"].message).toContain(AUTH0_PRM_URL);
+  });
+
+  it("issuer mismatch on the AS metadata → partial 50, and PKCE is not read from the rejected document", async () => {
+    routeFetch(auth0Site({ as: { ...auth0As, issuer: "https://attacker.example" } }));
+    const r = await runChecks(["oauth-discovery", "pkce-s256"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "partial", score: 50 });
+    expect(r["oauth-discovery"].message).toContain("https://attacker.example");
+    expect(r["pkce-s256"]).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("AS metadata missing token_endpoint → partial 50", async () => {
+    const { token_endpoint: _omit, ...noToken } = auth0As;
+    routeFetch(auth0Site({ as: noToken }));
+    const r = await runChecks(["oauth-discovery"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("PKCE is not credited from an AS document oauth-discovery rejected as incomplete", async () => {
+    routeFetch(auth0Site({ as: { issuer: AUTH0, code_challenge_methods_supported: ["S256"] } }));
+    const r = await runChecks(["oauth-discovery", "pkce-s256"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "partial", score: 50 });
+    expect(r["pkce-s256"]).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("an off-origin AS blocked by isAllowedTarget → partial, and the AS host is never requested", async () => {
+    routeFetch(auth0Site());
+    const ctx = { isAllowedTarget: (u: string) => !new URL(u).hostname.endsWith("auth0.com") };
+    const r = await runChecks(["oauth-discovery"], baseMeta, ctx);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "partial", score: 50 });
+    expect(fetched.some((u) => u.includes("auth0.com"))).toBe(false);
+  });
+
+  it("a multi-challenge header (Basic first) still resolves the Bearer resource_metadata", async () => {
+    const site = auth0Site();
+    routeFetch((url) =>
+      url === "https://example.com/api/"
+        ? unauthorized(
+            `Basic realm="x", Bearer error="invalid_token", resource_metadata="${AUTH0_PRM_URL}"`,
+          )
+        : site(url),
+    );
+    const r = await runChecks(["oauth-discovery"], baseMeta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("resource_metadata inside a non-Bearer challenge is ignored (well-known fallback is used instead)", async () => {
+    const decoy = "https://decoy.example/.well-known/oauth-protected-resource";
+    routeFetch((url) =>
+      url === "https://example.com/api/"
+        ? unauthorized(`Basic resource_metadata="${decoy}"`)
+        : undefined,
+    );
+    const r = await runChecks(["oauth-discovery"], baseMeta);
+    expect(r["oauth-discovery"].status).toBe("fail");
+    expect(fetched).not.toContain(decoy);
+    expect(fetched).toContain(AUTH0_PRM_URL);
+  });
+
+  it("root PRM from the crawler, valid for the site origin, seeds the chain without any 401", async () => {
+    routeFetch((url) =>
+      url === `${AUTH0}.well-known/oauth-authorization-server` ? jsonResp(auth0As) : undefined,
+    );
     const meta: SiteMetadata = {
       ...baseMeta,
       wellKnown: {
-        "oauth-authorization-server": JSON.stringify({
-          issuer: "https://auth.example.com",
-          code_challenge_methods_supported: ["S256", "plain"],
+        "oauth-protected-resource": JSON.stringify({
+          resource: "https://example.com",
+          authorization_servers: [AUTH0],
         }),
       },
     };
-    globalThis.fetch = mockFetch(() => notFound());
-    const result = await check.run([basePage], meta);
-    expect(result.status).toBe("pass");
+    const r = await runChecks(["oauth-discovery"], meta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("a root PRM whose resource names a sub-path is not valid for the origin it was served from", async () => {
+    routeFetch(() => undefined);
+    const meta: SiteMetadata = {
+      ...baseMeta,
+      wellKnown: {
+        "oauth-protected-resource": JSON.stringify({
+          resource: "https://example.com/api",
+          authorization_servers: [AUTH0],
+        }),
+      },
+    };
+    expect((await runChecks(["oauth-discovery"], meta))["oauth-discovery"].status).toBe("fail");
+  });
+
+  const rootAs = (issuer: string, extra: Record<string, unknown> = {}): SiteMetadata => ({
+    ...baseMeta,
+    wellKnown: {
+      "oauth-authorization-server": JSON.stringify({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        ...extra,
+      }),
+    },
+  });
+
+  it("no PRM anywhere but a valid root AS (site is its own AS) → partial 50; PKCE read from it", async () => {
+    routeFetch(() => undefined);
+    const r = await runChecks(
+      ["oauth-discovery", "pkce-s256"],
+      rootAs("https://example.com", { code_challenge_methods_supported: ["S256"] }),
+    );
+    expect(r["oauth-discovery"]).toMatchObject({ status: "partial", score: 50 });
+    expect(r["pkce-s256"]).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("a root AS document whose issuer is another host earns nothing", async () => {
+    routeFetch(() => undefined);
+    const r = await runChecks(
+      ["oauth-discovery", "pkce-s256"],
+      rootAs("https://auth.example.com", { code_challenge_methods_supported: ["S256"] }),
+    );
+    expect(r["oauth-discovery"]).toMatchObject({ status: "fail", score: 0 });
+    expect(r["pkce-s256"]).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("fail 0 when nothing is found", async () => {
+    routeFetch(() => undefined);
+    expect((await runChecks(["oauth-discovery"], baseMeta))["oauth-discovery"]).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
+  });
+});
+
+describe("agent-auth: pkce-s256 docs fallback", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   it("partial when PKCE+S256 mentioned in docs only", async () => {
-    const check = agentAuthChecks.find((c) => c.id === "pkce-s256")!;
-    globalThis.fetch = mockFetch((url) => {
-      if (url.endsWith("/api"))
-        return htmlResp("<html><body>Use PKCE with S256 for security</body></html>");
-      return notFound();
-    });
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("partial");
+    routeFetch((url) =>
+      url.endsWith("/api")
+        ? htmlResp("<html><body>Use PKCE with S256 for security</body></html>")
+        : undefined,
+    );
+    expect((await runChecks(["pkce-s256"], baseMeta))["pkce-s256"].status).toBe("partial");
   });
 
   it("fail when no PKCE support found", async () => {
-    const check = agentAuthChecks.find((c) => c.id === "pkce-s256")!;
-    globalThis.fetch = mockFetch(() => notFound());
-    const result = await check.run([basePage], baseMeta);
-    expect(result.status).toBe("fail");
+    routeFetch(() => undefined);
+    expect((await runChecks(["pkce-s256"], baseMeta))["pkce-s256"].status).toBe("fail");
+  });
+
+  it("a resolved AS without S256 falls through to the docs check", async () => {
+    routeFetch(auth0Site({ as: { ...auth0As, code_challenge_methods_supported: ["plain"] } }));
+    expect((await runChecks(["pkce-s256"], baseMeta))["pkce-s256"]).toMatchObject({
+      status: "fail",
+      score: 0,
+    });
   });
 });
 
-// --- C1 mcp-auth-mechanism ---
-describe("agent-auth: C1 mcp-auth-mechanism", () => {
-  const check = agentAuthChecks.find((c) => c.id === "mcp-auth-mechanism")!;
-
-  it("pass when authMechanism declared in serverInfo", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        serverInfo: { name: "test", authMechanism: "OAuth2" },
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
+describe("agent-auth: mcp-auth", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
-  it("pass when 401 + WWW-Authenticate present", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
+  const STRIPE_PRM = "https://mcp.stripe.com/.well-known/oauth-protected-resource";
+  const mcpMeta = (
+    status: number,
+    wwwAuthenticate?: string,
+    endpoint = "https://mcp.stripe.com/",
+  ) =>
+    ({
+      baseUrl: "https://stripe.com",
+      wellKnown: {},
+      mcpEndpoint: endpoint,
       mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        rawHeaders: { "www-authenticate": "Bearer realm=example" },
+        mcpEndpointUrl: endpoint,
+        success: status === 200,
+        status,
+        rawHeaders: wwwAuthenticate ? { "www-authenticate": wwwAuthenticate } : {},
       },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
+    }) satisfies SiteMetadata;
 
-  it("partial when 401 but no WWW-Authenticate", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
-  });
-
-  it("fail when no auth signals and mcpInit success", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        status: 200,
-        serverInfo: { name: "test" },
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
-  });
-});
-
-// --- C2 mcp-oauth-metadata ---
-describe("agent-auth: C2 mcp-oauth-metadata", () => {
-  const check = agentAuthChecks.find((c) => c.id === "mcp-oauth-metadata")!;
-
-  it("pass when linkHeader + resourceMetadataUrl + wellKnown set", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-      },
-      wellKnown: { "oauth-protected-resource": '{"resource": "x"}' },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
-  });
-
-  it("partial when linkHeader present but target missing from wellKnown", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "partial" });
-  });
-
-  it("fail when no linkHeader", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        status: 200,
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
-  });
-});
-
-// --- C3 mcp-pkce-s256 ---
-describe("agent-auth: C3 mcp-pkce-s256", () => {
-  const check = agentAuthChecks.find((c) => c.id === "mcp-pkce-s256")!;
-
-  it("pass when C2 link present + S256 in oauth metadata", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-      },
-      wellKnown: {
-        "oauth-authorization-server": JSON.stringify({
-          issuer: "https://auth.example.com",
+  it("MCP-only site shaped like mcp.stripe.com: the MCP 401 seeds oauth-discovery, so the chain scores once there", async () => {
+    routeFetch((url) => {
+      if (url === STRIPE_PRM)
+        return jsonResp({
+          resource: "https://mcp.stripe.com",
+          authorization_servers: ["https://access.stripe.com/mcp"],
+        });
+      if (url === "https://access.stripe.com/.well-known/oauth-authorization-server/mcp")
+        return jsonResp({
+          issuer: "https://access.stripe.com/mcp",
+          authorization_endpoint: "https://access.stripe.com/mcp/oauth2/authorize",
+          token_endpoint: "https://access.stripe.com/mcp/oauth2/token",
           code_challenge_methods_supported: ["S256"],
-        }),
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "pass" });
+          client_id_metadata_document_supported: true,
+        });
+      return undefined;
+    });
+    const r = await runChecks(
+      ["oauth-discovery", "pkce-s256", "cimd-support", "mcp-auth"],
+      mcpMeta(401, `Bearer resource_metadata=${STRIPE_PRM}`),
+    );
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["oauth-discovery"].message).toContain("https://mcp.stripe.com/");
+    expect(r["pkce-s256"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["cimd-support"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(r["mcp-auth"].message).toContain("oauth-discovery");
   });
 
-  it("fail when C2 link present but no S256 in oauth metadata", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: false,
-        status: 401,
-        linkHeader:
-          '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
-      },
-      wellKnown: {
-        "oauth-authorization-server": JSON.stringify({
-          issuer: "https://auth.example.com",
-          code_challenge_methods_supported: ["plain"],
-        }),
-      },
-    };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
+  it("skip names the endpoint when an MCP endpoint is known but no handshake response was recorded", async () => {
+    routeFetch(() => undefined);
+    const meta: SiteMetadata = { ...baseMeta, mcpEndpoint: "https://example.com/mcp" };
+    const r = await runChecks(["mcp-auth"], meta);
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(r["mcp-auth"].message).toContain("https://example.com/mcp");
+    expect(r["mcp-auth"].message).not.toContain("No MCP endpoint");
   });
 
-  it("fail when no MCP resource metadata link", () => {
-    const meta: SiteMetadata = {
-      ...baseMeta,
-      mcpInit: {
-        mcpEndpointUrl: "https://example.com/.well-known/mcp",
-        success: true,
-        status: 200,
-      },
+  it("pass via the path-inserted well-known PRM when the Bearer challenge carries no resource_metadata", async () => {
+    const pathInserted = "https://example.com/.well-known/oauth-protected-resource/mcp";
+    const rootPrm = "https://example.com/.well-known/oauth-protected-resource";
+    routeFetch((url) => {
+      if (url === "https://example.com/api/")
+        return unauthorized(`Bearer resource_metadata="${rootPrm}"`);
+      if (url === rootPrm)
+        return jsonResp({ resource: "https://example.com", authorization_servers: [AUTH0] });
+      if (url === `${AUTH0}.well-known/oauth-authorization-server`) return jsonResp(auth0As);
+      if (url === pathInserted)
+        return jsonResp({ resource: "https://example.com/mcp", authorization_servers: [AUTH0] });
+      return undefined;
+    });
+    const meta = {
+      ...mcpMeta(401, 'Bearer realm="mcp"', "https://example.com/mcp"),
+      baseUrl: "https://example.com",
     };
-    expect(check.run([basePage], meta)).toMatchObject({ status: "fail" });
+    expect((await runChecks(["mcp-auth"], meta))["mcp-auth"]).toMatchObject({ status: "pass" });
+  });
+
+  it("partial: 401 Bearer, but the linked PRM is missing", async () => {
+    routeFetch(() => undefined);
+    const r = await runChecks(["mcp-auth"], mcpMeta(401, `Bearer resource_metadata=${STRIPE_PRM}`));
+    expect(r["mcp-auth"]).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("partial: 401 Bearer, but the PRM is for another resource", async () => {
+    routeFetch((url) =>
+      url === STRIPE_PRM
+        ? jsonResp({ resource: "https://api.stripe.com", authorization_servers: ["https://a"] })
+        : undefined,
+    );
+    const r = await runChecks(["mcp-auth"], mcpMeta(401, `Bearer resource_metadata=${STRIPE_PRM}`));
+    expect(r["mcp-auth"]).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("fail: 401 without a Bearer challenge", async () => {
+    routeFetch(() => undefined);
+    const r = await runChecks(["mcp-auth"], mcpMeta(401, 'Basic realm="mcp"'));
+    expect(r["mcp-auth"]).toMatchObject({ status: "fail", score: 0 });
+  });
+
+  it("skip (not a failure): an open MCP server that answers without requiring authorization", async () => {
+    const spy = vi.fn();
+    globalThis.fetch = spy;
+    const r = await runChecks(["mcp-auth"], mcpMeta(200));
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(r["mcp-auth"].message).toMatch(/does not require authorization/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("NA when the MCP endpoint resolves to the same PRM document oauth-discovery already validated", async () => {
+    const rootPrm = "https://example.com/.well-known/oauth-protected-resource";
+    routeFetch((url) => {
+      if (url === "https://example.com/api/")
+        return unauthorized(`Bearer resource_metadata="${rootPrm}"`);
+      if (url === rootPrm)
+        return jsonResp({ resource: "https://example.com", authorization_servers: [AUTH0] });
+      if (url === `${AUTH0}.well-known/oauth-authorization-server`) return jsonResp(auth0As);
+      return undefined;
+    });
+    const meta = {
+      ...mcpMeta(401, `Bearer resource_metadata="${rootPrm}"`, "https://example.com/mcp"),
+      baseUrl: "https://example.com",
+    };
+    const r = await runChecks(["oauth-discovery", "mcp-auth"], meta);
+    expect(r["oauth-discovery"].status).toBe("pass");
+    expect(r["mcp-auth"]).toMatchObject({ status: "skip", score: 0 });
+    expect(r["mcp-auth"].message).toContain("oauth-discovery");
+  });
+
+  it("scores separately when the MCP endpoint has its own PRM document", async () => {
+    const rootPrm = "https://example.com/.well-known/oauth-protected-resource";
+    const mcpPrm = "https://example.com/.well-known/oauth-protected-resource/mcp";
+    routeFetch((url) => {
+      if (url === "https://example.com/api/")
+        return unauthorized(`Bearer resource_metadata="${rootPrm}"`);
+      if (url === rootPrm)
+        return jsonResp({ resource: "https://example.com", authorization_servers: [AUTH0] });
+      if (url === mcpPrm)
+        return jsonResp({ resource: "https://example.com/mcp", authorization_servers: [AUTH0] });
+      if (url === `${AUTH0}.well-known/oauth-authorization-server`) return jsonResp(auth0As);
+      return undefined;
+    });
+    const meta = {
+      ...mcpMeta(401, `Bearer resource_metadata="${mcpPrm}"`, "https://example.com/mcp"),
+      baseUrl: "https://example.com",
+    };
+    const r = await runChecks(["oauth-discovery", "mcp-auth"], meta);
+    expect(r["oauth-discovery"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["oauth-discovery"].message).toContain(rootPrm);
+    expect(r["mcp-auth"]).toMatchObject({ status: "pass", score: 100 });
+    expect(r["mcp-auth"].message).toContain(mcpPrm);
+  });
+});
+
+describe("agent-auth: cimd-support (bonus)", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("pass only when the chain resolves and the AS advertises client_id_metadata_document_supported", async () => {
+    routeFetch(auth0Site({ as: { ...auth0As, client_id_metadata_document_supported: true } }));
+    expect((await runChecks(["cimd-support"], baseMeta))["cimd-support"]).toMatchObject({
+      status: "pass",
+      score: 100,
+      weight: 0.5,
+    });
+  });
+
+  it.each([
+    [
+      "the AS offers only a registration_endpoint",
+      auth0Site({ as: { ...auth0As, registration_endpoint: `${AUTH0}register` } }),
+    ],
+    [
+      "the chain is partial even though the AS advertises CIMD",
+      auth0Site({
+        as: { issuer: AUTH0, client_id_metadata_document_supported: true },
+      }),
+    ],
+    ["there is no OAuth at all", () => undefined],
+  ])("skip (never in the denominator) when %s", async (_label, route) => {
+    routeFetch(route as Route);
+    expect((await runChecks(["cimd-support"], baseMeta))["cimd-support"]).toMatchObject({
+      status: "skip",
+      score: 0,
+    });
   });
 });
 
@@ -739,28 +879,35 @@ describe("agent-auth: D4 mcp-server-card", () => {
   });
 });
 
-// --- meta: all 15 check IDs exported ---
+// --- meta: check registry ---
 describe("agent-auth: check registry", () => {
   const EXPECTED_IDS = [
     "public-api",
     "openapi-spec",
     "developer-portal",
     "agent-auth-docs",
-    "oauth-support",
-    "oauth-protected-resource",
-    "oauth-metadata-rfc9728",
+    "oauth-discovery",
     "scoped-permissions",
     "pkce-s256",
-    "mcp-auth-mechanism",
-    "mcp-oauth-metadata",
-    "mcp-pkce-s256",
+    "mcp-auth",
+    "cimd-support",
     "agent-operator-signing",
     "api-catalog-rfc9727",
     "mcp-server-card",
   ];
 
-  it("exports all 15 checks", () => {
-    expect(agentAuthChecks).toHaveLength(15);
+  it("exports exactly the expected checks, with the six v2 OAuth/MCP-auth ids retired", () => {
+    expect(agentAuthChecks.map((c) => c.id).sort()).toEqual([...EXPECTED_IDS].sort());
+    for (const retired of [
+      "oauth-support",
+      "oauth-protected-resource",
+      "oauth-metadata-rfc9728",
+      "mcp-auth-mechanism",
+      "mcp-oauth-metadata",
+      "mcp-pkce-s256",
+    ]) {
+      expect(agentAuthChecks.map((c) => c.id)).not.toContain(retired);
+    }
   });
 
   it("all checks have category agent-auth", () => {
@@ -769,10 +916,17 @@ describe("agent-auth: check registry", () => {
     }
   });
 
-  it("all 15 spec IDs are present", () => {
-    const ids = agentAuthChecks.map((c) => c.id);
-    for (const expected of EXPECTED_IDS) {
-      expect(ids).toContain(expected);
-    }
+  it("scored weights (excluding the cimd-support bonus and mcp-server-card, which T2 moves) sum to 16.5", () => {
+    const weights = Object.fromEntries(agentAuthChecks.map((c) => [c.id, c.weight]));
+    expect(weights).toMatchObject({
+      "oauth-discovery": 3,
+      "pkce-s256": 1.5,
+      "mcp-auth": 1.5,
+      "cimd-support": 0.5,
+    });
+    const sum = agentAuthChecks
+      .filter((c) => !c.tracked && c.id !== "cimd-support" && c.id !== "mcp-server-card")
+      .reduce((total, c) => total + c.weight, 0);
+    expect(sum).toBe(16.5);
   });
 });

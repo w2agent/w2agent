@@ -30,8 +30,7 @@ const WELL_KNOWN_CHECK_IDS = [
   "well-known-agent-card",
   "well-known-ucp",
   "mcp-discovery",
-  "oauth-support",
-  "oauth-protected-resource",
+  "oauth-discovery",
   "api-catalog-rfc9727",
   "agent-operator-signing",
   "mcp-server-card",
@@ -162,8 +161,8 @@ describe("catch-all / soft-404 guard", () => {
     for (const id of [
       "well-known-agent-card",
       "well-known-ucp",
-      "oauth-support",
-      "oauth-protected-resource",
+      "oauth-discovery",
+      "pkce-s256",
       "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
@@ -200,6 +199,12 @@ describe("catch-all / soft-404 guard", () => {
           return json({ name: "Example", url: SITE });
         case "/.well-known/oauth-protected-resource":
           return json({ resource: SITE, authorization_servers: [SITE] });
+        case "/.well-known/oauth-authorization-server":
+          return json({
+            issuer: SITE,
+            authorization_endpoint: `${SITE}/authorize`,
+            token_endpoint: `${SITE}/token`,
+          });
         default:
           return html("<h1>Not found</h1>", 404);
       }
@@ -211,7 +216,7 @@ describe("catch-all / soft-404 guard", () => {
     const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
     const byId = checksById(report);
     expect(byId.get("well-known-agent-card")).toMatchObject({ status: "pass", score: 100 });
-    expect(byId.get("oauth-protected-resource")).toMatchObject({ status: "pass", score: 100 });
+    expect(byId.get("oauth-discovery")).toMatchObject({ status: "pass", score: 100 });
     expect(report.warnings.find((w) => w.id === "catch-all-responses")).toBeUndefined();
   });
 
@@ -239,13 +244,14 @@ describe("catch-all / soft-404 guard", () => {
       "well-known-agent-card",
       "well-known-ucp",
       "mcp-discovery",
-      "oauth-support",
       "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
+    // The real PRM still counts, but the {} soft-404 served at the AS metadata path has no issuer.
+    expect(byId.get("oauth-discovery")).toMatchObject({ status: "partial", score: 50 });
     expect(report.warnings.some((w) => w.id === "catch-all-responses")).toBe(true);
   });
 

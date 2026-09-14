@@ -78,6 +78,17 @@ No Claude-User reach check: Anthropic publishes the robots token but no UA strin
 | UTF-8 charset | `charset-utf8` | UTF-8 declared |
 | No JS dependency | `no-js-dependency` | Content accessible without JS |
 
+## Auth & Access (OAuth and MCP authorization rows)
+
+| Check | ID | What it measures |
+|-------|----|-----------------|
+| OAuth discovery chain | `oauth-discovery` | Weight 3. Entry points, in precedence order: a 401 from `/api/`, `api.<domain>/`, or the discovered MCP endpoint (Bearer `resource_metadata` if present, else path-inserted then root `/.well-known/oauth-protected-resource`), then the crawled root PRM; the first entry that resolves a full chain wins, else the first valid PRM is scored. PRM must be JSON with a `resource` covering the requested URL (same origin, path prefix) and non-empty `authorization_servers`. AS metadata tried per MCP 2026-07-28 order (RFC 8414 / OIDC, path insertion), off-origin allowed through the fetch allow-hook; `issuer` must equal the AS identifier. 100 = full chain with `authorization_endpoint` + `token_endpoint`; 50 = valid PRM but no usable AS, or no PRM but a valid root AS whose issuer is the site origin; 0 otherwise. N/A when `public-api` fails and no MCP endpoint was found. 15 s budget |
+| PKCE S256 | `pkce-s256` | Weight 1.5. 100 = `code_challenge_methods_supported` includes `S256` on the complete AS (issuer match + both endpoints) resolved by `oauth-discovery` or its root-AS fallback; 50 = developer docs mention PKCE and S256; 0 otherwise |
+| MCP authorization | `mcp-auth` | Weight 1.5. On an auth-gated MCP endpoint (401 Bearer challenge with `resource_metadata`): 100 = the linked PRM is valid for the endpoint and differs from the PRM `oauth-discovery` scored; 50 = linked PRM missing or invalid. Skip when the endpoint answers without authorization, or when its PRM is the document `oauth-discovery` already scored (the usual case for an MCP-only site) |
+| Client ID Metadata Documents | `cimd-support` | Weight 0.5 bonus. 100 when `oauth-discovery` resolves a full chain and the AS sets `client_id_metadata_document_supported: true`; otherwise skip (never lowers the score; `registration_endpoint` alone is neutral) |
+
+Retired: `oauth-support`, `oauth-protected-resource`, `oauth-metadata-rfc9728`, `mcp-auth-mechanism`, `mcp-oauth-metadata`, `mcp-pkce-s256`.
+
 ---
 
 ## Platform-Specific Checks

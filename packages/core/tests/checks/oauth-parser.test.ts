@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseMcpResourceLink, parseOAuthMetadata } from "../../src/audit/shared/oauth-parser.js";
+import {
+  bearerChallenge,
+  bearerResourceMetadata,
+  parseOAuthMetadata,
+  parseProtectedResourceMetadata,
+  parseWwwAuthenticate,
+} from "../../src/audit/shared/oauth-parser.js";
 
 describe("parseOAuthMetadata", () => {
   it("extracts known fields from valid JSON", () => {
@@ -66,35 +72,129 @@ describe("parseOAuthMetadata", () => {
   });
 });
 
-describe("parseMcpResourceLink", () => {
-  it("returns empty rels for undefined input", () => {
-    expect(parseMcpResourceLink(undefined)).toEqual({ rels: [] });
-  });
-
-  it("parses single rel=resource_metadata and sets resourceMetadataUrl", () => {
-    const header =
-      '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"';
-    const result = parseMcpResourceLink(header);
-    expect(result.resourceMetadataUrl).toBe(
-      "https://example.com/.well-known/oauth-protected-resource",
+describe("parseOAuthMetadata client registration fields", () => {
+  it("exposes CIMD support only for a literal true, and the DCR registration_endpoint", () => {
+    const on = parseOAuthMetadata(
+      JSON.stringify({
+        issuer: "https://as.example",
+        client_id_metadata_document_supported: true,
+        registration_endpoint: "https://as.example/register",
+      }),
     );
-    expect(result.rels).toHaveLength(1);
-  });
-
-  it("parses multiple comma-separated rels", () => {
-    const header =
-      '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata", <https://example.com/other>; rel="related"';
-    const result = parseMcpResourceLink(header);
-    expect(result.rels).toHaveLength(2);
-    expect(result.resourceMetadataUrl).toBe(
-      "https://example.com/.well-known/oauth-protected-resource",
+    expect(on).toMatchObject({
+      clientIdMetadataDocumentSupported: true,
+      registrationEndpoint: "https://as.example/register",
+    });
+    const truthy = parseOAuthMetadata(
+      JSON.stringify({
+        issuer: "https://as.example",
+        client_id_metadata_document_supported: "true",
+      }),
     );
+    expect(truthy?.clientIdMetadataDocumentSupported).toBe(false);
+  });
+});
+
+describe("parseProtectedResourceMetadata", () => {
+  it("exposes authorization_servers when it is an array of strings", () => {
+    const prm = parseProtectedResourceMetadata(
+      JSON.stringify({ resource: "https://example.com", authorization_servers: ["https://as"] }),
+    );
+    expect(prm).toMatchObject({
+      resource: "https://example.com",
+      authorizationServers: ["https://as"],
+    });
   });
 
-  it("returns undefined resourceMetadataUrl when no resource_metadata rel present", () => {
-    const header = '<https://example.com/other>; rel="related"';
-    const result = parseMcpResourceLink(header);
-    expect(result.resourceMetadataUrl).toBeUndefined();
-    expect(result.rels).toHaveLength(1);
+  it.each([
+    [{ resource: "https://example.com" }],
+    [{ resource: "https://example.com", authorization_servers: "https://as" }],
+    [{ resource: "https://example.com", authorization_servers: ["https://as", 42] }],
+  ])("leaves authorizationServers undefined when not a string array (%j)", (body) => {
+    expect(
+      parseProtectedResourceMetadata(JSON.stringify(body))?.authorizationServers,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    "{}",
+    '{"resource":42}',
+    "[]",
+    "{bad",
+  ])("returns null without a string resource (%s)", (body) => {
+    expect(parseProtectedResourceMetadata(body)).toBeNull();
+  });
+});
+
+describe("parseWwwAuthenticate (RFC 9110 §11.6.1)", () => {
+  const PRM = "https://mcp.stripe.com/.well-known/oauth-protected-resource";
+
+  it("reads an unquoted URL value, as mcp.stripe.com sends it", () => {
+    expect(bearerResourceMetadata(`Bearer resource_metadata=${PRM}`)).toBe(PRM);
+  });
+
+  it("reads quoted values with escapes and several params in one challenge", () => {
+    const header = `Bearer error="invalid_token", error_description="say \\"hi\\"", resource_metadata="${PRM}"`;
+    expect(parseWwwAuthenticate(header)).toEqual([
+      {
+        scheme: "Bearer",
+        params: { error: "invalid_token", error_description: 'say "hi"', resource_metadata: PRM },
+      },
+    ]);
+  });
+
+  it("splits multiple challenges and finds Bearer after another scheme", () => {
+    const header = `Basic realm="x", Bearer resource_metadata="${PRM}", scope="read"`;
+    const challenges = parseWwwAuthenticate(header);
+    expect(challenges.map((c) => c.scheme)).toEqual(["Basic", "Bearer"]);
+    expect(challenges[1].params).toEqual({ resource_metadata: PRM, scope: "read" });
+    expect(bearerResourceMetadata(header)).toBe(PRM);
+  });
+
+  it("matches the scheme case-insensitively and param names case-insensitively", () => {
+    expect(bearerResourceMetadata(`bEaReR Resource_Metadata = "${PRM}"`)).toBe(PRM);
+  });
+
+  it("skips token68 credentials without inventing challenges", () => {
+    const header = `Negotiate dXNlcg==, Basic abc123, Bearer resource_metadata="${PRM}"`;
+    expect(parseWwwAuthenticate(header).map((c) => c.scheme)).toEqual([
+      "Negotiate",
+      "Basic",
+      "Bearer",
+    ]);
+    expect(bearerResourceMetadata(header)).toBe(PRM);
+  });
+
+  it("a Basic-only 401 has no Bearer challenge", () => {
+    expect(bearerChallenge('Basic realm="api"')).toBeUndefined();
+    expect(bearerResourceMetadata('Basic realm="api"')).toBeUndefined();
+  });
+
+  it.each([
+    `Basic resource_metadata="${PRM}", Bearer realm="api"`,
+    `Digest realm="x", resource_metadata="${PRM}"`,
+    `BearerX resource_metadata="${PRM}"`,
+  ])("ignores resource_metadata carried by a non-Bearer challenge (%s)", (header) => {
+    expect(bearerResourceMetadata(header)).toBeUndefined();
+  });
+
+  it("a Bearer challenge without resource_metadata is still a Bearer challenge", () => {
+    expect(bearerChallenge('Bearer realm="api"')).toEqual({
+      scheme: "Bearer",
+      params: { realm: "api" },
+    });
+    expect(bearerResourceMetadata('Bearer realm="api"')).toBeUndefined();
+  });
+
+  it.each([
+    undefined,
+    "",
+    "   ",
+    ",,,",
+    '"unterminated',
+    "==",
+  ])("tolerates malformed input (%j)", (header) => {
+    expect(() => parseWwwAuthenticate(header)).not.toThrow();
+    expect(bearerResourceMetadata(header)).toBeUndefined();
   });
 });

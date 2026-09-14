@@ -89,9 +89,8 @@ export interface McpInitResult {
   mcpEndpointUrl: string;
   success: boolean;
   status?: number;
-  serverInfo?: { name: string; version?: string; authMechanism?: string };
+  serverInfo?: { name: string; version?: string };
   rawHeaders?: Record<string, string>;
-  linkHeader?: string;
   oauthResourceMetadataUrl?: string;
   transport?: "streamable-http" | "http+sse";
 }

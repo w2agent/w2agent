@@ -300,42 +300,48 @@ const NO_MCP = { mcpEndpoint: undefined };
 const WITH_MCP = { mcpEndpoint: "https://example.com/mcp" };
 
 describe("applyNaCascade (§5.6)", () => {
-  it("A1 fail → openapi-spec/developer-portal/oauth-support/oauth-protected-resource/api-catalog become skip", () => {
+  it("A1 fail → openapi-spec/developer-portal/api-catalog become skip", () => {
     const results = [
       r("public-api", "fail"),
       r("openapi-spec", "fail"),
       r("developer-portal", "fail"),
-      r("oauth-support", "fail"),
-      r("oauth-protected-resource", "fail"),
       r("api-catalog-rfc9727", "fail"),
     ];
     applyNaCascade(results, NO_MCP);
-    for (const id of [
-      "openapi-spec",
-      "developer-portal",
-      "oauth-support",
-      "oauth-protected-resource",
-      "api-catalog-rfc9727",
-    ]) {
+    for (const id of ["openapi-spec", "developer-portal", "api-catalog-rfc9727"]) {
       expect(results.find((x) => x.id === id)?.status).toBe("skip");
     }
   });
 
-  it("no confirmed MCP endpoint → MCP-tier checks become skip (mcp-auth-mechanism, mcp-oauth-metadata, oauth-metadata-rfc9728, mcp-server-card)", () => {
+  it("oauth-discovery is NA only when there is neither an API surface nor an MCP endpoint to protect", () => {
+    const status = (apiStatus: CheckResult["status"], meta: typeof NO_MCP | typeof WITH_MCP) => {
+      const results = [r("public-api", apiStatus), r("oauth-discovery", "fail")];
+      applyNaCascade(results, meta);
+      return results[1].status;
+    };
+    expect(status("fail", NO_MCP)).toBe("skip");
+    expect(status("skip", NO_MCP)).toBe("skip");
+    // An MCP server is a protected resource too: a failed chain there is a finding, not NA.
+    expect(status("fail", WITH_MCP)).toBe("fail");
+    // An API surface exists: a missing OAuth chain is a finding.
+    expect(status("partial", NO_MCP)).toBe("fail");
+    expect(status("pass", NO_MCP)).toBe("fail");
+  });
+
+  it("oauth-discovery found without an API surface (e.g. root PRM) keeps its credit — the row never demotes", () => {
+    const results = [r("public-api", "fail"), r("oauth-discovery", "partial")];
+    applyNaCascade(results, NO_MCP);
+    expect(results[1]).toMatchObject({ status: "partial", score: 50 });
+  });
+
+  it("no confirmed MCP endpoint → mcp-auth and mcp-server-card become skip", () => {
     const results = [
       r("mcp-discovery", "fail"),
-      r("mcp-auth-mechanism", "fail"),
-      r("mcp-oauth-metadata", "fail"),
-      r("oauth-metadata-rfc9728", "fail"),
+      r("mcp-auth", "fail"),
       r("mcp-server-card", "fail"),
     ];
     applyNaCascade(results, NO_MCP);
-    for (const id of [
-      "mcp-auth-mechanism",
-      "mcp-oauth-metadata",
-      "oauth-metadata-rfc9728",
-      "mcp-server-card",
-    ]) {
+    for (const id of ["mcp-auth", "mcp-server-card"]) {
       expect(results.find((x) => x.id === id)?.status).toBe("skip");
     }
   });
@@ -343,29 +349,24 @@ describe("applyNaCascade (§5.6)", () => {
   it("confirmed MCP endpoint → MCP-tier checks stay fail (no skip when MCP is present)", () => {
     const results = [
       r("mcp-discovery", "pass"),
-      r("mcp-auth-mechanism", "fail"),
+      r("mcp-auth", "fail"),
       r("mcp-server-card", "fail"),
     ];
     applyNaCascade(results, WITH_MCP);
-    expect(results.find((x) => x.id === "mcp-auth-mechanism")?.status).toBe("fail");
+    expect(results.find((x) => x.id === "mcp-auth")?.status).toBe("fail");
     expect(results.find((x) => x.id === "mcp-server-card")?.status).toBe("fail");
   });
 
   it("MCP-tier cascade keys on the endpoint sentinel, not mcp-discovery's status", () => {
     // A partial mcp-discovery (e.g. legacy HTTP+SSE) must not decide applicability on its own:
     // without a confirmed endpoint the MCP-tier rows are NA whatever mcp-discovery says.
-    const results = [r("mcp-discovery", "partial"), r("mcp-auth-mechanism", "fail")];
+    const results = [r("mcp-discovery", "partial"), r("mcp-auth", "fail")];
     applyNaCascade(results, NO_MCP);
-    expect(results.find((x) => x.id === "mcp-auth-mechanism")?.status).toBe("skip");
+    expect(results.find((x) => x.id === "mcp-auth")?.status).toBe("skip");
   });
 
   it("no MCP endpoint demotes MCP-tier rows that scored pass/partial and zeroes their score (a stub mcp.json must not score on a non-MCP site)", () => {
-    const results = [
-      r("mcp-server-card", "pass"),
-      r("mcp-auth-mechanism", "partial"),
-      r("mcp-oauth-metadata", "pass"),
-      r("oauth-metadata-rfc9728", "partial"),
-    ];
+    const results = [r("mcp-server-card", "pass"), r("mcp-auth", "partial")];
     applyNaCascade(results, NO_MCP);
     for (const x of results) {
       expect({ id: x.id, status: x.status, score: x.score }).toEqual({
@@ -377,7 +378,7 @@ describe("applyNaCascade (§5.6)", () => {
   });
 
   it("with an MCP endpoint, pass/partial MCP-tier rows keep their status and score", () => {
-    const results = [r("mcp-server-card", "pass"), r("mcp-auth-mechanism", "partial")];
+    const results = [r("mcp-server-card", "pass"), r("mcp-auth", "partial")];
     applyNaCascade(results, WITH_MCP);
     expect(results.map((x) => [x.status, x.score])).toEqual([
       ["pass", 100],
@@ -408,28 +409,51 @@ describe("applyNaCascade (§5.6)", () => {
     expect(results.find((x) => x.id === "developer-portal")?.status).toBe("partial");
   });
 
-  it("B5 (pkce-s256) requires BOTH oauth-support AND developer-portal to fail before skipping", () => {
-    // oauth-support pass alone → pkce-s256 stays fail (not skipped)
-    const r1 = [r("oauth-support", "pass"), r("developer-portal", "fail"), r("pkce-s256", "fail")];
-    applyNaCascade(r1, NO_MCP);
-    expect(r1.find((x) => x.id === "pkce-s256")?.status).toBe("fail");
-
-    // both fail → skip
-    const r2 = [r("oauth-support", "fail"), r("developer-portal", "fail"), r("pkce-s256", "fail")];
-    applyNaCascade(r2, NO_MCP);
-    expect(r2.find((x) => x.id === "pkce-s256")?.status).toBe("skip");
+  it("pkce-s256 is NA only when there is neither an OAuth chain to read nor a developer portal to scan", () => {
+    const status = (discovery: CheckResult["status"], portal: CheckResult["status"]) => {
+      const results = [
+        r("oauth-discovery", discovery),
+        r("developer-portal", portal),
+        r("pkce-s256", "fail"),
+      ];
+      applyNaCascade(results, WITH_MCP);
+      return results[2].status;
+    };
+    expect(status("partial", "fail")).toBe("fail");
+    expect(status("fail", "partial")).toBe("fail");
+    expect(status("fail", "fail")).toBe("skip");
+    expect(status("skip", "skip")).toBe("skip");
   });
 
-  it("C3 (mcp-pkce-s256) cascades off C2 (mcp-oauth-metadata)", () => {
-    const results = [r("mcp-oauth-metadata", "fail"), r("mcp-pkce-s256", "fail")];
-    applyNaCascade(results, WITH_MCP);
-    expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("skip");
+  it("oauth-discovery cascading to NA propagates to pkce-s256 in the same pass", () => {
+    const results = [
+      r("public-api", "fail"),
+      r("oauth-discovery", "fail"),
+      r("developer-portal", "fail"),
+      r("pkce-s256", "fail"),
+    ];
+    applyNaCascade(results, NO_MCP);
+    expect(results.map((x) => x.status)).toEqual(["fail", "skip", "skip", "skip"]);
   });
 
-  it("C3 does not cascade when mcp-oauth-metadata passes", () => {
-    const results = [r("mcp-oauth-metadata", "pass"), r("mcp-pkce-s256", "fail")];
-    applyNaCascade(results, WITH_MCP);
-    expect(results.find((x) => x.id === "mcp-pkce-s256")?.status).toBe("fail");
+  it("pkce-s256 pass is never demoted", () => {
+    const results = [
+      r("oauth-discovery", "fail"),
+      r("developer-portal", "fail"),
+      r("pkce-s256", "pass"),
+    ];
+    applyNaCascade(results, NO_MCP);
+    expect(results[2]).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  it("cimd-support has no cascade row — it self-skips, so a pass is left alone", () => {
+    const results = [
+      r("public-api", "fail"),
+      r("oauth-discovery", "fail"),
+      r("cimd-support", "fail"),
+    ];
+    applyNaCascade(results, NO_MCP);
+    expect(results[2].status).toBe("fail");
   });
 
   it("skip in byId is treated as NA (already cascaded checks propagate further)", () => {
@@ -460,7 +484,7 @@ describe("applyNaCascade (§5.6)", () => {
     );
     const authCat = report.categories.find((c) => c.id === "agent-auth");
     expect(authCat).toBeDefined();
-    expect(authCat?.checks.length).toBe(15);
+    expect(authCat?.checks.length).toBe(12);
     expect(Number.isFinite(report.overallScore)).toBe(true);
   });
 

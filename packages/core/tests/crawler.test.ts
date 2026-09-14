@@ -399,7 +399,7 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     expect(result.metadata.mcpInit?.serverInfo?.name).toBe("test");
   });
 
-  it("captures Link header into mcpInit.oauthResourceMetadataUrl", async () => {
+  it("a Link header is not an OAuth discovery mechanism: oauthResourceMetadataUrl stays unset", async () => {
     serveMcpAt(`${BASE_URL}/mcp`, {
       link: '<https://example.com/.well-known/oauth-protected-resource>; rel="resource_metadata"',
     });
@@ -408,10 +408,9 @@ describe("crawlSite well-known paths and MCP init probe", () => {
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    expect(result.metadata.mcpInit?.linkHeader).toContain("resource_metadata");
-    expect(result.metadata.mcpInit?.oauthResourceMetadataUrl).toBe(
-      "https://example.com/.well-known/oauth-protected-resource",
-    );
+    expect(result.metadata.mcpInit?.success).toBe(true);
+    expect(result.metadata.mcpInit).not.toHaveProperty("linkHeader");
+    expect(result.metadata.mcpInit?.oauthResourceMetadataUrl).toBeUndefined();
   });
 
   it("a network error on every MCP candidate leaves mcpInit and mcpEndpoint unset without throwing", async () => {

@@ -197,19 +197,18 @@ export function applyNaCascade(
     { id: "openapi-spec", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "developer-portal", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "agent-auth-docs", naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
-    { id: "oauth-support", naWhen: (m) => isFailOrNa(m.get("public-api")) },
-    { id: "oauth-protected-resource", naWhen: (m) => isFailOrNa(m.get("public-api")) },
+    {
+      id: "oauth-discovery",
+      naWhen: (m) => isFailOrNa(m.get("public-api")) && noMcpEndpoint(),
+    },
     { id: "scoped-permissions", naWhen: (m) => isFailOrNa(m.get("developer-portal")) },
     {
       id: "pkce-s256",
-      naWhen: (m) => isFailOrNa(m.get("oauth-support")) && isFailOrNa(m.get("developer-portal")),
+      naWhen: (m) => isFailOrNa(m.get("oauth-discovery")) && isFailOrNa(m.get("developer-portal")),
     },
     // MCP-tier checks: NA when no MCP endpoint was confirmed (metadata.mcpEndpoint is the sentinel).
     // Keeps the rubric from punishing sites that haven't adopted an emerging standard they don't claim.
-    { id: "mcp-auth-mechanism", naWhen: noMcpEndpoint, sentinel: true },
-    { id: "mcp-oauth-metadata", naWhen: noMcpEndpoint, sentinel: true },
-    { id: "oauth-metadata-rfc9728", naWhen: noMcpEndpoint, sentinel: true },
-    { id: "mcp-pkce-s256", naWhen: (m) => isFailOrNa(m.get("mcp-oauth-metadata")) },
+    { id: "mcp-auth", naWhen: noMcpEndpoint, sentinel: true },
     { id: "api-catalog-rfc9727", naWhen: (m) => isFailOrNa(m.get("public-api")) },
     { id: "mcp-server-card", naWhen: noMcpEndpoint, sentinel: true },
   ];

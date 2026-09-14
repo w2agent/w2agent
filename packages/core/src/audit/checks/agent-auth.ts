@@ -1,10 +1,12 @@
 import { guardedFetch, type IsAllowedTarget, TargetNotAllowedError } from "../../shared/fetcher.js";
 import { parseJsonObject } from "../shared/json.js";
 import {
-  parseMcpResourceLink,
-  parseOAuthMetadata,
-  parseProtectedResourceMetadata,
-} from "../shared/oauth-parser.js";
+  discoverOAuth,
+  type OAuthDiscovery,
+  type ResourceProbe,
+  resolveProtectedResource,
+} from "../shared/oauth-discovery.js";
+import { bearerChallenge } from "../shared/oauth-parser.js";
 import type { Check, CheckResult, SiteMetadata } from "../types.js";
 
 function stripWww(hostname: string): string {
@@ -27,7 +29,7 @@ export const PROBE_MAX_ATTEMPTS = 2;
 async function probeUrl(
   url: string,
   isAllowedTarget?: IsAllowedTarget,
-): Promise<{ status: number; text: string; contentType: string } | null> {
+): Promise<{ status: number; text: string; contentType: string; wwwAuthenticate: string } | null> {
   for (let attempt = 0; attempt < PROBE_MAX_ATTEMPTS; attempt++) {
     try {
       const res = await guardedFetch(url, { signal: AbortSignal.timeout(5000) }, isAllowedTarget);
@@ -37,8 +39,9 @@ async function probeUrl(
         continue;
       }
       const contentType = res.headers.get("content-type") ?? "";
+      const wwwAuthenticate = res.headers.get("www-authenticate") ?? "";
       const reader = res.body?.getReader();
-      if (!reader) return { status: res.status, text: "", contentType };
+      if (!reader) return { status: res.status, text: "", contentType, wwwAuthenticate };
       const chunks: Uint8Array[] = [];
       let totalBytes = 0;
       while (true) {
@@ -57,7 +60,12 @@ async function probeUrl(
         buf.set(c, off);
         off += c.length;
       }
-      return { status: res.status, text: new TextDecoder().decode(buf), contentType };
+      return {
+        status: res.status,
+        text: new TextDecoder().decode(buf),
+        contentType,
+        wwwAuthenticate,
+      };
     } catch (err) {
       if (err instanceof TargetNotAllowedError) return null;
       if (attempt + 1 < PROBE_MAX_ATTEMPTS) {
@@ -175,6 +183,76 @@ function cachedKeyDocs(
   return keyDocsCache.get(pages)!;
 }
 
+type ProbeResult = Awaited<ReturnType<typeof probeUrl>>;
+type ApiProbe = { url: string; probe: ProbeResult };
+
+const apiProbeCache = new WeakMap<object, Promise<ApiProbe[]>>();
+
+function cachedApiProbes(
+  pages: object,
+  metadata: SiteMetadata,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<ApiProbe[]> {
+  if (!apiProbeCache.has(pages)) {
+    const host = new URL(metadata.baseUrl).hostname;
+    const hostParts = host.split(".");
+    const registeredDomain = hostParts.length > 2 ? hostParts.slice(-2).join(".") : host;
+    const urls = [`${metadata.baseUrl}/api/`, `https://api.${registeredDomain}/`];
+    apiProbeCache.set(
+      pages,
+      Promise.all(urls.map(async (url) => ({ url, probe: await probeUrl(url, isAllowedTarget) }))),
+    );
+  }
+  return apiProbeCache.get(pages)!;
+}
+
+const discoveryCache = new WeakMap<object, Promise<OAuthDiscovery>>();
+
+function cachedDiscovery(
+  pages: object,
+  metadata: SiteMetadata,
+  isAllowedTarget?: IsAllowedTarget,
+): Promise<OAuthDiscovery> {
+  if (!discoveryCache.has(pages)) {
+    discoveryCache.set(
+      pages,
+      cachedApiProbes(pages, metadata, isAllowedTarget).then((probes) =>
+        discoverOAuth(
+          {
+            baseUrl: metadata.baseUrl,
+            resourceProbes: [
+              ...probes.flatMap(({ url, probe }): ResourceProbe[] =>
+                probe
+                  ? [
+                      {
+                        url,
+                        status: probe.status,
+                        wwwAuthenticate: probe.wwwAuthenticate || undefined,
+                      },
+                    ]
+                  : [],
+              ),
+              ...(metadata.mcpInit?.status !== undefined
+                ? [
+                    {
+                      url: metadata.mcpInit.mcpEndpointUrl,
+                      status: metadata.mcpInit.status,
+                      wwwAuthenticate: metadata.mcpInit.rawHeaders?.["www-authenticate"],
+                    },
+                  ]
+                : []),
+            ],
+            wellKnownPrm: metadata.wellKnown["oauth-protected-resource"],
+            wellKnownAs: metadata.wellKnown["oauth-authorization-server"],
+          },
+          isAllowedTarget,
+        ),
+      ),
+    );
+  }
+  return discoveryCache.get(pages)!;
+}
+
 function extractApiHrefCount(html: string, host: string): number {
   const lower = html.toLowerCase();
   const apiPath = (lower.match(/href=["'][^"']*\/api[/"']/g) ?? []).length;
@@ -231,13 +309,9 @@ const a1: Check = {
   run: async (pages, metadata, ctx) => {
     const base = mk("public-api", "Public API surface", 2.0);
     const host = new URL(metadata.baseUrl).hostname;
-    const hostParts = host.split(".");
-    const registeredDomain = hostParts.length > 2 ? hostParts.slice(-2).join(".") : host;
-
-    const [r1, r2] = await Promise.all([
-      probeUrl(`${metadata.baseUrl}/api/`, ctx?.isAllowedTarget),
-      probeUrl(`https://api.${registeredDomain}/`, ctx?.isAllowedTarget),
-    ]);
+    const [r1, r2] = (await cachedApiProbes(pages, metadata, ctx?.isAllowedTarget)).map(
+      (p) => p.probe,
+    );
 
     // Accept 2xx (open) and 4xx (auth-required) JSON/YAML as evidence the API exists.
     // A real API correctly returns 4xx with a structured JSON body when called without auth.
@@ -326,63 +400,33 @@ const a4: Check = {
 };
 
 const b1: Check = {
-  ...mk("oauth-support", "OAuth 2.0 authorization server", 1.5),
-  run: (_pages, metadata) => {
-    const base = mk("oauth-support", "OAuth 2.0 authorization server", 1.5);
-    const parsed = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
-    if (!parsed) return res(base, "fail", 0, "No OAuth authorization server metadata found");
-    if (parsed.issuer && parsed.authorizationEndpoint && parsed.tokenEndpoint)
-      return res(base, "pass", 100, `OAuth 2.0 AS metadata valid (issuer: ${parsed.issuer})`);
-    return res(
-      base,
-      "partial",
-      50,
-      "OAuth AS metadata present but missing issuer, authorization_endpoint, or token_endpoint",
-    );
-  },
-};
-
-const b2: Check = {
-  ...mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5),
-  run: (_pages, metadata) => {
-    const base = mk("oauth-protected-resource", "OAuth 2.0 protected resource metadata", 1.5);
-    if (parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) === null)
-      return res(base, "fail", 0, "No OAuth protected resource metadata found");
-    return res(base, "pass", 100, "OAuth protected resource metadata present and valid");
-  },
-};
-
-const b3: Check = {
-  ...mk("oauth-metadata-rfc9728", "OAuth resource metadata via Link header (RFC 9728)", 1.5),
-  run: (_pages, metadata) => {
-    const base = mk(
-      "oauth-metadata-rfc9728",
-      "OAuth resource metadata via Link header (RFC 9728)",
-      1.5,
-    );
-    const mcpInit = metadata.mcpInit;
-    if (!mcpInit?.linkHeader)
-      return res(base, "fail", 0, "No Link header in MCP initialization response");
-    if (mcpInit.oauthResourceMetadataUrl) {
-      const ownUrl = `${new URL(metadata.baseUrl).origin}/.well-known/oauth-protected-resource`;
-      if (
-        mcpInit.oauthResourceMetadataUrl === ownUrl &&
-        parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) !== null
-      )
-        return res(
-          base,
-          "pass",
-          100,
-          "RFC 9728 Link header present and resource metadata reachable",
-        );
+  ...mk("oauth-discovery", "OAuth discovery chain (RFC 9728 → RFC 8414)", 3.0),
+  run: async (pages, metadata, ctx) => {
+    const base = mk("oauth-discovery", "OAuth discovery chain (RFC 9728 → RFC 8414)", 3.0);
+    const d = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
+    const broke = d.problems.length ? `: ${d.problems.join("; ")}` : "";
+    if (d.outcome === "full")
+      return res(
+        base,
+        "pass",
+        100,
+        `OAuth discovery resolved: ${d.resourceUrl} → ${d.prmUrl} → authorization server ${d.as?.issuer}`,
+      );
+    if (d.outcome === "prm-only")
       return res(
         base,
         "partial",
         50,
-        "Link header present but resource_metadata URL not verified (external or unreachable)",
+        `Protected resource metadata at ${d.prmUrl} is valid, but no usable authorization server was resolved${broke}`,
       );
-    }
-    return res(base, "partial", 50, "Link header present but no resource_metadata relation found");
+    if (d.outcome === "root-as")
+      return res(
+        base,
+        "partial",
+        50,
+        `No protected resource metadata; root authorization server metadata (issuer ${d.as?.issuer}) is valid`,
+      );
+    return res(base, "fail", 0, `No OAuth discovery chain found${broke}`);
   },
 };
 
@@ -425,9 +469,14 @@ const b5: Check = {
   ...mk("pkce-s256", "PKCE S256 support", 1.5),
   run: async (pages, metadata, ctx) => {
     const base = mk("pkce-s256", "PKCE S256 support", 1.5);
-    const parsed = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
-    if (parsed?.codeChallengeMethodsSupported?.includes("S256"))
-      return res(base, "pass", 100, "PKCE S256 declared in OAuth authorization server metadata");
+    const { as } = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
+    if (as?.codeChallengeMethodsSupported?.includes("S256"))
+      return res(
+        base,
+        "pass",
+        100,
+        `PKCE S256 declared by authorization server ${as.issuer} (code_challenge_methods_supported)`,
+      );
 
     const portal = await cachedPortal(pages, metadata, ctx?.isAllowedTarget);
     if (!portal.found) {
@@ -447,72 +496,75 @@ const b5: Check = {
 };
 
 const c1: Check = {
-  ...mk("mcp-auth-mechanism", "MCP authentication mechanism", 1.0),
-  run: (_pages, metadata) => {
-    const base = mk("mcp-auth-mechanism", "MCP authentication mechanism", 1.0);
-    const mcpInit = metadata.mcpInit;
-    if (!mcpInit) return res(base, "fail", 0, "No MCP initialization data available");
-    if (mcpInit.serverInfo?.authMechanism)
+  ...mk("mcp-auth", "MCP authorization (401 challenge → protected resource metadata)", 1.5),
+  run: async (pages, metadata, ctx) => {
+    const base = mk(
+      "mcp-auth",
+      "MCP authorization (401 challenge → protected resource metadata)",
+      1.5,
+    );
+    const init = metadata.mcpInit;
+    const endpoint = metadata.mcpEndpoint ?? init?.mcpEndpointUrl;
+    if (!endpoint) return res(base, "skip", 0, "No MCP endpoint discovered");
+    if (!init)
       return res(
         base,
-        "pass",
-        100,
-        `MCP auth mechanism declared: ${mcpInit.serverInfo.authMechanism}`,
+        "skip",
+        0,
+        `No handshake response was recorded for MCP endpoint ${endpoint}`,
       );
-    if (mcpInit.status === 401 && mcpInit.rawHeaders?.["www-authenticate"])
-      return res(base, "pass", 100, "MCP endpoint requires auth (401 + WWW-Authenticate)");
-    if (mcpInit.status === 401)
-      return res(base, "partial", 50, "MCP endpoint returns 401 but no WWW-Authenticate header");
-    return res(base, "fail", 0, "MCP endpoint does not declare an authentication mechanism");
-  },
-};
-
-const c2: Check = {
-  ...mk("mcp-oauth-metadata", "MCP OAuth resource metadata link", 1.0),
-  run: (_pages, metadata) => {
-    const base = mk("mcp-oauth-metadata", "MCP OAuth resource metadata link", 1.0);
-    const linkHeader = metadata.mcpInit?.linkHeader;
-    const parsed = parseMcpResourceLink(linkHeader);
-    if (!linkHeader || parsed.rels.length === 0)
-      return res(base, "fail", 0, "No Link header in MCP initialization response");
-    if (
-      parsed.resourceMetadataUrl &&
-      parseProtectedResourceMetadata(metadata.wellKnown["oauth-protected-resource"]) !== null
-    )
-      return res(base, "pass", 100, "MCP Link header points to reachable OAuth resource metadata");
+    if (init.status !== 401)
+      return res(base, "skip", 0, "MCP endpoint does not require authorization");
+    const header = init.rawHeaders?.["www-authenticate"];
+    if (!bearerChallenge(header))
+      return res(base, "fail", 0, "MCP endpoint returns 401 without a Bearer challenge");
+    const resolved = await resolveProtectedResource(endpoint, header, ctx?.isAllowedTarget);
+    if (!resolved.prm)
+      return res(
+        base,
+        "partial",
+        50,
+        `MCP endpoint sends a Bearer challenge, but ${resolved.problem ?? "no valid protected resource metadata was found"}`,
+      );
+    const discovery = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
+    if (discovery.prmUrl === resolved.url)
+      return res(
+        base,
+        "skip",
+        0,
+        `Not applicable — MCP endpoint uses the protected resource metadata already measured by oauth-discovery (${resolved.url})`,
+      );
     return res(
       base,
-      "partial",
-      50,
-      "Link header present but resource_metadata target not reachable",
+      "pass",
+      100,
+      `MCP endpoint ${endpoint} challenges with Bearer and links valid protected resource metadata at ${resolved.url}`,
     );
   },
 };
 
-const c3: Check = {
-  ...mk("mcp-pkce-s256", "MCP PKCE S256 via resource metadata", 1.0),
-  run: (_pages, metadata) => {
-    const base = mk("mcp-pkce-s256", "MCP PKCE S256 via resource metadata", 1.0);
-    const linkParsed = parseMcpResourceLink(metadata.mcpInit?.linkHeader);
-    if (!linkParsed.resourceMetadataUrl)
-      return res(base, "fail", 0, "No MCP resource metadata link — cannot verify PKCE support");
-    const asList = parseProtectedResourceMetadata(
-      metadata.wellKnown["oauth-protected-resource"],
-    )?.authorization_servers;
-    if (Array.isArray(asList) && asList.length > 0) {
-      const baseOrigin = new URL(metadata.baseUrl).origin;
-      if (!String(asList[0]).startsWith(baseOrigin))
-        return res(
-          base,
-          "partial",
-          50,
-          "MCP-linked authorization server is external — cannot verify PKCE S256 without fetching it",
-        );
-    }
-    const oauthMeta = parseOAuthMetadata(metadata.wellKnown["oauth-authorization-server"]);
-    if (oauthMeta?.codeChallengeMethodsSupported?.includes("S256"))
-      return res(base, "pass", 100, "PKCE S256 supported via OAuth AS linked from MCP");
-    return res(base, "fail", 0, "OAuth authorization server does not declare PKCE S256 support");
+const c2: Check = {
+  ...mk("cimd-support", "Client ID Metadata Documents (bonus)", 0.5),
+  run: async (pages, metadata, ctx) => {
+    const base = mk("cimd-support", "Client ID Metadata Documents (bonus)", 0.5);
+    const d = await cachedDiscovery(pages, metadata, ctx?.isAllowedTarget);
+    if (d.outcome !== "full")
+      return res(base, "skip", 0, "No resolved OAuth discovery chain to read CIMD support from");
+    if (d.as?.clientIdMetadataDocumentSupported)
+      return res(
+        base,
+        "pass",
+        100,
+        `Authorization server ${d.as.issuer} supports Client ID Metadata Documents`,
+      );
+    return res(
+      base,
+      "skip",
+      0,
+      d.as?.registrationEndpoint
+        ? "Authorization server offers Dynamic Client Registration but not Client ID Metadata Documents"
+        : "Authorization server does not advertise client_id_metadata_document_supported",
+    );
   },
 };
 
@@ -625,20 +677,4 @@ const d4: Check = {
   },
 };
 
-export const agentAuthChecks: Check[] = [
-  a1,
-  a2,
-  a3,
-  a4,
-  b1,
-  b2,
-  b3,
-  b4,
-  b5,
-  c1,
-  c2,
-  c3,
-  d1,
-  d2,
-  d4,
-];
+export const agentAuthChecks: Check[] = [a1, a2, a3, a4, b1, b4, b5, c1, c2, d1, d2, d4];

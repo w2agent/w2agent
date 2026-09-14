@@ -3,7 +3,7 @@ import type { AuditOptions, FetchedPage } from "../audit/types.js";
 export const MAX_HTML_BYTES = 2 * 1024 * 1024; // 2 MB
 export const MAX_TEXT_BYTES = 1 * 1024 * 1024; // 1 MB
 
-async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
+export async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return response.text();
 

@@ -127,7 +127,10 @@ describe("MCP discovery against observed real-world and catch-all sites", () => 
     const byId = checksById(await runAudit(SITE, OPTIONS, undefined, allChecks));
     expect(byId.get("mcp-discovery")).toMatchObject({ status: "pass", score: 75 });
     expect(byId.get("mcp-discovery")?.details).toContain("https://mcp.stripe.com/");
-    expect(byId.get("mcp-auth-mechanism")?.status).not.toBe("skip");
+    expect(metadata.mcpInit?.oauthResourceMetadataUrl).toBe(
+      "https://mcp.stripe.com/.well-known/oauth-protected-resource",
+    );
+    expect(byId.get("mcp-auth")).toMatchObject({ status: "partial", score: 50 });
   });
 
   it("SPA catch-all (200 text/html for every path and method) → no endpoint, fail, and C1/C2/B3/D4 skip even with a valid mcp.json", async () => {
@@ -146,12 +149,7 @@ describe("MCP discovery against observed real-world and catch-all sites", () => 
 
     const byId = checksById(await runAudit(SITE, OPTIONS, undefined, allChecks));
     expect(byId.get("mcp-discovery")).toMatchObject({ status: "fail", score: 0 });
-    for (const id of [
-      "mcp-auth-mechanism",
-      "mcp-oauth-metadata",
-      "oauth-metadata-rfc9728",
-      "mcp-server-card",
-    ]) {
+    for (const id of ["mcp-auth", "mcp-server-card"]) {
       expect({ id, status: byId.get(id)?.status, score: byId.get(id)?.score }).toEqual({
         id,
         status: "skip",
@@ -270,7 +268,7 @@ describe("probeMcpEndpoint protocol handling", () => {
     expect(init.headers.get("mcp-protocol-version")).toBeNull();
   });
 
-  it("initialize keeps the authMechanism extraction", async () => {
+  it("initialize ignores capabilities.auth (no MCP schema defines it)", async () => {
     mockSite((url, call) => {
       if (url.href !== ENDPOINT || call.method !== "POST") return html("", 404);
       if (rpcMethod(call) !== "initialize") return json({ error: "bad" }, 400);
@@ -280,7 +278,43 @@ describe("probeMcpEndpoint protocol handling", () => {
       });
     });
     const found = await probeMcpEndpoint(SITE, "", metaOptions);
-    expect(found?.serverInfo?.authMechanism).toBe("oauth2");
+    expect(found?.serverInfo).toEqual({
+      name: "legacy-mcp",
+      version: INIT_RESULT.result.serverInfo.version,
+    });
+    expect(found).not.toHaveProperty("linkHeader");
+  });
+
+  it.each([
+    ["Basic first", 'Basic realm="x", Bearer resource_metadata="https://example.com/prm"'],
+    [
+      "error param first",
+      'Bearer error="invalid_token", resource_metadata="https://example.com/prm"',
+    ],
+  ])("a 401 whose Bearer challenge carries resource_metadata confirms the endpoint (%s)", async (_label, header) => {
+    mockSite((url, call) =>
+      url.href === ENDPOINT && call.method === "POST"
+        ? new Response("", { status: 401, headers: { "www-authenticate": header } })
+        : html("", 404),
+    );
+    const found = await probeMcpEndpoint(SITE, "", metaOptions);
+    expect(found).toMatchObject({
+      status: 401,
+      oauthResourceMetadataUrl: "https://example.com/prm",
+    });
+  });
+
+  it.each([
+    'Basic resource_metadata="https://example.com/prm"',
+    'Basic realm="x", Digest resource_metadata="https://example.com/prm"',
+    'Bearer realm="x", Basic resource_metadata="https://example.com/prm"',
+  ])("resource_metadata outside a Bearer challenge does not confirm an endpoint (%s)", async (header) => {
+    mockSite((url, call) =>
+      url.href === ENDPOINT && call.method === "POST"
+        ? new Response("", { status: 401, headers: { "www-authenticate": header } })
+        : html("", 404),
+    );
+    expect(await probeMcpEndpoint(SITE, "", metaOptions)).toBeUndefined();
   });
 
   it("JSON without the jsonrpc 2.0 envelope is not credited, even when it carries MCP-shaped fields", async () => {
