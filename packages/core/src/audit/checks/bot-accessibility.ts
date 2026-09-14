@@ -61,6 +61,16 @@ export const aiAgentAccess: Check = {
           severity: "info",
         };
       }
+      if (status === 429) {
+        return {
+          ...base,
+          status: "error",
+          score: 0,
+          message: "Unmeasured — robots.txt kept returning 429 (rate-limited) through every retry",
+          details: GOOGLE_AGENT_NOTE,
+          severity: "info",
+        };
+      }
       if (status !== undefined && status >= 500) {
         return {
           ...base,

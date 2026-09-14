@@ -126,9 +126,11 @@ describe("ai-agent-access", () => {
     aiAgentAccess.run([basePage], { ...baseMeta, robotsTxtStatus });
 
   it("passes on a 4xx robots.txt — RFC 9309 'unavailable' means crawlers may access everything", () => {
-    const result = runStatus(404);
-    expect(result).toMatchObject({ status: "pass", score: 100 });
-    expect(result.message).toContain("crawlers may access everything");
+    for (const status of [403, 404, 410]) {
+      const result = runStatus(status);
+      expect(result).toMatchObject({ status: "pass", score: 100 });
+      expect(result.message).toContain("crawlers may access everything");
+    }
   });
 
   it("fails on a 5xx robots.txt — RFC 9309 'unreachable' means crawlers must assume complete disallow", () => {
@@ -140,9 +142,12 @@ describe("ai-agent-access", () => {
     }
   });
 
-  // RFC 9309 treats every 4xx as "unavailable", 429 included.
-  it("passes on a persistent 429 — it is a 4xx", () => {
-    expect(runStatus(429)).toMatchObject({ status: "pass", score: 100 });
+  // A 429 only reaches metadata after every retry was rate-limited: the file was never seen,
+  // so scoring it as "no robots.txt" would claim access we never measured.
+  it("reports error (unmeasured) on a persistent 429", () => {
+    const result = runStatus(429);
+    expect(result).toMatchObject({ status: "error", score: 0 });
+    expect(result.message).toContain("429");
   });
 
   // 0 means we never saw a response (network error, timeout): unmeasured, not a finding.

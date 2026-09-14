@@ -41,9 +41,17 @@ describe("robots.txt fetch status through the real fetcher", () => {
     expect(aiAgentAccess.run([], metadata)).toMatchObject({ status: "fail", score: 0 });
   });
 
-  it("records a persistent 429 as 429 (4xx → unavailable → pass)", async () => {
-    const { metadata } = await probeWithRobots(() => new Response("", { status: 429 }));
+  // A 429 is not RFC 9309's "unavailable" 4xx: the auditor was rate-limited and never saw the file.
+  it("records a persistent 429 as 429, which ai-agent-access reports as unmeasured", async () => {
+    const { metadata, robotsHits } = await probeWithRobots(() => new Response("", { status: 429 }));
+    expect(robotsHits).toBe(4);
     expect(metadata.robotsTxtStatus).toBe(429);
+    expect(aiAgentAccess.run([], metadata)).toMatchObject({ status: "error", score: 0 });
+  });
+
+  it("still passes a genuine 404 (no robots.txt)", async () => {
+    const { metadata } = await probeWithRobots(() => new Response("", { status: 404 }));
+    expect(metadata.robotsTxtStatus).toBe(404);
     expect(aiAgentAccess.run([], metadata)).toMatchObject({ status: "pass", score: 100 });
   });
 

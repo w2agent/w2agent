@@ -24,6 +24,7 @@ interface RobotsRule {
 interface RobotsGroup {
   agentLines: Array<{ agent: string; line: number }>;
   rules: RobotsRule[];
+  crawlDelay?: string;
   scopedLines: number[];
 }
 
@@ -69,6 +70,7 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
       current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value, line: i + 1 });
       current.scopedLines.push(i + 1);
     } else if (key === "crawl-delay") {
+      current.crawlDelay = value;
       current.scopedLines.push(i + 1);
     }
   });
@@ -95,11 +97,15 @@ export function planRobotsAccessFix(
   const byRules = new Map<string, string[]>();
   const wildcardRules = groups.filter((g) => g.agentLines.some((a) => a.agent === "*"));
 
-  const addGroup = (token: string, rules: RobotsRule[]) => {
+  const lastCrawlDelay = (from: RobotsGroup[]) =>
+    from.filter((g) => g.crawlDelay !== undefined).pop()?.crawlDelay;
+
+  const addGroup = (token: string, rules: RobotsRule[], crawlDelay: string | undefined) => {
     const key = [
       ...rules
         .filter((r) => r.value && r.value !== "/" && !blocksRoot(r, baseUrl))
         .map((r) => `${r.directive}: ${r.value}`),
+      ...(crawlDelay !== undefined ? [`Crawl-delay: ${crawlDelay}`] : []),
       "Allow: /",
     ].join("\n");
     byRules.set(key, [...(byRules.get(key) ?? []), token]);
@@ -113,6 +119,7 @@ export function planRobotsAccessFix(
       addGroup(
         token,
         wildcardRules.flatMap((g) => g.rules),
+        lastCrawlDelay(wildcardRules),
       );
       continue;
     }
@@ -122,6 +129,7 @@ export function planRobotsAccessFix(
     addGroup(
       token,
       owners.flatMap((g) => g.rules),
+      lastCrawlDelay(naming),
     );
   }
 

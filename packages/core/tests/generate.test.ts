@@ -522,6 +522,46 @@ describe("generateRobotsTxt", () => {
     expect(blockedFor(result, "Applebot")).toBe(false);
   });
 
+  // The fix only unblocks the root; a moved token must keep the pacing the owner asked for.
+  const delayOf = (robotsTxt: string, token: string) =>
+    robotsParser("https://example.com/robots.txt", robotsTxt).getCrawlDelay(token);
+
+  it("named-group block: the moved token keeps its group's Crawl-delay", () => {
+    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\nDisallow: /*\n${TAIL}`;
+    expect(delayOf(existing, "ChatGPT-User")).toBe(30);
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(delayOf(result, "ChatGPT-User")).toBe(30);
+    expect(delayOf(result, "SomeOtherBot")).toBeUndefined();
+    expect(result).toContain("#    line 5: Crawl-delay: 30");
+  });
+
+  it("wildcard block: *-inherited tokens keep the * Crawl-delay", () => {
+    const existing = `User-agent: *\nCrawl-delay: 30\nDisallow: /*\n${TAIL}`;
+    const result = withRobots(existing);
+    for (const bot of BOT_TOKENS.filter((b) => b.robotsToken && b.purpose !== "training")) {
+      expect(blockedFor(result, bot.token), bot.token).toBe(false);
+      expect(delayOf(result, bot.token), bot.token).toBe(30);
+    }
+  });
+
+  it("uses the last Crawl-delay among the token's groups, as robots-parser does", () => {
+    const existing = `User-agent: ChatGPT-User\nCrawl-delay: 5\nDisallow: /*\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\n${TAIL}`;
+    expect(delayOf(existing, "ChatGPT-User")).toBe(30);
+    const result = withRobots(existing);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(delayOf(result, "ChatGPT-User")).toBe(30);
+  });
+
+  it("does not merge moved tokens whose Crawl-delay differs", () => {
+    const existing = `User-agent: *\nCrawl-delay: 5\nDisallow: /\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(delayOf(result, "ChatGPT-User")).toBe(30);
+    expect(delayOf(result, "Claude-User")).toBe(5);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
+  });
+
   it("treats a versioned User-agent line as naming the token, like robots-parser does", () => {
     const existing = `User-agent: ChatGPT-User/1.0\nDisallow: /\n${TAIL}`;
     const result = withRobots(existing);
