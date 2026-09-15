@@ -14,7 +14,7 @@
 - Checks are promoted or demoted only at a version bump, and every bump is logged here. A newly promoted check (tracked → scored, or a new signal) enters at weight 0.5 or less for one cycle. A merge that measures facts already scored by the checks it replaces is not a promotion. The plan's policy section doesn't cover merges; the rubric-change table set their weights (`oauth-discovery` 3 from three 1.5 checks, `mcp-auth` 1.5 from two 1.0 checks).
 - Every entry states the expected median score delta. Before cutover, it also records the measured delta.
 
-## 3.0 — 2026-09-14
+## 3.0 — 2026-09-15
 
 Major. `allChecks` 63 → 54, of which 4 are tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone.
 
@@ -99,4 +99,25 @@ Weight `—` = the check does not exist in that version. `0 T` = tracked.
 
 ### Measured delta
 
-**Pending: owner-run dual-run.** From the platform repo: `pnpm tsx --env-file=.env.prod scripts/rescore-all.ts --rubric-compare --leaderboard-only`. It runs the frozen 2.0 engine (`vendor/frozen/w2agent-core-rubric-2.0.tgz`) and the 3.0 engine side by side. Record the per-category median delta by site type here before cutover. Per D-4, in this order: run it privately from the platform branch before any migration or deploy (it only reads `sites`), publish the delta here, then apply the platform migrations and deploy — the deploy is the cutover — and rescore every site promptly after it. The `2026-09-14` heading date is a placeholder until then.
+Dual-run on 2026-09-15 over the 359 leaderboard sites (`scripts/rescore-all.ts --rubric-compare --leaderboard-only` in the platform repo): the frozen 2.0 engine and the 3.0 engine each crawled every site live, back to back. 345 sites produced both scores. 14 failed in at least one engine: bot protection or unreachable (e.g. reuters.com, expedia.com, nasa.gov); zillow.com, wayfair.com and uber.com failed only on the second (3.0) crawl.
+
+Median delta, 3.0 minus 2.0, in points:
+
+| Site type | Sites (scored) | Overall | Auth & Access | Agent Discovery | Agent Protocols | Bot Accessibility | Structured Data | Content Quality | Technical |
+|---|---|---|---|---|---|---|---|---|---|
+| All | 359 (345) | +0 | +3 | −2 | −7 | +2 | +0 | +0 | +0 |
+| Ecommerce | 60 (60) | +0 | +3 | −1 | −8 | +1 | +0 | +0 | +0 |
+| Local business | 98 (98) | +0 | +3 | −1 | −6 | +2 | +0 | +0 | +0 |
+| Other | 201 (187) | +0 | +3 | −2 | −8 | +2 | +0 | +0 | +0 |
+
+Overall spread: mean 53.6 → 52.7; p10 −9, p25 −3, p75 +2, p90 +6. 33 sites fell 10 or more points and 7 rose 10 or more.
+
+Largest check transitions:
+- `llms-txt-exists` pass → fail on 47 sites and `robots-txt-exists` pass → fail on 21 (e.g. linkedin.com, office.com): these sites answer the file path with an HTML page (a bot challenge, a login redirect or a soft-404), which 2.0 credited.
+- `mcp-discovery`: fail → pass 61, partial → pass 9, partial → fail 59 (real `server/discover`/`initialize` probes replace path existence).
+- `well-known-ucp`: 285 now N/A (not ecommerce); 6 ecommerce passes → fail (no `payment_handlers`).
+- `well-known-agent-card`: pass → partial 10 (stub cards), pass → fail 3.
+- `content-negotiation`: fail → pass 20.
+- `response-time` moved in both directions on about 140 sites: live timing noise on top of the new buckets.
+
+Single-site swings of 15+ points that re-crawl differently (e.g. aliexpress.com −38, where the 3.0 crawl got a bot-challenge page) are crawl variance rather than rubric change; the post-cutover rescore re-crawls every site.
