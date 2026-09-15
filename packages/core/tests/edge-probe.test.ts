@@ -194,23 +194,40 @@ describe("a body-read error keeps its evidence without moving the reach surface"
 describe("politeness pacing of the fetches the probe adds", () => {
   it("delays the controls and the extra-page agent fetches, not the homepage agent loop", async () => {
     const paced: AuditOptions = { ...OPTIONS, requestDelay: 60 };
+    // Virtual clock: every sleep the probe performs advances `now` by exactly
+    // the delay it asked for and resolves immediately, so the assertions below
+    // are on the pacing the code requested, not on wall-clock timing. `sleep`
+    // (crawler.ts) is the only global setTimeout caller on this path.
+    const realSetTimeout = globalThis.setTimeout;
+    let now = 0;
+    const timerMock = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      now += ms ?? 0;
+      return realSetTimeout(fn, 0);
+    }) as unknown as typeof setTimeout);
     const stamps: { url: string; ua: string; at: number }[] = [];
     fetchMock?.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const ua = (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? "";
-      stamps.push({ url, ua, at: Date.now() });
+      stamps.push({ url, ua, at: now });
       const route = routes[new URL(url).pathname];
       return route ? route(ua, init?.method ?? "GET") : new Response("", { status: 404 });
     });
 
-    await fetchUnderUas(HOME, paced, { extraPages: [`${SITE}/p1`] });
+    try {
+      await fetchUnderUas(HOME, paced, { extraPages: [`${SITE}/p1`] });
+    } finally {
+      timerMock.mockRestore();
+    }
 
     const gap = (i: number) => stamps[i].at - stamps[i - 1].at;
     // stamps: 3 homepage agent fetches, homepage control, /p1 control, 3 /p1 agents.
     expect(stamps).toHaveLength(8);
-    expect(gap(1)).toBeLessThan(50); // homepage agent loop: unpaced
-    expect(gap(2)).toBeLessThan(50);
-    for (const i of [3, 4, 5, 6, 7]) expect(gap(i)).toBeGreaterThanOrEqual(50);
+    expect(gap(1)).toBe(0); // homepage agent loop: unpaced
+    expect(gap(2)).toBe(0);
+    for (const i of [3, 4, 5, 6, 7]) expect(gap(i)).toBe(60);
   });
 });
 

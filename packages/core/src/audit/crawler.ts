@@ -182,9 +182,13 @@ export async function fetchUnderUas(
 ): Promise<{ responses: Record<string, MultiUaResponse>; edgeProbe: EdgeProbePage[] }> {
   const responses: Record<string, MultiUaResponse> = {};
   // Wall-clock budget for the entire multi-UA pass, homepage and extra pages
-  // alike. Checked between fetches — a single fetch can still take up to
-  // options.timeout ms, so worst-case budget overshoot is one per-fetch
-  // timeout (DEFAULT_OPTIONS.timeout = 10s).
+  // alike. Checked *before* each gated fetch, so the last agent fetch can start
+  // just under the budget and still run a full options.timeout; the homepage
+  // control that follows is not gated at all, so it adds one more timeout plus
+  // one pace. Worst-case overshoot is therefore two per-fetch timeouts plus a
+  // pace, i.e. at DEFAULT_OPTIONS.timeout = 10s: 15s (budget) + 10s (last agent
+  // fetch) + 0.2s (pace) + 10s (control) ≈ 35s wall clock, against ~25s before
+  // the control became its own fetch. /api/audit's maxDuration is 60s.
   const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
   const start = Date.now();
   const overBudget = () => Date.now() - start > budget;

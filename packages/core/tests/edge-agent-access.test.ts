@@ -282,6 +282,26 @@ describe("edge-agent-access — a verdict needs completeness (gate fix A)", () =
     ]);
     expect(firstLine(r)).toBe("outcome: consistent");
   });
+
+  it("the consistent message counts complete pages, not comparable ones", () => {
+    // Two comparable pages, but only the homepage was answered by all three
+    // UAs: claiming "every … on 2 page(s)" would overstate the evidence.
+    const probe = [
+      page(),
+      page({
+        url: P1,
+        results: [
+          ua("ChatGPT-User", { url: P1, status: 0, reachable: false, outcome: "budget-skipped" }),
+          ua("Perplexity-User", { url: P1 }),
+          ua("Google-Agent", { url: P1 }),
+        ],
+      }),
+    ];
+    expect(analyzeEdgeAccess(probe)).toMatchObject({ comparablePages: 2, completePages: 1 });
+    const r = run(probe);
+    expect(r.message).toContain("matched our declared crawler on 1 of 2 comparable page(s).");
+    expect(r.message).not.toMatch(/on 2 page/);
+  });
 });
 
 describe("edge-agent-access — a challenged control is not a clean control (gate fix C)", () => {

@@ -48,6 +48,8 @@ export interface EdgeAccessAnalysis {
   unanswered: string[];
   /** Pages with a clean control fetch — the only comparable ones. */
   comparablePages: number;
+  /** Comparable pages where *every* probed token answered 2xx — the evidence a pass rests on. */
+  completePages: number;
   /** The first result that drove a non-`consistent` outcome. */
   worst?: { page: EdgeProbePage; result: MultiUaResponse };
   /** Why the comparison could not be made, when `outcome === "unmeasured"`. */
@@ -70,7 +72,18 @@ export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeA
   const unanswered = probed.filter(
     (t) => !comparable.some((p) => p.results.some((r) => r.token === t && answered2xx(r))),
   );
-  const base = { probed, notProbed, unanswered, comparablePages: comparable.length };
+  // A page is complete only when *every* probed token answered 2xx on it: the
+  // count a positive verdict may claim, which is not the comparable count.
+  const completePages = comparable.filter((page) =>
+    probed.every((t) => page.results.some((r) => r.token === t && answered2xx(r))),
+  ).length;
+  const base = {
+    probed,
+    notProbed,
+    unanswered,
+    comparablePages: comparable.length,
+    completePages,
+  };
 
   if (comparable.length === 0) {
     return { outcome: "unmeasured", ...base, unmeasuredReason: "no-control" };
@@ -96,10 +109,9 @@ export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeA
   // A positive verdict needs completeness, per §4.4's "every agent UA … on
   // every page": some comparable page where *every* probed token answered 2xx.
   // Otherwise a UA that never answered would be awarded a clean bill of health.
-  const complete = comparable.some((page) =>
-    probed.every((t) => page.results.some((r) => r.token === t && answered2xx(r))),
-  );
-  if (!complete) return { outcome: "unmeasured", ...base, unmeasuredReason: "incomplete" };
+  if (completePages === 0) {
+    return { outcome: "unmeasured", ...base, unmeasuredReason: "incomplete" };
+  }
 
   return { outcome: "consistent", ...base };
 }
@@ -134,7 +146,7 @@ function messageFor(a: EdgeAccessAnalysis): string {
       return `Payment required for agents (paywalled): ${result.token} got HTTP 402 on ${page.url}, where our declared crawler got HTTP ${page.control.status}. Informational — a declared paywall is not an edge block.${notProbedNote}`;
     }
     case "consistent":
-      return `No edge difference (consistent): every probed agent user-agent matched our declared crawler on ${a.comparablePages} page(s).${notProbedNote}`;
+      return `No edge difference (consistent): every probed agent user-agent matched our declared crawler on ${a.completePages} of ${a.comparablePages} comparable page(s).${notProbedNote}`;
     default:
       switch (a.unmeasuredReason) {
         case "no-control":
