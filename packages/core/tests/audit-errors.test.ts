@@ -25,6 +25,23 @@ function response(status: number, body = "", headers: Record<string, string> = {
   return new Response(body, { status, headers });
 }
 
+/** Sends one chunk, then fails the stream — a connection reset mid-body. */
+function erroringBody(
+  status: number,
+  firstChunk: string,
+  headers: Record<string, string> = {},
+): Response {
+  let sent = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent) return controller.error(new TypeError("terminated: ECONNRESET"));
+      sent = true;
+      controller.enqueue(new TextEncoder().encode(firstChunk));
+    },
+  });
+  return new Response(body, { status, headers });
+}
+
 const metadata: SiteMetadata = { baseUrl: URL_UNDER_TEST, wellKnown: {} };
 
 describe("classifyHomepage — responses the audit must refuse to score", () => {
@@ -199,6 +216,81 @@ describe("fetchPage failure detail feeding classifyHomepage", () => {
     expect(err?.evidence.cause).toBe("ENOTFOUND");
   });
 
+  // A transient outage behind a JSD-instrumented CDN must still be retried:
+  // /cdn-cgi/challenge-platform/scripts/jsd/ is instrumentation, not a challenge
+  // (live capture 2026-09-15: www.g2.com 403, www.crunchbase.com 200).
+  it("retries a 503 whose error page carries JavaScript Detections instrumentation", async () => {
+    const jsd =
+      '<html><head><title>Service Unavailable</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></head><body>503</body></html>';
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response(503, jsd, { server: "cloudflare" }))
+      .mockResolvedValueOnce(response(200, "<html><body>back up</body></html>"));
+    const home = await fetchHomepage();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(home.status).toBe(200);
+    expect(home.fetchFailure).toBeUndefined();
+  });
+
+  it("keeps the bytes already received when a challenge body resets mid-read", async () => {
+    vi.mocked(fetch).mockImplementation(async () =>
+      erroringBody(503, '<html><script>window._cf_chl_opt={cvId:"3"}</script>'),
+    );
+    const home = await fetchHomepage();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(home.fetchFailure).toMatchObject({
+      kind: "blocked",
+      status: 503,
+      challenge: { vendor: "cloudflare", signal: "body: window._cf_chl_opt" },
+    });
+  });
+
+  describe("a response whose body fails to read is classified from its headers", () => {
+    it("403 with cf-mitigated is blocked, not unreachable", async () => {
+      vi.mocked(fetch).mockImplementation(async () =>
+        erroringBody(403, "<html>", { "cf-mitigated": "challenge" }),
+      );
+      const home = await fetchHomepage();
+      expect(home.status).toBe(0);
+      expect(home.fetchFailure).toEqual({
+        kind: "blocked",
+        status: 403,
+        challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+        cause: "body-read-failed",
+      });
+      expect(classifyHomepage(home, URL_UNDER_TEST)?.kind).toBe("blocked");
+    });
+
+    it("401 with WWW-Authenticate is auth_gated", async () => {
+      vi.mocked(fetch).mockImplementation(async () =>
+        erroringBody(401, "<html>", { "www-authenticate": "Basic realm=x" }),
+      );
+      const home = await fetchHomepage();
+      expect(home.fetchFailure).toEqual({
+        kind: "auth_gated",
+        status: 401,
+        cause: "body-read-failed",
+      });
+    });
+
+    it("403 with no markers is unknown_failure", async () => {
+      vi.mocked(fetch).mockImplementation(async () => erroringBody(403, "<html>"));
+      const home = await fetchHomepage();
+      expect(home.fetchFailure).toEqual({
+        kind: "unknown_failure",
+        status: 403,
+        cause: "body-read-failed",
+      });
+    });
+
+    it("200 stays status 0 and unreachable — an empty page must never look scorable", async () => {
+      vi.mocked(fetch).mockImplementation(async () => erroringBody(200, "<html>"));
+      const home = await fetchHomepage();
+      expect(home.status).toBe(0);
+      expect(home.html).toBe("");
+      expect(home.fetchFailure).toEqual({ kind: "unreachable", cause: "body-read-failed" });
+    });
+  });
+
   it("a refused connection is unreachable", async () => {
     const refused = new TypeError("fetch failed");
     (refused as { cause?: unknown }).cause = Object.assign(new Error("connect ECONNREFUSED"), {
@@ -231,13 +323,42 @@ describe("runAudit homepage guards", () => {
     expect(err.evidence.vendor).toBe("cloudflare");
   });
 
-  it("leaves a verbatim prefetched list unguarded when no page is the audited URL", async () => {
-    const pages = [
-      page({ url: `${URL_UNDER_TEST}/admin`, status: 403, html: "Forbidden" }),
+  describe("a verbatim prefetched list with no page for the audited URL", () => {
+    const pages = () => [
+      page({ url: `${URL_UNDER_TEST}/login`, status: 403, html: "Sign in" }),
       page({ url: `${URL_UNDER_TEST}/a` }),
     ];
-    const report = await audit(pages);
-    expect(report.pagesScanned).toBe(2);
+
+    it("fetches the homepage and throws when it is challenged", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response(403, CF_CHALLENGE_BODY, { "cf-mitigated": "challenge" })),
+      );
+      const err = await audit(pages()).catch((e) => e);
+      expect(err).toBeInstanceOf(AuditError);
+      expect(err.kind).toBe("blocked");
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(URL_UNDER_TEST);
+    });
+
+    it("fetches the homepage and proceeds when it is fine", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response(200, "<html><body>hi</body></html>")),
+      );
+      const report = await audit(pages());
+      expect(report.pagesScanned).toBe(2);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fetch at all when the list does contain the homepage", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response(200)),
+      );
+      await audit([page({}), ...pages()]);
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 
   it("throws for an unreachable homepage on the reselect path", async () => {

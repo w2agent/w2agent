@@ -1,5 +1,6 @@
 import {
   CHALLENGE_BODY_PREFIX_BYTES,
+  classifyHomepage,
   type FetchFailure,
   fetchFailureKind,
 } from "../audit/errors.js";
@@ -189,6 +190,46 @@ export interface FetchFailureReport {
   challenge?: { vendor: ChallengeVendor; signal: string };
 }
 
+/**
+ * Prefix read for fingerprinting only: a stream that errors mid-read keeps the
+ * bytes already received, because a challenge marker in the first chunk is still
+ * a challenge. Deliberately separate from `readBodyCappedDetailed`, whose
+ * all-or-nothing semantics other callers rely on.
+ */
+async function readPrefixLenient(response: Response, maxBytes: number): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
+  try {
+    reader = response.body?.getReader();
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      const space = maxBytes - total;
+      if (value.length >= space) {
+        chunks.push(value.slice(0, space));
+        total += space;
+        break;
+      }
+      chunks.push(value);
+      total += value.length;
+    }
+  } catch {
+    // keep what arrived before the stream failed
+  } finally {
+    reader?.cancel().catch(() => {});
+  }
+
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 function causeOf(err: unknown): string | undefined {
   // DOMException carries a numeric legacy `code`, so read its name directly.
   if (err instanceof DOMException) return err.name;
@@ -231,7 +272,7 @@ async function retryableFetch(
       // A challenge is not transient (§4.3): fingerprint it before spending a
       // retry. Reading the prefix consumes the body, so a matched response is
       // never handed back — the caller reads it off `exhausted` instead.
-      const prefix = await readBodyCapped(response, CHALLENGE_BODY_PREFIX_BYTES).catch(() => "");
+      const prefix = await readPrefixLenient(response, CHALLENGE_BODY_PREFIX_BYTES);
       const responseHeaders: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         responseHeaders[key.toLowerCase()] = value;
@@ -289,6 +330,35 @@ async function retryableFetch(
   return null;
 }
 
+function failureFromDetail(detail: Partial<FetchFailureReport>): FetchFailure {
+  return {
+    kind: fetchFailureKind(detail),
+    ...(detail.status !== undefined && detail.status > 0 ? { status: detail.status } : {}),
+    ...(detail.cause ? { cause: detail.cause } : {}),
+    ...(detail.challenge ? { challenge: detail.challenge } : {}),
+  };
+}
+
+/** Body unreadable: reuse the one D-2 table on the status and headers we have. */
+function failureFromHeaders(response: Response, url: string): FetchFailure {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key.toLowerCase()] = value;
+  });
+  const classified = classifyHomepage(
+    { url, status: response.status, html: "", headers, responseTime: 0 },
+    url,
+  );
+  if (!classified) return { kind: "unreachable", cause: "body-read-failed" };
+  const { status, vendor, signal } = classified.evidence;
+  return {
+    kind: classified.kind,
+    ...(status !== undefined ? { status } : {}),
+    ...(vendor && signal ? { challenge: { vendor, signal } } : {}),
+    cause: "body-read-failed",
+  };
+}
+
 export async function fetchPage(
   url: string,
   options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
@@ -312,13 +382,13 @@ export async function fetchPage(
 
   const html = response ? await readBodyCapped(response, MAX_HTML_BYTES).catch(() => null) : null;
   if (!response || html === null) {
-    const detail: Partial<FetchFailureReport> = response ? { cause: "body-read-failed" } : failure;
-    const fetchFailure: FetchFailure = {
-      kind: fetchFailureKind(detail),
-      ...(detail.status !== undefined && detail.status > 0 ? { status: detail.status } : {}),
-      ...(detail.cause ? { cause: detail.cause } : {}),
-      ...(detail.challenge ? { challenge: detail.challenge } : {}),
-    };
+    // A body that fails to read still leaves decisive headers (cf-mitigated,
+    // WWW-Authenticate) and a status, so classify from those instead of calling
+    // a challenge "unreachable". `status` stays 0 either way, so a 200 whose
+    // body errored is never mistaken for a scorable page.
+    const fetchFailure: FetchFailure = response
+      ? failureFromHeaders(response, url)
+      : failureFromDetail(failure);
     return {
       url,
       status: 0,

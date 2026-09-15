@@ -62,8 +62,11 @@ export async function runAudit(
     } else {
       // Prefetched pages are used verbatim here, so this branch needs the same
       // homepage guard as the crawl path — otherwise a challenge page is scored.
+      // A list with no page for the audited URL buys the verdict with one
+      // guarded fetch, as reselectPrefetchedPages already does; the fetched page
+      // is classified only, never scored.
       pages = options.prefetchedPages;
-      throwIfUnscorable(findHomepage(url, pages), url);
+      throwIfUnscorable(findHomepage(url, pages) ?? (await fetchPage(url, options)), url);
     }
   } else {
     const crawled = await crawlSite(url, options, onProgress);
@@ -148,8 +151,7 @@ export async function runAudit(
   };
 }
 
-// No homepage to judge (empty crawl, or a prefetched list with no page for the
-// audited URL) leaves behaviour exactly as it was: no guard, no throw.
+// An empty crawl has no homepage to judge; that stays unguarded, as before.
 function throwIfUnscorable(homepage: FetchedPage | undefined, url: string): void {
   if (!homepage) return;
   const failure = classifyHomepage(homepage, url);

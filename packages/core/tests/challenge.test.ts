@@ -103,8 +103,27 @@ describe("detectChallenge fingerprints", () => {
   it("matches the Cloudflare challenge-platform body marker on a blocked status", () => {
     expect(detectChallenge(403, { server: "cloudflare" }, CF_CHALLENGE_BODY)).toEqual({
       vendor: "cloudflare",
-      signal: "body: /cdn-cgi/challenge-platform/",
+      signal: "body: /cdn-cgi/challenge-platform/h/",
     });
+  });
+
+  // Live capture 2026-09-15: www.udemy.com 403 serves this orchestrate path,
+  // www.g2.com 403 serves only scripts/jsd/main.js. Only the former is a challenge.
+  it("matches the live challenge orchestrator path", () => {
+    const body = `<script>a.src = '/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1?ray=a3b6'</script>`;
+    expect(detectChallenge(403, { server: "cloudflare" }, body)).toEqual({
+      vendor: "cloudflare",
+      signal: "body: /cdn-cgi/challenge-platform/h/",
+    });
+  });
+
+  it("does not treat JavaScript Detections instrumentation on a transient 503 as a challenge", () => {
+    const body = JSD_ON_NORMAL_PAGE.replace(
+      "<h1>See what your customers do</h1>",
+      "<h1>Service Unavailable</h1>",
+    );
+    expect(detectChallenge(503, { server: "cloudflare" }, body)).toBeNull();
+    expect(detectChallenge(403, { server: "cloudflare" }, body)).toBeNull();
   });
 
   it("matches window._cf_chl_opt", () => {

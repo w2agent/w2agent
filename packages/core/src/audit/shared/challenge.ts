@@ -19,8 +19,16 @@ const CF_DETECT_RESPONSE =
   "https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/";
 const CF_CHALLENGE_TEMPLATE =
   "https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/additional-configuration/";
-const CF_JS_DETECTIONS =
-  "https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/";
+// Live capture, 2026-09-15, UA "w2agent/0.1 (+https://w2agent.dev)":
+//   https://www.udemy.com/ → HTTP 403, server: cloudflare, cf-mitigated: challenge,
+//   body @4578 `a.src = '/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1?ray=…'`
+//   (same shape on patreon.com, glassdoor.com, upwork.com, indeed.com).
+// Negative control, same capture: https://www.g2.com/ → HTTP 403, server: cloudflare,
+//   NO cf-mitigated, body @1017 `a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'`
+//   — JavaScript Detections instrumentation on an ordinary WAF block, not a challenge
+//   (identical script on https://www.crunchbase.com/ at HTTP 200). Hence the `/h/`
+//   segment: it is the challenge orchestrator path, and `scripts/jsd/` is excluded.
+const CF_CHALLENGE_ORCHESTRATE = "https://www.udemy.com/";
 const CF_TURNSTILE =
   "https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/";
 const CF_HTTP_HEADERS = "https://developers.cloudflare.com/fundamentals/reference/http-headers/";
@@ -54,8 +62,8 @@ export const CHALLENGE_FINGERPRINTS: readonly ChallengeFingerprint[] = [
   {
     vendor: "cloudflare",
     kind: "body",
-    pattern: "/cdn-cgi/challenge-platform/",
-    sourceUrl: CF_JS_DETECTIONS,
+    pattern: "/cdn-cgi/challenge-platform/h/",
+    sourceUrl: CF_CHALLENGE_ORCHESTRATE,
   },
   {
     vendor: "cloudflare",
