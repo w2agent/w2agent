@@ -37,6 +37,7 @@ const WELL_KNOWN_CHECK_IDS = [
   "mcp-server-card",
   "llms-txt-exists",
   "robots-txt-exists",
+  "usage-preference-declared",
 ];
 
 type Route = (url: URL) => Response;
@@ -457,6 +458,77 @@ describe("crawler gate covers the signatures directory, api-catalog and the lega
     const byId = checksById(report);
     expect(byId.get("agent-operator-signing")).toMatchObject({ status: "skip", score: 0 });
     expect(byId.get("api-catalog-rfc9727")?.score).toBe(0);
+  });
+
+  it("accepts /.well-known/tdmrep.json and usage-preference-declared reads it", async () => {
+    const tdmrep = JSON.stringify([{ location: "/", "tdm-reservation": 1 }]);
+    mockSite((url) =>
+      url.pathname === "/.well-known/tdmrep.json" ? json(JSON.parse(tdmrep)) : html("nope", 404),
+    );
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(false);
+    expect(metadata.wellKnown["tdmrep.json"]).toBe(tdmrep);
+
+    const check = allChecks.find((c) => c.id === "usage-preference-declared") as Check;
+    expect(await check.run([], metadata)).toMatchObject({
+      status: "pass",
+      message: "Training opt-out declared (TDMRep)",
+    });
+  });
+
+  it("a full audit reports the Cloudflare managed robots.txt as a tracked pass (§5 row 4 proof)", async () => {
+    // Abridged from a live capture of https://www.crawlstop.com/robots.txt
+    // (2026-09-15, UA w2agent/0.1), the worked example in Cloudflare's own docs.
+    const managedRobots = [
+      "# As a condition of accessing this website, you agree to abide by the",
+      "# following content signals:",
+      "# ai-train: training or fine-tuning AI models.",
+      "",
+      "# BEGIN Cloudflare Managed content",
+      "",
+      "User-agent: *",
+      "Content-Signal: search=yes,ai-train=no,use=reference",
+      "Allow: /",
+      "",
+      "# END Cloudflare Managed Content",
+      "",
+      "User-agent: *",
+      "Disallow: /lp",
+      "",
+    ].join("\n");
+    mockSite((url) =>
+      url.pathname === "/robots.txt"
+        ? new Response(managedRobots, { headers: { "content-type": "text/plain; charset=utf-8" } })
+        : html("<html><body><h1>Example</h1></body></html>"),
+    );
+
+    const report = await runAudit(SITE, OPTIONS, undefined, allChecks);
+    expect(checksById(report).get("usage-preference-declared")).toMatchObject({
+      status: "pass",
+      tracked: true,
+      weight: 0,
+      message: "Training opt-out declared (Content-Signal, CDN-managed default)",
+    });
+  });
+
+  it("a JSON catch-all makes tdmrep.json absent, so usage-preference-declared skips", async () => {
+    mockSite(() => json([{ location: "/", "tdm-reservation": 1 }]));
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    expect(metadata.wellKnown["tdmrep.json"]).toBeUndefined();
+
+    const check = allChecks.find((c) => c.id === "usage-preference-declared") as Check;
+    expect(await check.run([], metadata)).toMatchObject({ status: "skip", score: 0 });
+  });
+
+  it("rejects tdmrep.json served as text/html", async () => {
+    mockSite((url) =>
+      url.pathname === "/.well-known/tdmrep.json"
+        ? html(JSON.stringify([{ location: "/", "tdm-reservation": 1 }]))
+        : html("nope", 404),
+    );
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.wellKnown["tdmrep.json"]).toBeUndefined();
   });
 
   it("api-catalog served as application/json by default and linkset+json only on Accept (RFC 9727 §4.2 negotiation) → accepted, pass", async () => {
