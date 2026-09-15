@@ -6,17 +6,18 @@
 
 | Bump | When |
 |------|------|
-| major | The check set changes (add, retire, merge, move to or from tracked) or any weight changes |
+| major | The **scored** check set changes (add, retire, merge, move to or from tracked) or any weight changes |
 | minor | A detection fix that changes pass rates without changing what the check is meant to measure |
 | patch | Messages or `fixSnippet` text only |
 
 - A check is scored only if its standard is governed (IANA / RFC / IETF WG / foundation, or vendor-documented HTTP behaviour), its path and schema have been stable for 2 or more rubric cycles, and an applicability gate keeps it from penalising sites it doesn't address. Otherwise it is **tracked**: reported with weight 0 and never scored.
 - Checks are promoted or demoted only at a version bump, and every bump is logged here. A newly promoted check (tracked → scored, or a new signal) enters at weight 0.5 or less for one cycle. A merge that measures facts already scored by the checks it replaces is not a promotion. The plan's policy section doesn't cover merges; the rubric-change table set their weights (`oauth-discovery` 3 from three 1.5 checks, `mcp-auth` 1.5 from two 1.0 checks).
+- **Adding a tracked check does not bump the version.** A check that enters at weight 0 and `tracked: true` is excluded from category renormalization, so it moves no score and no weight — the major-bump row above covers promotion and demotion (tracked ↔ scored), not arrival. Such a check is logged under the current version's "tracked additions" heading, with the same rationale a scored entry owes; it becomes a version event when it is promoted.
 - Every entry states the expected median score delta. Before cutover, it also records the measured delta.
 
 ## 3.0 — 2026-09-15
 
-Major. `allChecks` 63 → 54, of which 4 are tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone.
+Major. `allChecks` 63 → 54 at cutover, of which 4 were tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone. Tracked checks added since cutover (see "3.0 tracked additions" below) bring `allChecks` to 55, of which 5 are tracked; they carry weight 0, so neither the sums below nor the measured delta move.
 
 ### Category intra-weight sums (scored checks)
 
@@ -86,9 +87,17 @@ Weight `—` = the check does not exist in that version. `0 T` = tracked.
 | N/A cascade | `oauth-discovery` is N/A when `public-api` fails and no MCP endpoint exists. `mcp-auth` is a sentinel on `mcpEndpoint`. `pkce-s256` is re-keyed from `oauth-support` to `oauth-discovery`: it is N/A when both `oauth-discovery` and `developer-portal` fail or are N/A. `well-known-ucp` fail becomes N/A unless the site is ecommerce; a pass is kept (non-sentinel) |
 | Retired probes | `/.well-known/agents.json`, `ara`, `ai-plugin.json`, `mcp` and `mcp.json` (the 2.0 server-card path) are no longer requested |
 
+### 3.0 tracked additions (no score change)
+
+Added after the 3.0 cutover, at weight 0 and `tracked: true`. No version bump: a tracked check is excluded from category renormalization, `topIssues`, warnings and generate mapping, so it changes no score on any site. Expected median delta: **0, by construction**; no measured delta is owed.
+
+| Check | Category | Weight | Added | Rationale |
+|-------|----------|--------|-------|-----------|
+| `usage-preference-declared` | bot-accessibility | 0 T | 2026-09-15 (P2-3) | Reports the AI-usage preferences a site declares — `Content-Signal:` and `Content-Usage:` in robots.txt, `Content-Usage` on the homepage response, `License:` (RSL 1.0) and `/.well-known/tdmrep.json` — and whether the robots body is a CDN-managed default. Reported in the same category as `ai-agent-access`, so a deliberate opt-out is visible next to the access result instead of being mistaken for a misconfiguration. Tracked because none of the four vocabularies has been stable for two rubric cycles (the bar above), and because `ai-agent-access`'s D-2 already holds that a training opt-out does not make a site agent-unready — so there is nothing to score here, only something to show |
+
 ### Planned in the improvement plan but not in 3.0
 
-`edge-agent-access` (P2-2), `machine-file-linked` (P3-1), graded `openapi-spec` (P3-2), `usage-preference-declared` (P2-3), `ai-catalog-manifest` (P3-3), `agent-skills-index` (P3-4), `acp-discovery` (P3-5). None of them is in `allChecks`. Bot Accessibility therefore stays at 7, not 9, and Agent Discovery is 3, not 4.
+`edge-agent-access` (P2-2), `machine-file-linked` (P3-1), graded `openapi-spec` (P3-2), `ai-catalog-manifest` (P3-3), `agent-skills-index` (P3-4), `acp-discovery` (P3-5). None of them is in `allChecks`. Bot Accessibility stays at 7 scored weight, not 9, and Agent Discovery is 3, not 4 — `usage-preference-declared` shipped as a tracked addition above, and weight 0 leaves those sums untouched.
 
 ### Expected median delta
 

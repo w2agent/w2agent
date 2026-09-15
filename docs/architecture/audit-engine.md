@@ -117,7 +117,7 @@ interface CheckResult {
 
 ## Check Inventory
 
-54 core checks (`allChecks`) across 8 files in `packages/core/src/audit/checks/`:
+55 core checks (`allChecks`) across 9 files in `packages/core/src/audit/checks/`:
 
 | File | Category | Example Checks |
 |------|----------|---------------|
@@ -129,6 +129,7 @@ interface CheckResult {
 | `technical.ts` | Technical | HTTPS, security headers, canonical URLs, JavaScript-free content |
 | `agent-auth.ts` | Auth & Access | Public API, OpenAPI spec, OAuth discovery, PKCE, MCP authorization |
 | `reach.ts` | Agent Protocols | Homepage reachable under documented user-initiated agent UAs |
+| `preferences.ts` | Bot Accessibility | Declared AI usage preferences (Content-Signal, AIPREF `Content-Usage`, RSL `License:`, TDMRep) |
 
 Plus 2–4 platform-specific checks per adapter (e.g., WordPress PHP syntax, Next.js content negotiation).
 
@@ -137,7 +138,7 @@ Plus 2–4 platform-specific checks per adapter (e.g., WordPress PHP syntax, Nex
 When a platform is detected, its adapter's `checks` array is appended to the core check list:
 
 ```
-core checks (54) + adapter.checks (2-4) = all checks (56-58, plus up to 3 site-type checks when a site type is detected)
+core checks (55) + adapter.checks (2-4) = all checks (57-59, plus up to 3 site-type checks when a site type is detected)
 ```
 
 Platform checks run in the same `Promise.all()` pass — no separate phase. They have the same `CheckResult` interface and participate in category scoring identically.
