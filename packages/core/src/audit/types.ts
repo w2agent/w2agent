@@ -1,4 +1,5 @@
 import type { FetchFailure } from "./errors.js";
+import type { ChallengeVendor } from "./shared/challenge.js";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -104,6 +105,10 @@ export interface McpInitResult {
 }
 
 export interface MultiUaResponse {
+  /** The BOT_TOKENS token this result was fetched under, e.g. "ChatGPT-User". */
+  token: string;
+  /** The URL probed (before redirects; see `finalUrl`). */
+  url: string;
   status: number;
   contentLength: number;
   finalUrl: string;
@@ -111,6 +116,21 @@ export interface MultiUaResponse {
   reachable: boolean;
   /** "ok" = response received; "budget-skipped" = never fetched (time budget exhausted). */
   outcome: "ok" | "fetch-error" | "budget-skipped" | "timeout";
+  /** Edge-relevant response headers. Empty when no response was received. */
+  headers: { cfMitigated?: string; server?: string; retryAfter?: string };
+  /** Set when the response fingerprints as an anti-bot challenge (first 4 KB of body). */
+  challenge?: { vendor: ChallengeVendor; signal: string };
+}
+
+/** One probed page of the multi-UA pass: our declared crawler vs the agent UAs. */
+export interface EdgeProbePage {
+  url: string;
+  /**
+   * Status of our declared crawler's own single-shot fetch of this URL.
+   * 0 = no response (network error, or the time budget was already exhausted).
+   */
+  control: number;
+  results: MultiUaResponse[];
 }
 
 export interface SiteMetadata {
@@ -125,6 +145,11 @@ export interface SiteMetadata {
   mcpInit?: McpInitResult;
   mcpEndpoint?: string;
   multiUaResponses?: Record<string, MultiUaResponse>;
+  /**
+   * Per-page edge evidence. `edgeProbe[0]` is the homepage and its `results`
+   * are the very objects `multiUaResponses` holds — one source of truth.
+   */
+  edgeProbe?: EdgeProbePage[];
   catchAll?: boolean;
 }
 

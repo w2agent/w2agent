@@ -634,10 +634,13 @@ describe("applyNaCascade (§5.6)", () => {
 // points nor raise its score by dropping out silently — it is excluded and flagged.
 describe("error (unmeasured) status", () => {
   const ok = {
+    token: "ChatGPT-User",
+    url: "https://example.com/",
     status: 200,
     contentLength: 5000,
     finalUrl: "https://example.com/",
     reachable: true,
+    headers: {},
   };
   const protocolAnchor: Check = {
     id: "anchor",
@@ -680,11 +683,14 @@ describe("error (unmeasured) status", () => {
 
   it("scores a budget-skipped reach check like an absent one, warns, and keeps it out of fixes", async () => {
     const skipped: MultiUaResponse = {
+      token: "ChatGPT-User",
+      url: "https://example.com/",
       status: 0,
       contentLength: 0,
       finalUrl: "https://example.com/",
       reachable: false,
       outcome: "budget-skipped",
+      headers: {},
     };
     const blocked: MultiUaResponse = { ...ok, status: 403, reachable: false, outcome: "ok" };
 

@@ -4,10 +4,18 @@ import { discoverPages } from "../crawl/discovery.js";
 import { selectPages } from "../crawl/strategy.js";
 import { fetchPage, fetchText, guardedFetch } from "../shared/fetcher.js";
 import { probeOpenAPIPaths } from "../shared/openapi.js";
+import { CHALLENGE_BODY_PREFIX_BYTES } from "./errors.js";
 import { BOT_TOKENS } from "./shared/bot-tokens.js";
+import { detectChallenge } from "./shared/challenge.js";
 import { isJsonContentType, mediaTypeEssence } from "./shared/json.js";
 import { probeMcpEndpoint } from "./shared/mcp-probe.js";
-import type { AuditOptions, FetchedPage, MultiUaResponse, SiteMetadata } from "./types.js";
+import type {
+  AuditOptions,
+  EdgeProbePage,
+  FetchedPage,
+  MultiUaResponse,
+  SiteMetadata,
+} from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -23,71 +31,190 @@ const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = [
   { key: "google", token: "Google-Agent", ua: uaFor("Google-Agent") },
 ];
 
+/** Body bytes counted per agent-UA fetch before the stream is cancelled. */
+const MULTI_UA_BODY_CAP = 64 * 1024;
+
+/** Extra key pages probed beyond the homepage, on top of `homepage + 2 = 3`. */
+const EDGE_EXTRA_PAGES = 2;
+
+function edgeHeaders(headers: Headers): MultiUaResponse["headers"] {
+  const cfMitigated = headers.get("cf-mitigated");
+  const server = headers.get("server");
+  const retryAfter = headers.get("retry-after");
+  return {
+    ...(cfMitigated !== null ? { cfMitigated } : {}),
+    ...(server !== null ? { server } : {}),
+    ...(retryAfter !== null ? { retryAfter } : {}),
+  };
+}
+
+function loweredHeaders(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    out[key.toLowerCase()] = value;
+  });
+  return out;
+}
+
+function budgetSkipped(url: string, token: string): MultiUaResponse {
+  return {
+    token,
+    url,
+    status: 0,
+    contentLength: 0,
+    finalUrl: url,
+    reachable: false,
+    outcome: "budget-skipped",
+    headers: {},
+  };
+}
+
+async function fetchUnderUa(
+  url: string,
+  token: string,
+  ua: string,
+  options: AuditOptions,
+): Promise<MultiUaResponse> {
+  try {
+    const res = await guardedFetch(
+      url,
+      {
+        headers: { "User-Agent": ua },
+        signal: AbortSignal.timeout(options.timeout ?? 5000),
+      },
+      options.isAllowedTarget,
+    );
+    let contentLength = 0;
+    const prefix: Uint8Array[] = [];
+    let prefixLength = 0;
+    if (res.body) {
+      const reader = res.body.getReader();
+      const cap = MULTI_UA_BODY_CAP;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+        contentLength += value.length;
+        if (prefixLength < CHALLENGE_BODY_PREFIX_BYTES) {
+          const take = Math.min(value.length, CHALLENGE_BODY_PREFIX_BYTES - prefixLength);
+          prefix.push(value.subarray(0, take));
+          prefixLength += take;
+        }
+        if (contentLength >= cap) {
+          await reader.cancel();
+          break;
+        }
+      }
+    }
+    const bodyPrefix =
+      prefixLength > 0 ? new TextDecoder().decode(concat(prefix, prefixLength)) : "";
+    const challenge = detectChallenge(res.status, loweredHeaders(res.headers), bodyPrefix);
+    return {
+      token,
+      url,
+      status: res.status,
+      contentLength,
+      finalUrl: res.url,
+      reachable: res.status >= 200 && res.status < 300 && contentLength > 0,
+      outcome: "ok",
+      headers: edgeHeaders(res.headers),
+      ...(challenge ? { challenge } : {}),
+    };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "TimeoutError";
+    return {
+      token,
+      url,
+      status: 0,
+      contentLength: 0,
+      finalUrl: url,
+      reachable: false,
+      outcome: isTimeout ? "timeout" : "fetch-error",
+      headers: {},
+    };
+  }
+}
+
+function concat(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+/**
+ * Control fetch for an extra key page: a single shot under our declared
+ * crawler UA, with the same timeout and redirect handling as the agent
+ * fetches. Deliberately NOT `fetchPage` — it retries 429/503 with backoff, so
+ * a flaky host would give control "200 after retry" against an agent's
+ * "503 first shot" and the comparison would report a block that isn't one.
+ */
+async function controlStatus(url: string, options: AuditOptions): Promise<number> {
+  try {
+    const res = await guardedFetch(
+      url,
+      {
+        headers: { "User-Agent": options.userAgent },
+        signal: AbortSignal.timeout(options.timeout ?? 5000),
+      },
+      options.isAllowedTarget,
+    );
+    await res.body?.cancel().catch(() => {});
+    return res.status;
+  } catch {
+    return 0;
+  }
+}
+
 export async function fetchUnderUas(
   homepageUrl: string,
   options: AuditOptions,
-): Promise<Record<string, MultiUaResponse>> {
+  opts: { homepageControl?: number; extraPages?: string[] } = {},
+): Promise<{ responses: Record<string, MultiUaResponse>; edgeProbe: EdgeProbePage[] }> {
   const responses: Record<string, MultiUaResponse> = {};
-  // Wall-clock budget for the entire multi-UA pass. Checked between fetches —
-  // a single fetch can still take up to options.timeout ms, so worst-case
-  // budget overshoot is one per-fetch timeout (DEFAULT_OPTIONS.timeout = 10s).
+  // Wall-clock budget for the entire multi-UA pass, homepage and extra pages
+  // alike. Checked between fetches — a single fetch can still take up to
+  // options.timeout ms, so worst-case budget overshoot is one per-fetch
+  // timeout (DEFAULT_OPTIONS.timeout = 10s).
   const budget = Math.min((options.timeout ?? 5000) * 3, 15000);
   const start = Date.now();
+  const overBudget = () => Date.now() - start > budget;
 
-  for (const { key, ua } of AGENT_UAS) {
-    if (Date.now() - start > budget) {
-      responses[key] = {
-        status: 0,
-        contentLength: 0,
-        finalUrl: homepageUrl,
-        reachable: false,
-        outcome: "budget-skipped",
-      };
+  for (const { key, token, ua } of AGENT_UAS) {
+    responses[key] = overBudget()
+      ? budgetSkipped(homepageUrl, token)
+      : await fetchUnderUa(homepageUrl, token, ua, options);
+  }
+
+  const edgeProbe: EdgeProbePage[] = [
+    {
+      url: homepageUrl,
+      control: opts.homepageControl ?? 0,
+      // The same objects `multiUaResponses` holds: one source of truth.
+      results: AGENT_UAS.map(({ key }) => responses[key]),
+    },
+  ];
+
+  for (const pageUrl of opts.extraPages ?? []) {
+    const entry: EdgeProbePage = { url: pageUrl, control: 0, results: [] };
+    edgeProbe.push(entry);
+    if (overBudget()) {
+      for (const { token } of AGENT_UAS) entry.results.push(budgetSkipped(pageUrl, token));
       continue;
     }
-
-    try {
-      const res = await guardedFetch(
-        homepageUrl,
-        {
-          headers: { "User-Agent": ua },
-          signal: AbortSignal.timeout(options.timeout ?? 5000),
-        },
-        options.isAllowedTarget,
+    entry.control = await controlStatus(pageUrl, options);
+    for (const { token, ua } of AGENT_UAS) {
+      entry.results.push(
+        overBudget()
+          ? budgetSkipped(pageUrl, token)
+          : await fetchUnderUa(pageUrl, token, ua, options),
       );
-      let contentLength = 0;
-      if (res.body) {
-        const reader = res.body.getReader();
-        const cap = 64 * 1024;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done || !value) break;
-          contentLength += value.length;
-          if (contentLength >= cap) {
-            await reader.cancel();
-            break;
-          }
-        }
-      }
-      responses[key] = {
-        status: res.status,
-        contentLength,
-        finalUrl: res.url,
-        reachable: res.status >= 200 && res.status < 300 && contentLength > 0,
-        outcome: "ok",
-      };
-    } catch (err) {
-      const isTimeout = err instanceof Error && err.name === "TimeoutError";
-      responses[key] = {
-        status: 0,
-        contentLength: 0,
-        finalUrl: homepageUrl,
-        reachable: false,
-        outcome: isTimeout ? "timeout" : "fetch-error",
-      };
     }
   }
-  return responses;
+
+  return { responses, edgeProbe };
 }
 
 function stripWww(hostname: string): string {
@@ -129,7 +256,7 @@ export async function crawlSite(
   const homepage = await fetchPage(url, options);
 
   const metadata = await probeSiteMetadata(url, options, {
-    homepageHtml: homepage.html,
+    homepage,
     onProgress,
   });
 
@@ -144,12 +271,20 @@ export async function crawlSite(
 export async function probeSiteMetadata(
   url: string,
   options: AuditOptions,
-  opts: { homepageHtml?: string; onProgress?: (status: string) => void } = {},
+  opts: {
+    /** The already-fetched homepage. Carries the edge probe's control status. */
+    homepage?: FetchedPage;
+    /** Back-compat: HTML only, so the homepage control status is unknown (0). */
+    homepageHtml?: string;
+    onProgress?: (status: string) => void;
+  } = {},
 ): Promise<SiteMetadata> {
   const { onProgress } = opts;
   const base = new URL(url);
   const baseUrl = `${base.protocol}//${base.host}`;
-  const homepageHtml = opts.homepageHtml ?? (await fetchPage(url, options)).html;
+  const homepage =
+    opts.homepage ?? (opts.homepageHtml === undefined ? await fetchPage(url, options) : undefined);
+  const homepageHtml = homepage?.html ?? opts.homepageHtml ?? "";
 
   onProgress?.("Fetching robots.txt...");
   const robotsRetriesExhausted = { status: 0 };
@@ -238,9 +373,40 @@ export async function probeSiteMetadata(
   }
 
   onProgress?.("Simulating agent user-agents...");
-  metadata.multiUaResponses = await fetchUnderUas(url, options);
+  const { responses, edgeProbe } = await fetchUnderUas(url, options, {
+    homepageControl: homepage?.status ?? 0,
+    extraPages: selectEdgePages(url, baseUrl, homepageHtml, metadata.sitemapXml, options),
+  });
+  metadata.multiUaResponses = responses;
+  metadata.edgeProbe = edgeProbe;
 
   return metadata;
+}
+
+/**
+ * The extra key pages to probe: the crawl's own top selection, so no URL is
+ * invented. Identical to `crawlPages`' first `EDGE_EXTRA_PAGES` picks whenever
+ * the profile has room for them.
+ */
+function selectEdgePages(
+  url: string,
+  baseUrl: string,
+  homepageHtml: string,
+  sitemapXml: string | undefined,
+  options: AuditOptions,
+): string[] {
+  const limit = Math.min(EDGE_EXTRA_PAGES, Math.max(0, options.maxPages - 1));
+  if (limit === 0) return [];
+
+  const discovered = discoverPages({ sitemapXml, homepage: { html: homepageHtml, url }, baseUrl });
+  if (options.pageRankings?.size) {
+    for (const page of discovered) {
+      const rank = options.pageRankings.get(page.url);
+      if (rank !== undefined) page.queritRank = rank;
+    }
+  }
+  const visited = new Set<string>([new URL(url).href]);
+  return selectPages(discovered, limit, visited).map((p) => p.url);
 }
 
 export async function crawlPages(

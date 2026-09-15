@@ -766,11 +766,14 @@ describe("user-agent reach checks (P1-7)", () => {
   const resp = (
     over: Partial<import("../src/audit/types.js").MultiUaResponse>,
   ): import("../src/audit/types.js").MultiUaResponse => ({
+    token: "ChatGPT-User",
+    url: "https://example.com/",
     status: 200,
     contentLength: 5000,
     finalUrl: "https://example.com/",
     reachable: true,
     outcome: "ok",
+    headers: {},
     ...over,
   });
   const metaWith = (
@@ -847,7 +850,7 @@ describe("user-agent reach checks (P1-7)", () => {
       sent.push((init?.headers as Record<string, string>)?.["User-Agent"] ?? "");
       return new Response("<html>ok</html>", { status: 200 });
     });
-    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
     expect(sent).toEqual([uaOf("ChatGPT-User"), uaOf("Perplexity-User"), uaOf("Google-Agent")]);
@@ -864,7 +867,7 @@ describe("user-agent reach checks (P1-7)", () => {
       if (ua.includes("Perplexity-User")) return new Response("", { status: 200 });
       return new Response("<html>ok</html>", { status: 200 });
     });
-    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
     expect(result.openai).toMatchObject({ status: 403, outcome: "ok", reachable: false });
@@ -876,7 +879,7 @@ describe("user-agent reach checks (P1-7)", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       throw new DOMException("timed out", "TimeoutError");
     });
-    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
     expect(result.openai.outcome).toBe("timeout");
     expect((await reachOpenai.run([page], metaWith(result.openai))).status).toBe("fail");
@@ -891,7 +894,7 @@ describe("user-agent reach checks (P1-7)", () => {
       now += 20_000;
       return new Response("<html>ok</html>", { status: 200 });
     });
-    const result = await fetchUnderUas("https://example.com/", AuditOpts);
+    const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
     nowSpy.mockRestore();
 

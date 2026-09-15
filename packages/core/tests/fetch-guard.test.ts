@@ -408,7 +408,7 @@ describe("crawler with a hook", () => {
 
   it("fetchUnderUas does not follow a homepage redirect onto a private host", async () => {
     routes[`${SITE}/`] = redirect(302, "http://10.1.2.3/");
-    const res = await fetchUnderUas(`${SITE}/`, options);
+    const { responses: res } = await fetchUnderUas(`${SITE}/`, options);
     expect(fetchedPrivate()).toEqual([]);
     expect(Object.values(res).every((r) => r.outcome === "fetch-error")).toBe(true);
   });
