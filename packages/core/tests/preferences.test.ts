@@ -507,12 +507,22 @@ describe("usage-preference-declared — Cloudflare managed default", () => {
     expect(analysis.trainingOptOut).toBe(true);
   });
 
-  it("needs both markers, in order", () => {
+  it("needs both markers, in order, around a real Content-Signal line", () => {
+    // Every negative below carries a Content-Signal line, so only the marker
+    // logic can decide the outcome. Without one they would return false for
+    // the wrong reason and the ordering claim would be untested.
+    const signal = "User-agent: *\nContent-Signal: ai-train=no";
     expect(isCloudflareManagedRobots(CF_MANAGED_ROBOTS)).toBe(true);
-    expect(isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_BEGIN}\nAllow: /\n`)).toBe(false);
-    expect(isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_END}\nAllow: /\n`)).toBe(false);
     expect(
-      isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_END}\nAllow: /\n${CF_MANAGED_BLOCK_BEGIN}\n`),
+      isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_BEGIN}\n${signal}\n${CF_MANAGED_BLOCK_END}\n`),
+    ).toBe(true);
+    // Unterminated block: a truncated or forged BEGIN must not claim provenance.
+    expect(isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_BEGIN}\n${signal}\n`)).toBe(false);
+    // END with no preceding BEGIN.
+    expect(isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_END}\n${signal}\n`)).toBe(false);
+    // Reversed order: the signal sits outside any open block.
+    expect(
+      isCloudflareManagedRobots(`${CF_MANAGED_BLOCK_END}\n${signal}\n${CF_MANAGED_BLOCK_BEGIN}\n`),
     ).toBe(false);
   });
 });

@@ -399,6 +399,10 @@ function scanRobots(robotsTxt: string): RobotsLine[] {
   let agents: string[] | undefined;
   let lastWasAgent = false;
   let insideManagedBlock = false;
+  // Lines seen after a BEGIN whose END has not arrived yet. An unterminated
+  // block is not proof of CDN management, so these are demoted if the scan
+  // reaches the end of the file without a matching END marker.
+  let unterminated: number[] = [];
 
   for (const rawLine of robotsTxt.split(ROBOTS_LINE_BREAK)) {
     const trimmed = rawLine.trim();
@@ -408,6 +412,7 @@ function scanRobots(robotsTxt: string): RobotsLine[] {
       continue;
     }
     if (trimmed.startsWith(CF_MANAGED_BLOCK_END)) {
+      if (insideManagedBlock) unterminated = [];
       insideManagedBlock = false;
       continue;
     }
@@ -425,8 +430,12 @@ function scanRobots(robotsTxt: string): RobotsLine[] {
       continue;
     }
     lastWasAgent = false;
-    if (value !== "") lines.push({ key, value, agents, insideManagedBlock });
+    if (value !== "") {
+      if (insideManagedBlock) unterminated.push(lines.length);
+      lines.push({ key, value, agents, insideManagedBlock });
+    }
   }
+  for (const idx of unterminated) lines[idx].insideManagedBlock = false;
   return lines;
 }
 
