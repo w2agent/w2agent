@@ -17,7 +17,7 @@
 
 ## 3.0 — 2026-09-15
 
-Major. `allChecks` 63 → 54 at cutover, of which 4 were tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone. Tracked checks added since cutover (see "3.0 tracked additions" below) bring `allChecks` to 55, of which 5 are tracked; they carry weight 0, so neither the sums below nor the measured delta move.
+Major. `allChecks` 63 → 54 at cutover, of which 4 were tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone. Tracked checks added since cutover (see "3.0 tracked additions" below) bring `allChecks` to 56, of which 6 are tracked; they carry weight 0, so neither the sums below nor the measured delta move.
 
 ### Category intra-weight sums (scored checks)
 
@@ -94,10 +94,11 @@ Added after the 3.0 cutover, at weight 0 and `tracked: true`. No version bump: a
 | Check | Category | Weight | Added | Rationale |
 |-------|----------|--------|-------|-----------|
 | `usage-preference-declared` | bot-accessibility | 0 T | 2026-09-15 (P2-3) | Reports the AI-usage preferences a site declares — `Content-Signal:` and `Content-Usage:` in robots.txt, `Content-Usage` on the homepage response, `License:` (RSL 1.0) and `/.well-known/tdmrep.json` — and whether the robots body is a CDN-managed default. Reported in the same category as `ai-agent-access`, so a deliberate opt-out is visible next to the access result instead of being mistaken for a misconfiguration. Tracked because none of the four vocabularies has been stable for two rubric cycles (the bar above), and because `ai-agent-access`'s D-2 already holds that a training opt-out does not make a site agent-unready — so there is nothing to score here, only something to show |
+| `edge-agent-access` | bot-accessibility | 0 T | 2026-09-15 (P2-2) | Compares how a site's edge (CDN/WAF) answers the documented agent user-agents against how it answers our own declared crawler on the same pages. Outcomes: `agent-blocked` (a challenge, 403 or 429 where the control got 2xx), `agent-rejected` (any other non-2xx except 402), `paywalled` (402 — informational), `consistent`, `unmeasured` (no 2xx control page, or every agent fetch skipped/failed). Tracked, not scored, because our request carrying `ChatGPT-User` comes from our own network and is therefore not a *verified* ChatGPT request (Cloudflare verifies by IP list, reverse DNS or Web Bot Auth), so the observation is "requests identifying as X from a third-party network" and what the real agent gets may differ in either direction. Promotion to a scored weight is a 3.1 decision, taken on the prevalence this tracked run measures |
 
 ### Planned in the improvement plan but not in 3.0
 
-`edge-agent-access` (P2-2), `machine-file-linked` (P3-1), graded `openapi-spec` (P3-2), `ai-catalog-manifest` (P3-3), `agent-skills-index` (P3-4), `acp-discovery` (P3-5). None of them is in `allChecks`. Bot Accessibility stays at 7 scored weight, not 9, and Agent Discovery is 3, not 4 — `usage-preference-declared` shipped as a tracked addition above, and weight 0 leaves those sums untouched.
+`machine-file-linked` (P3-1), graded `openapi-spec` (P3-2), `ai-catalog-manifest` (P3-3), `agent-skills-index` (P3-4), `acp-discovery` (P3-5). None of them is in `allChecks`. Bot Accessibility stays at 7 scored weight, not 9, and Agent Discovery is 3, not 4 — `usage-preference-declared` and `edge-agent-access` shipped as tracked additions above, and weight 0 leaves those sums untouched.
 
 ### Expected median delta
 
