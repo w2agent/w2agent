@@ -3,6 +3,7 @@ import { fetchPage } from "../shared/fetcher.js";
 import { getSiteTypeChecks } from "../site-types/checks.js";
 import { detectSiteType, type SiteType } from "../site-types/index.js";
 import { crawlPages, crawlSite } from "./crawler.js";
+import { classifyHomepage } from "./errors.js";
 import type {
   AuditOptions,
   AuditReport,
@@ -50,20 +51,26 @@ export async function runAudit(
   let metadata: SiteMetadata;
   if (options.prefetchedPages?.length && options.prefetchedMetadata) {
     metadata = options.prefetchedMetadata;
-    pages =
-      options.prefetchedPages.length > options.maxPages
-        ? await reselectPrefetchedPages(url, options.prefetchedPages, metadata, options, onProgress)
-        : options.prefetchedPages;
+    if (options.prefetchedPages.length > options.maxPages) {
+      pages = await reselectPrefetchedPages(
+        url,
+        options.prefetchedPages,
+        metadata,
+        options,
+        onProgress,
+      );
+    } else {
+      // Prefetched pages are used verbatim here, so this branch needs the same
+      // homepage guard as the crawl path — otherwise a challenge page is scored.
+      pages = options.prefetchedPages;
+      throwIfUnscorable(findHomepage(url, pages), url);
+    }
   } else {
     const crawled = await crawlSite(url, options, onProgress);
     pages = crawled.pages;
     metadata = crawled.metadata;
 
-    if (pages[0]?.status === 0) {
-      throw new Error(
-        `Could not reach ${new URL(url).host}. Check the URL or your network connection.`,
-      );
-    }
+    throwIfUnscorable(pages[0], url);
   }
 
   // Detect platform
@@ -141,6 +148,21 @@ export async function runAudit(
   };
 }
 
+// No homepage to judge (empty crawl, or a prefetched list with no page for the
+// audited URL) leaves behaviour exactly as it was: no guard, no throw.
+function throwIfUnscorable(homepage: FetchedPage | undefined, url: string): void {
+  if (!homepage) return;
+  const failure = classifyHomepage(homepage, url);
+  if (failure) throw failure;
+}
+
+// Only a page for the audited URL itself can be classified. A subpage at index 0
+// says nothing about the homepage in either direction.
+function findHomepage(url: string, pages: FetchedPage[]): FetchedPage | undefined {
+  const key = normalizePageUrl(url);
+  return pages.find((p) => normalizePageUrl(p.url) === key);
+}
+
 function normalizePageUrl(u: string): string {
   try {
     const parsed = new URL(u);
@@ -166,11 +188,7 @@ async function reselectPrefetchedPages(
   const cached = (u: string) => byUrl.get(normalizePageUrl(u));
 
   const homepage = cached(url) ?? (await fetchPage(url, options));
-  if (homepage.status === 0) {
-    throw new Error(
-      `Could not reach ${new URL(url).host}. Check the URL or your network connection.`,
-    );
-  }
+  throwIfUnscorable(homepage, url);
 
   const { pages } = await crawlPages(url, homepage, metadata, options, { cached, onProgress });
   return pages;

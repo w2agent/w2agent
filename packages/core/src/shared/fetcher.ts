@@ -1,3 +1,9 @@
+import {
+  CHALLENGE_BODY_PREFIX_BYTES,
+  type FetchFailure,
+  fetchFailureKind,
+} from "../audit/errors.js";
+import { type ChallengeVendor, detectChallenge } from "../audit/shared/challenge.js";
 import type { AuditOptions, FetchedPage } from "../audit/types.js";
 
 export const MAX_HTML_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -172,12 +178,37 @@ export async function guardedFetch(
   }
 }
 
+/**
+ * Out-param filled in when `retryableFetch` gives up. `status` keeps its
+ * original meaning — the retry-exhausted status, 0 when no response arrived —
+ * and now also carries the thrown cause and a detected anti-bot challenge.
+ */
+export interface FetchFailureReport {
+  status: number;
+  cause?: string;
+  challenge?: { vendor: ChallengeVendor; signal: string };
+}
+
+function causeOf(err: unknown): string | undefined {
+  // DOMException carries a numeric legacy `code`, so read its name directly.
+  if (err instanceof DOMException) return err.name;
+  if (typeof err !== "object" || err === null) return undefined;
+  const e = err as { name?: unknown; code?: unknown; cause?: unknown };
+  // undici reports ENOTFOUND / ECONNREFUSED / TLS codes on `err.cause`, not on
+  // the TypeError itself.
+  const nested = (e.cause as { code?: unknown } | undefined)?.code;
+  for (const candidate of [nested, e.code, e.name]) {
+    if (typeof candidate === "string" && candidate.length > 0) return candidate;
+  }
+  return undefined;
+}
+
 async function retryableFetch(
   url: string,
   init: Omit<RequestInit, "signal">,
   timeout: number,
   isAllowedTarget?: IsAllowedTarget,
-  exhausted?: { status: number },
+  exhausted?: FetchFailureReport,
 ): Promise<Response | null> {
   const MAX_RETRIES = 3;
 
@@ -197,10 +228,28 @@ async function retryableFetch(
         return response;
       }
 
+      // A challenge is not transient (§4.3): fingerprint it before spending a
+      // retry. Reading the prefix consumes the body, so a matched response is
+      // never handed back — the caller reads it off `exhausted` instead.
+      const prefix = await readBodyCapped(response, CHALLENGE_BODY_PREFIX_BYTES).catch(() => "");
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key.toLowerCase()] = value;
+      });
+      const challenge = detectChallenge(response.status, responseHeaders, prefix);
+      if (challenge) {
+        if (exhausted) {
+          exhausted.status = response.status;
+          exhausted.challenge = challenge;
+        }
+        await response.body?.cancel().catch(() => {});
+        return null;
+      }
+
       // Retryable status — if no retries left, discard body and return null
       if (attempt >= MAX_RETRIES) {
         if (exhausted) exhausted.status = response.status;
-        await response.body?.cancel();
+        await response.body?.cancel().catch(() => {});
         return null;
       }
 
@@ -219,7 +268,7 @@ async function retryableFetch(
         }
       }
 
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => {});
       await sleep(delayMs);
     } catch (err) {
       // Only retry timeouts. TypeError (DNS fail, ECONNREFUSED, host unreachable)
@@ -227,6 +276,7 @@ async function retryableFetch(
       const isRetryable = err instanceof DOMException && err.name === "AbortError";
 
       if (!isRetryable || attempt >= MAX_RETRIES) {
+        if (exhausted) exhausted.cause = causeOf(err);
         return null; // exhausted or non-retryable — callers treat null as failure
       }
 
@@ -245,6 +295,7 @@ export async function fetchPage(
 ): Promise<FetchedPage> {
   const start = Date.now();
 
+  const failure: FetchFailureReport = { status: 0 };
   const response = await retryableFetch(
     url,
     {
@@ -256,11 +307,26 @@ export async function fetchPage(
     },
     options.timeout,
     options.isAllowedTarget,
+    failure,
   );
 
   const html = response ? await readBodyCapped(response, MAX_HTML_BYTES).catch(() => null) : null;
   if (!response || html === null) {
-    return { url, status: 0, html: "", headers: {}, responseTime: Date.now() - start };
+    const detail: Partial<FetchFailureReport> = response ? { cause: "body-read-failed" } : failure;
+    const fetchFailure: FetchFailure = {
+      kind: fetchFailureKind(detail),
+      ...(detail.status !== undefined && detail.status > 0 ? { status: detail.status } : {}),
+      ...(detail.cause ? { cause: detail.cause } : {}),
+      ...(detail.challenge ? { challenge: detail.challenge } : {}),
+    };
+    return {
+      url,
+      status: 0,
+      html: "",
+      headers: {},
+      responseTime: Date.now() - start,
+      fetchFailure,
+    };
   }
 
   const responseTime = Date.now() - start;
@@ -276,7 +342,7 @@ export async function fetchPage(
 export async function fetchText(
   url: string,
   options: Pick<AuditOptions, "timeout" | "userAgent" | "isAllowedTarget">,
-  request: { accept?: string; retriesExhausted?: { status: number } } = {},
+  request: { accept?: string; retriesExhausted?: FetchFailureReport } = {},
 ): Promise<{ text: string; status: number; contentType: string } | null> {
   const response = await retryableFetch(
     url,

@@ -1,3 +1,5 @@
+import type { FetchFailure } from "./errors.js";
+
 export type Severity = "error" | "warning" | "info";
 
 export type CheckStatus = "pass" | "fail" | "partial" | "skip" | "error";
@@ -83,6 +85,12 @@ export interface FetchedPage {
   html: string;
   headers: Record<string, string>;
   responseTime: number; // ms
+  /**
+   * Why this fetch produced no scorable response. Set only when `status === 0`
+   * or the response was withheld (a challenge stops the retry loop and its body
+   * is consumed for fingerprinting). Optional: every existing consumer ignores it.
+   */
+  fetchFailure?: FetchFailure;
 }
 
 export interface McpInitResult {

@@ -7,6 +7,10 @@ export {
   registerChecks,
   runAudit,
 } from "./audit/engine.js";
+export type { AuditErrorEvidence, AuditErrorKind, FetchFailure } from "./audit/errors.js";
+export { AuditError, classifyHomepage } from "./audit/errors.js";
+export type { ChallengeVendor } from "./audit/shared/challenge.js";
+export { detectChallenge } from "./audit/shared/challenge.js";
 export type {
   AuditOptions,
   AuditReport,
