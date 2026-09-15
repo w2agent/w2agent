@@ -1,4 +1,5 @@
 import { BOT_TOKENS } from "../shared/bot-tokens.js";
+import { evidenceStatus, is2xx, isComparableControl } from "../shared/edge-evidence.js";
 import type { Check, CheckResult, EdgeProbePage, MultiUaResponse } from "../types.js";
 
 /**
@@ -27,13 +28,14 @@ export const EDGE_AGENT_TOKENS: readonly string[] = BOT_TOKENS.filter(
 const CHECK_ID = "edge-agent-access";
 const CHECK_NAME = "Edge treatment of agent user-agents";
 
-function is2xx(status: number): boolean {
-  return status >= 200 && status < 300;
-}
-
-/** A challenge, 403 or 429 — the edge actively refusing the agent UA. */
+/**
+ * A challenge, 403 or 429 — the edge actively refusing the agent UA. Evidence
+ * observed before a body-read error counts: a 403 challenge whose body stream
+ * then broke is still a block (`evidenceStatus`).
+ */
 function isBlocked(r: MultiUaResponse): boolean {
-  return r.challenge !== undefined || r.status === 403 || r.status === 429;
+  const status = evidenceStatus(r);
+  return r.challenge !== undefined || status === 403 || status === 429;
 }
 
 export interface EdgeAccessAnalysis {
@@ -42,12 +44,14 @@ export interface EdgeAccessAnalysis {
   probed: string[];
   /** Documented agent tokens with no fetch at all. Never counted as passing. */
   notProbed: string[];
-  /** Pages whose control fetch returned 2xx — the only comparable ones. */
+  /** Probed tokens that never answered 2xx on a comparable page. */
+  unanswered: string[];
+  /** Pages with a clean control fetch — the only comparable ones. */
   comparablePages: number;
   /** The first result that drove a non-`consistent` outcome. */
   worst?: { page: EdgeProbePage; result: MultiUaResponse };
   /** Why the comparison could not be made, when `outcome === "unmeasured"`. */
-  unmeasuredReason?: "no-control" | "no-agent-response";
+  unmeasuredReason?: "no-control" | "no-agent-response" | "incomplete";
 }
 
 export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeAccessAnalysis {
@@ -58,70 +62,60 @@ export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeA
   }
   const notProbed = EDGE_AGENT_TOKENS.filter((t) => !probed.includes(t));
 
-  // Only a page our own declared crawler could read is evidence about the
-  // agent UAs: without a 2xx control, an agent 403 says nothing about the edge.
-  const comparable = pages.filter((p) => is2xx(p.control));
-  if (comparable.length === 0) {
-    return {
-      outcome: "unmeasured",
-      probed,
-      notProbed,
-      comparablePages: 0,
-      unmeasuredReason: "no-control",
-    };
-  }
-
-  const responded = comparable.flatMap((page) =>
-    page.results.filter((r) => r.outcome === "ok").map((result) => ({ page, result })),
+  // Only a page our own declared crawler read cleanly is evidence about the
+  // agent UAs: without a 2xx, challenge-free control, an agent 403 says nothing
+  // about agent-specific treatment.
+  const comparable = pages.filter((p) => isComparableControl(p.control));
+  const answered2xx = (r: MultiUaResponse) => r.outcome === "ok" && is2xx(r.status);
+  const unanswered = probed.filter(
+    (t) => !comparable.some((p) => p.results.some((r) => r.token === t && answered2xx(r))),
   );
-  if (responded.length === 0) {
-    return {
-      outcome: "unmeasured",
-      probed,
-      notProbed,
-      comparablePages: comparable.length,
-      unmeasuredReason: "no-agent-response",
-    };
+  const base = { probed, notProbed, unanswered, comparablePages: comparable.length };
+
+  if (comparable.length === 0) {
+    return { outcome: "unmeasured", ...base, unmeasuredReason: "no-control" };
   }
 
-  const blocked = responded.find(({ result }) => isBlocked(result));
-  if (blocked) {
-    return {
-      outcome: "agent-blocked",
-      probed,
-      notProbed,
-      comparablePages: comparable.length,
-      worst: blocked,
-    };
+  // Negative evidence needs no completeness: a block is a block even when
+  // another UA timed out. It also survives a body-read error (see `isBlocked`).
+  const all = comparable.flatMap((page) => page.results.map((result) => ({ page, result })));
+  const blocked = all.find(({ result }) => isBlocked(result));
+  if (blocked) return { outcome: "agent-blocked", ...base, worst: blocked };
+
+  const responded = all.filter(({ result }) => result.outcome === "ok");
+  if (responded.length === 0) {
+    return { outcome: "unmeasured", ...base, unmeasuredReason: "no-agent-response" };
   }
+
   const rejected = responded.find(({ result }) => !is2xx(result.status) && result.status !== 402);
-  if (rejected) {
-    return {
-      outcome: "agent-rejected",
-      probed,
-      notProbed,
-      comparablePages: comparable.length,
-      worst: rejected,
-    };
-  }
+  if (rejected) return { outcome: "agent-rejected", ...base, worst: rejected };
+
   const paywalled = responded.find(({ result }) => result.status === 402);
-  if (paywalled) {
-    return {
-      outcome: "paywalled",
-      probed,
-      notProbed,
-      comparablePages: comparable.length,
-      worst: paywalled,
-    };
-  }
-  return { outcome: "consistent", probed, notProbed, comparablePages: comparable.length };
+  if (paywalled) return { outcome: "paywalled", ...base, worst: paywalled };
+
+  // A positive verdict needs completeness, per §4.4's "every agent UA … on
+  // every page": some comparable page where *every* probed token answered 2xx.
+  // Otherwise a UA that never answered would be awarded a clean bill of health.
+  const complete = comparable.some((page) =>
+    probed.every((t) => page.results.some((r) => r.token === t && answered2xx(r))),
+  );
+  if (!complete) return { outcome: "unmeasured", ...base, unmeasuredReason: "incomplete" };
+
+  return { outcome: "consistent", ...base };
 }
 
 function describe(r: MultiUaResponse): string {
+  const status = evidenceStatus(r);
+  const note = r.outcome === "ok" ? "" : ` (seen before the read failed: ${r.outcome})`;
   if (r.challenge) {
-    return `an anti-bot challenge (${r.challenge.vendor}: ${r.challenge.signal}) with HTTP ${r.status}`;
+    return `an anti-bot challenge (${r.challenge.vendor}: ${r.challenge.signal}) with HTTP ${status}${note}`;
   }
-  return `HTTP ${r.status}`;
+  return `HTTP ${status}${note}`;
+}
+
+function unansweredNote(a: EdgeAccessAnalysis): string {
+  if (a.unanswered.length === 0) return "no single probed page got an answer from all of them";
+  return `${a.unanswered.join(", ")} never answered on a comparable page`;
 }
 
 function messageFor(a: EdgeAccessAnalysis): string {
@@ -129,34 +123,44 @@ function messageFor(a: EdgeAccessAnalysis): string {
   switch (a.outcome) {
     case "agent-blocked": {
       const { page, result } = a.worst as NonNullable<EdgeAccessAnalysis["worst"]>;
-      return `Blocked at the edge (agent-blocked): ${result.token} got ${describe(result)} on ${page.url}, where our declared crawler got HTTP ${page.control}.${notProbedNote}`;
+      return `Blocked at the edge (agent-blocked): ${result.token} got ${describe(result)} on ${page.url}, where our declared crawler got HTTP ${page.control.status}.${notProbedNote}`;
     }
     case "agent-rejected": {
       const { page, result } = a.worst as NonNullable<EdgeAccessAnalysis["worst"]>;
-      return `Rejected at the edge (agent-rejected): ${result.token} got HTTP ${result.status} on ${page.url}, where our declared crawler got HTTP ${page.control}.${notProbedNote}`;
+      return `Rejected at the edge (agent-rejected): ${result.token} got HTTP ${result.status} on ${page.url}, where our declared crawler got HTTP ${page.control.status}.${notProbedNote}`;
     }
     case "paywalled": {
       const { page, result } = a.worst as NonNullable<EdgeAccessAnalysis["worst"]>;
-      return `Payment required for agents (paywalled): ${result.token} got HTTP 402 on ${page.url}, where our declared crawler got HTTP ${page.control}. Informational — a declared paywall is not an edge block.${notProbedNote}`;
+      return `Payment required for agents (paywalled): ${result.token} got HTTP 402 on ${page.url}, where our declared crawler got HTTP ${page.control.status}. Informational — a declared paywall is not an edge block.${notProbedNote}`;
     }
     case "consistent":
       return `No edge difference (consistent): every probed agent user-agent matched our declared crawler on ${a.comparablePages} page(s).${notProbedNote}`;
     default:
-      return a.unmeasuredReason === "no-control"
-        ? `Not measured (unmeasured): no probed page returned 2xx to our declared crawler, so agent responses cannot be compared.${notProbedNote}`
-        : `Not measured (unmeasured): every agent user-agent fetch was skipped or failed before a response arrived.${notProbedNote}`;
+      switch (a.unmeasuredReason) {
+        case "no-control":
+          return `Not measured (unmeasured): no probed page gave our declared crawler a clean 2xx (a non-2xx, a failed fetch or a challenge on the control itself), so agent responses cannot be compared.${notProbedNote}`;
+        case "no-agent-response":
+          return `Not measured (unmeasured): every agent user-agent fetch was skipped or failed before a response arrived.${notProbedNote}`;
+        default:
+          return `Not measured (unmeasured): no page was answered by all ${a.probed.length} probed agent user-agents, so "consistent" cannot be claimed — ${unansweredNote(a)}.${notProbedNote}`;
+      }
   }
 }
 
 function statusLine(r: MultiUaResponse): string {
-  if (r.outcome !== "ok") return `0 (${r.outcome})`;
-  return r.challenge ? `${r.status} ${r.challenge.vendor} ${r.challenge.signal}` : `${r.status}`;
+  const challenge = r.challenge ? ` ${r.challenge.vendor} ${r.challenge.signal}` : "";
+  if (r.outcome !== "ok") {
+    const observed =
+      r.observedStatus !== undefined ? `, observed ${r.observedStatus}${challenge}` : "";
+    return `0 (${r.outcome}${observed})`;
+  }
+  return `${r.status}${challenge}`;
 }
 
 function detailsFor(a: EdgeAccessAnalysis, edgeProbe: EdgeProbePage[] | undefined): string {
   const lines = [`outcome: ${a.outcome}`];
   for (const page of edgeProbe ?? []) {
-    lines.push(`${page.url}.control: ${page.control}`);
+    lines.push(`${page.url}.control: ${statusLine(page.control)}`);
     for (const r of page.results) lines.push(`${page.url}.${r.token}: ${statusLine(r)}`);
   }
   lines.push(`notProbed: ${a.notProbed.length > 0 ? a.notProbed.join(", ") : "none"}`);

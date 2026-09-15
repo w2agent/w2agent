@@ -762,7 +762,13 @@ describe("A4 polish: www. stripping and sequential subdomain probing", () => {
 
 describe("user-agent reach checks (P1-7)", () => {
   const page = makePage("<html><body>content</body></html>", "https://example.com/");
-  const AuditOpts = { timeout: 5000 } as import("../src/audit/types.js").AuditOptions;
+  const AuditOpts = {
+    timeout: 5000,
+    // The edge probe's own fetches (the controls) are paced and run under the
+    // declared crawler UA; pinned here so the UA assertions below are exact.
+    requestDelay: 0,
+    userAgent: "w2agent-test/1.0",
+  } as import("../src/audit/types.js").AuditOptions;
   const resp = (
     over: Partial<import("../src/audit/types.js").MultiUaResponse>,
   ): import("../src/audit/types.js").MultiUaResponse => ({
@@ -853,7 +859,13 @@ describe("user-agent reach checks (P1-7)", () => {
     const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
-    expect(sent).toEqual([uaOf("ChatGPT-User"), uaOf("Perplexity-User"), uaOf("Google-Agent")]);
+    // The three agent UAs first, then the homepage control under our own UA.
+    expect(sent).toEqual([
+      uaOf("ChatGPT-User"),
+      uaOf("Perplexity-User"),
+      uaOf("Google-Agent"),
+      "w2agent-test/1.0",
+    ]);
     expect(sent.every((ua) => typeof ua === "string" && ua.length > 0)).toBe(true);
     expect(uaOf("Google-Agent")).toContain("Chrome/W.X.Y.Z");
     expect(Object.keys(result)).toEqual(["openai", "perplexity", "google"]);
@@ -898,7 +910,8 @@ describe("user-agent reach checks (P1-7)", () => {
     fetchSpy.mockRestore();
     nowSpy.mockRestore();
 
-    expect(sent).toHaveLength(1);
+    // One agent fetch, then the homepage control, which is not budget-gated.
+    expect(sent).toEqual([uaOf("ChatGPT-User"), "w2agent-test/1.0"]);
     expect(result.openai.outcome).toBe("ok");
     expect(result.perplexity.outcome).toBe("budget-skipped");
     expect(result.google.outcome).toBe("budget-skipped");

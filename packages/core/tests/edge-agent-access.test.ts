@@ -29,10 +29,15 @@ function ua(token: string, over: Partial<MultiUaResponse> = {}): MultiUaResponse
   };
 }
 
+/** Our declared crawler's own result for a page: a clean 200 unless told otherwise. */
+function ctl(over: Partial<MultiUaResponse> = {}): MultiUaResponse {
+  return ua("control", over);
+}
+
 function page(over: Partial<EdgeProbePage> = {}): EdgeProbePage {
   return {
     url: HOME,
-    control: 200,
+    control: ctl(),
     results: [ua("ChatGPT-User"), ua("Perplexity-User"), ua("Google-Agent")],
     ...over,
   };
@@ -185,11 +190,14 @@ describe("edge-agent-access — outcomes (§4.4)", () => {
   });
 
   it("unmeasured: no control page returned 2xx → error even with clean agent responses", () => {
-    const r = run([page({ control: 403 }), page({ url: P1, control: 0 })]);
+    const r = run([
+      page({ control: ctl({ status: 403, reachable: false }) }),
+      page({ url: P1, control: ctl({ status: 0, reachable: false, outcome: "fetch-error" }) }),
+    ]);
     expect(r.status).toBe("error");
     expect(r.score).toBe(0);
     expect(firstLine(r)).toBe("outcome: unmeasured");
-    expect(r.message).toMatch(/no probed page returned 2xx/i);
+    expect(r.message).toMatch(/no probed page gave our declared crawler a clean 2xx/i);
   });
 
   it("unmeasured: no edge probe at all", () => {
@@ -204,11 +212,161 @@ describe("edge-agent-access — outcomes (§4.4)", () => {
       page(),
       page({
         url: P1,
-        control: 403,
+        control: ctl({ url: P1, status: 403, reachable: false }),
         results: [ua("ChatGPT-User", { url: P1, status: 403, reachable: false })],
       }),
     ]);
     expect(firstLine(r)).toBe("outcome: consistent");
+  });
+});
+
+describe("edge-agent-access — a verdict needs completeness (gate fix A)", () => {
+  it("unmeasured: a UA that timed out on every page is never awarded consistent", () => {
+    // The edge tarpits ChatGPT-User everywhere while Perplexity gets 200.
+    const tarpit = (url: string) => [
+      ua("ChatGPT-User", { url, status: 0, reachable: false, outcome: "timeout" }),
+      ua("Perplexity-User", { url }),
+      ua("Google-Agent", { url }),
+    ];
+    const r = run([page({ results: tarpit(HOME) }), page({ url: P1, results: tarpit(P1) })]);
+    expect(r.status).toBe("error");
+    expect(firstLine(r)).toBe("outcome: unmeasured");
+    expect(r.message).not.toContain("consistent)");
+    expect(r.message).toContain("ChatGPT-User never answered");
+    expect(analyzeEdgeAccess([page({ results: tarpit(HOME) })]).unmeasuredReason).toBe(
+      "incomplete",
+    );
+  });
+
+  it("unmeasured: a single timeout or budget-skip on the only page blocks the pass", () => {
+    const r = run([
+      page({
+        results: [
+          ua("ChatGPT-User"),
+          ua("Perplexity-User", { status: 0, reachable: false, outcome: "timeout" }),
+          ua("Google-Agent", { status: 0, reachable: false, outcome: "budget-skipped" }),
+        ],
+      }),
+    ]);
+    expect(r.status).toBe("error");
+    expect(firstLine(r)).toBe("outcome: unmeasured");
+    expect(r.message).toContain("Perplexity-User, Google-Agent never answered");
+  });
+
+  it("negative evidence still lands when another UA never answered", () => {
+    // Completeness gates only the *positive* verdict: a block is a block.
+    const r = run([
+      page({
+        results: [
+          ua("ChatGPT-User", { status: 0, reachable: false, outcome: "timeout" }),
+          ua("Perplexity-User", { status: 403, reachable: false }),
+          ua("Google-Agent"),
+        ],
+      }),
+    ]);
+    expect(r.status).toBe("fail");
+    expect(firstLine(r)).toBe("outcome: agent-blocked");
+  });
+
+  it("one complete page is enough, even when a later page is partial", () => {
+    const r = run([
+      page(),
+      page({
+        url: P1,
+        results: [
+          ua("ChatGPT-User", { url: P1, status: 0, reachable: false, outcome: "budget-skipped" }),
+          ua("Perplexity-User", { url: P1 }),
+          ua("Google-Agent", { url: P1 }),
+        ],
+      }),
+    ]);
+    expect(firstLine(r)).toBe("outcome: consistent");
+  });
+});
+
+describe("edge-agent-access — a challenged control is not a clean control (gate fix C)", () => {
+  it("ignores a page whose control got the same challenge the agents got", () => {
+    const challenge = {
+      headers: { cfMitigated: "challenge" },
+      challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" } as const,
+    };
+    const r = run([
+      page({
+        url: P1,
+        control: ctl({ url: P1, ...challenge }),
+        results: [
+          ua("ChatGPT-User", { url: P1, ...challenge }),
+          ua("Perplexity-User", { url: P1, ...challenge }),
+          ua("Google-Agent", { url: P1, ...challenge }),
+        ],
+      }),
+    ]);
+    expect(r.status).toBe("error");
+    expect(firstLine(r)).toBe("outcome: unmeasured");
+    expect(r.details).toContain(`${P1}.control: 200 cloudflare cf-mitigated: challenge`);
+  });
+
+  it("a control that never answered is not comparable either", () => {
+    const r = run([page({ control: ctl({ status: 0, reachable: false, outcome: "timeout" }) })]);
+    expect(r.status).toBe("error");
+    expect(firstLine(r)).toBe("outcome: unmeasured");
+  });
+
+  it("the control token never leaks into the probed list", () => {
+    expect(analyzeEdgeAccess([page()]).probed).not.toContain("control");
+  });
+});
+
+describe("edge-agent-access — evidence surviving a body-read error (gate fix D)", () => {
+  const readError = (over: Partial<MultiUaResponse> = {}) =>
+    ua("ChatGPT-User", {
+      status: 0,
+      contentLength: 0,
+      reachable: false,
+      outcome: "fetch-error",
+      headers: { cfMitigated: "challenge" },
+      challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+      observedStatus: 403,
+      ...over,
+    });
+
+  it("a 403 challenge seen before the read failed is still agent-blocked", () => {
+    const r = run([page({ results: [readError(), ua("Perplexity-User"), ua("Google-Agent")] })]);
+    expect(r.status).toBe("fail");
+    expect(firstLine(r)).toBe("outcome: agent-blocked");
+    expect(r.message).toContain("403");
+    expect(r.message).toContain("seen before the read failed: fetch-error");
+    expect(r.details).toContain(
+      `${HOME}.ChatGPT-User: 0 (fetch-error, observed 403 cloudflare cf-mitigated: challenge)`,
+    );
+  });
+
+  it("a bare 429 observed before the read failed is blocked evidence too", () => {
+    const r = run([
+      page({
+        results: [
+          readError({ headers: {}, challenge: undefined, observedStatus: 429 }),
+          ua("Perplexity-User"),
+          ua("Google-Agent"),
+        ],
+      }),
+    ]);
+    expect(firstLine(r)).toBe("outcome: agent-blocked");
+  });
+
+  it("a read error after a clean 200 still counts as 'did not answer'", () => {
+    const r = run([
+      page({
+        results: [
+          readError({ headers: {}, challenge: undefined, observedStatus: 200 }),
+          ua("Perplexity-User"),
+          ua("Google-Agent"),
+        ],
+      }),
+    ]);
+    expect(r.status).toBe("error");
+    expect(firstLine(r)).toBe("outcome: unmeasured");
+    expect(r.message).toContain("ChatGPT-User never answered");
   });
 });
 

@@ -105,7 +105,11 @@ export interface McpInitResult {
 }
 
 export interface MultiUaResponse {
-  /** The BOT_TOKENS token this result was fetched under, e.g. "ChatGPT-User". */
+  /**
+   * The BOT_TOKENS token this result was fetched under, e.g. "ChatGPT-User".
+   * The literal "control" marks a fetch under our own declared crawler UA
+   * (`EdgeProbePage.control`); it is never one of the probed agent tokens.
+   */
   token: string;
   /** The URL probed (before redirects; see `finalUrl`). */
   url: string;
@@ -120,16 +124,29 @@ export interface MultiUaResponse {
   headers: { cfMitigated?: string; server?: string; retryAfter?: string };
   /** Set when the response fingerprints as an anti-bot challenge (first 4 KB of body). */
   challenge?: { vendor: ChallengeVendor; signal: string };
+  /**
+   * Edge-only: the status the wire actually carried when the body read failed
+   * afterwards (`outcome: "fetch-error" | "timeout"`, `status: 0`). Undefined
+   * when no response header block arrived at all. `reach-*` never reads it —
+   * `status`/`reachable`/`outcome` keep their old "did not answer" values.
+   */
+  observedStatus?: number;
 }
 
 /** One probed page of the multi-UA pass: our declared crawler vs the agent UAs. */
 export interface EdgeProbePage {
   url: string;
   /**
-   * Status of our declared crawler's own single-shot fetch of this URL.
-   * 0 = no response (network error, or the time budget was already exhausted).
+   * Our declared crawler's own single-shot fetch of this URL, in the same shape
+   * as the agent results (token `"control"`). The page is comparable evidence
+   * only when this is `outcome: "ok"`, 2xx and challenge-free.
    */
-  control: number;
+  control: MultiUaResponse;
+  /**
+   * The agent-UA results. Empty on an extra page whose control was not
+   * comparable, since its agent fetches are then skipped; the homepage always
+   * carries a row per probed UA (its control runs last).
+   */
   results: MultiUaResponse[];
 }
 

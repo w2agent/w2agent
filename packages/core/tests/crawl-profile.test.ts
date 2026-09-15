@@ -91,23 +91,27 @@ describe("probeSiteMetadata", () => {
     expect(metadata.sitemapXml).toBe(SITEMAP);
   });
 
-  it("fetches the homepage itself only when no homepageHtml is given", async () => {
+  // Two fetches under our own UA on the homepage, on every path: the crawl's
+  // own (retrying) `fetchPage`, plus the edge probe's single-shot control. The
+  // control is deliberately its own request — reusing the retrying fetch would
+  // report "200 after retry" against an agent's "503 first shot".
+  it("fetches the homepage for its HTML only when no homepageHtml is given, plus the edge control", async () => {
     await probeSiteMetadata(HOME, OPTIONS);
-    expect(mainUaPageFetches(HOME)).toHaveLength(1);
+    expect(mainUaPageFetches(HOME)).toHaveLength(2);
 
     calls = [];
     await probeSiteMetadata(HOME, OPTIONS, { homepageHtml: HOME_HTML });
-    expect(mainUaPageFetches(HOME)).toHaveLength(0);
+    expect(mainUaPageFetches(HOME)).toHaveLength(1);
   });
 
-  it("crawlSite metadata equals probeSiteMetadata output, with one homepage fetch", async () => {
+  it("crawlSite metadata equals probeSiteMetadata output, with the same two homepage fetches", async () => {
     const probed = await probeSiteMetadata(HOME, OPTIONS);
 
     calls = [];
     const crawled = await crawlSite(HOME, OPTIONS);
 
     expect(crawled.metadata).toEqual(probed);
-    expect(mainUaPageFetches(HOME)).toHaveLength(1);
+    expect(mainUaPageFetches(HOME)).toHaveLength(2);
   });
 });
 

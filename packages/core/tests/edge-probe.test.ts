@@ -138,13 +138,89 @@ describe("reach-* byte identity across the extended multi-UA pass", () => {
   });
 });
 
+describe("a body-read error keeps its evidence without moving the reach surface", () => {
+  const CF = "/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1";
+
+  function brokenStream(head: string, status: number, headers: Record<string, string>): Response {
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(head));
+          controller.error(new Error("stream broke"));
+        },
+      }),
+      { status, headers: { "content-type": "text/html", ...headers } },
+    );
+  }
+
+  it("pins the reach projection at 0/0/url/false/fetch-error while retaining the challenge", async () => {
+    routes["/"] = (ua) =>
+      ua === MAIN_UA
+        ? html(HOME_HTML)
+        : brokenStream(`<html><script>${CF}</script>`, 403, {
+            "cf-mitigated": "challenge",
+            server: "cloudflare",
+          });
+
+    const { responses } = await fetchUnderUas(HOME, OPTIONS);
+
+    // THE HARD CONSTRAINT: reach-* sees exactly what it saw before this fix.
+    expect(reachView(responses.openai)).toEqual({
+      status: 0,
+      contentLength: 0,
+      finalUrl: HOME,
+      reachable: false,
+      outcome: "fetch-error",
+    });
+    // The evidence lives in edge-only fields.
+    expect(responses.openai.observedStatus).toBe(403);
+    expect(responses.openai.challenge).toEqual({
+      vendor: "cloudflare",
+      signal: "cf-mitigated: challenge",
+    });
+    expect(responses.openai.headers).toEqual({ cfMitigated: "challenge", server: "cloudflare" });
+  });
+
+  it("records no observedStatus when the request never produced a response", async () => {
+    fetchMock?.mockImplementation(async () => {
+      throw new TypeError("network down");
+    });
+    const { responses } = await fetchUnderUas(HOME, OPTIONS);
+    expect(responses.openai.observedStatus).toBeUndefined();
+    expect(responses.openai.headers).toEqual({});
+  });
+});
+
+describe("politeness pacing of the fetches the probe adds", () => {
+  it("delays the controls and the extra-page agent fetches, not the homepage agent loop", async () => {
+    const paced: AuditOptions = { ...OPTIONS, requestDelay: 60 };
+    const stamps: { url: string; ua: string; at: number }[] = [];
+    fetchMock?.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const ua = (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? "";
+      stamps.push({ url, ua, at: Date.now() });
+      const route = routes[new URL(url).pathname];
+      return route ? route(ua, init?.method ?? "GET") : new Response("", { status: 404 });
+    });
+
+    await fetchUnderUas(HOME, paced, { extraPages: [`${SITE}/p1`] });
+
+    const gap = (i: number) => stamps[i].at - stamps[i - 1].at;
+    // stamps: 3 homepage agent fetches, homepage control, /p1 control, 3 /p1 agents.
+    expect(stamps).toHaveLength(8);
+    expect(gap(1)).toBeLessThan(50); // homepage agent loop: unpaced
+    expect(gap(2)).toBeLessThan(50);
+    for (const i of [3, 4, 5, 6, 7]) expect(gap(i)).toBeGreaterThanOrEqual(50);
+  });
+});
+
 describe("edgeProbe shape", () => {
   it("puts the homepage first, carrying the crawler's own control status and the same result objects", async () => {
     const metadata = await probeSiteMetadata(HOME, OPTIONS);
     const homepageEntry = metadata.edgeProbe?.[0];
 
     expect(homepageEntry?.url).toBe(HOME);
-    expect(homepageEntry?.control).toBe(200);
+    expect(homepageEntry?.control).toMatchObject({ token: "control", status: 200, outcome: "ok" });
     for (const [i, key] of REACH_KEYS.entries()) {
       expect(homepageEntry?.results[i]).toBe(metadata.multiUaResponses?.[key]);
     }
@@ -177,14 +253,43 @@ describe("edgeProbe shape", () => {
     expect(crawled.metadata.edgeProbe).toEqual(probed.edgeProbe);
   });
 
-  it("reports control 0 when only homepage HTML was handed in (no status to reuse)", async () => {
+  it("fetches its own homepage control even when only the HTML was handed in", async () => {
     const metadata = await probeSiteMetadata(HOME, OPTIONS, { homepageHtml: HOME_HTML });
-    expect(metadata.edgeProbe?.[0].control).toBe(0);
+    expect(metadata.edgeProbe?.[0].control).toMatchObject({ status: 200, outcome: "ok" });
   });
 });
 
-describe("extra-page control fetch", () => {
-  it("is single-shot: a 503 that a retry would have turned into a 200 stays 503", async () => {
+describe("control fetch (homepage included)", () => {
+  it("is single-shot on the homepage: the crawl's retrying fetch never supplies the control", async () => {
+    // The homepage control is a *second* fetch under MAIN_UA, issued after the
+    // agent loop. Hit 1 is `fetchPage` (200, no retry); the control is hit 2 and
+    // sees the 503. `fetchPage` as the control would retry into a 3rd hit.
+    let mainUaHits = 0;
+    routes["/"] = (ua) => {
+      if (ua !== MAIN_UA) return html(HOME_HTML);
+      mainUaHits++;
+      return mainUaHits === 1 ? html(HOME_HTML) : html("<html>busy</html>", 503);
+    };
+
+    const metadata = await probeSiteMetadata(HOME, OPTIONS);
+
+    expect(metadata.edgeProbe?.[0].control).toMatchObject({ status: 503, outcome: "ok" });
+    expect(calls.filter((c) => c.url === HOME && c.ua === MAIN_UA)).toHaveLength(2);
+  });
+
+  it("runs the homepage control after the agent loop, so reach-* keeps its request order", async () => {
+    await probeSiteMetadata(HOME, OPTIONS);
+    const uas = calls.filter((c) => c.url === HOME).map((c) => c.ua);
+    expect(uas).toEqual([
+      MAIN_UA,
+      OPENAI_UA,
+      uaOf("Perplexity-User"),
+      uaOf("Google-Agent"),
+      MAIN_UA,
+    ]);
+  });
+
+  it("is single-shot on an extra page: a 503 that a retry would have turned into a 200 stays 503", async () => {
     let mainUaHits = 0;
     routes["/p1"] = (ua) => {
       if (ua !== MAIN_UA) return html("<html>p1</html>");
@@ -195,19 +300,33 @@ describe("extra-page control fetch", () => {
     const metadata = await probeSiteMetadata(HOME, OPTIONS);
     const p1 = metadata.edgeProbe?.find((p) => p.url === `${SITE}/p1`);
 
-    expect(p1?.control).toBe(503);
+    expect(p1?.control).toMatchObject({ status: 503, outcome: "ok" });
     expect(calls.filter((c) => c.url === `${SITE}/p1` && c.ua === MAIN_UA)).toHaveLength(1);
   });
 
-  it("uses the declared crawler UA and records 0 when the control fetch throws", async () => {
+  it("records the failure and skips the agent fetches when the control throws", async () => {
     routes["/p1"] = (ua) => {
       if (ua === MAIN_UA) throw new TypeError("refused");
       return html("<html>p1</html>");
     };
     const metadata = await probeSiteMetadata(HOME, OPTIONS);
     const p1 = metadata.edgeProbe?.find((p) => p.url === `${SITE}/p1`);
-    expect(p1?.control).toBe(0);
-    expect(p1?.results.every((r) => r.status === 200)).toBe(true);
+    expect(p1?.control).toMatchObject({ status: 0, outcome: "fetch-error" });
+    expect(p1?.results).toEqual([]);
+    expect(calls.filter((c) => c.url === `${SITE}/p1`)).toHaveLength(1);
+  });
+
+  it("skips the agent fetches when the control itself was challenged", async () => {
+    routes["/p1"] = () =>
+      html("<html>p1</html>", 200, { "cf-mitigated": "challenge", server: "cloudflare" });
+    const metadata = await probeSiteMetadata(HOME, OPTIONS);
+    const p1 = metadata.edgeProbe?.find((p) => p.url === `${SITE}/p1`);
+    expect(p1?.control.challenge).toEqual({
+      vendor: "cloudflare",
+      signal: "cf-mitigated: challenge",
+    });
+    expect(p1?.results).toEqual([]);
+    expect(calls.filter((c) => c.url === `${SITE}/p1`)).toHaveLength(1);
   });
 });
 
@@ -228,17 +347,20 @@ describe("shared time budget", () => {
     });
 
     const { responses, edgeProbe } = await fetchUnderUas(HOME, OPTIONS, {
-      homepageControl: 200,
       extraPages: [`${SITE}/p1`, `${SITE}/p2`],
     });
     nowSpy.mockRestore();
 
-    expect(calls.slice(before)).toHaveLength(1);
+    // One agent fetch, then the homepage control — which is deliberately NOT
+    // budget-gated, so a homepage that burned the budget is still explained.
+    expect(calls.slice(before)).toHaveLength(2);
+    expect(calls.slice(before).map((c) => c.ua)).toEqual([OPENAI_UA, MAIN_UA]);
     expect(responses.openai.outcome).toBe("ok");
     expect(responses.perplexity.outcome).toBe("budget-skipped");
+    expect(edgeProbe[0].control.outcome).toBe("ok");
 
     const extras = edgeProbe.slice(1);
-    expect(extras.map((e) => e.control)).toEqual([0, 0]);
+    expect(extras.map((e) => e.control.outcome)).toEqual(["budget-skipped", "budget-skipped"]);
     for (const entry of extras) {
       expect(entry.results.map((r) => r.outcome)).toEqual([
         "budget-skipped",

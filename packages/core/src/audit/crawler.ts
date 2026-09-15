@@ -7,6 +7,7 @@ import { probeOpenAPIPaths } from "../shared/openapi.js";
 import { CHALLENGE_BODY_PREFIX_BYTES } from "./errors.js";
 import { BOT_TOKENS } from "./shared/bot-tokens.js";
 import { detectChallenge } from "./shared/challenge.js";
+import { isComparableControl } from "./shared/edge-evidence.js";
 import { isJsonContentType, mediaTypeEssence } from "./shared/json.js";
 import { probeMcpEndpoint } from "./shared/mcp-probe.js";
 import type {
@@ -75,6 +76,13 @@ async function fetchUnderUa(
   ua: string,
   options: AuditOptions,
 ): Promise<MultiUaResponse> {
+  // Declared outside the try so a body-read error can still report the status,
+  // headers and challenge the response already carried (slice 1's lesson: a
+  // read failure must not erase decisive evidence).
+  let seen: { status: number; headers: Headers } | undefined;
+  let contentLength = 0;
+  const prefix: Uint8Array[] = [];
+  let prefixLength = 0;
   try {
     const res = await guardedFetch(
       url,
@@ -84,9 +92,7 @@ async function fetchUnderUa(
       },
       options.isAllowedTarget,
     );
-    let contentLength = 0;
-    const prefix: Uint8Array[] = [];
-    let prefixLength = 0;
+    seen = { status: res.status, headers: res.headers };
     if (res.body) {
       const reader = res.body.getReader();
       const cap = MULTI_UA_BODY_CAP;
@@ -121,7 +127,13 @@ async function fetchUnderUa(
     };
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "TimeoutError";
+    const bodyPrefix =
+      prefixLength > 0 ? new TextDecoder().decode(concat(prefix, prefixLength)) : "";
+    const challenge = seen
+      ? detectChallenge(seen.status, loweredHeaders(seen.headers), bodyPrefix)
+      : undefined;
     return {
+      // The reach-* surface is unchanged: the fetch did not answer.
       token,
       url,
       status: 0,
@@ -129,7 +141,10 @@ async function fetchUnderUa(
       finalUrl: url,
       reachable: false,
       outcome: isTimeout ? "timeout" : "fetch-error",
-      headers: {},
+      // Edge-only evidence retained from whatever did arrive.
+      headers: seen ? edgeHeaders(seen.headers) : {},
+      ...(challenge ? { challenge } : {}),
+      ...(seen ? { observedStatus: seen.status } : {}),
     };
   }
 }
@@ -144,34 +159,26 @@ function concat(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
+/** Token marking a result fetched under our own declared crawler UA. */
+const CONTROL_TOKEN = "control";
+
 /**
- * Control fetch for an extra key page: a single shot under our declared
- * crawler UA, with the same timeout and redirect handling as the agent
- * fetches. Deliberately NOT `fetchPage` — it retries 429/503 with backoff, so
- * a flaky host would give control "200 after retry" against an agent's
- * "503 first shot" and the comparison would report a block that isn't one.
+ * Control fetch for a probed page — homepage included: a single shot under our
+ * declared crawler UA, through the very same reader as the agent fetches, so
+ * the control is fingerprinted for challenges on one code path.
+ *
+ * Deliberately NOT `fetchPage` — it retries 429/503 with backoff, so a flaky
+ * host would give control "200 after retry" against an agent's "503 first shot"
+ * and the comparison would report a block that isn't one.
  */
-async function controlStatus(url: string, options: AuditOptions): Promise<number> {
-  try {
-    const res = await guardedFetch(
-      url,
-      {
-        headers: { "User-Agent": options.userAgent },
-        signal: AbortSignal.timeout(options.timeout ?? 5000),
-      },
-      options.isAllowedTarget,
-    );
-    await res.body?.cancel().catch(() => {});
-    return res.status;
-  } catch {
-    return 0;
-  }
+function controlFetch(url: string, options: AuditOptions): Promise<MultiUaResponse> {
+  return fetchUnderUa(url, CONTROL_TOKEN, options.userAgent, options);
 }
 
 export async function fetchUnderUas(
   homepageUrl: string,
   options: AuditOptions,
-  opts: { homepageControl?: number; extraPages?: string[] } = {},
+  opts: { extraPages?: string[] } = {},
 ): Promise<{ responses: Record<string, MultiUaResponse>; edgeProbe: EdgeProbePage[] }> {
   const responses: Record<string, MultiUaResponse> = {};
   // Wall-clock budget for the entire multi-UA pass, homepage and extra pages
@@ -182,34 +189,55 @@ export async function fetchUnderUas(
   const start = Date.now();
   const overBudget = () => Date.now() - start > budget;
 
+  // Politeness pacing for the fetches this pass *adds* (the controls and the
+  // extra-page agent fetches). The homepage agent loop is deliberately unpaced:
+  // it feeds `reach-*` and its timing is unchanged. robots `Crawl-delay` is not
+  // consulted — a 10 s delay would budget-skip the whole pass.
+  const pace = options.requestDelay ?? 200;
+  const paced = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (pace > 0) await sleep(pace);
+    return fn();
+  };
+
   for (const { key, token, ua } of AGENT_UAS) {
     responses[key] = overBudget()
       ? budgetSkipped(homepageUrl, token)
       : await fetchUnderUa(homepageUrl, token, ua, options);
   }
 
+  // The homepage control runs AFTER the agent loop, so the agent fetches — the
+  // ones `reach-*` reads — keep their exact position in the request sequence
+  // under budget pressure. It is not budget-gated: a homepage whose agent loop
+  // burned the budget is exactly the case the control has to explain.
   const edgeProbe: EdgeProbePage[] = [
     {
       url: homepageUrl,
-      control: opts.homepageControl ?? 0,
+      control: await paced(() => controlFetch(homepageUrl, options)),
       // The same objects `multiUaResponses` holds: one source of truth.
       results: AGENT_UAS.map(({ key }) => responses[key]),
     },
   ];
 
   for (const pageUrl of opts.extraPages ?? []) {
-    const entry: EdgeProbePage = { url: pageUrl, control: 0, results: [] };
-    edgeProbe.push(entry);
     if (overBudget()) {
-      for (const { token } of AGENT_UAS) entry.results.push(budgetSkipped(pageUrl, token));
+      edgeProbe.push({
+        url: pageUrl,
+        control: budgetSkipped(pageUrl, CONTROL_TOKEN),
+        results: AGENT_UAS.map(({ token }) => budgetSkipped(pageUrl, token)),
+      });
       continue;
     }
-    entry.control = await controlStatus(pageUrl, options);
+    const control = await paced(() => controlFetch(pageUrl, options));
+    const entry: EdgeProbePage = { url: pageUrl, control, results: [] };
+    edgeProbe.push(entry);
+    // A non-comparable control makes every agent result on this page
+    // uninterpretable, so don't spend the requests collecting them.
+    if (!isComparableControl(control)) continue;
     for (const { token, ua } of AGENT_UAS) {
       entry.results.push(
         overBudget()
           ? budgetSkipped(pageUrl, token)
-          : await fetchUnderUa(pageUrl, token, ua, options),
+          : await paced(() => fetchUnderUa(pageUrl, token, ua, options)),
       );
     }
   }
@@ -272,9 +300,9 @@ export async function probeSiteMetadata(
   url: string,
   options: AuditOptions,
   opts: {
-    /** The already-fetched homepage. Carries the edge probe's control status. */
+    /** The already-fetched homepage, reused for its HTML. */
     homepage?: FetchedPage;
-    /** Back-compat: HTML only, so the homepage control status is unknown (0). */
+    /** Back-compat: HTML only, with no homepage fetch of our own. */
     homepageHtml?: string;
     onProgress?: (status: string) => void;
   } = {},
@@ -374,7 +402,6 @@ export async function probeSiteMetadata(
 
   onProgress?.("Simulating agent user-agents...");
   const { responses, edgeProbe } = await fetchUnderUas(url, options, {
-    homepageControl: homepage?.status ?? 0,
     extraPages: selectEdgePages(url, baseUrl, homepageHtml, metadata.sitemapXml, options),
   });
   metadata.multiUaResponses = responses;
