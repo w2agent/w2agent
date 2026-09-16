@@ -75,7 +75,8 @@ const DATADOME_JS_TAG = "https://docs.datadome.co/docs/javascript-tag.md";
 // fingerprint to become live against.
 // Deliberately NOT `_pxAppId` or any other sensor marker: the sensor ships on ordinary
 // pages, so it would mislabel any custom 403 on a PX-protected site. Measured 17:06Z:
-// fiverr's own 403 carries `window._pxAppId` @28140 and `client.perimeterx.net` @16054
+// fiverr's own 403 carries `window._pxAppId` @28140 and `client.perimeterx.net` @28182
+// (plus a `collector-<appid>.perimeterx.net` beacon @16054)
 // because the block template ships the full site chrome; the allowed 200s carry the sensor
 // too — humansecurity.com and zoominfo.com both answer with a `set-cookie: _pxhd`, and
 // humansecurity.com's body references perimeterx @6080. (`_pxAppId` itself is not in
