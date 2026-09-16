@@ -4,6 +4,7 @@ import { getSiteTypeChecks } from "../site-types/checks.js";
 import { detectSiteType, type SiteType } from "../site-types/index.js";
 import { crawlPages, crawlSite } from "./crawler.js";
 import { classifyHomepage } from "./errors.js";
+import { summarizeEdgeEvidence } from "./shared/edge-evidence.js";
 import type {
   AuditOptions,
   AuditReport,
@@ -12,6 +13,7 @@ import type {
   CategoryResult,
   Check,
   CheckResult,
+  EdgeProbePage,
   FetchedPage,
   LetterGrade,
   SiteMetadata,
@@ -73,7 +75,7 @@ export async function runAudit(
     pages = crawled.pages;
     metadata = crawled.metadata;
 
-    throwIfUnscorable(pages[0], url);
+    throwIfUnscorable(pages[0], url, crawled.metadata.edgeProbe);
   }
 
   // Detect platform
@@ -152,10 +154,23 @@ export async function runAudit(
 }
 
 // An empty crawl has no homepage to judge; that stays unguarded, as before.
-function throwIfUnscorable(homepage: FetchedPage | undefined, url: string): void {
+//
+// `edgeProbe` is the crawl's multi-UA evidence (§3 D-1). Only the crawl path has
+// it: the prefetched paths perform no crawl, so `evidence.edge` is absent there
+// and that is correct, not a gap. Only the homepage entry crosses the throw.
+function throwIfUnscorable(
+  homepage: FetchedPage | undefined,
+  url: string,
+  edgeProbe?: EdgeProbePage[],
+): void {
   if (!homepage) return;
   const failure = classifyHomepage(homepage, url);
-  if (failure) throw failure;
+  if (!failure) return;
+  const probedHomepage = edgeProbe?.[0];
+  // `evidence` is a readonly field pointing at a mutable literal that
+  // `classifyHomepage` built for this error alone.
+  if (probedHomepage) failure.evidence.edge = summarizeEdgeEvidence(probedHomepage);
+  throw failure;
 }
 
 // Only a page for the audited URL itself can be classified. A subpage at index 0

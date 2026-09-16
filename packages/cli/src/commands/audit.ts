@@ -2,10 +2,13 @@ import { writeFileSync } from "node:fs";
 import type { Command } from "commander";
 import ora from "ora";
 import {
+  AuditError,
   type AuditOptions,
   allChecks,
   type CategoryId,
   clearChecks,
+  type EdgeEvidence,
+  formatEdgeEvidenceLine,
   loadConfig,
   mergeConfigWithOptions,
   registerChecks,
@@ -25,6 +28,18 @@ function isPlausibleUrl(url: string): boolean {
   // .local), IPv4 (dots), IPv6 (colons), and localhost are all accepted.
   // Only bare words like "not-a-url" or "foo" are rejected.
   return host.includes(".") || host.includes(":") || host === "localhost";
+}
+
+/**
+ * Duck-typed like the platform's catch sites: an AuditError from a differently
+ * built copy of core is not `instanceof` ours, and a non-AuditError throw must
+ * not turn into a second failure here.
+ */
+export function edgeEvidenceOf(err: unknown): EdgeEvidence | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const e = err as { name?: unknown; evidence?: { edge?: EdgeEvidence } };
+  if (!(err instanceof AuditError) && e.name !== "AuditError") return undefined;
+  return e.evidence?.edge;
 }
 
 export function registerAuditCommand(program: Command): void {
@@ -106,6 +121,8 @@ export function registerAuditCommand(program: Command): void {
         }
       } catch (err) {
         spinner.fail(`Audit failed: ${(err as Error).message}`);
+        const edge = edgeEvidenceOf(err);
+        if (edge) console.error(formatEdgeEvidenceLine(edge));
         process.exit(1);
       }
     });

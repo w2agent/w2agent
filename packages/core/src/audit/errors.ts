@@ -1,5 +1,5 @@
 import { type ChallengeVendor, detectChallenge } from "./shared/challenge.js";
-import type { FetchedPage } from "./types.js";
+import type { FetchedPage, MultiUaResponse } from "./types.js";
 
 export const CHALLENGE_BODY_PREFIX_BYTES = 4 * 1024;
 
@@ -11,11 +11,29 @@ export type AuditErrorKind =
   | "timeout"
   | "unknown_failure";
 
+export type EdgeVerdict = "all-blocked" | "agents-allowed" | "mixed" | "unknown";
+
+export interface EdgeEvidenceAgent {
+  token: string;
+  status: number;
+  outcome: MultiUaResponse["outcome"];
+  challenge?: { vendor: ChallengeVendor; signal: string };
+}
+
+export interface EdgeEvidence {
+  verdict: EdgeVerdict;
+  control: { status: number; vendor?: ChallengeVendor; signal?: string };
+  agents: EdgeEvidenceAgent[];
+  notProbed: Array<{ token: string; reason: "no-ua-string" | "extra-pages-only" }>;
+}
+
 export interface AuditErrorEvidence {
   status?: number;
   vendor?: ChallengeVendor;
   signal?: string;
   cause?: string;
+  /** Homepage agent-UA evidence, attached by the engine. Absent on the prefetched path. */
+  edge?: EdgeEvidence;
 }
 
 export interface FetchFailure {
