@@ -63,8 +63,8 @@ const MARKETING_BODY = `<!DOCTYPE html><html lang="en"><head><title>Acme Analyti
 <body><h1>Product analytics for teams</h1><p>Trusted by 4,000 companies.</p>
 <a class="cta" href="/signup">Start free</a></body></html>`;
 
-// Modelled on the live capture of https://www.etsy.com/ (403, 776 bytes, 2026-09-17);
-// the opaque cid/hsh/cookie values are redacted.
+// Modelled on the live capture of https://www.etsy.com/ (403, 776 bytes,
+// 2026-09-16T17:02Z); the opaque cid/hsh/cookie values are redacted.
 const DATADOME_CHALLENGE_BODY = `<html lang="en"><head><title>etsy.com</title><style>#cmsg{animation: A 1.5s;}@keyframes A{0%{opacity:0;}99%{opacity:0;}100%{opacity:1;}}</style></head><body style="margin:0"><p id="cmsg">Please enable JS and disable any ad blocker</p><script data-cfasync="false">var dd={'rt':'c','cid':'REDACTEDREDACTEDREDACTEDREDAC==','hsh':'D013AA612AB2224D03B2318D0F5B19','t':'fe','rr':'','qp':'','s':45225,'e':'${"e".repeat(96)}','host':'geo.captcha-delivery.com','cookie':'${"c".repeat(128)}'}</script><script data-cfasync="false" src="https://ct.captcha-delivery.com/c.js"></script></body></html>`;
 
 // The ordinary DataDome tag, which vendor docs source from js.datadome.co — not a challenge.
@@ -78,13 +78,15 @@ const PX_CHALLENGE_BODY = `<!DOCTYPE html><html lang="en"><head><title>Access to
 <p>Reference ID #f0a3c2d1-9b44-11f1-8e2a-0242ac120002</p></body></html>`;
 
 // The PX *sensor* snippet as it ships on ordinary pages: it sets window._pxAppId and loads
-// client.perimeterx.net. Observed at HTTP 200 on humansecurity.com and zoominfo.com.
+// client.perimeterx.net. Doc-shaped: humansecurity.com and zoominfo.com both answer HTTP
+// 200 with a `set-cookie: _pxhd`, and fiverr's 403 carries `_pxAppId` @28140 (2026-09-16T17:06Z).
 const PX_SENSOR_SNIPPET = `<script>window._pxAppId='PXAbC1dEf2';window._pxJsClientSrc='/PXAbC1dEf2/init.js';
 (function(){var s=document.createElement('script');s.src='https://client.perimeterx.net/PXAbC1dEf2/main.min.js';
 document.head.appendChild(s);})();</script>`;
 
-// Live capture of https://www.homedepot.com/ (403, 371 bytes, 2026-09-17): a static hard
-// block, no JS, no sensor, no captcha. 16 of the 50 prod unknown_failure hosts serve this.
+// Live capture of https://www.homedepot.com/ (403, 371 bytes, 2026-09-16T17:02Z): a static
+// hard block, no JS, no sensor, no captcha. 12 of the 50 prod unknown_failure hosts serve
+// this shape, at 360–384 bytes.
 const AKAMAI_HARD_BLOCK_BODY = `<HTML><HEAD>
 <TITLE>Access Denied</TITLE>
 </HEAD><BODY>
@@ -96,12 +98,37 @@ Reference&#32;&#35;18&#46;56ce2d17&#46;1789578165&#46;50da5665
 </BODY>
 </HTML>`;
 
-// Live capture of https://www.saudia.com/ — an Imperva interstitial served at HTTP 200.
+// Live capture of https://www.saudia.com/ (2026-09-16T17:06Z) — an Imperva interstitial
+// served at HTTP 200.
 const IMPERVA_INTERSTITIAL_BODY = `<!DOCTYPE html><html><head><title>Pardon Our Interruption</title></head>
 <body><h1>Pardon Our Interruption</h1>
 <p>As you were browsing something about your browser made us think you were a bot.</p>
 <script src="/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3"></script>
 </body></html>`;
+
+// Live capture of https://www.lowes.com/ (2026-09-16T17:06Z): an Akamai "Access Denied"
+// page served at HTTP 200 with the site's mPulse/boomerang RUM snippet attached.
+const LOWES_ACCESS_DENIED_200_BODY = `<HTML><HEAD>
+<TITLE>Access Denied</TITLE>
+<script>(window.BOOMR_mq=window.BOOMR_mq||[]).push(["addVar",{"rua.upush":"false","rua.trans":"SJ-6898d930-f704-42d2-8fd7-1bf03cf0093d"}]);</script>
+<script>window.BOOMR_API_key="W8H5V-D6KN9-TTLED-Y3VKD-B2SQA";</script>
+</HEAD><BODY></BODY></HTML>`;
+
+// A 503 maintenance page from a shared head template that ships the DataDome-documented
+// CSP verbatim. Every string the vendor doc tells customers to publish is here; none of it
+// is a challenge. This is why the fingerprint is `geo.captcha-delivery.com` and not the
+// bare delivery domain.
+const CSP_ONLY_MAINTENANCE_BODY = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="script-src js.datadome.co ct.captcha-delivery.com; frame-src *.captcha-delivery.com">
+<title>Scheduled maintenance — Acme Store</title></head>
+<body><h1>We'll be back shortly</h1><p>Scheduled maintenance until 03:00 UTC.</p></body></html>`;
+
+// A 503 template that still carries the PerimeterX challenge *styling* but never renders
+// the container — the shape that makes the bare `px-captcha` substring unsafe.
+const PX_CSS_ONLY_MAINTENANCE_BODY = `<!DOCTYPE html><html lang="en"><head>
+<title>Temporarily unavailable — Acme Marketplace</title>
+<style>#px-captcha>iframe{margin:0 auto;animation:px-challenge-appear .6s ease-in}.px-loader-wrapper{display:none}</style>
+</head><body><h1>Temporarily unavailable</h1><p>Please try again in a few minutes.</p></body></html>`;
 
 describe("detectChallenge fingerprints", () => {
   it("every fingerprint cites an https source and a known kind", () => {
@@ -192,29 +219,29 @@ describe("detectChallenge fingerprints", () => {
     });
   });
 
-  // Live capture 2026-09-17: www.etsy.com 403 carries `geo.captcha-delivery.com` @510 and
-  // `ct.captcha-delivery.com/c.js` @726 — both inside the 4 KB body window.
-  it("matches the DataDome captcha-delivery marker on a blocked status", () => {
+  // Live capture 2026-09-16T17:02Z: www.etsy.com 403 carries the challenge JS config
+  // `'host':'geo.captcha-delivery.com'` @506 — well inside the 4 KB body window.
+  it("matches the DataDome geo.captcha-delivery host on a blocked status", () => {
     expect(detectChallenge(403, { "content-type": "text/html" }, DATADOME_CHALLENGE_BODY)).toEqual({
       vendor: "datadome",
-      signal: "body: captcha-delivery.com",
+      signal: "body: geo.captcha-delivery.com",
     });
   });
 
-  it("reaches the DataDome marker at its real ~510-byte offset", () => {
+  it("reaches the DataDome marker at its real ~506-byte offset", () => {
     expect(DATADOME_CHALLENGE_BODY.indexOf("geo.captcha-delivery.com")).toBeGreaterThan(480);
     expect(DATADOME_CHALLENGE_BODY.indexOf("geo.captcha-delivery.com")).toBeLessThan(
       CHALLENGE_BODY_PREFIX_BYTES,
     );
     expect(
       detectChallenge(403, {}, DATADOME_CHALLENGE_BODY.slice(0, CHALLENGE_BODY_PREFIX_BYTES)),
-    ).toEqual({ vendor: "datadome", signal: "body: captcha-delivery.com" });
+    ).toEqual({ vendor: "datadome", signal: "body: geo.captcha-delivery.com" });
   });
 
-  it("matches the PerimeterX px-captcha block template on a blocked status", () => {
+  it("matches the PerimeterX px-captcha container on a blocked status", () => {
     expect(detectChallenge(403, { "content-type": "text/html" }, PX_CHALLENGE_BODY)).toEqual({
       vendor: "perimeterx",
-      signal: "body: px-captcha",
+      signal: 'body: id="px-captcha"',
     });
   });
 
@@ -289,6 +316,18 @@ describe("detectChallenge non-challenges", () => {
     ).toBe(null);
   });
 
+  // The case that breaks if `captcha-delivery.com` (or `ct.captcha-delivery.com`) were the
+  // pattern: the DataDome tag doc tells every customer to publish exactly those strings in
+  // a CSP, so a shared-template 503 would be labelled a challenge.
+  it("does not flag a 503 maintenance page carrying only the documented DataDome CSP", () => {
+    expect(CSP_ONLY_MAINTENANCE_BODY).toContain("ct.captcha-delivery.com");
+    expect(CSP_ONLY_MAINTENANCE_BODY).toContain("*.captcha-delivery.com");
+    expect(CSP_ONLY_MAINTENANCE_BODY).not.toContain("geo.captcha-delivery.com");
+    expect(detectChallenge(503, { "content-type": "text/html" }, CSP_ONLY_MAINTENANCE_BODY)).toBe(
+      null,
+    );
+  });
+
   // Body fingerprints are status-gated: the DataDome challenge page itself must not match
   // at 200 without a cf-mitigated header.
   it("does not flag the DataDome challenge body on a 200", () => {
@@ -307,6 +346,17 @@ describe("detectChallenge non-challenges", () => {
     expect(body).not.toContain("px-captcha");
     expect(
       detectChallenge(403, { "set-cookie": "_pxhd=S5YsZvwZ/oNi0Cm4iKknDms3; path=/" }, body),
+    ).toBe(null);
+  });
+
+  // The case that breaks if the bare `px-captcha` substring were the pattern: on fiverr.com
+  // its first occurrence (@7252) is a CSS rule, not the container. A 503 template that keeps
+  // the challenge styling must not be reported as a bot challenge.
+  it("does not flag a 503 template that retains only the px-captcha CSS rule", () => {
+    expect(PX_CSS_ONLY_MAINTENANCE_BODY).toContain("px-captcha");
+    expect(PX_CSS_ONLY_MAINTENANCE_BODY).not.toContain('id="px-captcha"');
+    expect(
+      detectChallenge(503, { "content-type": "text/html" }, PX_CSS_ONLY_MAINTENANCE_BODY),
     ).toBe(null);
   });
 
@@ -341,10 +391,21 @@ describe("detectChallenge non-challenges", () => {
       ),
     ).toBe(null);
   });
+});
 
-  // No Imperva fingerprint ships either. saudia.com serves this interstitial at HTTP 200,
-  // and x-iinfo / visid_incap_* appear on imperva.com's own 200 marketing page.
-  it("does not flag the Imperva 'Pardon Our Interruption' interstitial served at 200", () => {
+// These two pages ARE interstitials — they are not ordinary content, and calling them
+// "non-challenges" would assert a property they do not have. They return null for one
+// reason only: the body-fingerprint loop is status-gated to 403/429/503 (or a cf-mitigated
+// header) and both are served at HTTP 200, so no body fingerprint of any pattern, at any
+// body cap, could fire on them. They are pinned here so that a future fingerprint written
+// from either page's markers is recognised as unreachable rather than as coverage.
+describe("known interstitials today's gates cannot reach", () => {
+  // Live capture 2026-09-16T17:06Z: https://www.saudia.com/ serves the Imperva "Pardon Our
+  // Interruption" interstitial at HTTP 200 (x-iinfo, _Incapsula_Resource). No Imperva
+  // fingerprint ships, and one could not fire here even if it did; x-iinfo and
+  // visid_incap_* are also present on imperva.com's own 200 marketing page.
+  it("cannot reach the Imperva 'Pardon Our Interruption' interstitial because it is a 200", () => {
+    expect(IMPERVA_INTERSTITIAL_BODY).toContain("Pardon Our Interruption");
     expect(
       detectChallenge(
         200,
@@ -356,19 +417,50 @@ describe("detectChallenge non-challenges", () => {
       ),
     ).toBe(null);
   });
+
+  // Live capture 2026-09-16T17:06Z: https://www.lowes.com/ serves an Akamai "Access Denied"
+  // page at HTTP 200. Same reason: the status gate never opens, so the body is never read.
+  it("cannot reach the lowes.com Akamai 'Access Denied' page because it is a 200", () => {
+    expect(LOWES_ACCESS_DENIED_200_BODY).toContain("<TITLE>Access Denied</TITLE>");
+    expect(
+      detectChallenge(
+        200,
+        {
+          "akamai-grn": "0.15b41160.1789578377.8d69c19d",
+          "x-akamai-transformed": "9 367 0 pmb=mRUM,2",
+          "content-type": "text/html",
+        },
+        LOWES_ACCESS_DENIED_200_BODY,
+      ),
+    ).toBe(null);
+  });
+
+  // The gate itself, stated as an assertion: the same two bodies at a gated status still
+  // return null (no fingerprint matches them), so the 200s above are held back by the
+  // status gate and nothing else.
+  it("holds both back on the status gate, not on their content", () => {
+    expect(detectChallenge(403, {}, IMPERVA_INTERSTITIAL_BODY)).toBe(null);
+    expect(detectChallenge(403, {}, LOWES_ACCESS_DENIED_200_BODY)).toBe(null);
+    // A body that DOES carry a fingerprint is the control for the gate being real.
+    expect(detectChallenge(200, {}, DATADOME_CHALLENGE_BODY)).toBe(null);
+    expect(detectChallenge(403, {}, DATADOME_CHALLENGE_BODY)).toEqual({
+      vendor: "datadome",
+      signal: "body: geo.captcha-delivery.com",
+    });
+  });
 });
 
 // §7 (deferred hardening): body matching reads only CHALLENGE_BODY_PREFIX_BYTES (4 KB).
 describe("detectChallenge body-window limits (measured)", () => {
-  it("cannot reach px-captcha at fiverr.com's measured 7252-byte offset within the 4 KB window", () => {
-    const filler = `<div class="tile"><span>Browse categories</span></div>\n`.repeat(140);
+  it('cannot reach id="px-captcha" at bloomberg.com\'s measured 11171-byte offset within the 4 KB window', () => {
+    const filler = `<div class="tile"><span>Browse categories</span></div>\n`.repeat(210);
     const body = `<!DOCTYPE html><html><head><title>Access to this page has been denied</title></head>
 <body>${filler}<div id="px-captcha"></div></body></html>`;
-    const offset = body.indexOf("px-captcha");
-    expect(offset).toBeGreaterThanOrEqual(7252);
+    const offset = body.indexOf('id="px-captcha"');
+    expect(offset).toBeGreaterThanOrEqual(11171);
     expect(detectChallenge(403, {}, body)).toEqual({
       vendor: "perimeterx",
-      signal: "body: px-captcha",
+      signal: 'body: id="px-captcha"',
     });
     expect(detectChallenge(403, {}, body.slice(0, CHALLENGE_BODY_PREFIX_BYTES))).toBe(null);
   });
