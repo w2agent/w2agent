@@ -79,12 +79,12 @@ function verdictFor(results: MultiUaResponse[]): EdgeVerdict {
  * Registry tokens that were not probed and could not have been: documented
  * agents with no published UA string (Claude-User today).
  *
- * `uaString`-bearing tokens that this build simply never probes (Amzn-User,
- * MistralAI-User, Meta-ExternalFetcher are absent from `AGENT_UAS`) are omitted
- * entirely rather than labelled: `extra-pages-only` would claim they were
- * probed somewhere, which is false, and these rows persist. The reason stays in
- * the §4.1 union but is unreachable for homepage-only evidence until the probe
- * set becomes registry-derived and those tokens are genuinely probed.
+ * `AGENT_UAS` is derived from exactly this filter's complement, so every
+ * `uaString`-bearing token is probed on the homepage and only `no-ua-string`
+ * can appear here. The §4.1 union's other reason, `extra-pages-only`, is a
+ * per-extra-page fact and is reported per page by `checks/edge.ts` `detailsFor`
+ * — never here: this payload summarises the homepage alone and persists to
+ * `audit_history`, where that label would be false.
  */
 function notProbedFor(probed: Set<string>): EdgeEvidence["notProbed"] {
   return BOT_TOKENS.filter((b) => b.purpose === "user" && !probed.has(b.token) && !b.uaString).map(

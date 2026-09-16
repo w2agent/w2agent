@@ -230,7 +230,7 @@ describe("summarizeEdgeEvidence — notProbed", () => {
     const edge = summarizeEdgeEvidence(
       homepage([response("ChatGPT-User"), response("Perplexity-User"), response("Google-Agent")]),
     );
-    expect(edge.notProbed).toContainEqual({ token: "Claude-User", reason: "no-ua-string" });
+    expect(edge.notProbed).toEqual([{ token: "Claude-User", reason: "no-ua-string" }]);
     // Claude-User is `hasUA: true` with no documented uaString — the uaString is
     // the gate, so this is the case the reason exists for.
     expect(BOT_TOKENS.find((b) => b.token === "Claude-User")?.uaString).toBeUndefined();
@@ -238,16 +238,37 @@ describe("summarizeEdgeEvidence — notProbed", () => {
     expect(edge.notProbed.map((n) => n.token)).not.toContain("ChatGPT-User");
   });
 
-  it("makes no claim about uaString-bearing tokens this build never probes", () => {
+  it("carries exactly the no-ua-string token once the whole probe set answered", () => {
+    // The shape a failure row actually persists now that `AGENT_UAS` is derived
+    // from the registry: six agents, and the one token nobody can probe.
+    const edge = summarizeEdgeEvidence(
+      homepage(
+        [
+          "ChatGPT-User",
+          "Google-Agent",
+          "Perplexity-User",
+          "Amzn-User",
+          "MistralAI-User",
+          "Meta-ExternalFetcher",
+        ].map((t) => response(t)),
+      ),
+    );
+    expect(edge.agents).toHaveLength(6);
+    expect(edge.notProbed).toEqual([{ token: "Claude-User", reason: "no-ua-string" }]);
+  });
+
+  it("never labels a uaString-bearing token extra-pages-only on a persisted row", () => {
+    // `extra-pages-only` is a per-extra-page fact; this payload summarises the
+    // homepage alone and persists to `audit_history`, so the label would be
+    // false there even when the token is genuinely absent from these results.
     const edge = summarizeEdgeEvidence(
       homepage([response("ChatGPT-User"), response("Perplexity-User"), response("Google-Agent")]),
     );
-    // They are not probed on any page, so "extra-pages-only" would be a lie and
-    // these rows persist. Omitted until the probe set is registry-derived.
     for (const token of ["Amzn-User", "MistralAI-User", "Meta-ExternalFetcher"]) {
       expect(BOT_TOKENS.find((b) => b.token === token)?.uaString).toBeDefined();
       expect(edge.notProbed.map((n) => n.token)).not.toContain(token);
     }
+    expect(edge.notProbed.map((n) => n.reason)).toEqual(["no-ua-string"]);
   });
 });
 
@@ -440,7 +461,19 @@ describe("G1 acceptance: a live homepage that challenges our crawler", () => {
     const edge = error.evidence.edge;
     if (!edge) throw new Error("no edge evidence on the thrown error");
     expect(edge.control.vendor).toBe("cloudflare");
-    expect(edge.agents.map((a) => a.status)).toEqual([200, 200, 200]);
+    // Every registry token with a published UA string is probed on the
+    // homepage, in registry order, and Claude-User — which has none — is the
+    // only entry `notProbed` may carry on a persisted row.
+    expect(edge.agents.map((a) => a.token)).toEqual([
+      "ChatGPT-User",
+      "Google-Agent",
+      "Perplexity-User",
+      "Amzn-User",
+      "MistralAI-User",
+      "Meta-ExternalFetcher",
+    ]);
+    expect(edge.agents.map((a) => a.status)).toEqual([200, 200, 200, 200, 200, 200]);
+    expect(edge.notProbed).toEqual([{ token: "Claude-User", reason: "no-ua-string" }]);
     expect(formatEdgeEvidenceLine(edge)).toContain(
       "documented agent user-agents were served normally",
     );

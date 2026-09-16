@@ -17,9 +17,11 @@ export type EdgeAccessOutcome =
 
 /**
  * Every documented agent (`purpose: "user"`) bot token. The multi-UA pass
- * probes the subset it has a UA string for *and* has been wired into
- * `AGENT_UAS` (`crawler.ts`); everything else is reported as `notProbed` and
- * can never contribute to a pass.
+ * probes the subset the registry publishes a UA string for (`AGENT_UAS` in
+ * `crawler.ts` is derived from exactly that filter); everything else — today
+ * only Claude-User — is reported as `notProbed` and can never contribute to a
+ * pass. Tokens probed on the homepage but not on an extra page are reported
+ * per page in `details`, not here: they were probed.
  */
 export const EDGE_AGENT_TOKENS: readonly string[] = BOT_TOKENS.filter(
   (b) => b.purpose === "user",
@@ -46,9 +48,21 @@ export interface EdgeAccessAnalysis {
   notProbed: string[];
   /** Probed tokens that never answered 2xx on a comparable page. */
   unanswered: string[];
+  /**
+   * Every comparable page carried every probed token. False once the homepage
+   * probes more tokens than the extra pages do (§3 D-5), which is what decides
+   * whether a message may speak of "all N probed agent user-agents" per page.
+   */
+  uniformProbeSet: boolean;
   /** Pages with a clean control fetch — the only comparable ones. */
   comparablePages: number;
-  /** Comparable pages where *every* probed token answered 2xx — the evidence a pass rests on. */
+  /**
+   * Comparable pages where every token probed *on that page* answered 2xx — the
+   * evidence a pass rests on. Measured per page rather than against the union
+   * of all probed tokens, because extra key pages carry only the first
+   * `EDGE_EXTRA_PAGE_TOKENS` tokens (§3 D-5) and would otherwise never be
+   * complete.
+   */
   completePages: number;
   /** The first result that drove a non-`consistent` outcome. */
   worst?: { page: EdgeProbePage; result: MultiUaResponse };
@@ -72,15 +86,21 @@ export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeA
   const unanswered = probed.filter(
     (t) => !comparable.some((p) => p.results.some((r) => r.token === t && answered2xx(r))),
   );
-  // A page is complete only when *every* probed token answered 2xx on it: the
-  // count a positive verdict may claim, which is not the comparable count.
-  const completePages = comparable.filter((page) =>
-    probed.every((t) => page.results.some((r) => r.token === t && answered2xx(r))),
+  // A page is complete only when every token probed *on it* answered 2xx: the
+  // count a positive verdict may claim, which is not the comparable count. A
+  // page with no results at all is never complete — the control was not
+  // comparable, so nothing was probed there.
+  const completePages = comparable.filter(
+    (page) => page.results.length > 0 && page.results.every(answered2xx),
   ).length;
+  const uniformProbeSet = comparable.every((page) =>
+    probed.every((t) => page.results.some((r) => r.token === t)),
+  );
   const base = {
     probed,
     notProbed,
     unanswered,
+    uniformProbeSet,
     comparablePages: comparable.length,
     completePages,
   };
@@ -107,9 +127,14 @@ export function analyzeEdgeAccess(edgeProbe: EdgeProbePage[] | undefined): EdgeA
   if (paywalled) return { outcome: "paywalled", ...base, worst: paywalled };
 
   // A positive verdict needs completeness, per §4.4's "every agent UA … on
-  // every page": some comparable page where *every* probed token answered 2xx.
-  // Otherwise a UA that never answered would be awarded a clean bill of health.
-  if (completePages === 0) {
+  // every page": some comparable page where every token probed on it answered
+  // 2xx, AND no probed token that never answered anywhere. The second clause is
+  // what the union rule used to give for free: with a uniform probe set
+  // `unanswered` non-empty implies `completePages === 0`, but once extra pages
+  // carry a subset of the tokens, a complete extra page can coexist with a
+  // homepage token that was never answered — and that token must not be awarded
+  // a clean bill of health.
+  if (completePages === 0 || unanswered.length > 0) {
     return { outcome: "unmeasured", ...base, unmeasuredReason: "incomplete" };
   }
 
@@ -130,6 +155,28 @@ function unansweredNote(a: EdgeAccessAnalysis): string {
   return `${a.unanswered.join(", ")} never answered on a comparable page`;
 }
 
+/**
+ * The positive claim, worded for what was actually probed. When every
+ * comparable page carried the whole probed set, "every probed agent user-agent
+ * … on N of M pages" is exactly true and is left verbatim. Once the homepage
+ * probes more tokens than the extra pages do (§3 D-5) it is not, so the claim
+ * is scoped to the agents each page was probed under.
+ */
+function consistentNote(a: EdgeAccessAnalysis): string {
+  if (a.uniformProbeSet) {
+    return `every probed agent user-agent matched our declared crawler on ${a.completePages} of ${a.comparablePages} comparable page(s)`;
+  }
+  return `every agent user-agent probed on a page matched our declared crawler there, on ${a.completePages} of ${a.comparablePages} comparable page(s), and every probed agent user-agent answered on at least one of them`;
+}
+
+/** The same scoping, for the negative side of the same claim. */
+function incompleteNote(a: EdgeAccessAnalysis): string {
+  if (a.uniformProbeSet) {
+    return `no page was answered by all ${a.probed.length} probed agent user-agents`;
+  }
+  return "no comparable page was answered by every agent user-agent probed on it";
+}
+
 function messageFor(a: EdgeAccessAnalysis): string {
   const notProbedNote = a.notProbed.length > 0 ? ` Not probed: ${a.notProbed.join(", ")}.` : "";
   switch (a.outcome) {
@@ -146,15 +193,24 @@ function messageFor(a: EdgeAccessAnalysis): string {
       return `Payment required for agents (paywalled): ${result.token} got HTTP 402 on ${page.url}, where our declared crawler got HTTP ${page.control.status}. Informational — a declared paywall is not an edge block.${notProbedNote}`;
     }
     case "consistent":
-      return `No edge difference (consistent): every probed agent user-agent matched our declared crawler on ${a.completePages} of ${a.comparablePages} comparable page(s).${notProbedNote}`;
+      return `No edge difference (consistent): ${consistentNote(a)}.${notProbedNote}`;
     default:
       switch (a.unmeasuredReason) {
         case "no-control":
           return `Not measured (unmeasured): no probed page gave our declared crawler a clean 2xx (a non-2xx, a failed fetch or a challenge on the control itself), so agent responses cannot be compared.${notProbedNote}`;
         case "no-agent-response":
           return `Not measured (unmeasured): every agent user-agent fetch was skipped or failed before a response arrived.${notProbedNote}`;
-        default:
-          return `Not measured (unmeasured): no page was answered by all ${a.probed.length} probed agent user-agents, so "consistent" cannot be claimed — ${unansweredNote(a)}.${notProbedNote}`;
+        default: {
+          // With a uniform probe set this is always the completeness clause: a
+          // token that never answered anywhere leaves no page complete. It is
+          // dropped only when a complete page coexists with such a token, which
+          // the extra-page probe limit makes possible.
+          const claim =
+            a.completePages === 0
+              ? `${incompleteNote(a)}, so "consistent" cannot be claimed — ${unansweredNote(a)}`
+              : `"consistent" cannot be claimed — ${unansweredNote(a)}`;
+          return `Not measured (unmeasured): ${claim}.${notProbedNote}`;
+        }
       }
   }
 }
@@ -174,6 +230,17 @@ function detailsFor(a: EdgeAccessAnalysis, edgeProbe: EdgeProbePage[] | undefine
   for (const page of edgeProbe ?? []) {
     lines.push(`${page.url}.control: ${statusLine(page.control)}`);
     for (const r of page.results) lines.push(`${page.url}.${r.token}: ${statusLine(r)}`);
+    // Tokens probed elsewhere but not here — the `extra-pages-only` case of
+    // §4.1's `notProbed` reason, which is a per-page fact and so is reported
+    // per page. Only for a page that was probed at all: when the control was
+    // not comparable the agent fetches are skipped wholesale, and calling that
+    // "extra-pages-only" would name the wrong reason.
+    if (page.results.length > 0) {
+      const missing = a.probed.filter((t) => !page.results.some((r) => r.token === t));
+      if (missing.length > 0) {
+        lines.push(`${page.url}.notProbed: ${missing.join(", ")} (extra-pages-only)`);
+      }
+    }
   }
   lines.push(`notProbed: ${a.notProbed.length > 0 ? a.notProbed.join(", ") : "none"}`);
   return lines.join("\n");

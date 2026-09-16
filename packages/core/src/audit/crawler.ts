@@ -20,17 +20,43 @@ import type {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-function uaFor(token: string): string {
-  const ua = BOT_TOKENS.find((b) => b.token === token)?.uaString;
-  if (!ua) throw new Error(`No documented UA string for ${token} in BOT_TOKENS`);
-  return ua;
+/**
+ * Every documented agent (`purpose: "user"`) token the registry publishes a UA
+ * string for, in registry order. Derived rather than hardcoded so a new token
+ * in `BOT_TOKENS` is probed without an edit here (§3 D-5); Claude-User has no
+ * published UA string and is therefore absent, reported as `notProbed`.
+ *
+ * `key` is the vendor slug and is the surface `checks/reach.ts` reads out of
+ * `metadata.multiUaResponses`. It is only ever a Record key, so no character
+ * sanitising is needed; what would break the check is two `purpose: "user"`
+ * tokens from one vendor silently overwriting each other in that Record, which
+ * the throw below refuses at module init.
+ */
+export const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = BOT_TOKENS.filter(
+  (b) => b.purpose === "user" && b.uaString,
+).map((b) => ({ key: b.vendor.toLowerCase(), token: b.token, ua: b.uaString as string }));
+
+{
+  const seen = new Set<string>();
+  for (const { key, token } of AGENT_UAS) {
+    if (seen.has(key)) {
+      throw new Error(`Duplicate agent UA key ${key} in BOT_TOKENS (${token})`);
+    }
+    seen.add(key);
+  }
 }
 
-const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = [
-  { key: "openai", token: "ChatGPT-User", ua: uaFor("ChatGPT-User") },
-  { key: "perplexity", token: "Perplexity-User", ua: uaFor("Perplexity-User") },
-  { key: "google", token: "Google-Agent", ua: uaFor("Google-Agent") },
-];
+/**
+ * How many of `AGENT_UAS`, in registry order, also probe the extra key pages.
+ * The homepage is probed under all of them; extra pages stay at three because
+ * the pass runs on a `min(timeout*3, 15s)` wall-clock budget and six UAs across
+ * three pages would convert budget pressure into more `budget-skipped` results
+ * (§3 D-5).
+ */
+export const EDGE_EXTRA_PAGE_TOKENS = 3;
+
+/** The single list both extra-page sites use, so they cannot drift apart. */
+const EXTRA_PAGE_UAS = AGENT_UAS.slice(0, EDGE_EXTRA_PAGE_TOKENS);
 
 /** Body bytes counted per agent-UA fetch before the stream is cancelled. */
 const MULTI_UA_BODY_CAP = 64 * 1024;
@@ -227,7 +253,7 @@ export async function fetchUnderUas(
       edgeProbe.push({
         url: pageUrl,
         control: budgetSkipped(pageUrl, CONTROL_TOKEN),
-        results: AGENT_UAS.map(({ token }) => budgetSkipped(pageUrl, token)),
+        results: EXTRA_PAGE_UAS.map(({ token }) => budgetSkipped(pageUrl, token)),
       });
       continue;
     }
@@ -237,7 +263,7 @@ export async function fetchUnderUas(
     // A non-comparable control makes every agent result on this page
     // uninterpretable, so don't spend the requests collecting them.
     if (!isComparableControl(control)) continue;
-    for (const { token, ua } of AGENT_UAS) {
+    for (const { token, ua } of EXTRA_PAGE_UAS) {
       entry.results.push(
         overBudget()
           ? budgetSkipped(pageUrl, token)

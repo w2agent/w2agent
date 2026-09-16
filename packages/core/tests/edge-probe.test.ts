@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { crawlSite, fetchUnderUas, probeSiteMetadata } from "../src/audit/crawler.js";
+import {
+  AGENT_UAS,
+  crawlSite,
+  EDGE_EXTRA_PAGE_TOKENS,
+  fetchUnderUas,
+  probeSiteMetadata,
+} from "../src/audit/crawler.js";
 import { BOT_TOKENS } from "../src/audit/shared/bot-tokens.js";
 import {
   AUDIT_CRAWL_PROFILE,
@@ -62,6 +68,22 @@ afterEach(() => {
 });
 
 const REACH_KEYS = ["openai", "perplexity", "google"] as const;
+
+/** The homepage probe set, in the registry order `AGENT_UAS` derives. */
+const HOMEPAGE_TOKENS = [
+  "ChatGPT-User",
+  "Google-Agent",
+  "Perplexity-User",
+  "Amzn-User",
+  "MistralAI-User",
+  "Meta-ExternalFetcher",
+];
+/**
+ * The extra-page probe set, hardcoded rather than sliced off the list above:
+ * deriving it from `EDGE_EXTRA_PAGE_TOKENS` would make every assertion below
+ * follow the constant instead of pinning it.
+ */
+const EXTRA_PAGE_TOKENS = ["ChatGPT-User", "Google-Agent", "Perplexity-User"];
 
 /**
  * The exact surface `checks/reach.ts` reads. Pinned so the edge-probe work
@@ -223,11 +245,12 @@ describe("politeness pacing of the fetches the probe adds", () => {
     }
 
     const gap = (i: number) => stamps[i].at - stamps[i - 1].at;
-    // stamps: 3 homepage agent fetches, homepage control, /p1 control, 3 /p1 agents.
-    expect(stamps).toHaveLength(8);
-    expect(gap(1)).toBe(0); // homepage agent loop: unpaced
-    expect(gap(2)).toBe(0);
-    for (const i of [3, 4, 5, 6, 7]) expect(gap(i)).toBe(60);
+    // stamps: 6 homepage agent fetches, homepage control, /p1 control, 3 /p1
+    // agents — 6 + 2 + 3, written out so widening either set moves this number.
+    expect(stamps).toHaveLength(11);
+    // homepage agent loop: unpaced
+    for (const i of [1, 2, 3, 4, 5]) expect(gap(i)).toBe(0);
+    for (const i of [6, 7, 8, 9, 10]) expect(gap(i)).toBe(60);
   });
 });
 
@@ -238,7 +261,7 @@ describe("edgeProbe shape", () => {
 
     expect(homepageEntry?.url).toBe(HOME);
     expect(homepageEntry?.control).toMatchObject({ token: "control", status: 200, outcome: "ok" });
-    for (const [i, key] of REACH_KEYS.entries()) {
+    for (const [i, { key }] of AGENT_UAS.entries()) {
       expect(homepageEntry?.results[i]).toBe(metadata.multiUaResponses?.[key]);
     }
   });
@@ -247,12 +270,16 @@ describe("edgeProbe shape", () => {
     const metadata = await probeSiteMetadata(HOME, OPTIONS);
 
     expect(metadata.edgeProbe?.map((p) => p.url)).toEqual([HOME, `${SITE}/p1`, `${SITE}/p2`]);
+    // The homepage widens to the whole registry-derived set; the extra pages
+    // stay at three, in registry order (§3 D-5) — six UAs across three pages
+    // would convert budget pressure into more `budget-skipped` results.
+    expect(EDGE_EXTRA_PAGE_TOKENS).toBe(3);
+    expect(AGENT_UAS).toHaveLength(6);
+    expect(metadata.edgeProbe?.[0].results.map((r) => r.token)).toEqual(HOMEPAGE_TOKENS);
+    for (const entry of metadata.edgeProbe?.slice(1) ?? []) {
+      expect(entry.results.map((r) => r.token)).toEqual(EXTRA_PAGE_TOKENS);
+    }
     for (const entry of metadata.edgeProbe ?? []) {
-      expect(entry.results.map((r) => r.token)).toEqual([
-        "ChatGPT-User",
-        "Perplexity-User",
-        "Google-Agent",
-      ]);
       expect(entry.results.every((r) => r.url === entry.url)).toBe(true);
     }
     expect(calls.some((c) => c.url === `${SITE}/p3`)).toBe(false);
@@ -297,13 +324,7 @@ describe("control fetch (homepage included)", () => {
   it("runs the homepage control after the agent loop, so reach-* keeps its request order", async () => {
     await probeSiteMetadata(HOME, OPTIONS);
     const uas = calls.filter((c) => c.url === HOME).map((c) => c.ua);
-    expect(uas).toEqual([
-      MAIN_UA,
-      OPENAI_UA,
-      uaOf("Perplexity-User"),
-      uaOf("Google-Agent"),
-      MAIN_UA,
-    ]);
+    expect(uas).toEqual([MAIN_UA, ...HOMEPAGE_TOKENS.map(uaOf), MAIN_UA]);
   });
 
   it("is single-shot on an extra page: a 503 that a retry would have turned into a 200 stays 503", async () => {
@@ -379,6 +400,9 @@ describe("shared time budget", () => {
     const extras = edgeProbe.slice(1);
     expect(extras.map((e) => e.control.outcome)).toEqual(["budget-skipped", "budget-skipped"]);
     for (const entry of extras) {
+      // Exactly the extra-page probe set is stubbed — not the wider homepage
+      // set: a budget-skipped stub claims a fetch was intended.
+      expect(entry.results.map((r) => r.token)).toEqual(EXTRA_PAGE_TOKENS);
       expect(entry.results.map((r) => r.outcome)).toEqual([
         "budget-skipped",
         "budget-skipped",
@@ -464,6 +488,6 @@ describe("challenge and header evidence", () => {
   it("sends the documented agent UA strings on every probed page", async () => {
     await probeSiteMetadata(HOME, OPTIONS);
     const p1Uas = calls.filter((c) => c.url === `${SITE}/p1`).map((c) => c.ua);
-    expect(p1Uas).toEqual([MAIN_UA, OPENAI_UA, uaOf("Perplexity-User"), uaOf("Google-Agent")]);
+    expect(p1Uas).toEqual([MAIN_UA, ...EXTRA_PAGE_TOKENS.map(uaOf)]);
   });
 });

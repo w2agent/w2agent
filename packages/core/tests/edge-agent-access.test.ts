@@ -165,7 +165,11 @@ describe("edge-agent-access — outcomes (§4.4)", () => {
   });
 
   it("consistent: every agent UA matching the control passes", () => {
-    const r = run([page(), page({ url: P1, results: [ua("ChatGPT-User", { url: P1 })] })]);
+    const probe = [page(), page({ url: P1, results: [ua("ChatGPT-User", { url: P1 })] })];
+    // P1 carries a subset of the probed tokens and every one of them answered,
+    // so P1 is complete on its own terms: completeness is per page.
+    expect(analyzeEdgeAccess(probe)).toMatchObject({ comparablePages: 2, completePages: 2 });
+    const r = run(probe);
     expect(r.status).toBe("pass");
     expect(r.score).toBe(100);
     expect(firstLine(r)).toBe("outcome: consistent");
@@ -301,6 +305,141 @@ describe("edge-agent-access — a verdict needs completeness (gate fix A)", () =
     const r = run(probe);
     expect(r.message).toContain("matched our declared crawler on 1 of 2 comparable page(s).");
     expect(r.message).not.toMatch(/on 2 page/);
+  });
+});
+
+describe("edge-agent-access — homepage probes more tokens than extra pages (§3 D-5)", () => {
+  const SIX = [
+    "ChatGPT-User",
+    "Google-Agent",
+    "Perplexity-User",
+    "Amzn-User",
+    "MistralAI-User",
+    "Meta-ExternalFetcher",
+  ];
+  const THREE = SIX.slice(0, 3);
+  const home = (results: MultiUaResponse[]) => page({ results });
+  const extra = (tokens: string[] = THREE) =>
+    page({ url: P1, control: ctl({ url: P1 }), results: tokens.map((t) => ua(t, { url: P1 })) });
+
+  it("an extra page carrying a subset of the tokens is still complete", () => {
+    // Under the old union rule an extra page could never be complete once the
+    // homepage probed more tokens, so a clean site read as `unmeasured`.
+    const a = analyzeEdgeAccess([home(SIX.map((t) => ua(t))), extra()]);
+    expect(a).toMatchObject({
+      outcome: "consistent",
+      comparablePages: 2,
+      completePages: 2,
+      uniformProbeSet: false,
+    });
+    expect(a.probed).toEqual(SIX);
+    expect(a.notProbed).toEqual(["Claude-User"]);
+  });
+
+  it("a token skipped on the homepage blocks the pass even when an extra page is complete", () => {
+    const probe = [
+      home([
+        ...SIX.slice(0, 5).map((t) => ua(t)),
+        ua("Meta-ExternalFetcher", { status: 0, reachable: false, outcome: "budget-skipped" }),
+      ]),
+      extra(),
+    ];
+    const a = analyzeEdgeAccess(probe);
+    // The completeness count alone would have allowed the pass: the explicit
+    // `unanswered` gate is what refuses it.
+    expect(a.completePages).toBe(1);
+    expect(a.unanswered).toEqual(["Meta-ExternalFetcher"]);
+    expect(a).toMatchObject({ outcome: "unmeasured", unmeasuredReason: "incomplete" });
+    const r = run(probe);
+    expect(r.status).toBe("error");
+    expect(r.message).toContain("Meta-ExternalFetcher never answered on a comparable page");
+    expect(r.message).not.toContain("consistent)");
+    expect(r.message).not.toContain("No edge difference");
+    // Never claims a page count it cannot support.
+    expect(r.message).not.toMatch(/all 6 probed agent user-agents/);
+  });
+
+  it("refuses a pass when the homepage control failed and only extra pages are comparable", () => {
+    // The homepage is where the three extra tokens are probed, so a homepage
+    // whose own control was refused leaves them with no comparable evidence at
+    // all. Before the probe set widened this read `consistent` on 2 of 2 pages;
+    // it is now `unmeasured`, because three probed tokens have nothing behind
+    // them. Deliberate: the widening can raise `unmeasured` through
+    // completeness, not only through the fetch budget (spec-review input 22).
+    const probe = [
+      page({ control: ctl({ status: 429, reachable: false }), results: SIX.map((t) => ua(t)) }),
+      extra(),
+    ];
+    const a = analyzeEdgeAccess(probe);
+    expect(a).toMatchObject({ outcome: "unmeasured", unmeasuredReason: "incomplete" });
+    expect(a.comparablePages).toBe(1);
+    expect(a.completePages).toBe(1);
+    expect(a.unanswered).toEqual(["Amzn-User", "MistralAI-User", "Meta-ExternalFetcher"]);
+    const r = run(probe);
+    expect(r.message).toContain(
+      "Amzn-User, MistralAI-User, Meta-ExternalFetcher never answered on a comparable page",
+    );
+    // The completeness clause would be false here: a page *is* complete.
+    expect(r.message).not.toContain("no comparable page was answered");
+  });
+
+  it("reports the tokens an extra page did not carry, per page, as extra-pages-only", () => {
+    const r = run([home(SIX.map((t) => ua(t))), extra()]);
+    expect(r.details).toContain(
+      `${P1}.notProbed: Amzn-User, MistralAI-User, Meta-ExternalFetcher (extra-pages-only)`,
+    );
+    // The homepage carried them all, so it gets no such line.
+    expect(r.details).not.toContain(`${HOME}.notProbed:`);
+    // …and the flat line still means "not probed anywhere".
+    expect(r.details).toMatch(/\nnotProbed: Claude-User$/);
+  });
+
+  it("does not call a page with no agent fetches at all extra-pages-only", () => {
+    // A control that was itself challenged skips the agent fetches wholesale;
+    // "probed on the homepage but not here" is the wrong reason for that.
+    const r = run([
+      home(SIX.map((t) => ua(t))),
+      page({
+        url: P1,
+        control: ctl({
+          url: P1,
+          challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+        }),
+        results: [],
+      }),
+    ]);
+    expect(r.details).not.toContain("extra-pages-only");
+  });
+
+  it("leaves a uniform three-token probe unchanged, message included", () => {
+    // The strings below are the pre-change output verbatim: the per-page
+    // completeness rule and the `unanswered` gate are both no-ops when every
+    // comparable page carries every probed token.
+    const uniform = [page(), page({ url: P1, results: THREE.map((t) => ua(t, { url: P1 })) })];
+    const notProbed = " Not probed: Claude-User, Amzn-User, MistralAI-User, Meta-ExternalFetcher.";
+    const consistent = run(uniform);
+    expect(analyzeEdgeAccess(uniform)).toMatchObject({
+      outcome: "consistent",
+      comparablePages: 2,
+      completePages: 2,
+      uniformProbeSet: true,
+    });
+    expect(consistent.message).toBe(
+      `No edge difference (consistent): every probed agent user-agent matched our declared crawler on 2 of 2 comparable page(s).${notProbed}`,
+    );
+
+    const tarpit = [
+      page({
+        results: [
+          ua("ChatGPT-User", { status: 0, reachable: false, outcome: "timeout" }),
+          ua("Perplexity-User"),
+          ua("Google-Agent"),
+        ],
+      }),
+    ];
+    expect(run(tarpit).message).toBe(
+      `Not measured (unmeasured): no page was answered by all 3 probed agent user-agents, so "consistent" cannot be claimed — ChatGPT-User never answered on a comparable page.${notProbed}`,
+    );
   });
 });
 
@@ -483,10 +622,11 @@ describe("edge-agent-access — on the report produced by runAudit", () => {
     expect(row?.score).toBe(0);
     expect(firstLine(row as CheckResult)).toBe("outcome: agent-blocked");
     // Produced by the real AGENT_UAS -> edgeProbe path, so this line moves if
-    // either BOT_TOKENS or crawler.ts's probed UA list changes.
-    expect(row?.details).toContain(
-      "notProbed: Claude-User, Amzn-User, MistralAI-User, Meta-ExternalFetcher",
-    );
+    // either BOT_TOKENS or crawler.ts's probed UA list changes. Every token the
+    // registry publishes a UA string for is now probed on the homepage, so
+    // Claude-User is the only one left.
+    expect(row?.details).toContain("notProbed: Claude-User");
+    expect(row?.details).not.toMatch(/notProbed: Claude-User, /);
   });
 
   it("a passing edge probe carries score 100 through the report", async () => {

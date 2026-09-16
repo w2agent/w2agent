@@ -859,16 +859,28 @@ describe("user-agent reach checks (P1-7)", () => {
     const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
-    // The three agent UAs first, then the homepage control under our own UA.
+    // Every registry-derived agent UA first, in registry order, then the
+    // homepage control under our own UA. Claude-User has no published UA
+    // string, so it is never sent.
     expect(sent).toEqual([
       uaOf("ChatGPT-User"),
-      uaOf("Perplexity-User"),
       uaOf("Google-Agent"),
+      uaOf("Perplexity-User"),
+      uaOf("Amzn-User"),
+      uaOf("MistralAI-User"),
+      uaOf("Meta-ExternalFetcher"),
       "w2agent-test/1.0",
     ]);
     expect(sent.every((ua) => typeof ua === "string" && ua.length > 0)).toBe(true);
     expect(uaOf("Google-Agent")).toContain("Chrome/W.X.Y.Z");
-    expect(Object.keys(result)).toEqual(["openai", "perplexity", "google"]);
+    expect(Object.keys(result)).toEqual([
+      "openai",
+      "google",
+      "perplexity",
+      "amazon",
+      "mistral",
+      "meta",
+    ]);
   });
 
   it("records the final status per UA, with reachable only for 2xx + body", async () => {

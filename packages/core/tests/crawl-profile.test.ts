@@ -83,7 +83,10 @@ describe("probeSiteMetadata", () => {
     expect(metadata.mcpInit?.success).toBe(true);
     expect(metadata.mcpInit?.serverInfo?.name).toBe("site-mcp");
     expect(Object.keys(metadata.multiUaResponses ?? {}).sort()).toEqual([
+      "amazon",
       "google",
+      "meta",
+      "mistral",
       "openai",
       "perplexity",
     ]);
