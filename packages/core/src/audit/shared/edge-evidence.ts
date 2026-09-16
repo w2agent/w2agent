@@ -36,12 +36,12 @@ export function evidenceStatus(r: EvidenceShape): number {
 }
 
 /** Something was observed on the wire, even if the body read then broke. */
-export function responded(r: EvidenceShape): boolean {
+function responded(r: EvidenceShape): boolean {
   return evidenceStatus(r) !== 0;
 }
 
 /** The edge let this UA through: a 2xx that was not an anti-bot challenge. */
-export function served(r: EvidenceShape): boolean {
+function served(r: EvidenceShape): boolean {
   return is2xx(evidenceStatus(r)) && r.challenge === undefined;
 }
 

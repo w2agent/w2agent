@@ -8,6 +8,7 @@ import {
   type CategoryId,
   clearChecks,
   type EdgeEvidence,
+  type EdgeVerdict,
   formatEdgeEvidenceLine,
   loadConfig,
   mergeConfigWithOptions,
@@ -43,7 +44,15 @@ export function edgeEvidenceOf(err: unknown): EdgeEvidence | undefined {
   return isEdgeEvidence(edge) ? edge : undefined;
 }
 
-const VERDICTS = ["all-blocked", "agents-allowed", "mixed", "unknown"];
+// Pinned to core's union in both directions: a core that adds a fifth verdict
+// fails the build here instead of silently dropping a real payload, which would
+// be indistinguishable from "no evidence collected".
+const VERDICTS: readonly EdgeVerdict[] = Object.keys({
+  "all-blocked": true,
+  "agents-allowed": true,
+  mixed: true,
+  unknown: true,
+} satisfies Record<EdgeVerdict, true>) as EdgeVerdict[];
 
 /**
  * Only the fields the line reads, so a newer core carrying extra ones still
@@ -53,7 +62,11 @@ const VERDICTS = ["all-blocked", "agents-allowed", "mixed", "unknown"];
 function isEdgeEvidence(edge: unknown): edge is EdgeEvidence {
   if (typeof edge !== "object" || edge === null || Array.isArray(edge)) return false;
   const e = edge as { verdict?: unknown; agents?: unknown };
-  return typeof e.verdict === "string" && VERDICTS.includes(e.verdict) && Array.isArray(e.agents);
+  return (
+    typeof e.verdict === "string" &&
+    (VERDICTS as readonly string[]).includes(e.verdict) &&
+    Array.isArray(e.agents)
+  );
 }
 
 export function registerAuditCommand(program: Command): void {
