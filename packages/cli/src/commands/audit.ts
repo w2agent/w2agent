@@ -37,9 +37,23 @@ function isPlausibleUrl(url: string): boolean {
  */
 export function edgeEvidenceOf(err: unknown): EdgeEvidence | undefined {
   if (typeof err !== "object" || err === null) return undefined;
-  const e = err as { name?: unknown; evidence?: { edge?: EdgeEvidence } };
+  const e = err as { name?: unknown; evidence?: { edge?: unknown } };
   if (!(err instanceof AuditError) && e.name !== "AuditError") return undefined;
-  return e.evidence?.edge;
+  const edge = e.evidence?.edge;
+  return isEdgeEvidence(edge) ? edge : undefined;
+}
+
+const VERDICTS = ["all-blocked", "agents-allowed", "mixed", "unknown"];
+
+/**
+ * Only the fields the line reads, so a newer core carrying extra ones still
+ * prints. A payload from a mismatched build that lacks `agents` would otherwise
+ * throw inside the catch that was reporting the real audit failure.
+ */
+function isEdgeEvidence(edge: unknown): edge is EdgeEvidence {
+  if (typeof edge !== "object" || edge === null || Array.isArray(edge)) return false;
+  const e = edge as { verdict?: unknown; agents?: unknown };
+  return typeof e.verdict === "string" && VERDICTS.includes(e.verdict) && Array.isArray(e.agents);
 }
 
 export function registerAuditCommand(program: Command): void {

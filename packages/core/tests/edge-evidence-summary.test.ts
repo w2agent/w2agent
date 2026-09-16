@@ -104,8 +104,57 @@ describe("summarizeEdgeEvidence — verdict per §3 D-2", () => {
     expect(edge.verdict).toBe("unknown");
   });
 
-  it("an agent that observed a 200 but failed the body read is excluded from the verdict", () => {
-    // outcome fetch-error → not a responder, so the two blocked responders decide.
+  it("a 2xx carrying a challenge is not served → all-blocked, not agents-allowed", () => {
+    const edge = summarizeEdgeEvidence(
+      homepage([
+        response("ChatGPT-User", {
+          challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+        }),
+        response("Google-Agent", {
+          challenge: { vendor: "akamai", signal: "server: AkamaiGHost" },
+        }),
+      ]),
+    );
+    expect(edge.verdict).toBe("all-blocked");
+  });
+
+  it("one clean 200 alongside a challenged 200 → mixed", () => {
+    const edge = summarizeEdgeEvidence(
+      homepage([
+        response("ChatGPT-User"),
+        response("Google-Agent", {
+          challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+        }),
+      ]),
+    );
+    expect(edge.verdict).toBe("mixed");
+  });
+
+  it("a status observed before the body read broke is a blocked responder, and is stored", () => {
+    const edge = summarizeEdgeEvidence(
+      homepage([
+        skipped("ChatGPT-User"),
+        response("Google-Agent", {
+          status: 0,
+          contentLength: 0,
+          reachable: false,
+          outcome: "timeout",
+          observedStatus: 403,
+          challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+        }),
+      ]),
+    );
+    expect(edge.verdict).toBe("all-blocked");
+    expect(edge.agents.find((a) => a.token === "Google-Agent")).toEqual({
+      token: "Google-Agent",
+      status: 0,
+      outcome: "timeout",
+      observedStatus: 403,
+      challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+    });
+  });
+
+  it("an agent that observed a 200 before the body read broke is a served responder", () => {
     const edge = summarizeEdgeEvidence(
       homepage([
         blocked("ChatGPT-User"),
@@ -119,12 +168,34 @@ describe("summarizeEdgeEvidence — verdict per §3 D-2", () => {
         }),
       ]),
     );
-    expect(edge.verdict).toBe("all-blocked");
+    expect(edge.verdict).toBe("mixed");
     expect(edge.agents.find((a) => a.token === "Google-Agent")).toEqual({
       token: "Google-Agent",
       status: 0,
       outcome: "fetch-error",
+      observedStatus: 200,
     });
+  });
+
+  it("a failed fetch with no observed status is not a responder → unknown", () => {
+    const edge = summarizeEdgeEvidence(
+      homepage([
+        response("ChatGPT-User", {
+          status: 0,
+          contentLength: 0,
+          reachable: false,
+          outcome: "timeout",
+        }),
+        response("Google-Agent", {
+          status: 0,
+          contentLength: 0,
+          reachable: false,
+          outcome: "fetch-error",
+        }),
+      ]),
+    );
+    expect(edge.verdict).toBe("unknown");
+    expect(edge.agents.every((a) => a.observedStatus === undefined)).toBe(true);
   });
 
   it("carries the control status, its challenge, and one agent row per result", () => {
@@ -155,7 +226,7 @@ describe("summarizeEdgeEvidence — verdict per §3 D-2", () => {
 });
 
 describe("summarizeEdgeEvidence — notProbed", () => {
-  it("reports every purpose:user token that was not probed, with a reason", () => {
+  it("reports only tokens that could not be probed at all — no uaString", () => {
     const edge = summarizeEdgeEvidence(
       homepage([response("ChatGPT-User"), response("Perplexity-User"), response("Google-Agent")]),
     );
@@ -163,59 +234,109 @@ describe("summarizeEdgeEvidence — notProbed", () => {
     // Claude-User is `hasUA: true` with no documented uaString — the uaString is
     // the gate, so this is the case the reason exists for.
     expect(BOT_TOKENS.find((b) => b.token === "Claude-User")?.uaString).toBeUndefined();
-    expect(edge.notProbed).toEqual(
-      expect.arrayContaining([
-        { token: "Claude-User", reason: "no-ua-string" },
-        { token: "Amzn-User", reason: "extra-pages-only" },
-        { token: "MistralAI-User", reason: "extra-pages-only" },
-        { token: "Meta-ExternalFetcher", reason: "extra-pages-only" },
-      ]),
-    );
+    expect(edge.notProbed.every((n) => n.reason === "no-ua-string")).toBe(true);
     expect(edge.notProbed.map((n) => n.token)).not.toContain("ChatGPT-User");
+  });
+
+  it("makes no claim about uaString-bearing tokens this build never probes", () => {
+    const edge = summarizeEdgeEvidence(
+      homepage([response("ChatGPT-User"), response("Perplexity-User"), response("Google-Agent")]),
+    );
+    // They are not probed on any page, so "extra-pages-only" would be a lie and
+    // these rows persist. Omitted until the probe set is registry-derived.
+    for (const token of ["Amzn-User", "MistralAI-User", "Meta-ExternalFetcher"]) {
+      expect(BOT_TOKENS.find((b) => b.token === token)?.uaString).toBeDefined();
+      expect(edge.notProbed.map((n) => n.token)).not.toContain(token);
+    }
   });
 });
 
 describe("formatEdgeEvidenceLine", () => {
-  it("agents-allowed carries the acceptance phrase and names the agents", () => {
+  it("agents-allowed carries the acceptance phrase, scoped to the agents that responded", () => {
     const line = formatEdgeEvidenceLine(
-      summarizeEdgeEvidence(homepage([response("ChatGPT-User"), response("Google-Agent")])),
+      summarizeEdgeEvidence(
+        homepage([response("ChatGPT-User"), response("Google-Agent"), skipped("Perplexity-User")]),
+      ),
     );
+    expect(line).toContain("2 of 3 documented agent user-agents responded");
     expect(line).toContain("documented agent user-agents were served normally");
-    expect(line).toContain("ChatGPT-User");
+    expect(line).toContain("ChatGPT-User: 200");
+    expect(line).toContain("Perplexity-User: no response (budget-skipped)");
   });
 
-  it("all-blocked says the agents were blocked too", () => {
+  it("all-blocked states the counts and each agent's status, and claims no coverage", () => {
     const line = formatEdgeEvidenceLine(
-      summarizeEdgeEvidence(homepage([blocked("ChatGPT-User"), blocked("Google-Agent")])),
+      summarizeEdgeEvidence(
+        homepage([
+          response("ChatGPT-User", {
+            status: 403,
+            contentLength: 0,
+            reachable: false,
+            challenge: { vendor: "cloudflare", signal: "cf-mitigated: challenge" },
+          }),
+          blocked("Google-Agent"),
+          response("Perplexity-User", {
+            status: 0,
+            contentLength: 0,
+            reachable: false,
+            outcome: "timeout",
+          }),
+        ]),
+      ),
     );
-    expect(line).toContain("every documented agent user-agent was blocked too");
+    expect(line).toContain("2 of 3 documented agent user-agents responded");
+    expect(line).toContain("none of them was served");
+    expect(line).toContain("ChatGPT-User: 403 challenge (cloudflare)");
+    expect(line).toContain("Google-Agent: 403");
+    expect(line).toContain("Perplexity-User: no response (timeout)");
     expect(line).not.toContain("served normally");
+    expect(line).not.toContain("every documented agent user-agent");
   });
 
-  it("mixed names which agents were served and which were blocked", () => {
+  it("mixed names which agents were served and which were refused", () => {
     const line = formatEdgeEvidenceLine(
       summarizeEdgeEvidence(homepage([response("ChatGPT-User"), blocked("Google-Agent")])),
     );
+    expect(line).toContain("2 of 2 documented agent user-agents responded");
     expect(line).toContain("served ChatGPT-User");
-    expect(line).toContain("blocked Google-Agent");
+    expect(line).toContain("refused Google-Agent");
   });
 
-  it("unknown claims nothing", () => {
+  it("a status observed before the read broke is reported with its outcome", () => {
+    const line = formatEdgeEvidenceLine(
+      summarizeEdgeEvidence(
+        homepage([
+          response("ChatGPT-User", {
+            status: 0,
+            contentLength: 0,
+            reachable: false,
+            outcome: "timeout",
+            observedStatus: 403,
+          }),
+        ]),
+      ),
+    );
+    expect(line).toContain("ChatGPT-User: 403 (timeout after the status arrived)");
+  });
+
+  it("unknown claims nothing and still lists the agents", () => {
     const line = formatEdgeEvidenceLine(
       summarizeEdgeEvidence(homepage([skipped("ChatGPT-User"), skipped("Google-Agent")])),
     );
     expect(line).toContain("no agent user-agent returned a response");
+    expect(line).toContain("Google-Agent: no response (budget-skipped)");
   });
 });
 
-describe("the prefetched path carries no edge evidence (§3 D-1)", () => {
+describe("the prefetched path carries the evidence of whatever crawl made the metadata", () => {
   const URL_UNDER_TEST = "https://prefetched.test/";
 
   function unscorablePage(url: string): FetchedPage {
     return { url, status: 403, html: "", headers: {}, responseTime: 1 };
   }
 
-  // Populated on purpose: the guard must ignore it, not merely lack it.
+  // The platform's deploy route prefetches with core's `crawlSite`, which
+  // populates `edgeProbe`; dropping it there stored NULL on real failures.
   function metadataWithEdgeProbe(): SiteMetadata {
     return {
       baseUrl: "https://prefetched.test",
@@ -224,7 +345,7 @@ describe("the prefetched path carries no edge evidence (§3 D-1)", () => {
     };
   }
 
-  it("verbatim prefetched pages → AuditError with evidence.edge absent", async () => {
+  it("verbatim prefetched pages → AuditError carrying evidence.edge", async () => {
     const err = await runAudit(
       URL_UNDER_TEST,
       {
@@ -237,10 +358,14 @@ describe("the prefetched path carries no edge evidence (§3 D-1)", () => {
     ).catch((e) => e);
     expect(err).toBeInstanceOf(AuditError);
     expect((err as AuditError).kind).toBe("unknown_failure");
-    expect((err as AuditError).evidence.edge).toBeUndefined();
+    expect((err as AuditError).evidence.edge?.verdict).toBe("agents-allowed");
+    expect((err as AuditError).evidence.edge?.agents.map((a) => a.token)).toEqual([
+      "ChatGPT-User",
+      "Google-Agent",
+    ]);
   });
 
-  it("the >maxPages reselect branch → AuditError with evidence.edge absent", async () => {
+  it("the >maxPages reselect branch → AuditError carrying evidence.edge", async () => {
     const err = await runAudit(
       URL_UNDER_TEST,
       {
@@ -248,6 +373,21 @@ describe("the prefetched path carries no edge evidence (§3 D-1)", () => {
         maxPages: 1,
         prefetchedPages: [unscorablePage(URL_UNDER_TEST), unscorablePage(`${URL_UNDER_TEST}other`)],
         prefetchedMetadata: metadataWithEdgeProbe(),
+      },
+      undefined,
+      [],
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(AuditError);
+    expect((err as AuditError).evidence.edge?.verdict).toBe("agents-allowed");
+  });
+
+  it("a caller that did no crawl carries no edgeProbe → evidence.edge absent", async () => {
+    const err = await runAudit(
+      URL_UNDER_TEST,
+      {
+        ...DEFAULT_OPTIONS,
+        prefetchedPages: [unscorablePage(URL_UNDER_TEST)],
+        prefetchedMetadata: { baseUrl: "https://prefetched.test", wellKnown: {} },
       },
       undefined,
       [],

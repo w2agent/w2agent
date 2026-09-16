@@ -68,7 +68,11 @@ export async function runAudit(
       // guarded fetch, as reselectPrefetchedPages already does; the fetched page
       // is classified only, never scored.
       pages = options.prefetchedPages;
-      throwIfUnscorable(findHomepage(url, pages) ?? (await fetchPage(url, options)), url);
+      throwIfUnscorable(
+        findHomepage(url, pages) ?? (await fetchPage(url, options)),
+        url,
+        metadata.edgeProbe,
+      );
     }
   } else {
     const crawled = await crawlSite(url, options, onProgress);
@@ -155,9 +159,12 @@ export async function runAudit(
 
 // An empty crawl has no homepage to judge; that stays unguarded, as before.
 //
-// `edgeProbe` is the crawl's multi-UA evidence (§3 D-1). Only the crawl path has
-// it: the prefetched paths perform no crawl, so `evidence.edge` is absent there
-// and that is correct, not a gap. Only the homepage entry crosses the throw.
+// `edgeProbe` is the multi-UA evidence (§3 D-1) of whatever crawl produced the
+// metadata — our own on the crawl path, the caller's on the prefetched paths
+// (the platform's deploy route prefetches with core's `crawlSite`, which
+// populates it). A caller that truly did no crawl carries no `edgeProbe`, so
+// that case still yields no evidence with no special-casing. Only the homepage
+// entry crosses the throw.
 function throwIfUnscorable(
   homepage: FetchedPage | undefined,
   url: string,
@@ -205,7 +212,7 @@ async function reselectPrefetchedPages(
   const cached = (u: string) => byUrl.get(normalizePageUrl(u));
 
   const homepage = cached(url) ?? (await fetchPage(url, options));
-  throwIfUnscorable(homepage, url);
+  throwIfUnscorable(homepage, url, metadata.edgeProbe);
 
   const { pages } = await crawlPages(url, homepage, metadata, options, { cached, onProgress });
   return pages;

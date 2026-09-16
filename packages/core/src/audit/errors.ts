@@ -18,6 +18,8 @@ export interface EdgeEvidenceAgent {
   status: number;
   outcome: MultiUaResponse["outcome"];
   challenge?: { vendor: ChallengeVendor; signal: string };
+  /** Status seen on the wire before a body-read error erased the response. */
+  observedStatus?: number;
 }
 
 export interface EdgeEvidence {
@@ -32,7 +34,7 @@ export interface AuditErrorEvidence {
   vendor?: ChallengeVendor;
   signal?: string;
   cause?: string;
-  /** Homepage agent-UA evidence, attached by the engine. Absent on the prefetched path. */
+  /** Homepage agent-UA evidence, attached by the engine from whatever crawl produced the metadata. */
   edge?: EdgeEvidence;
 }
 
