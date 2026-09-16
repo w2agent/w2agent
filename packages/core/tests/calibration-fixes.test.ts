@@ -859,13 +859,15 @@ describe("user-agent reach checks (P1-7)", () => {
     const { responses: result } = await fetchUnderUas("https://example.com/", AuditOpts);
     fetchSpy.mockRestore();
 
-    // Every registry-derived agent UA first, in registry order, then the
-    // homepage control under our own UA. Claude-User has no published UA
-    // string, so it is never sent.
+    // The three UAs backing a scored reach-* check first, in their historical
+    // order (the budget gates this loop per fetch, so position decides which
+    // scored check goes unmeasured on a slow site), then the derived tail in
+    // registry order, then the homepage control under our own UA. Claude-User
+    // has no published UA string, so it is never sent.
     expect(sent).toEqual([
       uaOf("ChatGPT-User"),
-      uaOf("Google-Agent"),
       uaOf("Perplexity-User"),
+      uaOf("Google-Agent"),
       uaOf("Amzn-User"),
       uaOf("MistralAI-User"),
       uaOf("Meta-ExternalFetcher"),
@@ -875,11 +877,11 @@ describe("user-agent reach checks (P1-7)", () => {
     expect(uaOf("Google-Agent")).toContain("Chrome/W.X.Y.Z");
     expect(Object.keys(result)).toEqual([
       "openai",
-      "google",
       "perplexity",
-      "amazon",
-      "mistral",
-      "meta",
+      "google",
+      "Amzn-User",
+      "MistralAI-User",
+      "Meta-ExternalFetcher",
     ]);
   });
 

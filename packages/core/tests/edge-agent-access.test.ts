@@ -311,8 +311,8 @@ describe("edge-agent-access — a verdict needs completeness (gate fix A)", () =
 describe("edge-agent-access — homepage probes more tokens than extra pages (§3 D-5)", () => {
   const SIX = [
     "ChatGPT-User",
-    "Google-Agent",
     "Perplexity-User",
+    "Google-Agent",
     "Amzn-User",
     "MistralAI-User",
     "Meta-ExternalFetcher",

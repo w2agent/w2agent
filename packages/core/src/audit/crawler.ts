@@ -20,22 +20,53 @@ import type {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/**
- * Every documented agent (`purpose: "user"`) token the registry publishes a UA
- * string for, in registry order. Derived rather than hardcoded so a new token
- * in `BOT_TOKENS` is probed without an edit here (§3 D-5); Claude-User has no
- * published UA string and is therefore absent, reported as `notProbed`.
- *
- * `key` is the vendor slug and is the surface `checks/reach.ts` reads out of
- * `metadata.multiUaResponses`. It is only ever a Record key, so no character
- * sanitising is needed; what would break the check is two `purpose: "user"`
- * tokens from one vendor silently overwriting each other in that Record, which
- * the throw below refuses at module init.
- */
-export const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = BOT_TOKENS.filter(
-  (b) => b.purpose === "user" && b.uaString,
-).map((b) => ({ key: b.vendor.toLowerCase(), token: b.token, ua: b.uaString as string }));
+function uaFor(token: string): string {
+  const ua = BOT_TOKENS.find((b) => b.token === token)?.uaString;
+  if (!ua) throw new Error(`No documented UA string for ${token} in BOT_TOKENS`);
+  return ua;
+}
 
+/**
+ * The tokens backing a *scored* `reach-*` check (weight 0.5, `checks/reach.ts`),
+ * pinned by position and by key.
+ *
+ * Position is part of what those checks measure: the homepage agent loop is
+ * budget-gated per fetch, so a token's place in the queue decides whether it is
+ * measured at all on a slow site. Reordering them silently moves which check
+ * reports `unmeasured` — a scored move with no rubric event behind it. Their
+ * keys are literals for the same reason: derived from `vendor` they would
+ * follow a registry typo (`"OpenAI "` → `"openai "`) and zero a scored check
+ * with no throw anywhere.
+ */
+const SCORED_AGENT_TOKENS: readonly { key: string; token: string }[] = [
+  { key: "openai", token: "ChatGPT-User" },
+  { key: "perplexity", token: "Perplexity-User" },
+  { key: "google", token: "Google-Agent" },
+];
+
+/**
+ * The scored head, then every other documented agent (`purpose: "user"`) token
+ * the registry publishes a UA string for, in registry order. The tail is
+ * derived, so a new token in `BOT_TOKENS` is probed on the homepage with no
+ * edit here (§3 D-5) — it simply queues behind the scored three. Claude-User
+ * has no published UA string and is therefore absent, reported as `notProbed`.
+ *
+ * A derived entry is keyed by its own token: the token is the registry's unique
+ * identity, so it needs no normalising and cannot collide through a vendor
+ * string. `key` is only ever a `Record` key in `metadata.multiUaResponses`.
+ */
+export const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = [
+  ...SCORED_AGENT_TOKENS.map(({ key, token }) => ({ key, token, ua: uaFor(token) })),
+  ...BOT_TOKENS.filter(
+    (b) =>
+      b.purpose === "user" && b.uaString && !SCORED_AGENT_TOKENS.some((s) => s.token === b.token),
+  ).map((b) => ({ key: b.token, token: b.token, ua: b.uaString as string })),
+];
+
+// Two entries sharing a key would overwrite each other in `responses`, and the
+// reach check reading that key would report the wrong token's result. Only a
+// duplicate registry token, or a token named after a pinned key, can trip this
+// — not the "add a documented agent" edit G3 exists to make easy.
 {
   const seen = new Set<string>();
   for (const { key, token } of AGENT_UAS) {
@@ -47,8 +78,9 @@ export const AGENT_UAS: readonly { key: string; token: string; ua: string }[] = 
 }
 
 /**
- * How many of `AGENT_UAS`, in registry order, also probe the extra key pages.
- * The homepage is probed under all of them; extra pages stay at three because
+ * How many of `AGENT_UAS`, from the front of the queue, also probe the extra
+ * key pages — exactly the scored three, which is the set §3 D-5 names. The
+ * homepage is probed under all of them; extra pages stay at three because
  * the pass runs on a `min(timeout*3, 15s)` wall-clock budget and six UAs across
  * three pages would convert budget pressure into more `budget-skipped` results
  * (§3 D-5).

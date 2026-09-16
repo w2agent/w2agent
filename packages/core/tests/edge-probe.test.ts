@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { reachGoogle, reachOpenai, reachPerplexity } from "../src/audit/checks/reach.js";
 import {
   AGENT_UAS,
   crawlSite,
@@ -69,11 +70,14 @@ afterEach(() => {
 
 const REACH_KEYS = ["openai", "perplexity", "google"] as const;
 
-/** The homepage probe set, in the registry order `AGENT_UAS` derives. */
+/**
+ * The homepage probe set: the three scored tokens first, in their historical
+ * order, then the derived tail in registry order.
+ */
 const HOMEPAGE_TOKENS = [
   "ChatGPT-User",
-  "Google-Agent",
   "Perplexity-User",
+  "Google-Agent",
   "Amzn-User",
   "MistralAI-User",
   "Meta-ExternalFetcher",
@@ -83,7 +87,7 @@ const HOMEPAGE_TOKENS = [
  * deriving it from `EDGE_EXTRA_PAGE_TOKENS` would make every assertion below
  * follow the constant instead of pinning it.
  */
-const EXTRA_PAGE_TOKENS = ["ChatGPT-User", "Google-Agent", "Perplexity-User"];
+const EXTRA_PAGE_TOKENS = ["ChatGPT-User", "Perplexity-User", "Google-Agent"];
 
 /**
  * The exact surface `checks/reach.ts` reads. Pinned so the edge-probe work
@@ -489,5 +493,90 @@ describe("challenge and header evidence", () => {
     await probeSiteMetadata(HOME, OPTIONS);
     const p1Uas = calls.filter((c) => c.url === `${SITE}/p1`).map((c) => c.ua);
     expect(p1Uas).toEqual([MAIN_UA, ...EXTRA_PAGE_TOKENS.map(uaOf)]);
+  });
+});
+
+/**
+ * The homepage agent loop is budget-gated **per fetch**, so a token's position
+ * in the queue decides whether it is measured at all on a slow site — and three
+ * of those tokens back scored `reach-*` checks (weight 0.5). These scenarios
+ * exhaust the budget *between* agent fetches, which is exactly what a scenario
+ * exhausting after the first fetch cannot see: there, every order skips
+ * everything anyway.
+ */
+describe("budget pressure must not move which scored reach-* check is measured", () => {
+  const budgetClock = (msPerFetch: number) => {
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    fetchMock?.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const ua = (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? "";
+      calls.push({ url, method: init?.method ?? "GET", ua });
+      now += msPerFetch;
+      return html(HOME_HTML);
+    });
+    return nowSpy;
+  };
+
+  const reachOf = async (responses: Record<string, MultiUaResponse>) => {
+    const metadata = { multiUaResponses: responses } as unknown as SiteMetadata;
+    return {
+      openai: await reachOpenai.run([], metadata),
+      perplexity: await reachPerplexity.run([], metadata),
+      google: await reachGoogle.run([], metadata),
+    };
+  };
+
+  // OPTIONS.timeout is 10 s, so the pass budget is min(10s*3, 15s) = 15 s and
+  // `overBudget()` is checked before each fetch.
+  it("exhausts between fetch 1 and 2: only ChatGPT-User is measured", async () => {
+    const nowSpy = budgetClock(16_000);
+    const { responses } = await fetchUnderUas(HOME, OPTIONS);
+    nowSpy.mockRestore();
+
+    expect(calls.map((c) => c.ua)).toEqual([uaOf("ChatGPT-User"), MAIN_UA]);
+    const reach = await reachOf(responses);
+    expect(reach.openai).toMatchObject({ status: "pass", score: 100 });
+    expect(reach.perplexity).toMatchObject({ status: "error", score: 0 });
+    expect(reach.google).toMatchObject({ status: "error", score: 0 });
+  });
+
+  it("exhausts between fetch 2 and 3: Perplexity-User is measured, Google-Agent is not", async () => {
+    // The discriminating case. With the derived registry order (Google-Agent
+    // ahead of Perplexity-User) these two verdicts swap — a scored check moving
+    // on identical input, with no rubric event behind it.
+    const nowSpy = budgetClock(8_000);
+    const { responses } = await fetchUnderUas(HOME, OPTIONS);
+    nowSpy.mockRestore();
+
+    expect(calls.map((c) => c.ua)).toEqual([
+      uaOf("ChatGPT-User"),
+      uaOf("Perplexity-User"),
+      MAIN_UA,
+    ]);
+    const reach = await reachOf(responses);
+    expect(reach.openai).toMatchObject({ status: "pass", score: 100 });
+    expect(reach.perplexity).toMatchObject({ status: "pass", score: 100 });
+    expect(reach.google).toMatchObject({ status: "error", score: 0 });
+    expect(reach.google.message).toContain("time budget exhausted");
+  });
+
+  it("exhausts between fetch 3 and 4: every scored check is measured, the tail is not", async () => {
+    // The widening costs the derived tail first, never the scored three.
+    const nowSpy = budgetClock(5_100);
+    const { responses } = await fetchUnderUas(HOME, OPTIONS);
+    nowSpy.mockRestore();
+
+    expect(calls.map((c) => c.ua)).toEqual([
+      uaOf("ChatGPT-User"),
+      uaOf("Perplexity-User"),
+      uaOf("Google-Agent"),
+      MAIN_UA,
+    ]);
+    const reach = await reachOf(responses);
+    for (const r of Object.values(reach)) expect(r).toMatchObject({ status: "pass", score: 100 });
+    for (const token of ["Amzn-User", "MistralAI-User", "Meta-ExternalFetcher"]) {
+      expect(responses[token].outcome).toBe("budget-skipped");
+    }
   });
 });

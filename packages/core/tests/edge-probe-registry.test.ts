@@ -53,10 +53,17 @@ describe("AGENT_UAS is derived from the registry", () => {
 
     expect(AGENT_UAS.map((u) => u.token)).toContain("Synth-User");
     expect(AGENT_UAS.find((u) => u.token === "Synth-User")).toEqual({
-      key: "synthetic",
+      key: "Synth-User",
       token: "Synth-User",
       ua: SYNTHETIC.uaString,
     });
+    // It queues behind the scored three, which keep their positions and keys.
+    expect(AGENT_UAS.slice(0, 3)).toEqual([
+      { key: "openai", token: "ChatGPT-User", ua: expect.any(String) },
+      { key: "perplexity", token: "Perplexity-User", ua: expect.any(String) },
+      { key: "google", token: "Google-Agent", ua: expect.any(String) },
+    ]);
+    expect(AGENT_UAS.at(-1)?.token).toBe("Synth-User");
 
     const sent: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
@@ -67,7 +74,31 @@ describe("AGENT_UAS is derived from the registry", () => {
 
     // Not just present in the list: the fetch really went out under its UA.
     expect(sent).toContain(SYNTHETIC.uaString);
-    expect(responses.synthetic).toMatchObject({ token: "Synth-User", status: 200, outcome: "ok" });
+    expect(responses["Synth-User"]).toMatchObject({
+      token: "Synth-User",
+      status: 200,
+      outcome: "ok",
+    });
+    // …and the scored keys are untouched by the new arrival.
+    expect(Object.keys(responses).slice(0, 3)).toEqual(["openai", "perplexity", "google"]);
+  });
+
+  it("keys a derived entry by its token, so a vendor typo cannot move a scored key", async () => {
+    // `vendor` is free text. Derived from it, `"OpenAI "` would store the
+    // homepage result under `"openai "` and `reach-openai-user-agent` would
+    // report "no fetch was recorded" — a scored check zeroed, with no throw.
+    const typo = BOT_TOKENS.map((b) =>
+      b.token === "ChatGPT-User" ? { ...b, vendor: "OpenAI " } : b,
+    );
+    const { AGENT_UAS, fetchUnderUas } = await crawlerWith(typo);
+    expect(AGENT_UAS[0]).toMatchObject({ key: "openai", token: "ChatGPT-User" });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("<html>ok</html>", { status: 200 }),
+    );
+    const { responses } = await fetchUnderUas("https://site.test/", OPTIONS);
+    expect(responses.openai).toMatchObject({ token: "ChatGPT-User", status: 200 });
+    expect(Object.keys(responses)).not.toContain("openai ");
   });
 
   it("never probes a registry entry with no published UA string", async () => {
@@ -86,17 +117,39 @@ describe("AGENT_UAS is derived from the registry", () => {
     expect(sent).toHaveLength(7);
   });
 
-  it("refuses two user tokens from one vendor rather than silently overwriting one", async () => {
-    // Both would map to key "openai", and the second would overwrite the first
-    // in `multiUaResponses` — `reach-openai-user-agent` would then report the
-    // wrong token's result.
-    const clash: BotToken = {
-      ...SYNTHETIC,
-      vendor: "OpenAI",
-      token: "ChatGPT-User-2",
-    };
-    await expect(crawlerWith([...BOT_TOKENS, clash])).rejects.toThrow(
-      /Duplicate agent UA key openai/,
+  it("adds a second token from an existing vendor without crashing the package", async () => {
+    // The G3 edit must stay cheap: keying the tail by token means OpenAI's
+    // second user agent gets its own slot instead of colliding with `openai`.
+    const sibling: BotToken = { ...SYNTHETIC, vendor: "OpenAI", token: "ChatGPT-User-2" };
+    const { AGENT_UAS } = await crawlerWith([...BOT_TOKENS, sibling]);
+    expect(AGENT_UAS.map((u) => u.key)).toEqual([
+      "openai",
+      "perplexity",
+      "google",
+      "Amzn-User",
+      "MistralAI-User",
+      "Meta-ExternalFetcher",
+      "ChatGPT-User-2",
+    ]);
+  });
+
+  it("refuses to start if a pinned scored token loses its documented UA string", async () => {
+    // The pinned head names tokens instead of filtering for `uaString`, so a
+    // registry edit that drops one must fail loudly — probing under an empty UA
+    // would make a scored check report on a request nobody documented.
+    const stripped = BOT_TOKENS.map(({ uaString, ...b }) =>
+      b.token === "ChatGPT-User" ? b : { ...b, uaString },
+    );
+    await expect(crawlerWith(stripped)).rejects.toThrow(/No documented UA string for ChatGPT-User/);
+  });
+
+  it("refuses two entries that would share one key rather than overwriting a result", async () => {
+    // A duplicate registry token is the only way left to collide; the second
+    // would overwrite the first in `multiUaResponses` and the check reading
+    // that key would report the wrong token's result.
+    const duplicate: BotToken = { ...SYNTHETIC, vendor: "Other" };
+    await expect(crawlerWith([...BOT_TOKENS, SYNTHETIC, duplicate])).rejects.toThrow(
+      /Duplicate agent UA key Synth-User/,
     );
   });
 });

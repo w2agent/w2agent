@@ -82,11 +82,13 @@ describe("probeSiteMetadata", () => {
     expect(metadata.mcpEndpoint).toBe(`${SITE}/mcp`);
     expect(metadata.mcpInit?.success).toBe(true);
     expect(metadata.mcpInit?.serverInfo?.name).toBe("site-mcp");
+    // The three scored keys are historical literals; a derived entry is keyed
+    // by its own registry token.
     expect(Object.keys(metadata.multiUaResponses ?? {}).sort()).toEqual([
-      "amazon",
+      "Amzn-User",
+      "Meta-ExternalFetcher",
+      "MistralAI-User",
       "google",
-      "meta",
-      "mistral",
       "openai",
       "perplexity",
     ]);

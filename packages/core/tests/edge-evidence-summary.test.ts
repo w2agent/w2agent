@@ -466,8 +466,8 @@ describe("G1 acceptance: a live homepage that challenges our crawler", () => {
     // only entry `notProbed` may carry on a persisted row.
     expect(edge.agents.map((a) => a.token)).toEqual([
       "ChatGPT-User",
-      "Google-Agent",
       "Perplexity-User",
+      "Google-Agent",
       "Amzn-User",
       "MistralAI-User",
       "Meta-ExternalFetcher",

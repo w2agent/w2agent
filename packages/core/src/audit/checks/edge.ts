@@ -230,11 +230,13 @@ function detailsFor(a: EdgeAccessAnalysis, edgeProbe: EdgeProbePage[] | undefine
   for (const page of edgeProbe ?? []) {
     lines.push(`${page.url}.control: ${statusLine(page.control)}`);
     for (const r of page.results) lines.push(`${page.url}.${r.token}: ${statusLine(r)}`);
-    // Tokens probed elsewhere but not here — the `extra-pages-only` case of
+    // Tokens outside this page's probe set — the `extra-pages-only` case of
     // §4.1's `notProbed` reason, which is a per-page fact and so is reported
-    // per page. Only for a page that was probed at all: when the control was
-    // not comparable the agent fetches are skipped wholesale, and calling that
-    // "extra-pages-only" would name the wrong reason.
+    // per page. It reports probe-set coverage, not what ran: a budget-skipped
+    // extra page still has a three-token probe set, and its stubs say
+    // `0 (budget-skipped)` on their own lines. A page whose control was not
+    // comparable has no probe set at all — its agent fetches are skipped
+    // wholesale — and "extra-pages-only" would name the wrong reason there.
     if (page.results.length > 0) {
       const missing = a.probed.filter((t) => !page.results.some((r) => r.token === t));
       if (missing.length > 0) {
