@@ -22,7 +22,7 @@ npx w2agent agentize https://your-site.com  # deploy it as an agent server
   Platform: WordPress (95% confidence)
   Time: 4.2s
 
-  Overall Score: 72/100 (C)
+  Overall Score: 58/100 (C)
 
   Bot Accessibility        ████████░░  82/100
   Structured Data          ██████░░░░  64/100
@@ -30,11 +30,12 @@ npx w2agent agentize https://your-site.com  # deploy it as an agent server
   Agent Discovery          ███░░░░░░░  35/100
   Agent Protocols          ██░░░░░░░░  22/100
   Technical Foundations    █████████░  91/100
+  Auth & Access            ████░░░░░░  40/100
 
   Top Issues:
-  ✗ No llms.txt found                       (+15 points if fixed)
-  ✗ No Schema.org JSON-LD on 8/12 pages     (+12 points if fixed)
-  ✗ No /.well-known/agent-card.json         (+8 points if fixed)
+  ✗ No /.well-known/agent-card.json         (+4 points if fixed)
+  ✗ No Schema.org JSON-LD on 8/12 pages     (+3 points if fixed)
+  ✗ No llms.txt found                       (+2 points if fixed)
 ```
 
 ## Why w2agent?
@@ -44,7 +45,7 @@ Most websites are invisible to AI agents. Agents can't find your docs, hallucina
 | Without w2agent | With w2agent |
 |----------------|-------------|
 | Agents hallucinate your docs — trained on stale crawl data | `agentize` serves live content; agents always query the current site |
-| No way to know you're agent-inaccessible until users complain | `audit` scores 60 checks in seconds and shows exactly what's blocking agents |
+| No way to know you're agent-inaccessible until users complain | `audit` runs 56 checks in seconds and shows exactly what's blocking agents |
 | AI can't find your menu, hours, or booking page | Structured data + `agentize` exposes them as queryable tools |
 
 ## The Pipeline
@@ -53,7 +54,7 @@ Turn any website into a queryable AI agent in four steps:
 
 | Step | Command | What happens |
 |------|---------|-------------|
-| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 47+ checks. Find what's blocking agents. |
+| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 56 checks (50 scored). Find what's blocking agents. |
 | **2. Generate** | `npx w2agent generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
 | **3. Integrate** | `npx w2agent integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
 | **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live agent server at `<slug>.agent.w2agent.dev`. |
@@ -142,7 +143,7 @@ w2agent works for any public website. If a human can browse it, an agent can use
 | Without w2agent | With w2agent |
 |----------------|-------------|
 | Agents hallucinate your docs — trained on stale snapshots | `agentize` serves live content; agents always query the current site |
-| No way to know you're agent-inaccessible until users complain | `audit` scores 60 checks in seconds and shows exactly what's blocking agents |
+| No way to know you're agent-inaccessible until users complain | `audit` runs 56 checks in seconds and shows exactly what's blocking agents |
 | Every platform needs different integration files | Auto-detected platform generates the right native files (WordPress plugin, Next.js middleware, Shopify Liquid) in one command |
 | Writing llms.txt by hand is tedious and error-prone | `generate` produces llms.txt, agent-card.json, schema-org.json, and 7 more formats automatically |
 | Deploying an agent server requires infrastructure setup | `npx w2agent agentize` hosts your site as an agent server — no servers to manage |
@@ -231,27 +232,32 @@ Platform-specific checks run automatically during audit:
 
 - **WordPress** (4 checks): REST API, security plugin blocking, robots.txt AI rules, page builder markup
 - **Next.js** (3 checks): .well-known serving, static generation, metadata API usage
-- **Nuxt** (3 checks): Nitro compatibility, server route serving, middleware integration
-- **Astro** (3 checks): static output structure, middleware support, build integration
+- **Nuxt** (4 checks): SEO module, LLMs module, Schema.org coverage, SSR rendering
+- **Astro** (3 checks): sitemap integration, robots.txt AI access, rendering mode
 - **Shopify** (3 checks): robots.txt customization, product schema, theme app blocks
 - **Docusaurus** (2 checks): sidebar coverage, versioned docs discovery
 
 ## Scoring
 
-Six categories with weighted scoring:
+Rubric 3.0: 56 checks in seven weighted categories. 50 are scored; 6 are tracked (reported with weight 0, never scored). A detected `ecommerce` or `local-business` site adds 3 site-type checks, and a detected platform adds its checks above.
 
 | Category | Weight | What it measures |
 |----------|--------|-----------------|
-| **Bot Accessibility** | 20% | Can AI crawlers reach your content? (robots.txt, sitemap, response time) |
-| **Structured Data** | 20% | Is content machine-readable? (Schema.org, OpenGraph, semantic HTML) |
-| **Content Quality** | 20% | Is content optimized for AI? (token efficiency, citations, freshness) |
-| **Agent Discovery** | 15% | Can agents find your capabilities? (llms.txt, agent cards, .well-known) |
-| **Agent Protocols** | 15% | Does the site support agent standards? (MCP, forms, action schemas) |
+| **Bot Accessibility** | 15% | Can AI crawlers reach your content? (robots.txt agent access, sitemap, response time) |
+| **Structured Data** | 15% | Is content machine-readable? (Schema.org, OpenGraph, semantic HTML) |
+| **Content Quality** | 15% | Is content optimized for AI? (token efficiency, citations, freshness) |
+| **Agent Discovery** | 12% | Can agents find your capabilities? (llms.txt, agent cards, markdown alternates) |
+| **Agent Protocols** | 13% | Does the site support agent standards? (MCP, UCP, action schemas, reachability under agent user-agents) |
 | **Technical Foundations** | 10% | Basics: HTTPS, security headers, canonical URLs, no-JS content |
+| **Auth & Access** | 20% | Can agents authenticate? (public API, OpenAPI, OAuth discovery, PKCE, MCP auth) |
 
-**Grades:** A (90-100) · B (80-89) · C (70-79) · D (60-69) · F (0-59)
+A check that is not applicable (`skip`) or could not be measured (`error`) is left out of its category score, and a category with no remaining checks is left out of the overall score, with the other weights re-normalized.
 
-See [docs/CHECKS.md](docs/CHECKS.md) for the full check reference.
+**Grades:** A (75-100) · B (60-74) · C (45-59) · D (30-44) · F (0-29)
+
+**When a site can't be scored**, `audit` names the reason instead of scoring an error page: `unreachable`, `blocked` (a fingerprinted anti-bot challenge, vendor named), `auth_gated`, `rate_limited`, `timeout` or `unknown_failure`. It exits non-zero and, when the agent user-agent probe ran, prints one line on how the documented agent user-agents were answered on the same homepage.
+
+See [docs/CHECKS.md](docs/CHECKS.md) for the full check reference and [docs/RUBRIC-CHANGELOG.md](docs/RUBRIC-CHANGELOG.md) for what changed between rubric versions.
 
 ## CLI Options
 

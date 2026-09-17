@@ -169,13 +169,16 @@ packages/cli     - CLI tool (audit + generate + integrate commands)
 
 ## Scoring
 
+Rubric 3.0: 56 checks, 50 scored and 6 tracked (weight 0). See [CHECKS.md](CHECKS.md).
+
 | Category | Weight |
 |----------|--------|
-| Bot Accessibility | 20% |
-| Structured Data | 20% |
-| Content Quality | 20% |
-| Agent Discovery | 15% |
-| Agent Protocols | 15% |
+| Bot Accessibility | 15% |
+| Structured Data | 15% |
+| Content Quality | 15% |
+| Agent Discovery | 12% |
+| Agent Protocols | 13% |
 | Technical Foundations | 10% |
+| Auth & Access | 20% |
 
-Grades: A (90-100), B (80-89), C (70-79), D (60-69), F (0-59)
+Grades: A (75-100), B (60-74), C (45-59), D (30-44), F (0-29)

@@ -20,7 +20,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
   平台: WordPress (置信度 95%)
   耗时: 4.2s
 
-  总体评分: 72/100 (C)
+  总体评分: 58/100 (C)
 
   Bot 可访问性          ████████░░  82/100
   结构化数据            ██████░░░░  64/100
@@ -28,11 +28,12 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
   Agent 发现            ███░░░░░░░  35/100
   Agent 协议            ██░░░░░░░░  22/100
   技术基础              █████████░  91/100
+  认证与访问            ████░░░░░░  40/100
 
   主要问题:
-  ✗ 未找到 llms.txt                          (修复后可获 +15 分)
-  ✗ 8/12 个页面缺少 Schema.org JSON-LD       (修复后可获 +12 分)
-  ✗ 缺少 /.well-known/agent-card.json        (修复后可获 +8 分)
+  ✗ 缺少 /.well-known/agent-card.json        (修复后可获 +4 分)
+  ✗ 8/12 个页面缺少 Schema.org JSON-LD       (修复后可获 +3 分)
+  ✗ 未找到 llms.txt                          (修复后可获 +2 分)
 ```
 
 ## 为什么选择 w2agent？
@@ -42,7 +43,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 | 没有 w2agent | 有了 w2agent |
 |----------------|-------------|
 | Agent 在你的文档上产生幻觉——基于过时的爬取数据训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
-| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内评估 60 项检查，精准显示阻碍 Agent 的问题 |
+| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 56 项检查，精准显示阻碍 Agent 的问题 |
 | AI 找不到你的菜单、营业时间或预订页面 | 结构化数据 + `agentize` 将这些内容作为可查询工具暴露出来 |
 
 ## 处理流程
@@ -51,7 +52,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 
 | 步骤 | 命令 | 执行内容 |
 |------|---------|-------------|
-| **1. 审计** | `npx w2agent audit <url>` | 通过 47+ 项检查评估 AI 就绪性，找出阻碍 Agent 的问题。 |
+| **1. 审计** | `npx w2agent audit <url>` | 通过 56 项检查（50 项计分）评估 AI 就绪性，找出阻碍 Agent 的问题。 |
 | **2. 生成** | `npx w2agent generate <url>` | 生成 llms.txt、agent-card.json、schema-org.json 等文件。 |
 | **3. 集成** | `npx w2agent integrate <url>` | 安装平台原生文件（WordPress 插件、Next.js 中间件）。 |
 | **4. 部署** | `npx w2agent agentize <url>` | 将网站托管为实时 Agent 服务器，地址为 `<slug>.agent.w2agent.dev`。 |
@@ -138,7 +139,7 @@ w2agent 适用于任何公开网站。只要人可以浏览，Agent 就可以使
 | 没有 w2agent | 有了 w2agent |
 |----------------|-------------|
 | Agent 在你的文档上产生幻觉——基于过时快照训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
-| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内评估 60 项检查，精准显示阻碍 Agent 的问题 |
+| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 56 项检查，精准显示阻碍 Agent 的问题 |
 | 每个平台需要不同的集成文件 | 自动检测平台，一条命令生成对应的原生文件（WordPress 插件、Next.js 中间件、Shopify Liquid） |
 | 手写 llms.txt 繁琐且容易出错 | `generate` 自动生成 llms.txt、agent-card.json、schema-org.json 等 10 种格式 |
 | 部署 Agent 服务器需要自行搭建基础设施 | `npx w2agent agentize` 直接托管你的网站为 Agent 服务器，无需管理服务器 |
@@ -227,27 +228,32 @@ w2agent 自动检测你的平台并生成原生集成代码：
 
 - **WordPress**（4 项）：REST API、安全插件拦截、robots.txt AI 规则、页面构建器标记
 - **Next.js**（3 项）：.well-known 服务、静态生成、metadata API 使用情况
-- **Nuxt**（3 项）：Nitro 兼容性、服务器路由服务、中间件集成
-- **Astro**（3 项）：静态输出结构、中间件支持、构建集成
+- **Nuxt**（4 项）：SEO 模块、LLMs 模块、Schema.org 覆盖率、SSR 渲染
+- **Astro**（3 项）：sitemap 集成、robots.txt AI 访问、渲染模式
 - **Shopify**（3 项）：robots.txt 定制、产品 Schema、主题应用块
 - **Docusaurus**（2 项）：侧边栏覆盖率、版本化文档发现
 
 ## 评分体系
 
-六个类别的加权评分：
+评分规则 3.0：七个加权类别共 56 项检查，其中 50 项计分，6 项仅跟踪（权重为 0，不计分）。检测为 `ecommerce` 或 `local-business` 的网站额外增加 3 项站点类型检查，检测到的平台会增加上面列出的平台检查。
 
 | 类别 | 权重 | 衡量内容 |
 |----------|--------|-----------------|
-| **Bot 可访问性** | 20% | AI 爬虫能否访问你的内容？（robots.txt、sitemap、响应时间） |
-| **结构化数据** | 20% | 内容是否机器可读？（Schema.org、OpenGraph、语义化 HTML） |
-| **内容质量** | 20% | 内容是否针对 AI 优化？（Token 效率、引用、时效性） |
-| **Agent 发现** | 15% | Agent 能否找到你的能力描述？（llms.txt、agent card、.well-known） |
-| **Agent 协议** | 15% | 网站是否支持 Agent 标准？（MCP、表单、action schema） |
+| **Bot 可访问性** | 15% | AI 爬虫能否访问你的内容？（robots.txt Agent 访问、sitemap、响应时间） |
+| **结构化数据** | 15% | 内容是否机器可读？（Schema.org、OpenGraph、语义化 HTML） |
+| **内容质量** | 15% | 内容是否针对 AI 优化？（Token 效率、引用、时效性） |
+| **Agent 发现** | 12% | Agent 能否找到你的能力描述？（llms.txt、agent card、markdown alternate） |
+| **Agent 协议** | 13% | 网站是否支持 Agent 标准？（MCP、UCP、action schema、Agent user-agent 可达性） |
 | **技术基础** | 10% | 基础要素：HTTPS、安全响应头、规范 URL、非 JS 内容 |
+| **认证与访问** | 20% | Agent 能否完成认证？（公开 API、OpenAPI、OAuth 发现、PKCE、MCP 认证） |
 
-**评级：** A（90-100）· B（80-89）· C（70-79）· D（60-69）· F（0-59）
+不适用（`skip`）或无法测量（`error`）的检查不计入类别评分；没有剩余检查的类别不计入总分，其余权重重新归一化。
 
-完整检查项参考见 [docs/CHECKS.md](docs/CHECKS.md)。
+**评级：** A（75-100）· B（60-74）· C（45-59）· D（30-44）· F（0-29）
+
+**无法评分时**，`audit` 会给出原因而不是对错误页面打分：`unreachable`、`blocked`（识别到反爬虫挑战，并注明厂商）、`auth_gated`、`rate_limited`、`timeout` 或 `unknown_failure`。命令以非零状态退出；若 Agent user-agent 探测已运行，还会输出一行说明同一首页对已记录的 Agent user-agent 的响应情况。
+
+完整检查项参考见 [docs/CHECKS.md](docs/CHECKS.md)，各评分规则版本的变更见 [docs/RUBRIC-CHANGELOG.md](docs/RUBRIC-CHANGELOG.md)。
 
 ## CLI 选项
 
