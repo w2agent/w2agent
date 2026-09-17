@@ -181,4 +181,4 @@ Rubric 3.0: 56 checks, 50 scored and 6 tracked (weight 0). See [CHECKS.md](CHECK
 | Technical Foundations | 10% |
 | Auth & Access | 20% |
 
-Grades: A (75-100), B (60-74), C (45-59), D (30-44), F (0-29)
+Grades are assigned on the unrounded score: A ≥ 75, B ≥ 60, C ≥ 45, D ≥ 30, F < 30. The printed score is rounded, so 74.6 shows as `75/100 (B)`.

@@ -9,8 +9,8 @@
 | Status | Published 2026-09-17 |
 | Created | 2026-05-07 (v0.1) · rationale layer 2026-05-08 (v0.2) · rubric 3.0 update 2026-09-14 (v1.0-draft) · published 2026-09-17 (v1.0) |
 | Implements | `w2agent-core` 0.2.0 audit engine, rubric 3.0 |
-| Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo; the w2agent platform renders a byte-identical copy at `/methodology` |
-| License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see `docs/spec/LICENSE`. Engine code keeps the repo's own license |
+| Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo ([github.com/interskh/w2agent](https://github.com/interskh/w2agent/blob/main/docs/spec/agent-readiness-spec-v1.0.md)); the w2agent platform renders a copy at `/methodology`, kept byte-identical by the platform's `scripts/sync-spec.ts` (`--check` exits non-zero when the copies differ) |
+| License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see [`docs/spec/LICENSE`](https://github.com/interskh/w2agent/blob/main/docs/spec/LICENSE). Engine code keeps the repo's own license |
 | Rubric changelog | `docs/RUBRIC-CHANGELOG.md` in the OSS repo: every check, weight and detection change per rubric version |
 | Calibration | **Pending.** Weights and grade thresholds are set by the rationale recorded per check, not by measured agent task success. Outcome calibration (improvement plan item P4-2) has not reported. When it does, weights may change, but only through a rubric version bump logged in `RUBRIC-CHANGELOG.md` (§2) |
 
@@ -112,6 +112,8 @@ Implementation: `computeOverallScore` in `packages/core/src/audit/engine.ts`.
 | ≥ 30 | D |
 | < 30 | F |
 
+The thresholds apply to the **unrounded** overall score (§3.3), while the report prints the rounded one. A site at 74.6 is therefore graded B and printed as `75/100 (B)`; every grade band edge has this half-point overlap.
+
 These thresholds are **uncalibrated against real-world agent-task success**. They represent intuition, not data. Outcome calibration (P4-2) is pending; any change ships as a rubric bump (§2).
 
 Implementation: `computeGrade` in `packages/core/src/audit/engine.ts`.
@@ -150,7 +152,7 @@ Every other homepage status — 2xx, a terminal 3xx, 404, and 5xx other than 503
 
 Header patterns match case-insensitively on any response. Body and title patterns are read only when the status is 403, 429 or 503 or a `cf-mitigated` header is present, and only over the first 4 KB of the body (`CHALLENGE_BODY_PREFIX_BYTES`). So a 200 page that embeds a signup CAPTCHA is not a challenge, and a Cloudflare 403 carrying only bot-detection instrumentation (the `/cdn-cgi/challenge-platform/` path without `/h/`) is not one either. Measured challenge markers often sit beyond 4 KB, so body patterns supplement the header patterns rather than replace them; the PerimeterX entry is kept although its captured marker sits past the prefix. Akamai and Imperva have no entry: the captures showed hard blocks, not challenges, and a hard block is classified `unknown_failure`.
 
-**Edge evidence on failure.** When the multi-UA pass (§6.1, probe set) ran, the thrown error carries a summary of how the homepage answered the agent user-agents (`AuditErrorEvidence.edge`): a verdict of `all-blocked` (no agent with an observed status was served), `agents-allowed` (every such agent was served where the control was not), `mixed` or `unknown` (no agent produced an observed status). An agent is served when its observed status is 2xx and the response did not fingerprint as a challenge. The verdict does not separate policy from outage (a site returning 5xx to everyone reads `all-blocked`), and the requests are unverified, so it is an internal planning signal: it is not scored and not published.
+**Edge evidence on failure.** When the multi-UA pass (§6.1, probe set) ran, the thrown error carries a summary of how the homepage answered the agent user-agents (`AuditErrorEvidence.edge`): a verdict of `all-blocked` (no agent with an observed status was served), `agents-allowed` (every such agent was served; the control fetch is not consulted, so a homepage that failed transiently for the page fetch but answered the control and every agent with 200 also reads `agents-allowed`, and the verdict does not show the declared crawler was refused), `mixed` or `unknown` (no agent produced an observed status). An agent is served when its observed status is 2xx and the response did not fingerprint as a challenge. The verdict does not separate policy from outage (a site returning 5xx to everyone reads `all-blocked`), and the requests are unverified, so it is an internal planning signal: it is not scored and not published.
 
 **Platform presentation.** The w2agent platform records the `kind` as the audit status (`ok` for a scored audit; `error` for any other exception; `not_attempted` before a first audit) and shows a site's public score only when its latest audit status is `ok`. Failed statuses carry a label (Anti-bot block, Unreachable, Auth-gated, Rate-limited, Timeout, Couldn't tell) and are listed as unmeasured, never ranked.
 
@@ -221,7 +223,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 - **Crawl profile.** The platform audits with `maxPages = 10` and a 10 s per-request timeout (`AUDIT_CRAWL_PROFILE`); the CLI default is 20 pages. The homepage is page 0. Further pages are selected from `/sitemap.xml` and homepage links, fetched with 3 in parallel and at least 200 ms between request starts (raised to robots.txt `Crawl-delay`, capped at 10 s). Pages with no response are dropped. When fewer than 3 pages result and a sitemap exists, up to 5 same-site sitemap URLs are added within a `min(timeout × 3, 15 s)` budget. "Pages" in §6 means this set.
 - **Page fetch.** Redirects are followed; the body is read up to a cap; 429 and 503 responses and timeouts are retried (§3.5). A page's `responseTime` is measured on this fetch.
 - **Metadata probes** (`probeSiteMetadata` in `packages/core/src/audit/crawler.ts`), run once per audit:
-  - `/robots.txt` and `/llms.txt` are credited only on HTTP 200 whose body is not an HTML document (a `text/html` body starting with `<`, or empty, counts as absent); `llms.txt` falls back to `docs.`, `developers.` and `developer.` subdomains in that order. The robots.txt status is kept for `ai-agent-access`.
+  - `/robots.txt` and `/llms.txt` are credited only on HTTP 200 whose body is not an HTML document (a `text/html` body starting with `<`, or empty, counts as absent); `llms.txt` falls back to `docs.`, `developers.` and `developer.` prefixed to the audited host (a leading `www.` removed) in that order, so auditing `app.example.com` probes `docs.app.example.com`, not `docs.example.com`. The robots.txt status is kept for `ai-agent-access`.
   - `/sitemap.xml` is kept on any HTTP 200. robots.txt `Sitemap:` directives are not followed.
   - Well-known files: `agent-card.json`, `ucp`, `oauth-authorization-server`, `oauth-protected-resource`, `http-message-signatures-directory`, `api-catalog`, `ai-catalog.json`, `mcp/server-card.json`, `tdmrep.json`, under the catch-all rule below.
   - OpenAPI discovery (common spec paths plus homepage links), the MCP endpoint probe (§6.5 `mcp-discovery`) and the multi-UA pass (§6.1, probe set).
@@ -614,7 +616,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** Schema.org `FAQPage` type (2018, read here only as microdata `itemtype`) + heuristic prose detection. The five indicators are our authorship.
 
-**Evidence boundary.** The five indicators above, OR-ed. Score scales 33 per FAQ page; 3 or more FAQ pages → 100. FAQPage declared only in JSON-LD is not one of the indicators.
+**Evidence boundary.** The five indicators above, OR-ed. Score scales 33 per FAQ page: 1 → 33, 2 → 66, 3 → 99, 4 or more → 100. FAQPage declared only in JSON-LD is not one of the indicators.
 
 **Known limitations.** Heuristic and permissive — any page with three questions in its text, or two `<details>` disclosure widgets, registers, so false positives are common. FAQPage JSON-LD alone is not detected.
 
@@ -683,7 +685,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `llms-txt-exists` (weight 0.5, warning)
 
-**What it measures.** `/llms.txt` answers HTTP 200 with a body that is not an HTML document (§6.0) → pass 100; otherwise the `docs.`, `developers.` and `developer.` subdomains of the apex are tried in that order, and the first that qualifies passes. None → fail 0. Pure existence — content quality is measured by `llms-txt-valid` separately.
+**What it measures.** `/llms.txt` answers HTTP 200 with a body that is not an HTML document (§6.0) → pass 100; otherwise `docs.`, `developers.` and `developer.` prefixed to the audited host (a leading `www.` removed) are tried in that order, and the first that qualifies passes. None → fail 0. Pure existence — content quality is measured by `llms-txt-valid` separately.
 
 **Maturity.** M3 (single-vendor, or path or schema still changing, §7.1).
 
@@ -693,7 +695,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** Proposed by Jeremy Howard (Answer.AI) at llmstxt.org, September 2024. Not standards-track (no IETF/W3C). Adoption verified 2026-05-08: `stripe.com`, `vercel.com`, `cloudflare.com` ship at apex (200). `anthropic.com` apex returns 404 but `docs.anthropic.com/llms.txt` returns 200 — they ship only on the docs subdomain. `openai.com/llms.txt` returns 403 (anti-bot — we cannot distinguish "absent" from "blocked"). `google.com/llms.txt` returns 404.
 
-**Evidence boundary.** `pass` = `/llms.txt` returns 200 with a body that is not an HTML document; when the apex has none, `docs.`, `developers.` and `developer.` subdomains are tried in that order. `fail` = none of those. Binary.
+**Evidence boundary.** `pass` = `/llms.txt` returns 200 with a body that is not an HTML document; when the audited host has none, `docs.<host>`, `developers.<host>` and `developer.<host>` are tried in that order, where `<host>` is the audited host without `www.`; on a subdomain audit such as `app.example.com` this probes `docs.app.example.com`, not the apex's docs host. `fail` = none of those. Binary.
 
 **Known limitations.** A 403 on `/llms.txt` (OpenAI's case) collapses two distinct realities — "no file" and "file behind anti-bot" — into a single `fail`; the typed failures of §3.5 classify only the homepage, not individual files. Doesn't measure freshness — a stale `llms.txt` pointing at dead URLs passes existence (caught downstream by `llms-txt-links-resolve`).
 
@@ -880,7 +882,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** Schema.org Actions vocabulary (Google-led, Schema.org-stewarded). 2014+ but underused — most sites that ship JSON-LD ship type-of-content metadata, not actions.
 
-**Evidence boundary.** Score scales 33 per page: 1 page → pass at 33, 2 → 66, 3 or more → 100. Properties nested in `@graph` are not read. A sitewide `WebSite` block carrying `potentialAction` repeats on every page, so it reaches 100 once 3 pages are crawled.
+**Evidence boundary.** Score scales 33 per page: 1 page → pass at 33, 2 → 66, 3 → 99, 4 or more → 100. Properties nested in `@graph` are not read. A sitewide `WebSite` block carrying `potentialAction` repeats on every page, so it reaches 100 once 4 pages are crawled.
 
 **Known limitations.** Doesn't validate action targets or schemas. Doesn't verify the declared actions actually function. Common false-positive: search forms that declare `SearchAction` but don't accept agent-friendly query parameters.
 
@@ -1355,7 +1357,7 @@ These ids are no longer registered and are not part of the current catalog; they
 | Site type | Signals (weight) |
 |---|---|
 | `ecommerce` | Shopify, WooCommerce, BigCommerce or Magento markup markers (0.8 each); a top-level JSON-LD block with `@type` exactly `"Product"` (0.7); `og:type` = `product` (0.5); the page URL or any link matching `/(cart\|checkout\|products?\|shop\|store\|collection\|category)\b` (0.4); `itemprop="price"` (0.4); "add to cart", "buy now" or "add to bag" in the text (0.3) |
-| `local-business` | JSON-LD (including `@graph` children) whose `@type` is `LocalBusiness` or one of 31 subtypes such as `Restaurant`, `Dentist`, `Plumber` (0.8); a booking-platform domain in the HTML (0.6); `itemprop="streetAddress"` or `itemprop="telephone"` (0.6); a Google Maps embed (0.5); `itemprop="openingHours"` or day-name-then-`hh:mm` text (0.5); a URL or link containing menu, services, treatments, appointments, reservations or booking (0.4); a `tel:` link (0.3) |
+| `local-business` | JSON-LD (including `@graph` children) whose `@type` is `LocalBusiness` or one of 31 subtypes such as `Restaurant`, `Dentist`, `Plumber` (0.8); one of `openTable`, `resy.com`, `calendly.com`, `acuityscheduling.com`, `booksy.com`, `vagaro.com`, `mindbodyonline.com` in the raw HTML, case-sensitive (0.6; the OpenTable entry is the mixed-case `openTable`, so a plain `opentable.com` link does not fire it); `itemprop="streetAddress"` or `itemprop="telephone"` (0.6); a Google Maps embed (0.5); `itemprop="openingHours"` or day-name-then-`hh:mm` text (0.5); a URL or link containing menu, services, treatments, appointments, reservations or booking (0.4); a `tel:` link (0.3) |
 
 A single strong signal is enough (a Shopify marker alone gives 0.8), and two weak ones are too (a commerce path plus "buy now" gives 0.58). The detection result (type, confidence, signals) is reported with the audit. `well-known-ucp` (§6.5) is N/A on any site not detected as `ecommerce` (§5).
 

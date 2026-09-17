@@ -253,7 +253,7 @@ Rubric 3.0: 56 checks in seven weighted categories. 50 are scored; 6 are tracked
 
 A check that is not applicable (`skip`) or could not be measured (`error`) is left out of its category score, and a category with no remaining checks is left out of the overall score, with the other weights re-normalized.
 
-**Grades:** A (75-100) · B (60-74) · C (45-59) · D (30-44) · F (0-29)
+**Grades** (on the unrounded score): A ≥ 75 · B ≥ 60 · C ≥ 45 · D ≥ 30 · F < 30. The printed score is rounded, so 74.6 shows as `75/100 (B)`.
 
 **When a site can't be scored**, `audit` names the reason instead of scoring an error page: `unreachable`, `blocked` (a fingerprinted anti-bot challenge, vendor named), `auth_gated`, `rate_limited`, `timeout` or `unknown_failure`. It exits non-zero and, when the agent user-agent probe ran, prints one line on how the documented agent user-agents were answered on the same homepage.
 
