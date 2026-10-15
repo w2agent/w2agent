@@ -43,7 +43,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 | 没有 w2agent | 有了 w2agent |
 |----------------|-------------|
 | Agent 在你的文档上产生幻觉——基于过时的爬取数据训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
-| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 56 项检查，精准显示阻碍 Agent 的问题 |
+| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 57 项检查，精准显示阻碍 Agent 的问题 |
 | AI 找不到你的菜单、营业时间或预订页面 | 结构化数据 + `agentize` 将这些内容作为可查询工具暴露出来 |
 
 ## 处理流程
@@ -52,7 +52,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 
 | 步骤 | 命令 | 执行内容 |
 |------|---------|-------------|
-| **1. 审计** | `npx w2agent audit <url>` | 通过 56 项检查（50 项计分）评估 AI 就绪性，找出阻碍 Agent 的问题。 |
+| **1. 审计** | `npx w2agent audit <url>` | 通过 57 项检查（50 项计分）评估 AI 就绪性，找出阻碍 Agent 的问题。 |
 | **2. 生成** | `npx w2agent generate <url>` | 生成 llms.txt、agent-card.json、schema-org.json 等文件。 |
 | **3. 集成** | `npx w2agent integrate <url>` | 安装平台原生文件（WordPress 插件、Next.js 中间件）。 |
 | **4. 部署** | `npx w2agent agentize <url>` | 将网站托管为实时 Agent 服务器，地址为 `<slug>.agent.w2agent.dev`。 |
@@ -139,7 +139,7 @@ w2agent 适用于任何公开网站。只要人可以浏览，Agent 就可以使
 | 没有 w2agent | 有了 w2agent |
 |----------------|-------------|
 | Agent 在你的文档上产生幻觉——基于过时快照训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
-| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 56 项检查，精准显示阻碍 Agent 的问题 |
+| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 57 项检查，精准显示阻碍 Agent 的问题 |
 | 每个平台需要不同的集成文件 | 自动检测平台，一条命令生成对应的原生文件（WordPress 插件、Next.js 中间件、Shopify Liquid） |
 | 手写 llms.txt 繁琐且容易出错 | `generate` 自动生成 llms.txt、agent-card.json、schema-org.json 等 10 种格式 |
 | 部署 Agent 服务器需要自行搭建基础设施 | `npx w2agent agentize` 直接托管你的网站为 Agent 服务器，无需管理服务器 |
@@ -235,7 +235,7 @@ w2agent 自动检测你的平台并生成原生集成代码：
 
 ## 评分体系
 
-评分规则 3.0：七个加权类别共 56 项检查，其中 50 项计分，6 项仅跟踪（权重为 0，不计分）。检测为 `ecommerce` 或 `local-business` 的网站额外增加 3 项站点类型检查，检测到的平台会增加上面列出的平台检查。
+评分规则 3.0：七个加权类别共 57 项检查，其中 50 项计分，7 项仅跟踪（权重为 0，不计分）。检测为 `ecommerce` 或 `local-business` 的网站额外增加 3 项站点类型检查，检测到的平台会增加上面列出的平台检查。
 
 | 类别 | 权重 | 衡量内容 |
 |----------|--------|-----------------|

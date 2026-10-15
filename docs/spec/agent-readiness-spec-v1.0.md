@@ -20,7 +20,7 @@
 
 **The score this spec defines:** a 0–100 number quantifying how well a website serves the needs of autonomous AI agents — discovery, comprehension, structured action, and authenticated access.
 
-**What it covers:** static-HTML measurement of public-facing surfaces (homepage + crawled pages, well-known endpoints, developer/key documentation). 7 categories, 56 core checks (50 scored, 6 tracked at weight 0), 1 cascade rule set. Two further sets are added to an audit only when the engine detects a site type (6 checks, §6.10) or a site platform (19 checks, §6.11); when added they are scored like core checks. Output: overall score (0–100), letter grade (A–F), per-category breakdown, per-check pass/partial/fail/skip/error status — or, when the homepage cannot be measured at all, a typed failure and no score (§3.5).
+**What it covers:** static-HTML measurement of public-facing surfaces (homepage + crawled pages, well-known endpoints, developer/key documentation). 7 categories, 57 core checks (50 scored, 7 tracked at weight 0), 1 cascade rule set. Two further sets are added to an audit only when the engine detects a site type (6 checks, §6.10) or a site platform (19 checks, §6.11); when added they are scored like core checks. Output: overall score (0–100), letter grade (A–F), per-category breakdown, per-check pass/partial/fail/skip/error status — or, when the homepage cannot be measured at all, a typed failure and no score (§3.5).
 
 **What it does NOT cover (yet):**
 - JavaScript-rendered content. Pages whose meaningful prose is hydrated client-side return only their static shell. *This is a known credibility gap, tracked as F3 in the credibility roadmap.*
@@ -167,12 +167,12 @@ Seven categories, with weights summing to 1.00. Source: `CATEGORY_CONFIG` in `pa
 | `bot-accessibility` | Bot Accessibility | 0.15 | 8 (2 tracked) | 7.0 |
 | `structured-data` | Structured Data | 0.15 | 7 | 7.0 |
 | `content-quality` | Content Quality | 0.15 | 8 | 7.5 |
-| `agent-discovery` | Agent Discovery | 0.12 | 6 (1 tracked) | 3.0 |
+| `agent-discovery` | Agent Discovery | 0.12 | 7 (2 tracked) | 3.0 |
 | `agent-protocols` | Agent Protocols | 0.13 | 10 (2 tracked) | 6.5 on ecommerce sites and wherever `well-known-ucp` passes; 6.0 when it becomes N/A |
 | `technical` | Technical Foundations | 0.10 | 6 | 6.0 |
 | `agent-auth` | Auth & Access | 0.20 | 11 (1 tracked) | 16.5, plus the 0.5 `cimd-support` bonus, which counts only when it passes |
 
-These sums are registry maxima over the 56 core checks; on a given site the NA cascade and `skip`/`error` results shrink the denominator further, and detected site-type (§6.10) or platform (§6.11) checks add to it. `CATEGORY_CONFIG` is unchanged from rubric 2.0, so the 2.0 → 3.0 delta comes from check changes alone.
+These sums are registry maxima over the 57 core checks; on a given site the NA cascade and `skip`/`error` results shrink the denominator further, and detected site-type (§6.10) or platform (§6.11) checks add to it. `CATEGORY_CONFIG` is unchanged from rubric 2.0, so the 2.0 → 3.0 delta comes from check changes alone.
 
 **Why these weights.** Auth & Access is the heaviest category (0.20) on purpose: authenticated action, not reading, is treated as the highest-leverage signal for whether an agent can *do* something on a site. The three reading-oriented categories (reachability, structure, content) share 0.15 each, the two agent-era categories share 0.25 between them, and web hygiene is 0.10 because it is a precondition more than an agent signal. The allocation is rationale, not measurement (§2): the known risk is that a 0.20 auth bucket over-weights emerging standards (RFC 9728, MCP) against mature platforms that have not adopted them. The NA cascade (§5) is the partial mitigation, and category weights are to be revisited with P4-2 calibration data.
 
@@ -213,7 +213,7 @@ Every check entry below carries these fields:
 - **Provenance** — where the standard or convention comes from
 - **Known limitations** — what the check does not catch
 
-Weight `0 (tracked)` marks a tracked check (§3.1). Each category table lists every registered core check in that category, tracked ones included, so the rows match `allChecks` (56). §6.8 lists the tracked checks, §6.9 the ids retired in 3.0, §6.10 the site-type checks and §6.11 the platform checks.
+Weight `0 (tracked)` marks a tracked check (§3.1). Each category table lists every registered core check in that category, tracked ones included, so the rows match `allChecks` (57). §6.8 lists the tracked checks, §6.9 the ids retired in 3.0, §6.10 the site-type checks and §6.11 the platform checks.
 
 ### 6.0 Inputs every check reads
 
@@ -679,6 +679,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 | `llms-txt-links-resolve` | 0.5 | warning | M3 | Up to 10 URLs in `/llms.txt` answer 200–399 |
 | `well-known-agent-card` | 1.0 | info | M1 | `/.well-known/agent-card.json` validates against A2A v1.0 (v0.3 shape or homepage stub = partial) |
 | `mcp-server-card` | 0 (tracked) | info | M3 | MCP server card at `<endpoint>/server-card`, an ai-catalog entry, or the legacy well-known path |
+| `agent-skills-index` | 0 (tracked) | info | M3 | `/.well-known/agent-skills/index.json` validates against the Agent Skills Discovery RFC v0.2.0 (absent `$schema` = partial) |
 | `markdown-alternate` | 0.5 | info | M2 | Pages carry `<link rel="alternate">` with a markdown type |
 
 **Per-check rationale.** Every weight in this category is anchored in first-principles reasoning + observed vendor adoption + the convention's standards-track maturity — not in outcome calibration (P4-2), which is pending.
@@ -764,6 +765,24 @@ A check is a pure function of the crawled pages, the site metadata probed before
 **Evidence boundary.** On a catch-all site, same-origin endpoint and catalog URLs are not fetched. All fetches share a 10 s budget. Field presence only.
 
 **Known limitations.** Doesn't verify the declared capabilities are accurate. The shape may change when SEP-2127 merges.
+
+#### `agent-skills-index` (weight 0, info)
+
+**Tracked (not scored).** Added 2026-10-14 as a 3.0 tracked addition; no version bump (§2).
+
+**What it measures.** `/.well-known/agent-skills/index.json`, read from the crawler's well-known fetch (an `application/json` content type is required, and a catch-all body counts as absent). Skip = no index. Fail 0 = the body is over 256 KB, is not a JSON object, has a `$schema` that is not a string or is not the known v0.2.0 URI (`https://schemas.agentskills.io/discovery/0.2.0/schema.json`; clients SHOULD NOT process an unrecognized one), has a missing, non-array or empty `skills`, or has an invalid entry. An entry needs `name` (1-64 chars, `^[a-z0-9]+(-[a-z0-9]+)*$`), `type` (`skill-md` or `archive`), `description` (1-1024 chars, not blank), `url` (a string that resolves to an http(s) URL against the index URL) and `digest` (`^sha256:[0-9a-f]{64}$`). The message names the first 3 problems. Partial 50 = every entry valid but `$schema` absent: v0.2.0 requires it, and clients treat such an index as v0.1.0. Pass 100 = valid with the known `$schema`; details list up to 10 `name (type)` lines. Unknown fields are ignored.
+
+**Maturity.** M3 (single-vendor, or path or schema still changing, §7.1).
+
+**Why this check.** The index lets an agent find a site's skills (SKILL.md files or archives) without crawling. Vercel, Cloudflare Developers and isitagentready.com serve one.
+
+**Why weight 0 (tracked).** The RFC is a Cloudflare-led draft, not an IETF document or foundation standard, and v0.1 to v0.2 already renamed the path and replaced the schema, so the check fails §7 criteria (a) and (b).
+
+**Provenance.** Agent Skills Discovery via Well-Known URIs, draft v0.2.0: https://github.com/cloudflare/agent-skills-discovery-rfc
+
+**Evidence boundary.** Never fetches a skill `url` or checks a `digest` against its artifact; the index body is read from the crawler's fetch and is capped at 1 MB there, 256 KB by the check. The legacy v0.1 path `/.well-known/skills/` is not probed.
+
+**Known limitations.** Shape only: it does not confirm the skills exist, match their digests, or are useful.
 
 #### `markdown-alternate` (weight 0.5, info)
 
@@ -1318,6 +1337,7 @@ Tracked checks run on every audit and appear in the report under "Tracked (not s
 | ID | Category | Why tracked (§7) |
 |---|---|---|
 | `mcp-server-card` | `agent-discovery` | SEP-2127 is unmerged and three card shapes are live: criteria (a) and (b) |
+| `agent-skills-index` | `agent-discovery` | Cloudflare-led draft RFC outside a standards body, and v0.2 already renamed the path and replaced the schema: criteria (a) and (b) |
 | `webmcp-declarative` | `agent-protocols` | Chrome origin trial, API still changing: criterion (b) |
 | `webmcp-imperative` | `agent-protocols` | Same as `webmcp-declarative` |
 | `agent-operator-signing` | `agent-auth` | The directory describes the bot operator, not the audited site |

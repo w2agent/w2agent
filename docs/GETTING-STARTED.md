@@ -169,7 +169,7 @@ packages/cli     - CLI tool (audit + generate + integrate commands)
 
 ## Scoring
 
-Rubric 3.0: 56 checks, 50 scored and 6 tracked (weight 0). See [CHECKS.md](CHECKS.md).
+Rubric 3.0: 57 checks, 50 scored and 7 tracked (weight 0). See [CHECKS.md](CHECKS.md).
 
 | Category | Weight |
 |----------|--------|

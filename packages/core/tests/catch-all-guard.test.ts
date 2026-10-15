@@ -35,6 +35,7 @@ const WELL_KNOWN_CHECK_IDS = [
   "api-catalog-rfc9727",
   "agent-operator-signing",
   "mcp-server-card",
+  "agent-skills-index",
   "llms-txt-exists",
   "robots-txt-exists",
   "usage-preference-declared",
@@ -170,6 +171,7 @@ describe("catch-all / soft-404 guard", () => {
       "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
+      "agent-skills-index",
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
@@ -256,6 +258,7 @@ describe("catch-all / soft-404 guard", () => {
       "api-catalog",
       "ai-catalog.json",
       "mcp/server-card.json",
+      "agent-skills/index.json",
     ]) {
       expect(metadata.wellKnown[path], path).toBeUndefined();
     }
@@ -269,6 +272,7 @@ describe("catch-all / soft-404 guard", () => {
       "agent-operator-signing",
       "api-catalog-rfc9727",
       "mcp-server-card",
+      "agent-skills-index",
     ]) {
       expect(byId.get(id)?.score, id).toBe(0);
     }
@@ -617,5 +621,16 @@ describe("isJsonContentType", () => {
     "application/x-json-stream",
   ])("rejects %j", (ct) => {
     expect(isJsonContentType(ct)).toBe(false);
+  });
+});
+
+describe("agent-skills-index catch-all handling", () => {
+  it("a catch-all serving the same JSON body for the index path is absent, so the check skips", async () => {
+    mockSite(() => json({ error: "not found" }));
+    const metadata = await probeSiteMetadata(SITE, metaOptions);
+    expect(metadata.catchAll).toBe(true);
+    expect(metadata.wellKnown["agent-skills/index.json"]).toBeUndefined();
+    const check = allChecks.find((c) => c.id === "agent-skills-index") as Check;
+    expect(await check.run([], metadata)).toMatchObject({ status: "skip", score: 0 });
   });
 });

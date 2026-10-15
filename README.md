@@ -45,7 +45,7 @@ Most websites are invisible to AI agents. Agents can't find your docs, hallucina
 | Without w2agent | With w2agent |
 |----------------|-------------|
 | Agents hallucinate your docs — trained on stale crawl data | `agentize` serves live content; agents always query the current site |
-| No way to know you're agent-inaccessible until users complain | `audit` runs 56 checks in seconds and shows exactly what's blocking agents |
+| No way to know you're agent-inaccessible until users complain | `audit` runs 57 checks in seconds and shows exactly what's blocking agents |
 | AI can't find your menu, hours, or booking page | Structured data + `agentize` exposes them as queryable tools |
 
 ## The Pipeline
@@ -54,7 +54,7 @@ Turn any website into a queryable AI agent in four steps:
 
 | Step | Command | What happens |
 |------|---------|-------------|
-| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 56 checks (50 scored). Find what's blocking agents. |
+| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 57 checks (50 scored). Find what's blocking agents. |
 | **2. Generate** | `npx w2agent generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
 | **3. Integrate** | `npx w2agent integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
 | **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live agent server at `<slug>.agent.w2agent.dev`. |
@@ -143,7 +143,7 @@ w2agent works for any public website. If a human can browse it, an agent can use
 | Without w2agent | With w2agent |
 |----------------|-------------|
 | Agents hallucinate your docs — trained on stale snapshots | `agentize` serves live content; agents always query the current site |
-| No way to know you're agent-inaccessible until users complain | `audit` runs 56 checks in seconds and shows exactly what's blocking agents |
+| No way to know you're agent-inaccessible until users complain | `audit` runs 57 checks in seconds and shows exactly what's blocking agents |
 | Every platform needs different integration files | Auto-detected platform generates the right native files (WordPress plugin, Next.js middleware, Shopify Liquid) in one command |
 | Writing llms.txt by hand is tedious and error-prone | `generate` produces llms.txt, agent-card.json, schema-org.json, and 7 more formats automatically |
 | Deploying an agent server requires infrastructure setup | `npx w2agent agentize` hosts your site as an agent server — no servers to manage |
@@ -239,7 +239,7 @@ Platform-specific checks run automatically during audit:
 
 ## Scoring
 
-Rubric 3.0: 56 checks in seven weighted categories. 50 are scored; 6 are tracked (reported with weight 0, never scored). A detected `ecommerce` or `local-business` site adds 3 site-type checks, and a detected platform adds its checks above.
+Rubric 3.0: 57 checks in seven weighted categories. 50 are scored; 7 are tracked (reported with weight 0, never scored). A detected `ecommerce` or `local-business` site adds 3 site-type checks, and a detected platform adds its checks above.
 
 | Category | Weight | What it measures |
 |----------|--------|-----------------|

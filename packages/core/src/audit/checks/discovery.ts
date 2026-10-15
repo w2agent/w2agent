@@ -350,6 +350,181 @@ export const mcpServerCard: Check = {
   run: (_pages, metadata, ctx) => findMcpServerCard(metadata, ctx?.isAllowedTarget),
 };
 
+const SKILLS_INDEX_KEY = "agent-skills/index.json";
+const SKILLS_INDEX_PATH = "/.well-known/agent-skills/index.json";
+const SKILLS_SCHEMA_V02 = "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
+const MAX_SKILLS_INDEX_BYTES = 256 * 1024;
+const MAX_SKILL_PROBLEMS = 3;
+const MAX_SKILL_DETAILS = 10;
+const SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const SKILL_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+const SKILL_TYPES = ["skill-md", "archive"];
+const SKILLS_RFC_URL = "https://github.com/cloudflare/agent-skills-discovery-rfc";
+const SKILLS_FIX_SNIPPET = `# Serve ${SKILLS_INDEX_PATH} as application/json (see ${SKILLS_RFC_URL}):
+{
+  "$schema": "${SKILLS_SCHEMA_V02}",
+  "skills": [
+    {
+      "name": "my-skill",
+      "type": "skill-md",
+      "description": "What the skill does and when to use it",
+      "url": "/.well-known/agent-skills/my-skill/SKILL.md",
+      "digest": "sha256:<64 lowercase hex chars of the artifact>"
+    }
+  ]
+}`;
+
+function skillsResult(
+  status: CheckResult["status"],
+  score: number,
+  message: string,
+  details?: string[],
+): CheckResult {
+  return {
+    id: "agent-skills-index",
+    name: "Agent Skills index",
+    category: "agent-discovery",
+    status,
+    score,
+    maxScore: 100,
+    weight: 0,
+    message,
+    severity: "info",
+    tracked: true,
+    ...(details && details.length > 0 ? { details: details.join("\n") } : {}),
+    ...(status === "pass" || status === "skip" ? {} : { fixSnippet: SKILLS_FIX_SNIPPET }),
+  };
+}
+
+function skillEntryProblems(entry: unknown, indexUrl: string): string[] {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return ["is not an object"];
+  }
+  const { name, type, description, url, digest } = entry as Record<string, unknown>;
+  const problems: string[] = [];
+  if (typeof name !== "string" || name.length < 1 || name.length > 64) {
+    problems.push("`name` is missing or not 1-64 characters");
+  } else if (!SKILL_NAME_RE.test(name)) {
+    problems.push("`name` must be lowercase alphanumeric words separated by single hyphens");
+  }
+  if (typeof type !== "string" || !SKILL_TYPES.includes(type)) {
+    problems.push('`type` must be "skill-md" or "archive"');
+  }
+  if (
+    typeof description !== "string" ||
+    description.trim() === "" ||
+    [...description].length > 1024
+  ) {
+    problems.push("`description` is missing, blank, or over 1024 characters");
+  }
+  if (typeof url !== "string" || url.trim() === "") {
+    problems.push("`url` is missing or not a non-empty string");
+  } else {
+    try {
+      const resolved = new URL(url, indexUrl);
+      const self = new URL(indexUrl);
+      resolved.hash = "";
+      resolved.search = "";
+      if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
+        problems.push("`url` must resolve to an http(s) URL");
+      } else if (resolved.href === self.href) {
+        problems.push("`url` resolves to the index itself");
+      }
+    } catch {
+      problems.push("`url` cannot be resolved against the index URL");
+    }
+  }
+  if (typeof digest !== "string" || !SKILL_DIGEST_RE.test(digest)) {
+    problems.push("`digest` must match sha256:<64 lowercase hex chars>");
+  }
+  return problems;
+}
+
+function skillsIndexProblems(skills: unknown[], indexUrl: string): string[] {
+  const problems: string[] = [];
+  skills.forEach((entry, i) => {
+    const label =
+      entry !== null &&
+      typeof entry === "object" &&
+      typeof (entry as { name?: unknown }).name === "string"
+        ? ` (${(entry as { name: string }).name.slice(0, 64)})`
+        : "";
+    for (const p of skillEntryProblems(entry, indexUrl)) {
+      problems.push(`skills[${i}]${label}: ${p}`);
+    }
+  });
+  return problems;
+}
+
+function summarizeProblems(problems: string[]): string {
+  const shown = problems.slice(0, MAX_SKILL_PROBLEMS).join("; ");
+  const more = problems.length - MAX_SKILL_PROBLEMS;
+  return more > 0 ? `${shown} (+${more} more)` : shown;
+}
+
+export function evaluateSkillsIndex(raw: string | undefined, baseUrl: string): CheckResult {
+  if (raw === undefined) {
+    return skillsResult("skip", 0, `No Agent Skills index (${SKILLS_INDEX_PATH})`);
+  }
+  if (Buffer.byteLength(raw) > MAX_SKILLS_INDEX_BYTES) {
+    return skillsResult(
+      "fail",
+      0,
+      `Agent Skills index exceeds ${MAX_SKILLS_INDEX_BYTES / 1024} KB (${SKILLS_INDEX_PATH})`,
+    );
+  }
+  const index = parseJsonObject(raw);
+  if (!index) {
+    return skillsResult("fail", 0, `${SKILLS_INDEX_PATH} is not a valid JSON object`);
+  }
+  const schema = index.$schema;
+  const schemaAbsent = schema === undefined;
+  if (!schemaAbsent && schema !== SKILLS_SCHEMA_V02) {
+    return skillsResult(
+      "fail",
+      0,
+      typeof schema === "string"
+        ? `Agent Skills index $schema "${schema.slice(0, 200)}" is not the known ${SKILLS_SCHEMA_V02}; clients SHOULD NOT process it`
+        : `Agent Skills index $schema is not a string; clients SHOULD NOT process it (expected ${SKILLS_SCHEMA_V02})`,
+    );
+  }
+  const { skills } = index;
+  if (!Array.isArray(skills)) {
+    return skillsResult("fail", 0, "Agent Skills index `skills` is missing or not an array");
+  }
+  if (skills.length === 0) {
+    return skillsResult("fail", 0, "Agent Skills index lists no skills");
+  }
+  const problems = skillsIndexProblems(skills, `${baseUrl}${SKILLS_INDEX_PATH}`);
+  if (schemaAbsent) problems.unshift("$schema missing");
+  if (problems.length > 0 && !(schemaAbsent && problems.length === 1)) {
+    return skillsResult("fail", 0, `Agent Skills index invalid: ${summarizeProblems(problems)}`);
+  }
+  const details = (skills as Array<{ name: string; type: string }>)
+    .slice(0, MAX_SKILL_DETAILS)
+    .map((s) => `${s.name} (${s.type})`);
+  if (schemaAbsent) {
+    return skillsResult(
+      "partial",
+      50,
+      `Agent Skills index lists ${skills.length} skill(s) but has no $schema, which v0.2.0 requires; clients will treat it as v0.1.0`,
+      details,
+    );
+  }
+  return skillsResult("pass", 100, `Agent Skills index lists ${skills.length} skill(s)`, details);
+}
+
+export const agentSkillsIndex: Check = {
+  id: "agent-skills-index",
+  name: "Agent Skills index",
+  category: "agent-discovery",
+  weight: 0,
+  severity: "info",
+  tracked: true,
+  run: (_pages, metadata) =>
+    evaluateSkillsIndex(metadata.wellKnown[SKILLS_INDEX_KEY], metadata.baseUrl),
+};
+
 export const markdownAlternate: Check = {
   id: "markdown-alternate",
   name: "Markdown alternate links",
@@ -394,5 +569,6 @@ export const discoveryChecks: Check[] = [
   llmsTxtLinksResolve,
   wellKnownAgentCard,
   mcpServerCard,
+  agentSkillsIndex,
   markdownAlternate,
 ];

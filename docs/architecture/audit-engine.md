@@ -117,14 +117,14 @@ interface CheckResult {
 
 ## Check Inventory
 
-56 core checks (`allChecks`) across 10 files in `packages/core/src/audit/checks/`:
+57 core checks (`allChecks`) across 10 files in `packages/core/src/audit/checks/`:
 
 | File | Category | Example Checks |
 |------|----------|---------------|
 | `bot-accessibility.ts` | Bot Accessibility | robots.txt exists, sitemap exists, response time, content negotiation |
 | `structured-data.ts` | Structured Data | Schema.org, JSON-LD, OpenGraph, semantic HTML |
 | `content-quality.ts` | Content Quality | Token efficiency, answer-first structure, FAQ format, freshness |
-| `discovery.ts` | Agent Discovery | llms.txt exists/valid, agent-card.json, .well-known endpoints |
+| `discovery.ts` | Agent Discovery | llms.txt exists/valid, agent-card.json, Agent Skills index, .well-known endpoints |
 | `protocols.ts` | Agent Protocols | MCP server, OpenAPI spec, forms, action schemas |
 | `technical.ts` | Technical | HTTPS, security headers, canonical URLs, JavaScript-free content |
 | `agent-auth.ts` | Auth & Access | Public API, OpenAPI spec, OAuth discovery, PKCE, MCP authorization |
@@ -139,7 +139,7 @@ Plus 2–4 platform-specific checks per adapter (e.g., WordPress PHP syntax, Nex
 When a platform is detected, its adapter's `checks` array is appended to the core check list:
 
 ```
-core checks (56) + adapter.checks (2-4) = all checks (58-60, plus up to 3 site-type checks when a site type is detected)
+core checks (57) + adapter.checks (2-4) = all checks (59-61, plus up to 3 site-type checks when a site type is detected)
 ```
 
 Platform checks run in the same `Promise.all()` pass — no separate phase. They have the same `CheckResult` interface and participate in category scoring identically.
