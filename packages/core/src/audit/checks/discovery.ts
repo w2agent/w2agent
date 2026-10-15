@@ -424,7 +424,6 @@ function skillEntryProblems(entry: unknown, indexUrl: string): string[] {
       const resolved = new URL(url, indexUrl);
       const self = new URL(indexUrl);
       resolved.hash = "";
-      resolved.search = "";
       if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
         problems.push("`url` must resolve to an http(s) URL");
       } else if (resolved.href === self.href) {

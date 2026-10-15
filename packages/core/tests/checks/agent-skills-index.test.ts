@@ -171,7 +171,9 @@ describe("agent-skills-index", () => {
       bad({ url: 7 }, /`url`/);
       bad({ url: "   " }, /non-empty string/);
       bad({ url: "#frag" }, /index itself/);
-      bad({ url: "?a" }, /index itself/);
+      for (const url of ["?a", "?artifact=my-skill"]) {
+        expect(runObj(index({ skills: [entry({ url })] })).status, url).toBe("pass");
+      }
       bad({ url: "" + "/.well-known/agent-skills/index.json#x" }, /index itself/);
       expect(runObj(index({ skills: [entry({ url: "//cdn.example.com/x.tar.gz" })] })).status).toBe(
         "pass",
