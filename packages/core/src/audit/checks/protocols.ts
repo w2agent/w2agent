@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { CheerioAPI } from "cheerio";
 import { guardedFetch, type IsAllowedTarget, readBodyCapped } from "../../shared/fetcher.js";
-import { parseHTML } from "../../shared/html-parser.js";
+import { isCodeScript, parseHTML } from "../../shared/html-parser.js";
 import { parseJsonObject } from "../shared/json.js";
 import type { Check } from "../types.js";
 
@@ -463,7 +463,12 @@ export const webmcpImperative: Check = {
       const inline = parsed
         .$("script:not([src])")
         .toArray()
-        .some((script) => WEBMCP_SCRIPT_PATTERN.test(parsed.$(script).html() ?? ""));
+        .some((script) => {
+          const code = parsed.$(script).html() ?? "";
+          return (
+            isCodeScript(parsed.$(script).attr("type"), code) && WEBMCP_SCRIPT_PATTERN.test(code)
+          );
+        });
       if (inline) found.push(`inline script on ${page.url}`);
 
       parsed.$("meta[http-equiv][content]").each((_, meta) => {

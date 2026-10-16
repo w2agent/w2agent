@@ -25,6 +25,42 @@ export interface ParsedPage {
   alternateLinks: { type: string; href: string }[];
 }
 
+const JS_SCRIPT_TYPE =
+  /^(?:(?:text|application)\/(?:x-)?(?:java|ecma)script|module|text\/(?:rocketscript|partytown))$/i;
+const NEXT_FLIGHT_PAYLOAD = /^\s*self\.__next_f\.push\(/;
+
+const NON_RENDERED_TAGS = new Set(["script", "style", "noscript", "template"]);
+
+interface TextWalkNode {
+  type: string;
+  name?: string;
+  data?: string;
+  children?: TextWalkNode[];
+}
+
+function visibleText(root: unknown): string {
+  const parts: string[] = [];
+  const stack: TextWalkNode[] = root ? [root as TextWalkNode] : [];
+  while (stack.length > 0) {
+    const node = stack.pop() as TextWalkNode;
+    if (node.type === "text") {
+      parts.push(node.data ?? "");
+    } else if (!(node.name && NON_RENDERED_TAGS.has(node.name)) && node.children) {
+      for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+    }
+  }
+  return parts.join("");
+}
+
+export function isCodeScript(type: string | undefined, content: string): boolean {
+  const t = type
+    ?.split(";")[0]
+    .trim()
+    .replace(/^[0-9a-f]{8,}-/i, "");
+  if (t && !JS_SCRIPT_TYPE.test(t)) return false;
+  return !NEXT_FLIGHT_PAYLOAD.test(content);
+}
+
 export function parseHTML(html: string): ParsedPage {
   const $ = cheerio.load(html);
 
@@ -66,7 +102,7 @@ export function parseHTML(html: string): ParsedPage {
     });
   });
 
-  const text = $("body").text().replace(/\s+/g, " ").trim();
+  const text = visibleText($("body").get(0)).replace(/\s+/g, " ").trim();
   const wordCount = text.split(/\s+/).filter(Boolean).length;
 
   const semanticElements: string[] = [];

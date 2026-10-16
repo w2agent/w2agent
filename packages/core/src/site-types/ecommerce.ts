@@ -1,5 +1,5 @@
 import type { FetchedPage, SiteMetadata } from "../audit/types.js";
-import { parseHTML } from "../shared/html-parser.js";
+import { isCodeScript, parseHTML } from "../shared/html-parser.js";
 import type { SiteTypeDetectionResult, SiteTypeDetector } from "./types.js";
 
 function detectEcommerce(
@@ -12,12 +12,34 @@ function detectEcommerce(
     const html = page.html ?? "";
     const url = page.url ?? "";
     const parsed = parseHTML(html);
-    const { $, jsonLd, ogTags, links, text } = parsed;
+    const { $, jsonLd, ogTags, links } = parsed;
 
-    // Platform markers (0.8)
+    // Platform markers (0.8) — bound to markup/code tokens, never page prose or data payloads
+    // (Next.js RSC flight scripts serialize the page text, so raw html.includes() is unsound).
+    const attrHas = (selector: string, attr: string, needle: string | RegExp) =>
+      $(selector)
+        .toArray()
+        .some((el) => {
+          const value = $(el).attr(attr) ?? "";
+          return typeof needle === "string" ? value.includes(needle) : needle.test(value);
+        });
+    const codeScripts = $("script:not([src])")
+      .toArray()
+      .map((el) => ({ type: $(el).attr("type"), code: $(el).html() ?? "" }))
+      .filter((s) => isCodeScript(s.type, s.code))
+      .map((s) => s.code);
+    const inCode = (pattern: RegExp) => codeScripts.some((c) => pattern.test(c));
+    const srcOrHrefHas = (needle: string | RegExp) =>
+      attrHas("script[src]", "src", needle) || attrHas("link[href]", "href", needle);
+    const wooBodyClass = ($("body").attr("class") ?? "")
+      .split(/\s+/)
+      .some((c) =>
+        ["woocommerce", "woocommerce-page", "woocommerce-js", "woocommerce-no-js"].includes(c),
+      );
+
     if (
-      html.includes("cdn.shopify.com") ||
-      html.includes("Shopify.theme") ||
+      srcOrHrefHas("cdn.shopify.com") ||
+      inCode(/\bShopify\.theme\s*=/) ||
       $('meta[name="shopify-checkout-api-token"]').length > 0
     ) {
       if (!matchedSignals.find((s) => s.label === "Shopify platform marker")) {
@@ -25,23 +47,30 @@ function detectEcommerce(
       }
     }
     if (
-      html.includes("woocommerce") ||
-      $("body.woocommerce").length > 0 ||
-      html.includes("wc-ajax=")
+      wooBodyClass ||
+      srcOrHrefHas("/plugins/woocommerce/") ||
+      srcOrHrefHas("wc-ajax=") ||
+      attrHas("a[href]", "href", "wc-ajax=") ||
+      attrHas("form[action]", "action", "wc-ajax=") ||
+      inCode(/[?&]wc-ajax=/)
     ) {
       if (!matchedSignals.find((s) => s.label === "WooCommerce marker")) {
         matchedSignals.push({ label: "WooCommerce marker", weight: 0.8 });
       }
     }
-    if (html.includes("bigcommerce") || html.includes("cdn.bigcommerce.com")) {
+    if (
+      srcOrHrefHas(/(?:^|\/\/)cdn\d*\.bigcommerce\.com\//i) ||
+      attrHas("img[src]", "src", /(?:^|\/\/)cdn\d*\.bigcommerce\.com\//i)
+    ) {
       if (!matchedSignals.find((s) => s.label === "BigCommerce marker")) {
         matchedSignals.push({ label: "BigCommerce marker", weight: 0.8 });
       }
     }
     if (
-      html.includes("Magento") ||
-      html.includes("mage/cookies") ||
-      html.includes("Mage.Cookies")
+      $('script[type="text/x-magento-init"]').length > 0 ||
+      $("[data-mage-init]").length > 0 ||
+      attrHas("script[src]", "src", "mage/cookies") ||
+      inCode(/\bMage\.Cookies\b|mage\/cookies/)
     ) {
       if (!matchedSignals.find((s) => s.label === "Magento marker")) {
         matchedSignals.push({ label: "Magento marker", weight: 0.8 });
@@ -85,12 +114,21 @@ function detectEcommerce(
       matchedSignals.push({ label: "Price microdata", weight: 0.4 });
     }
 
-    // "Add to Cart" / "Buy Now" buttons (0.3)
+    // "Add to Cart" / "Buy Now" commerce controls (0.3) — a form button or a link to a
+    // cart/checkout path, not prose that merely mentions the phrase.
     const cartButtonPattern = /add\s+to\s+cart|buy\s+now|add\s+to\s+bag/i;
-    if (
-      cartButtonPattern.test(text) &&
-      !matchedSignals.find((s) => s.label === "Add to cart / Buy now text")
-    ) {
+    const cartPathPattern = /\/(cart|checkout)\b/i;
+    const hasCartControl =
+      $("form button, form input[type=submit], form input[type=button]")
+        .toArray()
+        .some((el) => cartButtonPattern.test(`${$(el).text()} ${$(el).attr("value") ?? ""}`)) ||
+      $("a[href]")
+        .toArray()
+        .some(
+          (el) =>
+            cartPathPattern.test($(el).attr("href") ?? "") && cartButtonPattern.test($(el).text()),
+        );
+    if (hasCartControl && !matchedSignals.find((s) => s.label === "Add to cart / Buy now text")) {
       matchedSignals.push({ label: "Add to cart / Buy now text", weight: 0.3 });
     }
   }

@@ -392,6 +392,33 @@ describe("webmcp-imperative", () => {
     expect(result.details).toContain(`inline script on ${SITE}`);
   });
 
+  it("ignores data payload scripts (Next.js RSC flight data, JSON, ld+json) that quote the API", async () => {
+    serve({});
+    const quote = "Use document.modelContext.registerTool to register tools.";
+    const result = await webmcpImperative.run(
+      [
+        page(
+          `<script>self.__next_f.push([1,"${quote}"])</script><script type="application/json">{"t":"${quote}"}</script><script type="application/ld+json">{"d":"${quote}"}</script><script type="text/x-foo">${quote}</script>`,
+        ),
+      ],
+      baseMeta,
+    );
+    expect(result).toMatchObject({ status: "skip", score: 0 });
+  });
+
+  it("still detects real inline registration code alongside a flight payload", async () => {
+    serve({});
+    const result = await webmcpImperative.run(
+      [
+        page(
+          `<script>self.__next_f.push([1,"x"])</script><script type="module">navigator.modelContext.registerTool({ name: "t" });</script>`,
+        ),
+      ],
+      baseMeta,
+    );
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
   it("detects registration in a same-origin external script and names the script URL", async () => {
     serve({ [`${SITE}/assets/app.js`]: () => js(`!function(){${REGISTER}}()`) });
     const result = await webmcpImperative.run(
