@@ -51,3 +51,12 @@ describe("visible text excludes non-rendered content", () => {
     expect(parseHTML(html).hasFaqContent).toBe(false);
   });
 });
+
+describe("noscriptWordCount", () => {
+  it("counts words in noscript with markup stripped, excluded from wordCount", () => {
+    const html = `<html><body><p>one two</p><noscript><article><p>alpha</p><p>beta</p><p>gamma</p></article><script>var z=1;</script></noscript></body></html>`;
+    const parsed = parseHTML(html);
+    expect(parsed.wordCount).toBe(2);
+    expect(parsed.noscriptWordCount).toBe(3);
+  });
+});

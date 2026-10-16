@@ -118,9 +118,19 @@ function detectEcommerce(
     // cart/checkout path, not prose that merely mentions the phrase.
     const cartButtonPattern = /add\s+to\s+cart|buy\s+now|add\s+to\s+bag/i;
     const cartPathPattern = /\/(cart|checkout)\b/i;
+    const formIds = new Set(
+      $("form[id]")
+        .toArray()
+        .map((el) => $(el).attr("id") ?? ""),
+    );
     const hasCartControl =
       $("form button, form input[type=submit], form input[type=button]")
         .toArray()
+        .concat(
+          $("button[form], input[type=submit][form], input[type=button][form]")
+            .filter((_, el) => formIds.has($(el).attr("form") ?? ""))
+            .toArray(),
+        )
         .some((el) => cartButtonPattern.test(`${$(el).text()} ${$(el).attr("value") ?? ""}`)) ||
       $("a[href]")
         .toArray()

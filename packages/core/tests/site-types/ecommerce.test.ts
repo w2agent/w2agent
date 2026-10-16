@@ -330,3 +330,18 @@ describe("detector fix round 1", () => {
     expect(detect(html)).toBeNull();
   });
 });
+
+describe("form-associated cart controls", () => {
+  const detect = (html: string) => ecommerceDetector.detect([makePage(html)], baseMeta);
+  const withPath = `<a href="/shop">Shop</a>`;
+
+  it("counts a button outside the form that names it via form=", () => {
+    const html = `<html><body>${withPath}<form id="cart" action="/cart/add"></form><button form="cart">Add to cart</button><a href="/store">Store</a></body></html>`;
+    expect(detect(html)?.signals).toContain("Add to cart / Buy now text");
+  });
+
+  it("ignores form= that names no existing form", () => {
+    const html = `<html><body>${withPath}<button form="missing">Add to cart</button></body></html>`;
+    expect(detect(html)).toBeNull();
+  });
+});

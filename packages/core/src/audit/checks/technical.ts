@@ -199,7 +199,10 @@ const SHELL_MAX_ANCHORS = 5; // < 5 anchors with href → link-starved homepage
 const SHELL_MAX_TEXT_RATIO = 0.2; // body-text-bytes / script-bytes < 0.2 → script-dominated
 const TEXT_BYTES_PER_WORD = 5; // ~4.5 chars + 1 space; close enough for ratio purposes
 
-function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean {
+function looksLikeSpaShell(
+  html: string,
+  parsed: { wordCount: number; noscriptWordCount: number },
+): boolean {
   // Signal 1 (cheap): empty SPA mount point present?
   const hasRootMount = ROOT_MOUNT_RE.test(html) || REACTROOT_RE.test(html);
   if (!hasRootMount) return false;
@@ -212,7 +215,7 @@ function looksLikeSpaShell(html: string, parsed: { wordCount: number }): boolean
   // We compare wordCount-derived body text against full <script>...</script>
   // tag bytes. The wrapper ~18 bytes per tag is noise vs typical 5KB+ payloads.
   const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
-  const bodyTextBytes = parsed.wordCount * TEXT_BYTES_PER_WORD;
+  const bodyTextBytes = (parsed.wordCount + parsed.noscriptWordCount) * TEXT_BYTES_PER_WORD;
   if (scriptBytes === 0) return false;
   return bodyTextBytes / scriptBytes < SHELL_MAX_TEXT_RATIO;
 }
@@ -240,7 +243,7 @@ export const noJsDependency: Check = {
       }
 
       const threshold = frameworks.length > 0 ? 100 : 50;
-      if (parsed.wordCount >= threshold) goodPages++;
+      if (parsed.wordCount + parsed.noscriptWordCount >= threshold) goodPages++;
     }
 
     const score = pages.length > 0 ? Math.round((goodPages / pages.length) * 100) : 0;

@@ -12,6 +12,7 @@ export interface ParsedPage {
   links: { href: string; text: string; rel?: string }[];
   text: string;
   wordCount: number;
+  noscriptWordCount: number;
   htmlLength: number;
   textLength: number;
   semanticElements: string[];
@@ -38,18 +39,44 @@ interface TextWalkNode {
   children?: TextWalkNode[];
 }
 
-function visibleText(root: unknown): string {
+function collectText(
+  root: unknown,
+  skip: (node: TextWalkNode) => boolean,
+  onSkip?: (n: TextWalkNode) => void,
+) {
   const parts: string[] = [];
   const stack: TextWalkNode[] = root ? [root as TextWalkNode] : [];
   while (stack.length > 0) {
     const node = stack.pop() as TextWalkNode;
     if (node.type === "text") {
       parts.push(node.data ?? "");
-    } else if (!(node.name && NON_RENDERED_TAGS.has(node.name)) && node.children) {
+    } else if (skip(node)) {
+      onSkip?.(node);
+    } else if (node.children) {
       for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
     }
   }
   return parts.join("");
+}
+
+function visibleText(root: unknown): { text: string; noscriptText: string } {
+  const noscriptParts: string[] = [];
+  const text = collectText(
+    root,
+    (node) => !!node.name && NON_RENDERED_TAGS.has(node.name),
+    (node) => {
+      if (node.name !== "noscript") return;
+      // cheerio parses noscript content as raw text, so strip any markup
+      const raw = collectText(
+        node,
+        (n) => n !== node && (n.name === "script" || n.name === "style"),
+      );
+      noscriptParts.push(
+        raw.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " "),
+      );
+    },
+  );
+  return { text, noscriptText: noscriptParts.join(" ") };
 }
 
 export function isCodeScript(type: string | undefined, content: string): boolean {
@@ -102,8 +129,10 @@ export function parseHTML(html: string): ParsedPage {
     });
   });
 
-  const text = visibleText($("body").get(0)).replace(/\s+/g, " ").trim();
+  const visible = visibleText($("body").get(0));
+  const text = visible.text.replace(/\s+/g, " ").trim();
   const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const noscriptWordCount = visible.noscriptText.split(/\s+/).filter(Boolean).length;
 
   const semanticElements: string[] = [];
   for (const tag of ["article", "section", "nav", "main", "aside", "header", "footer", "figure"]) {
@@ -153,6 +182,7 @@ export function parseHTML(html: string): ParsedPage {
     links,
     text,
     wordCount,
+    noscriptWordCount,
     htmlLength: html.length,
     textLength: text.length,
     semanticElements,

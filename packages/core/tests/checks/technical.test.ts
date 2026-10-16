@@ -142,4 +142,20 @@ describe("no-js-dependency", () => {
     expect(result.score).toBe(100);
     expect(result.details).toContain("Next.js");
   });
+  it("counts noscript content: a root mount with a full noscript article is not a shell", () => {
+    const words = Array(300).fill("word").join(" ");
+    const script = `<script>${"x".repeat(5000)}</script>`;
+    const html = `<html><body><div id="root"></div><noscript><article><p>${words}</p></article></noscript>${script}</body></html>`;
+    const result = noJsDependency.run([{ ...basePage, html }], baseMeta);
+    expect(result.score).toBe(100);
+    expect(result.message).not.toContain("JS-only shells");
+  });
+
+  it("still flags a shell whose noscript is only an enable-JavaScript banner", () => {
+    const script = `<script>${"x".repeat(5000)}</script>`;
+    const html = `<html><body><div id="root"></div><noscript>You need to enable JavaScript to run this app.</noscript>${script}</body></html>`;
+    const result = noJsDependency.run([{ ...basePage, html }], baseMeta);
+    expect(result.score).toBe(0);
+    expect(result.message).toContain("1/1 pages are JS-only shells");
+  });
 });

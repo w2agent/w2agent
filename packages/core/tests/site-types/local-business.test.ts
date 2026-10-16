@@ -268,3 +268,32 @@ describe("Signal list accuracy", () => {
     expect(result?.signals).toEqual(["NAP microdata"]);
   });
 });
+
+describe("booking markers need markup, not prose", () => {
+  const prose =
+    "Booking widgets: calendly.com, resy.com, opentable, openTable, acuityscheduling.com, booksy.com, vagaro.com, mindbodyonline.com. Map: google.com/maps/embed.";
+
+  it("returns null for a docs page naming booking hosts in prose and an RSC payload", () => {
+    const html = `<html><body><p>${prose}</p><script>self.__next_f.push([1,"${prose}"])</script></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)).toBeNull();
+  });
+
+  it("detects a restaurant with a Resy booking link", () => {
+    const html = `<html><body><a href="https://resy.com/cities/ny/venue">Reserve</a></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)?.signals).toContain(
+      "Booking platform embed",
+    );
+  });
+
+  it("detects an OpenTable iframe", () => {
+    const html = `<html><body><iframe src="https://www.opentable.com/widget/reservation/loader"></iframe></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)?.signals).toContain(
+      "Booking platform embed",
+    );
+  });
+
+  it("does not read business hours from script text", () => {
+    const html = `<html><body><script>var h = "Mon 9:00 Tue 10:00";</script></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)).toBeNull();
+  });
+});

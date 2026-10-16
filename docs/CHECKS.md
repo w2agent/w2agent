@@ -1,8 +1,8 @@
 # w2agent Check Reference
 
-57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.1; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento script/link/meta/body-class markers or code tokens), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a form button, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
+57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.1; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento markers in `script[src]`, `link[href]`, `img[src]`, `a[href]`, `form[action]`, the checkout meta tag, body classes and `data-mage-init`, or code tokens in code scripts), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a button inside a form or tied to one by its `form` attribute, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
 
-**Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed.
+**Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed. `no-js-dependency` measures the no-JS view and also counts the words inside `noscript`.
 
 ## Bot Accessibility (15%)
 
@@ -84,7 +84,7 @@ UCP is a documented scoring-policy exception: it fails the stability bar (breaki
 | Canonical URLs | `canonical-urls` | `<link rel="canonical">` |
 | Mobile viewport | `mobile-viewport` | Viewport meta tag |
 | UTF-8 charset | `charset-utf8` | UTF-8 declared |
-| No JS dependency | `no-js-dependency` | Content accessible without JS (word thresholds count visible text) |
+| No JS dependency | `no-js-dependency` | Content accessible without JS (word thresholds and the SPA-shell ratio count visible text plus `noscript` text) |
 
 ## Auth & Access (20%)
 
@@ -124,7 +124,7 @@ These checks run automatically when a platform is detected.
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | .well-known Serving | `nextjs-well-known-served` | Does Next.js serve `.well-known/` correctly? |
-| Static Generation | `nextjs-static-generation` | Are most pages statically generated (fast for AI crawlers)? Each sampled page is classed dynamic (`cache-control` `private` or `no-store`; `__NEXT_DATA__` `gssp` or `gip` true; `appGip` true without `gsp` or `nextExport`), static (`x-nextjs-prerender`; `x-nextjs-cache` or `x-vercel-cache` of HIT, STALE, PRERENDER or REVALIDATED; `cache-control` `s-maxage` or `public`; `__NEXT_DATA__` `gsp`, `nextExport` or `autoExport` true) or no evidence; dynamic wins. 100 when at least half of the pages with evidence are static; else 60 (also when no page has evidence) |
+| Static Generation | `nextjs-static-generation` | Are most pages statically generated (fast for AI crawlers)? Each sampled page is classed dynamic (`cache-control` `private` or `no-store`; `__NEXT_DATA__` `gssp` or `gip` true, unless `nextExport` is true; `appGip` true without `gsp` or `nextExport`; flags read only at the top level of the parsed JSON), static (`x-nextjs-prerender`; `x-nextjs-cache` or `x-vercel-cache` of HIT, STALE, PRERENDER or REVALIDATED; `cache-control` `s-maxage` or `public`; `__NEXT_DATA__` `gsp`, `nextExport` or `autoExport` true) or no evidence; dynamic wins. 100 when at least half of the pages with evidence are static; else 60 (also when no page has evidence) |
 | Metadata API | `nextjs-metadata-api` | Is `generateMetadata` used for consistent SEO? |
 
 ### Shopify (3 checks)

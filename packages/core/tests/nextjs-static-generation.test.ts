@@ -161,3 +161,27 @@ describe("nextjs-static-generation", () => {
     expect(run([])).toMatchObject({ status: "partial", score: 60 });
   });
 });
+
+describe("nextjs-static-generation flag reading", () => {
+  it("getInitialProps on a static export (gip + nextExport) is static", () => {
+    const r = run([page({}, nextData('"gip":true,"nextExport":true'))]);
+    expect(r).toMatchObject({ status: "pass" });
+    expect(r.message).toContain("1/1");
+  });
+
+  it("gssp + nextExport is not dynamic", () => {
+    expect(run([page({}, nextData('"gssp":true,"nextExport":true'))]).status).toBe("pass");
+  });
+
+  it("reads only top-level flags, not app data nested in props", () => {
+    const html = `<html><body><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"example":{"gssp":true,"gip":true}}},"gsp":true}</script></body></html>`;
+    const r = run([page({}, html)]);
+    expect(r).toMatchObject({ status: "pass" });
+    expect(r.message).toContain("1/1");
+  });
+
+  it("unparseable __NEXT_DATA__ is no evidence", () => {
+    const html = `<html><body><script id="__NEXT_DATA__" type="application/json">{"gsp":true,</script></body></html>`;
+    expect(run([page({}, html)]).message).toContain("No static-generation evidence");
+  });
+});

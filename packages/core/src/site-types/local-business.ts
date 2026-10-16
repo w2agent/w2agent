@@ -78,17 +78,18 @@ function detectLocalBusiness(
     }
 
     // Signal 2: Booking platform embeds (0.6)
-    const bookingPlatforms = [
-      "openTable",
-      "resy.com",
-      "calendly.com",
-      "acuityscheduling.com",
-      "booksy.com",
-      "vagaro.com",
-      "mindbodyonline.com",
-    ];
+    // Bound to markup (iframe/script src, link href), never prose or serialized RSC payloads.
+    const bookingPattern =
+      /opentable|resy\.com|calendly\.com|acuityscheduling\.com|booksy\.com|vagaro\.com|mindbodyonline\.com/i;
+    const attrMatches = (selector: string, attr: string, pattern: RegExp) =>
+      $(selector)
+        .toArray()
+        .some((el) => pattern.test($(el).attr(attr) ?? ""));
     if (
-      bookingPlatforms.some((p) => html.includes(p)) &&
+      (attrMatches("iframe[src]", "src", bookingPattern) ||
+        attrMatches("script[src]", "src", bookingPattern) ||
+        attrMatches("[id]", "id", /opentable/i) ||
+        attrMatches("a[href]", "href", bookingPattern)) &&
       !matchedSignals.find((s) => s.label === "Booking platform embed")
     ) {
       matchedSignals.push({ label: "Booking platform embed", weight: 0.6 });
@@ -104,15 +105,17 @@ function detectLocalBusiness(
 
     // Signal 4: Map embed (0.5)
     if (
-      (html.includes("maps.google.com/maps?") || html.includes("google.com/maps/embed")) &&
+      (attrMatches("iframe[src]", "src", /maps\.google\.com\/maps\?|google\.com\/maps\/embed/) ||
+        attrMatches("a[href]", "href", /maps\.google\.com\/maps\?|google\.com\/maps\/embed/)) &&
       !matchedSignals.find((s) => s.label === "Map embed")
     ) {
       matchedSignals.push({ label: "Map embed", weight: 0.5 });
     }
 
     // Signal 5: Business hours (0.5)
+    const markupOnly = html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, "");
     const hasHoursItemprop = $('[itemprop="openingHours"]').length > 0;
-    const hasHoursText = /\b(mon|tue|wed|thu|fri|sat|sun)\b.*\d{1,2}:\d{2}/i.test(html);
+    const hasHoursText = /\b(mon|tue|wed|thu|fri|sat|sun)\b.*\d{1,2}:\d{2}/i.test(markupOnly);
     if (
       (hasHoursItemprop || hasHoursText) &&
       !matchedSignals.find((s) => s.label === "Business hours")

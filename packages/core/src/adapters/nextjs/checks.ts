@@ -35,28 +35,38 @@ const NEXT_DATA_RE = /<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/s
 
 type PageRendering = "static" | "dynamic" | "unknown";
 
+function readNextDataFlags(body: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function classifyPageRendering(page: FetchedPage): PageRendering {
   const cacheControl = (page.headers["cache-control"] ?? "").toLowerCase();
-  const nextData = NEXT_DATA_RE.exec(page.html)?.[1] ?? "";
-  const isGsp = /"gsp"\s*:\s*true/.test(nextData);
-  const isExported = /"nextExport"\s*:\s*true/.test(nextData);
+  const flags = readNextDataFlags(NEXT_DATA_RE.exec(page.html)?.[1] ?? "");
+  const isGsp = flags.gsp === true;
+  const isExported = flags.nextExport === true;
   const dynamic =
     /\b(private|no-store)\b/.test(cacheControl) ||
-    /"gssp"\s*:\s*true/.test(nextData) ||
-    /"gip"\s*:\s*true/.test(nextData) ||
-    (/"appGip"\s*:\s*true/.test(nextData) && !isGsp && !isExported);
+    (!isExported && (flags.gssp === true || flags.gip === true)) ||
+    (flags.appGip === true && !isGsp && !isExported);
   if (dynamic) return "dynamic";
 
   const isStaticCacheValue = (v: string | undefined) =>
-    v !== undefined &&
-    v.split(",").some((part) => STATIC_CACHE_VALUES.has(part.trim().toUpperCase()));
+    v?.split(",").some((part) => STATIC_CACHE_VALUES.has(part.trim().toUpperCase())) === true;
   const isStatic =
     page.headers["x-nextjs-prerender"] !== undefined ||
     isStaticCacheValue(page.headers["x-nextjs-cache"]) ||
     isStaticCacheValue(page.headers["x-vercel-cache"]) ||
     /\b(s-maxage|public)\b/.test(cacheControl) ||
     isGsp ||
-    /"(nextExport|autoExport)"\s*:\s*true/.test(nextData);
+    isExported ||
+    flags.autoExport === true;
   return isStatic ? "static" : "unknown";
 }
 
