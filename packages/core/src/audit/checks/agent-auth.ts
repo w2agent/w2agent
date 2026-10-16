@@ -83,6 +83,20 @@ async function probeUrl(
 const PORTAL_PATHS = ["/developers", "/developer", "/api", "/docs/api", "/api-docs"];
 const PORTAL_SUBDOMAINS = ["docs", "developers", "developer"];
 
+// A portal is human-readable documentation. A positively non-HTML response (JSON/YAML index,
+// plain text) is a machine endpoint and belongs to public-api. A missing content-type is unknown,
+// not machine-readable, so it is still credited.
+function isHtmlLike(contentType: string): boolean {
+  const ct = contentType.toLowerCase();
+  return ct === "" || ct.includes("html");
+}
+
+function isPortalPage(probe: { status: number; contentType: string } | null): boolean {
+  return (
+    probe !== null && probe.status >= 200 && probe.status < 300 && isHtmlLike(probe.contentType)
+  );
+}
+
 type PortalResult =
   | { found: true; url: string; text: string }
   | { found: false; probeFailed: boolean };
@@ -99,8 +113,7 @@ async function probeDeveloperPortal(
       const url = `${baseUrl}${p}`;
       const probe = await probeUrl(url, isAllowedTarget);
       if (probe !== null) anyResponseReceived = true;
-      if (probe && probe.status >= 200 && probe.status < 300)
-        return { url, text: stripHtml(probe.text) };
+      if (probe && isPortalPage(probe)) return { url, text: stripHtml(probe.text) };
       return null;
     }),
   );
@@ -115,7 +128,7 @@ async function probeDeveloperPortal(
     const url = `${u.protocol}//${sub}.${stripWww(u.hostname)}/`;
     const probe = await probeUrl(url, isAllowedTarget);
     if (probe !== null) anyResponseReceived = true;
-    if (probe && probe.status >= 200 && probe.status < 300) {
+    if (probe && isPortalPage(probe)) {
       return { found: true, url, text: stripHtml(probe.text) };
     }
   }

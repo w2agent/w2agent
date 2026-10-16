@@ -938,3 +938,75 @@ describe("agent-auth: check registry", () => {
     expect(sum).toBe(16.5);
   });
 });
+
+// --- A3 developer-portal: machine-readable vs human-readable ---
+describe("agent-auth: A3 developer-portal requires an HTML page", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const portalText = `Developer guide ${"word ".repeat(300)}`;
+  const portalCheck = () => agentAuthChecks.find((c) => c.id === "developer-portal")!;
+
+  it("JSON /api falls through to the HTML /docs/api page; public-api still passes on the JSON", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url === "https://example.com/api") return jsonResp({ name: "api" });
+      if (url === "https://example.com/api/") return jsonResp({ name: "api" });
+      if (url.endsWith("/docs/api")) return htmlResp(`<html><body>${portalText}</body></html>`);
+      return notFound();
+    });
+    const portal = await portalCheck().run([basePage], baseMeta);
+    expect(portal.status).toBe("pass");
+    expect(portal.message).toContain("https://example.com/docs/api");
+    const api = await agentAuthChecks.find((c) => c.id === "public-api")!.run([basePage], baseMeta);
+    expect(api.status).toBe("pass");
+  });
+
+  it("HTML /api is a portal", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url === "https://example.com/api")
+        return htmlResp(`<html><body>${portalText}</body></html>`);
+      if (url.endsWith("/docs/api")) return htmlResp("<html><body>other</body></html>");
+      return notFound();
+    });
+    const r = await portalCheck().run([basePage], baseMeta);
+    expect(r.message).toContain("https://example.com/api");
+    expect(r.message).not.toContain("/docs/api");
+  });
+
+  it("fails (not skip) when every portal path answers only JSON or YAML", async () => {
+    globalThis.fetch = mockFetch(() => jsonResp({ ok: true }));
+    const r = await portalCheck().run([basePage], baseMeta);
+    expect(r.status).toBe("fail");
+    const yaml = mockFetch(
+      () => new Response("a: 1", { status: 200, headers: { "content-type": "application/yaml" } }),
+    );
+    globalThis.fetch = yaml;
+    const r2 = await portalCheck().run([basePage], baseMeta);
+    expect(r2.status).toBe("fail");
+  });
+
+  it("applies the same rule to the subdomain fallback", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url === "https://docs.example.com/") return jsonResp({ docs: true });
+      if (url === "https://developers.example.com/")
+        return htmlResp(`<html><body>${portalText}</body></html>`);
+      return notFound();
+    });
+    const r = await portalCheck().run([basePage], baseMeta);
+    expect(r.message).toContain("https://developers.example.com/");
+  });
+
+  it("a response without content-type is still credited", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url.endsWith("/developers")) {
+        const res = new Response(`<html><body>${portalText}</body></html>`, { status: 200 });
+        res.headers.delete("content-type");
+        return res;
+      }
+      return notFound();
+    });
+    const r = await portalCheck().run([basePage], baseMeta);
+    expect(r.status).toBe("pass");
+  });
+});

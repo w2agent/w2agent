@@ -30,6 +30,35 @@ export const nextjsWellKnownCheck: Check = {
   },
 };
 
+const STATIC_CACHE_VALUES = new Set(["HIT", "STALE", "PRERENDER", "REVALIDATED"]);
+const NEXT_DATA_RE = /<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i;
+
+type PageRendering = "static" | "dynamic" | "unknown";
+
+function classifyPageRendering(page: FetchedPage): PageRendering {
+  const cacheControl = (page.headers["cache-control"] ?? "").toLowerCase();
+  const nextData = NEXT_DATA_RE.exec(page.html)?.[1] ?? "";
+  const isGsp = /"gsp"\s*:\s*true/.test(nextData);
+  const dynamic =
+    /\b(private|no-store)\b/.test(cacheControl) ||
+    /"gssp"\s*:\s*true/.test(nextData) ||
+    /"gip"\s*:\s*true/.test(nextData) ||
+    (/"appGip"\s*:\s*true/.test(nextData) && !isGsp);
+  if (dynamic) return "dynamic";
+
+  const isStaticCacheValue = (v: string | undefined) =>
+    v !== undefined &&
+    v.split(",").some((part) => STATIC_CACHE_VALUES.has(part.trim().toUpperCase()));
+  const isStatic =
+    page.headers["x-nextjs-prerender"] !== undefined ||
+    isStaticCacheValue(page.headers["x-nextjs-cache"]) ||
+    isStaticCacheValue(page.headers["x-vercel-cache"]) ||
+    /\b(s-maxage|public)\b/.test(cacheControl) ||
+    isGsp ||
+    /"(nextExport|autoExport)"\s*:\s*true/.test(nextData);
+  return isStatic ? "static" : "unknown";
+}
+
 export const nextjsStaticGenerationCheck: Check = {
   id: "nextjs-static-generation",
   name: "Next.js Static Generation",
@@ -37,20 +66,11 @@ export const nextjsStaticGenerationCheck: Check = {
   weight: 1,
   severity: "info",
   run(pages: FetchedPage[]) {
-    const hasStaticHints = pages.some(
-      (p) =>
-        p.headers["x-nextjs-cache"] === "HIT" ||
-        p.headers["x-vercel-cache"] === "HIT" ||
-        p.html.includes("__NEXT_DATA__"),
-    );
-
-    const hasSSROnly = pages.some(
-      (p) =>
-        p.headers["cache-control"]?.includes("no-cache") ||
-        p.headers["cache-control"]?.includes("private"),
-    );
-
-    const isStatic = hasStaticHints && !hasSSROnly;
+    const rendering = pages.map(classifyPageRendering);
+    const staticCount = rendering.filter((r) => r === "static").length;
+    const evidenced = staticCount + rendering.filter((r) => r === "dynamic").length;
+    const isStatic = evidenced > 0 && staticCount / evidenced >= 0.5;
+    const fraction = `${staticCount}/${evidenced} sampled pages with rendering evidence are statically served`;
 
     return {
       id: this.id,
@@ -62,11 +82,13 @@ export const nextjsStaticGenerationCheck: Check = {
       score: isStatic ? 100 : 60,
       maxScore: 100,
       message: isStatic
-        ? "Pages appear to use static generation — fast and reliable for AI crawlers"
-        : "Pages may use SSR-only rendering. Static generation improves AI crawler reliability.",
+        ? `Most pages appear to use static generation (${fraction}) — fast and reliable for AI crawlers`
+        : evidenced === 0
+          ? "No static-generation evidence found on sampled pages. Static generation improves AI crawler reliability."
+          : `Most pages appear to be rendered per request (${fraction}). Static generation improves AI crawler reliability.`,
       details: isStatic
         ? undefined
-        : "Consider using generateStaticParams() for key pages so AI bots get fast, cacheable responses.",
+        : "Consider using generateStaticParams() for key pages so AI bots get fast, cacheable responses. Reading headers(), cookies() or searchParams in a layout makes every route beneath it dynamic.",
     };
   },
 };
