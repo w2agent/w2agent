@@ -296,4 +296,16 @@ describe("booking markers need markup, not prose", () => {
     const html = `<html><body><script>var h = "Mon 9:00 Tue 10:00";</script></body></html>`;
     expect(localBusinessDetector.detect([makePage(html)], baseMeta)).toBeNull();
   });
+
+  it("does not treat a plain link to an opentable.com restaurant page as an embed", () => {
+    const html = `<html><body><a href="https://www.opentable.com/r/some-restaurant">Review</a></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)).toBeNull();
+  });
+
+  it("detects an OpenTable script widget", () => {
+    const html = `<html><body><script src="https://www.opentable.com/widget/reservation/loader?rid=1"></script></body></html>`;
+    expect(localBusinessDetector.detect([makePage(html)], baseMeta)?.signals).toContain(
+      "Booking platform embed",
+    );
+  });
 });

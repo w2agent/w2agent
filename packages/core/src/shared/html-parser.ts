@@ -43,6 +43,7 @@ function collectText(
   root: unknown,
   skip: (node: TextWalkNode) => boolean,
   onSkip?: (n: TextWalkNode) => void,
+  separator = "",
 ) {
   const parts: string[] = [];
   const stack: TextWalkNode[] = root ? [root as TextWalkNode] : [];
@@ -56,26 +57,21 @@ function collectText(
       for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
     }
   }
-  return parts.join("");
+  return parts.join(separator);
 }
+
+const isNonRendered = (node: TextWalkNode) => !!node.name && NON_RENDERED_TAGS.has(node.name);
 
 function visibleText(root: unknown): { text: string; noscriptText: string } {
   const noscriptParts: string[] = [];
-  const text = collectText(
-    root,
-    (node) => !!node.name && NON_RENDERED_TAGS.has(node.name),
-    (node) => {
-      if (node.name !== "noscript") return;
-      // cheerio parses noscript content as raw text, so strip any markup
-      const raw = collectText(
-        node,
-        (n) => n !== node && (n.name === "script" || n.name === "style"),
-      );
-      noscriptParts.push(
-        raw.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " "),
-      );
-    },
-  );
+  const text = collectText(root, isNonRendered, (node) => {
+    if (node.name !== "noscript") return;
+    // cheerio keeps noscript content as raw text: re-parse it as a fragment so entities
+    // decode and template/script/style are skipped like in the main walk
+    const raw = collectText(node, () => false);
+    const fragment = cheerio.load(raw, null, false);
+    noscriptParts.push(collectText(fragment.root().get(0), isNonRendered, undefined, " "));
+  });
   return { text, noscriptText: noscriptParts.join(" ") };
 }
 

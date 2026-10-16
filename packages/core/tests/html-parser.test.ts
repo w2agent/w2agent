@@ -59,4 +59,11 @@ describe("noscriptWordCount", () => {
     expect(parsed.wordCount).toBe(2);
     expect(parsed.noscriptWordCount).toBe(3);
   });
+
+  it("skips template content and decodes character references inside noscript", () => {
+    const tmpl = `<html><body><noscript><template>${"word ".repeat(60)}</template></noscript></body></html>`;
+    expect(parseHTML(tmpl).noscriptWordCount).toBe(0);
+    const ents = `<html><body><noscript>${"word&#32;".repeat(60)}</noscript></body></html>`;
+    expect(parseHTML(ents).noscriptWordCount).toBe(60);
+  });
 });

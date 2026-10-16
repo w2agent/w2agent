@@ -79,8 +79,10 @@ function detectLocalBusiness(
 
     // Signal 2: Booking platform embeds (0.6)
     // Bound to markup (iframe/script src, link href), never prose or serialized RSC payloads.
+    // OpenTable counts only as an embed (iframe/script src) or its widget element id; a plain
+    // link to a restaurant's page is not evidence the site takes bookings itself.
     const bookingPattern =
-      /opentable|resy\.com|calendly\.com|acuityscheduling\.com|booksy\.com|vagaro\.com|mindbodyonline\.com/i;
+      /resy\.com|calendly\.com|acuityscheduling\.com|booksy\.com|vagaro\.com|mindbodyonline\.com/i;
     const attrMatches = (selector: string, attr: string, pattern: RegExp) =>
       $(selector)
         .toArray()
@@ -88,8 +90,10 @@ function detectLocalBusiness(
     if (
       (attrMatches("iframe[src]", "src", bookingPattern) ||
         attrMatches("script[src]", "src", bookingPattern) ||
-        attrMatches("[id]", "id", /opentable/i) ||
-        attrMatches("a[href]", "href", bookingPattern)) &&
+        attrMatches("a[href]", "href", bookingPattern) ||
+        attrMatches("iframe[src]", "src", /opentable/i) ||
+        attrMatches("script[src]", "src", /opentable/i) ||
+        attrMatches("[id]", "id", /opentable/i)) &&
       !matchedSignals.find((s) => s.label === "Booking platform embed")
     ) {
       matchedSignals.push({ label: "Booking platform embed", weight: 0.6 });

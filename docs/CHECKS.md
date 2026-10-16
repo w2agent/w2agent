@@ -2,7 +2,7 @@
 
 57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.1; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento markers in `script[src]`, `link[href]`, `img[src]`, `a[href]`, `form[action]`, the checkout meta tag, body classes and `data-mage-init`, or code tokens in code scripts), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a button inside a form or tied to one by its `form` attribute, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
 
-**Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed. `no-js-dependency` measures the no-JS view and also counts the words inside `noscript`.
+**Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed. `no-js-dependency` measures the no-JS view and also counts the words inside `noscript` (parsed as an HTML fragment: entities decoded, `template`, `script` and `style` skipped).
 
 ## Bot Accessibility (15%)
 
