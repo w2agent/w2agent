@@ -1,6 +1,8 @@
 # w2agent Check Reference
 
-57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.0; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here.
+57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.1; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento script/link/meta/body-class markers or code tokens), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a form button, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
+
+**Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed.
 
 ## Bot Accessibility (15%)
 
@@ -31,12 +33,12 @@
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
-| Answer-first | `answer-first` | Substantive content in first 500 chars |
-| Token efficiency | `token-efficiency` | Text-to-HTML ratio |
-| Content length | `content-length` | 200+ words per page |
+| Answer-first | `answer-first` | Substantive content in first 500 chars of visible text |
+| Token efficiency | `token-efficiency` | Visible-text-to-HTML ratio |
+| Content length | `content-length` | 200+ visible words per page |
 | Lists and tables | `list-and-table-usage` | Structured content elements |
-| FAQ content | `faq-content` | Q&A formatted content |
-| Citation readiness | `citation-readiness` | Stats, quotes, references |
+| FAQ content | `faq-content` | Q&A formatted content (question marks and "frequently asked" are counted in visible text) |
+| Citation readiness | `citation-readiness` | Stats, quotes, references (stat and quote patterns are matched in visible text) |
 | Freshness signals | `freshness-signals` | datePublished, dateModified |
 | Author attribution | `author-attribution` | Author name visible |
 
@@ -61,10 +63,10 @@ Retired (no longer audited or probed): `well-known-agents-json`, `well-known-ara
 | MCP endpoint | `mcp-discovery` | Probes same-site homepage MCP links, `/mcp`, `mcp.<domain>/mcp`, `mcp.<domain>/` with `server/discover` (2026-07-28), falling back to `initialize` (2025-11-25) and legacy HTTP+SSE (100=handshake or modern protocol error, 75=401 Bearer challenge with `resource_metadata` (auth-gated), 50=deprecated HTTP+SSE (incl. auth-gated), 0=no endpoint). No endpoint → MCP-tier auth checks are N/A |
 | API endpoints | `api-endpoints` | OpenAPI, GraphQL links |
 | Structured forms | `forms-structured` | Forms have labels and names |
-| UCP | `well-known-ucp` | /.well-known/ucp (weight 0.5). 100 = JSON with a top-level `ucp` object carrying `version` (a `YYYY-MM-DD` date), a non-empty `services` object and a non-empty `payment_handlers` object whose values are arrays; 0 = absent or any of those missing/invalid (message names which). N/A unless the site is detected as ecommerce; a valid profile on a site not detected as ecommerce still passes |
+| UCP | `well-known-ucp` | /.well-known/ucp (weight 0.5). 100 = JSON with a top-level `ucp` object carrying `version` (a `YYYY-MM-DD` date), a non-empty `services` object and a non-empty `payment_handlers` object whose values are arrays; 0 = absent or any of those missing/invalid (message names which). N/A unless the site is detected as ecommerce (detection rule: see the header); a valid profile on a site not detected as ecommerce still passes |
 | Action schemas | `action-schemas` | SearchAction, OrderAction in JSON-LD |
 | WebMCP declarative (tracked, weight 0) | `webmcp-declarative` | Forms with a `toolname` attribute. 100 = at least one found (message: `n/m task forms declare WebMCP tools`; every `toolname` form counts in both n and m; forms without `toolname` count in m unless they are search forms (`role="search"`, inside `<search>`, an `input[type=search]`, or a text input named `q`/`query`/`s` as the only field), login forms (a password input) or newsletter forms (a single email input)); skip = none |
-| WebMCP imperative (tracked, weight 0) | `webmcp-imperative` | `document.modelContext` (CG draft 2026-09-10), the deprecated `navigator.modelContext` alias, or `modelContext.registerTool` in inline scripts on crawled pages; if none, up to 5 unique `<script src>` files on the audited site, resolved against `<base href>` (same scheme and port as the audited URL, host equal to the audited host up to a leading `www.`, whichever page the tag is on; ≤256 KB each, through the fetch allow-hook; 301/302/303/307/308 followed only to another such URL, max 3 hops; refused, non-2xx, other redirects and failed fetches are ignored). An `origin-trial` meta token whose feature names WebMCP counts as detected even without registration code (details say so). 100 = detected; skip = none |
+| WebMCP imperative (tracked, weight 0) | `webmcp-imperative` | `document.modelContext` (CG draft 2026-09-10), the deprecated `navigator.modelContext` alias, or `modelContext.registerTool` in inline JavaScript on crawled pages (inline data payloads, meaning `<script>` with a non-JavaScript `type` such as `application/json` or `application/ld+json`, and Next.js flight data `self.__next_f.push(...)`, are not scanned); if none, up to 5 unique `<script src>` files on the audited site, resolved against `<base href>` (same scheme and port as the audited URL, host equal to the audited host up to a leading `www.`, whichever page the tag is on; ≤256 KB each, through the fetch allow-hook; 301/302/303/307/308 followed only to another such URL, max 3 hops; refused, non-2xx, other redirects and failed fetches are ignored). An `origin-trial` meta token whose feature names WebMCP counts as detected even without registration code (details say so). 100 = detected; skip = none |
 | Reachable as ChatGPT-User | `reach-openai-user-agent` | Homepage fetched with OpenAI's documented ChatGPT-User UA string (weight 0.5). 100 = final 2xx with non-empty body; 0 = non-2xx (403 challenge, 429, 5xx), empty body, timeout, or fetch error. HTTP only — robots.txt posture is scored by `ai-agent-access`. Crawler time budget exhausted before the fetch → `error` (unmeasured, excluded from the score, `unmeasured-checks` warning) |
 | Reachable as Perplexity-User | `reach-perplexity-user-agent` | Same as above with Perplexity's documented Perplexity-User UA string |
 | Reachable as Google-Agent | `reach-google-user-agent` | Same as above with Google's documented Google-Agent UA string (sent verbatim, including its `Chrome/W.X.Y.Z` version placeholder) |
@@ -82,7 +84,7 @@ UCP is a documented scoring-policy exception: it fails the stability bar (breaki
 | Canonical URLs | `canonical-urls` | `<link rel="canonical">` |
 | Mobile viewport | `mobile-viewport` | Viewport meta tag |
 | UTF-8 charset | `charset-utf8` | UTF-8 declared |
-| No JS dependency | `no-js-dependency` | Content accessible without JS |
+| No JS dependency | `no-js-dependency` | Content accessible without JS (word thresholds count visible text) |
 
 ## Auth & Access (20%)
 
@@ -90,7 +92,7 @@ UCP is a documented scoring-policy exception: it fails the stability bar (breaki
 |-------|----|-----------------|
 | Public API surface | `public-api` | Weight 2. 100 = `/api/` or `api.<domain>/` answers 2xx/4xx with a JSON or YAML body, or 3+ API links on the homepage; 50 = 1–2 API links; 0 otherwise |
 | OpenAPI specification | `openapi-spec` | Weight 2. 100 = OpenAPI spec found with at least one endpoint; 50 = spec with no endpoints; 0 = none. N/A when `public-api` fails (a pass or partial result is kept) |
-| Developer portal | `developer-portal` | Weight 2. 100 = portal found with 1000+ chars of text; 50 = thin portal; 0 = none; skip when the portal probe had no network. Same-origin portal paths are not credited on a catch-all site. N/A when `public-api` fails (a pass or partial result is kept) |
+| Developer portal | `developer-portal` | Weight 2. 100 = portal found with 1000+ chars of text. A portal is a 2xx response whose `content-type` contains `html` or is missing, on `/developers`, `/developer`, `/api`, `/docs/api`, `/api-docs` or a `docs.`/`developers.`/`developer.` subdomain root; a JSON, YAML, XML or plain-text reply is a machine endpoint (see `public-api`) and is not a portal; 50 = thin portal; 0 = none; skip when the portal probe had no network. Same-origin portal paths are not credited on a catch-all site. N/A when `public-api` fails (a pass or partial result is kept) |
 | Agent/bot auth documentation | `agent-auth-docs` | Weight 2. Counts "api key"/"oauth"/"rate limit" near "agent"/"bot"/"ai"/"scope"/"permission"/"token" in portal, key docs and homepage text: 3+ = 100, 1–2 = 50, 0 = 0. N/A when `developer-portal` fails (a pass or partial result is kept) |
 | Scoped API permissions | `scoped-permissions` | Weight 1.5. Scope patterns (`read:x`), scope/permission wording and graduated-access vocabulary in portal and key docs: 3+ = 100, 1–2 = 50, 0 = 0. N/A when `developer-portal` fails (a pass or partial result is kept) |
 | API catalog (RFC 9727) | `api-catalog-rfc9727` | Weight 1. 100 = `/.well-known/api-catalog` served as `application/linkset+json` with a `linkset` entry carrying `anchor` and a non-empty `item`/`service-desc`/`service-doc` array of `href` objects; 0 otherwise. N/A when `public-api` fails (a pass or partial result is kept) |
@@ -122,7 +124,7 @@ These checks run automatically when a platform is detected.
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | .well-known Serving | `nextjs-well-known-served` | Does Next.js serve `.well-known/` correctly? |
-| Static Generation | `nextjs-static-generation` | Are pages statically generated (fast for AI crawlers)? |
+| Static Generation | `nextjs-static-generation` | Are most pages statically generated (fast for AI crawlers)? Each sampled page is classed dynamic (`cache-control` `private` or `no-store`; `__NEXT_DATA__` `gssp` or `gip` true; `appGip` true without `gsp` or `nextExport`), static (`x-nextjs-prerender`; `x-nextjs-cache` or `x-vercel-cache` of HIT, STALE, PRERENDER or REVALIDATED; `cache-control` `s-maxage` or `public`; `__NEXT_DATA__` `gsp`, `nextExport` or `autoExport` true) or no evidence; dynamic wins. 100 when at least half of the pages with evidence are static; else 60 (also when no page has evidence) |
 | Metadata API | `nextjs-metadata-api` | Is `generateMetadata` used for consistent SEO? |
 
 ### Shopify (3 checks)

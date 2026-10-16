@@ -1,14 +1,14 @@
 # Agent-Readiness Score — Methodology Specification
 
-> Version 1.0. Mechanical catalog of every check, every weight, the scoring algorithm, the NA cascade, audit-level failure handling, the emerging-standards policy, **and per-check rationale** (how each check detects its signal, its evidence boundary, the maturity of the standard it measures, why it earns its weight, where it came from, and what it doesn't catch).
+> Version 1.1. Mechanical catalog of every check, every weight, the scoring algorithm, the NA cascade, audit-level failure handling, the emerging-standards policy, **and per-check rationale** (how each check detects its signal, its evidence boundary, the maturity of the standard it measures, why it earns its weight, where it came from, and what it doesn't catch).
 
 | Field | Value |
 |---|---|
-| Spec version | 1.0 |
-| Engine version | `RUBRIC_VERSION = "3.0"` in `packages/core/src/audit/types.ts`, exported from the `w2agent-core` package index |
-| Status | Published 2026-09-17 |
-| Created | 2026-05-07 (v0.1) · rationale layer 2026-05-08 (v0.2) · rubric 3.0 update 2026-09-14 (v1.0-draft) · published 2026-09-17 (v1.0) |
-| Implements | `w2agent-core` 0.2.0 audit engine, rubric 3.0 |
+| Spec version | 1.1 |
+| Engine version | `RUBRIC_VERSION = "3.1"` in `packages/core/src/audit/types.ts`, exported from the `w2agent-core` package index |
+| Status | Published 2026-09-17 (v1.0) · revised 2026-10-16 (v1.1, rubric 3.1) |
+| Created | 2026-05-07 (v0.1) · rationale layer 2026-05-08 (v0.2) · rubric 3.0 update 2026-09-14 (v1.0-draft) · published 2026-09-17 (v1.0) · rubric 3.1 revision 2026-10-16 (v1.1) |
+| Implements | `w2agent-core` 0.2.0 audit engine, rubric 3.1 |
 | Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo ([github.com/interskh/w2agent](https://github.com/interskh/w2agent/blob/main/docs/spec/agent-readiness-spec-v1.0.md)); the w2agent platform renders a copy at `/methodology`, kept byte-identical by the platform's `scripts/sync-spec.ts` (`--check` exits non-zero when the copies differ) |
 | License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see [`docs/spec/LICENSE`](https://github.com/interskh/w2agent/blob/main/docs/spec/LICENSE). Engine code keeps the repo's own license |
 | Rubric changelog | `docs/RUBRIC-CHANGELOG.md` in the OSS repo: every check, weight and detection change per rubric version |
@@ -32,7 +32,7 @@
 
 ## 2. Versioning
 
-The implemented rubric is identified by a single string constant `RUBRIC_VERSION`, defined in `packages/core/src/audit/types.ts` and exported from the `w2agent-core` package index. Current value: **`"3.0"`**. The w2agent platform (a separate, private repo) imports it (`lib/rubric.ts`) and keeps no copy of its own.
+The implemented rubric is identified by a single string constant `RUBRIC_VERSION`, defined in `packages/core/src/audit/types.ts` and exported from the `w2agent-core` package index. Current value: **`"3.1"`**. The w2agent platform (a separate, private repo) imports it (`lib/rubric.ts`) and keeps no copy of its own.
 
 Every score persisted by the platform in its `audit_history` table is tagged with the rubric version that produced it. Successful-audit rows written since platform migration `0029` also store each check's `{ status, score }` in `check_results`. This is the basis for "are we improving?" — comparisons are valid only when the rubric version is held constant. A comparison across versions runs both engines on the same sites (platform `scripts/rescore-all.ts --rubric-compare`).
 
@@ -44,7 +44,7 @@ Every score persisted by the platform in its `audit_history` table is tagged wit
 | minor | A detection fix that changes pass rates without changing what the check is meant to measure |
 | patch | Messages or `fixSnippet` text only |
 
-Every bump MUST get an entry in the OSS repo's `docs/RUBRIC-CHANGELOG.md` that lists each changed check (old and new weight, action, rationale) and states the expected median score delta; before a cutover the entry also records the measured delta. The 3.0 entry is the reference for everything in §3, §5 and §6 that differs from 2.0.
+Every bump MUST get an entry in the OSS repo's `docs/RUBRIC-CHANGELOG.md` that lists each changed check (old and new weight, action, rationale) and states the expected median score delta; before a cutover the entry also records the measured delta. The 3.0 entry is the reference for everything in §3, §5 and §6 that differs from 2.0; the 3.1 entry lists the detection fixes since.
 
 Adding a check at weight 0 with `tracked: true` does not bump the version: it is excluded from category renormalization, so it moves no score. It is logged under the current version's "tracked additions" heading in `RUBRIC-CHANGELOG.md` and becomes a version event when it is promoted (§7.2). The same holds for a detection change confined to a tracked check.
 
@@ -221,6 +221,8 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 - **Declared crawler.** Page fetches, the robots.txt / sitemap / llms.txt / well-known / OpenAPI probes and the multi-UA control are sent with the user-agent `w2agent/0.1 (+https://w2agent.dev)`. The MCP endpoint probe and requests a check makes on its own (portal, API, OAuth, server-card, script and markdown probes) send no explicit user-agent, so the HTTP client's default applies, unless the check states otherwise. Every request and redirect hop can be refused by the caller's fetch allow-hook (the platform refuses private and metadata addresses); a refused request counts as no response.
 - **Crawl profile.** The platform audits with `maxPages = 10` and a 10 s per-request timeout (`AUDIT_CRAWL_PROFILE`); the CLI default is 20 pages. The homepage is page 0. Further pages are selected from `/sitemap.xml` and homepage links, fetched with 3 in parallel and at least 200 ms between request starts (raised to robots.txt `Crawl-delay`, capped at 10 s). Pages with no response are dropped. When fewer than 3 pages result and a sitemap exists, up to 5 same-site sitemap URLs are added within a `min(timeout × 3, 15 s)` budget. "Pages" in §6 means this set.
+- **Visible text.** Where a check reads page text (`answer-first`, `token-efficiency`, `content-length`, `faq-content`, `citation-readiness`, `no-js-dependency`), the text is the `<body>` text with every `script`, `style`, `noscript` and `template` subtree removed, whitespace collapsed. Words are whitespace-separated runs of it. `noscript` is excluded because the crawl models a JavaScript-capable reader: `noscript` content is mostly "enable JavaScript" banners and tracking pixels, so a genuine no-JS fallback body inside `noscript` does not count. Markup-based checks (JSON-LD, `blockquote`, `time[datetime]`, WebMCP forms) read the full DOM and are not affected. Developer-portal text (§6.7) is a separate extraction and is not visible text.
+- **Inline code versus data.** A `<script>` is treated as code only when its `type` is absent or a JavaScript type (`text/javascript`, `application/javascript`, `module`, the `x-` and `ecmascript` variants, `text/rocketscript`, `text/partytown`), after media-type parameters and a leading hex prefix (Rocket Loader) are removed, and its content does not start with `self.__next_f.push(` (Next.js flight data, which serializes page prose). `application/json`, `application/ld+json`, `importmap`, `speculationrules` and other `text/x-*` types are data. Checks that look for tokens in inline scripts (`webmcp-imperative`, ecommerce platform detection) read code scripts only.
 - **Page fetch.** Redirects are followed; the body is read up to a cap; 429 and 503 responses and timeouts are retried (§3.5). A page's `responseTime` is measured on this fetch.
 - **Metadata probes** (`probeSiteMetadata` in `packages/core/src/audit/crawler.ts`), run once per audit:
   - `/robots.txt` and `/llms.txt` are credited only on HTTP 200 whose body is not an HTML document (a `text/html` body starting with `<`, or empty, counts as absent); `llms.txt` falls back to `docs.`, `developers.` and `developer.` prefixed to the audited host (a leading `www.` removed) in that order, so auditing `app.example.com` probes `docs.app.example.com`, not `docs.example.com`. The robots.txt status is kept for `ai-agent-access`.
@@ -531,9 +533,9 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 | ID | Weight | Severity | Maturity | What it measures |
 |---|---:|---|---|---|
-| `answer-first` | 1.5 | info | H | Share of pages with ≥ 20 words in the first 500 characters of body text and a meta description |
-| `token-efficiency` | 1.0 | info | H | Average text-to-HTML length ratio, bucketed |
-| `content-length` | 1.0 | warning | H | Share of pages with ≥ 200 words |
+| `answer-first` | 1.5 | info | H | Share of pages with ≥ 20 words in the first 500 characters of visible text (§6.0) and a meta description |
+| `token-efficiency` | 1.0 | info | H | Average visible-text-to-HTML length ratio, bucketed |
+| `content-length` | 1.0 | warning | H | Share of pages with ≥ 200 visible words |
 | `list-and-table-usage` | 1.0 | info | H | Share of pages with a `<ul>`/`<ol>` or `<table>` |
 | `faq-content` | 0.5 | info | H | Number of pages with an FAQ indicator |
 | `citation-readiness` | 1.0 | info | H | Composite of numbers, quotes, reference vocabulary and authorship cues |
@@ -542,7 +544,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `answer-first` (weight 1.5, info)
 
-**What it measures.** Per page: the first 500 characters of the `<body>` text (whitespace collapsed) contain ≥ 20 words, AND the page has a non-empty `<meta name="description">`. Score = (qualifying pages / crawled pages) × 100. Pass ≥ 70; partial 1–69; fail 0.
+**What it measures.** Per page: the first 500 characters of the visible text (§6.0: `<body>` text without `script`, `style`, `noscript` and `template` content, whitespace collapsed) contain ≥ 20 words, AND the page has a non-empty `<meta name="description">`. Score = (qualifying pages / crawled pages) × 100. Pass ≥ 70; partial 1–69; fail 0.
 
 **Maturity.** H (heuristic with no external standard, §7.1).
 
@@ -552,13 +554,13 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** No formal spec — convention informed by retrieval-augmented-generation (RAG) literature. The 500-char / 20-word threshold is our tuning, not standards-derived.
 
-**Evidence boundary.** Two conditions ANDed: word count of first 500 chars ≥ 20, AND meta description not empty.
+**Evidence boundary.** Two conditions ANDed: word count of first 500 chars of visible text ≥ 20, AND meta description not empty. JSON-LD or other script content placed in the body ahead of the content no longer fills the window.
 
 **Known limitations.** Heuristic — doesn't measure whether those 20 words are actually substantive (could be footer-style "we are a leading provider..."). Meta-description requirement is a stand-in for "this page knows what it's about."
 
 #### `token-efficiency` (weight 1.0, info)
 
-**What it measures.** Per page: ratio of `<body>` text length (whitespace collapsed) to raw HTML length; averaged over crawled pages. Score steps: ≥ 25% → 100, ≥ 15% → 80, ≥ 10% → 60, ≥ 5% → 30, < 5% → 0. Pass = score ≥ 60; partial 30; fail 0.
+**What it measures.** Per page: ratio of visible text length (§6.0, whitespace collapsed) to raw HTML length; averaged over crawled pages. Score steps: ≥ 25% → 100, ≥ 15% → 80, ≥ 10% → 60, ≥ 5% → 30, < 5% → 0. Pass = score ≥ 60; partial 30; fail 0.
 
 **Maturity.** H (heuristic with no external standard, §7.1).
 
@@ -574,7 +576,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `content-length` (weight 1.0, warning)
 
-**What it measures.** Pages whose `<body>` text has ≥ 200 whitespace-separated words. Score = (qualifying / crawled pages) × 100. Pass ≥ 70; partial 1–69; fail 0.
+**What it measures.** Pages whose visible text (§6.0) has ≥ 200 whitespace-separated words. Score = (qualifying / crawled pages) × 100. Pass ≥ 70; partial 1–69; fail 0.
 
 **Maturity.** H (heuristic with no external standard, §7.1).
 
@@ -584,7 +586,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** SEO content-length conventions (~300+ for "substantive"). Our 200 threshold is intentionally lenient to avoid penalizing concise documentation pages.
 
-**Evidence boundary.** Word count from post-strip text. 70% pass threshold is "most pages should clear the bar."
+**Evidence boundary.** Word count of visible text (§6.0). 70% pass threshold is "most pages should clear the bar."
 
 **Known limitations.** Doesn't measure content quality. A 200-word footer "About us" passes equivalently to a 200-word substantive paragraph. Heavily-illustrated pages (case studies with screenshots) may legitimately have under 200 words.
 
@@ -606,7 +608,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `faq-content` (weight 0.5, info)
 
-**What it measures.** A page is an FAQ page when any one of these holds: an element with `itemtype` containing `FAQPage`; 2 or more `<details>` elements; 2 or more `<dt>` elements; body text containing "frequently asked"; or 3 or more occurrences of `?` followed by whitespace in the body text. Score = `min(faq_pages × 33, 100)`. Any FAQ page → **pass** (even at score 33); none → fail 0. There is no partial.
+**What it measures.** A page is an FAQ page when any one of these holds: an element with `itemtype` containing `FAQPage`; 2 or more `<details>` elements; 2 or more `<dt>` elements; visible text containing "frequently asked"; or 3 or more occurrences of `?` followed by whitespace in the visible text. Script content is not searched. Score = `min(faq_pages × 33, 100)`. Any FAQ page → **pass** (even at score 33); none → fail 0. There is no partial.
 
 **Maturity.** H (heuristic with no external standard, §7.1).
 
@@ -622,7 +624,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `citation-readiness` (weight 1.0, info)
 
-**What it measures.** Composite per-page score (0–100) with 25 points each for: a percentage or decimal number in the body text (`\d+%` or `\d+\.\d+`); a `<blockquote>` or a straight-double-quoted string of ≥ 20 characters; reference vocabulary in lower-cased body text (`source`, `reference`, `according to`, `study`); and an authorship cue (a `rel="author"` element, or the text containing `by ` or `author`). Averaged across crawled pages. Pass ≥ 50; partial 1–49; fail 0.
+**What it measures.** Composite per-page score (0–100) with 25 points each for: a percentage or decimal number in the visible text (`\d+%` or `\d+\.\d+`); a `<blockquote>` or a straight-double-quoted string of ≥ 20 characters; reference vocabulary in lower-cased visible text (`source`, `reference`, `according to`, `study`); and an authorship cue (a `rel="author"` element, or the visible text containing `by ` or `author`). Averaged across crawled pages. Pass ≥ 50; partial 1–49; fail 0.
 
 **Maturity.** H (heuristic with no external standard, §7.1).
 
@@ -927,7 +929,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Tracked (not scored)** since 3.0 (was 0.5).
 
-**What it measures.** `document.modelContext` (CG draft 2026-09-10), the deprecated `navigator.modelContext` alias, or `modelContext.registerTool` in inline scripts on crawled pages. If none is found, up to 5 unique same-site `<script src>` files (resolved against `<base href>`, ≤256 KB each, fetched through the fetch allow-hook, redirects followed only within the site, max 3 hops) are scanned. An `origin-trial` meta token whose feature names WebMCP also counts. Pass 100 = detected; skip = none.
+**What it measures.** `document.modelContext` (CG draft 2026-09-10), the deprecated `navigator.modelContext` alias, or `modelContext.registerTool` in inline code scripts on crawled pages (inline data payloads and Next.js flight data are not scanned, §6.0; a page that only quotes the API in prose or JSON no longer matches). If none is found, up to 5 unique same-site `<script src>` files (resolved against `<base href>`, ≤256 KB each, fetched through the fetch allow-hook, redirects followed only within the site, max 3 hops) are scanned. An `origin-trial` meta token whose feature names WebMCP also counts. Pass 100 = detected; skip = none.
 
 **Maturity.** M3 (single-vendor, or path or schema still changing, §7.1).
 
@@ -937,7 +939,7 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 **Provenance.** Same WebMCP Community Group draft as `webmcp-declarative`.
 
-**Evidence boundary.** Substring match in inline and fetched same-site scripts; nothing is executed, and detection is not validation that a registration is well-formed.
+**Evidence boundary.** Substring match in inline code scripts (§6.0) and fetched same-site scripts; nothing is executed, and detection is not validation that a registration is well-formed.
 
 **Known limitations.** Registrations in bundles beyond the first 5 same-site scripts, or served from a CDN host, are missed. Static detection can't show that the tool actually registers at runtime (F3 would).
 
@@ -1084,9 +1086,9 @@ A check is a pure function of the crawled pages, the site metadata probed before
 
 #### `no-js-dependency` (weight 1.0, warning)
 
-**What it measures.** Per page, on the raw HTML and the `<body>` word count:
+**What it measures.** Per page, on the raw HTML and the visible-text word count (§6.0):
 - Framework markers (substring): `__NEXT_DATA__`, `window.__nuxt__`, `ng-app`, `ng-version`, `data-reactroot`, `data-v-app`, `__svelte`, `ember-application`.
-- SPA shell = all three of: an empty mount point (`<div id="__next|root|app|__nuxt">` or a `data-reactroot` div with only whitespace inside); fewer than 5 `<a … href=` tags; and (word count × 5) / (total bytes of `<script>…</script>` tags) < 0.2 (a page with no script tags is never a shell).
+- SPA shell = all three of: an empty mount point (`<div id="__next|root|app|__nuxt">` or a `data-reactroot` div with only whitespace inside); fewer than 5 `<a … href=` tags; and (visible word count × 5) / (total bytes of `<script>…</script>` tags) < 0.2 (a page with no script tags is never a shell).
 - A page qualifies if it is NOT a shell AND has ≥ 100 words when a framework marker is present, or ≥ 50 words otherwise.
 
 Score = (qualifying / crawled pages) × 100. Pass ≥ 70; partial 1–69; fail 0. The report adds the `js-heavy-site` warning when this score is ≤ 30, or ≤ 50 with `token-efficiency` ≤ 30.
@@ -1117,7 +1119,7 @@ Tier identity is implicit in weight values — candidate work item: formalize as
 
 **Shared probes.** Several checks in this category share per-audit probes, each a GET with a 5 s timeout, retried once after 2 s on a 5xx or a network error, body read up to 256 KB:
 - **API probes:** `<origin>/api/` and `https://api.<last two labels of the host>/`.
-- **Portal probe:** the paths `/developers`, `/developer`, `/api`, `/docs/api`, `/api-docs` on the audited origin (in parallel; the first in that list order that answers 2xx wins; skipped entirely on a catch-all site), then `https://docs.`, `developers.`, `developer.` + apex host, one at a time. The portal text is the HTML with `<script>`/`<style>` blocks and tags removed. When no probe got any response, the portal probe "had no network".
+- **Portal probe:** the paths `/developers`, `/developer`, `/api`, `/docs/api`, `/api-docs` on the audited origin (in parallel; the first in that list order that answers 2xx with an HTML or missing `content-type` wins; skipped entirely on a catch-all site), then `https://docs.`, `developers.`, `developer.` + apex host, one at a time under the same rule. A 2xx reply whose `content-type` is JSON, YAML, XML or plain text is a machine endpoint, not a portal, and is passed over; it still counts as a response, so a site where only such replies came back scores fail 0, not skip. The portal text is the HTML with `<script>`/`<style>` blocks and tags removed. When no probe got any response, the portal probe "had no network".
 - **Key-docs probe:** `/keys`, `/api-keys`, `/docs/keys` on the audited origin (skipped on a catch-all site), then on `docs.` + apex host; first 2xx wins, same text extraction.
 
 #### T1 — Universal API fundamentals
@@ -1176,7 +1178,7 @@ Tier identity is implicit in weight values — candidate work item: formalize as
 
 **Provenance.** No formal spec — convention. The 8 path/subdomain probes are observed-defaults across SaaS platforms. Pattern verified against Stripe, Twilio, OpenAI, GitHub, Cloudflare.
 
-**Evidence boundary.** Post-strip text length is the gate: 1000 chars is roughly "full first page of meaningful prose." Below that, the portal is likely a CSS-shell SPA whose content is hydrated client-side (which JS-render F3 will fix). Same-origin portal paths are not requested on a catch-all site (§6), where only the subdomains can pass. Any 2xx counts as found: a `docs.` host that serves a login page or a marketing page is credited by its text length.
+**Evidence boundary.** Post-strip text length is the gate: 1000 chars is roughly "full first page of meaningful prose." Below that, the portal is likely a CSS-shell SPA whose content is hydrated client-side (which JS-render F3 will fix). Same-origin portal paths are not requested on a catch-all site (§6), where only the subdomains can pass. A 2xx counts as found only when its `content-type` contains `html` or is missing (unknown, not penalised): a `docs.` host that serves a login page or a marketing page is credited by its text length, but a JSON index at `/api` is not, and no longer shadows an HTML page at a later path. `agent-auth-docs`, `scoped-permissions` and the `pkce-s256` documentation fallback read this text, so they now see the HTML page, not a JSON index.
 
 **Known limitations.** SPA portals (which most modern docs sites are) return CSS shell + 200–600 chars of meaningful static HTML, hitting partial when the underlying portal is rich. F3 closes this. Doesn't follow homepage links to non-conventional portal locations.
 
@@ -1376,10 +1378,12 @@ These ids are no longer registered and are not part of the current catalog; they
 
 | Site type | Signals (weight) |
 |---|---|
-| `ecommerce` | Shopify, WooCommerce, BigCommerce or Magento markup markers (0.8 each); a top-level JSON-LD block with `@type` exactly `"Product"` (0.7); `og:type` = `product` (0.5); the page URL or any link matching `/(cart\|checkout\|products?\|shop\|store\|collection\|category)\b` (0.4); `itemprop="price"` (0.4); "add to cart", "buy now" or "add to bag" in the text (0.3) |
+| `ecommerce` | Shopify, WooCommerce, BigCommerce or Magento markup markers (0.8 each; bound to markup or code, see below); a top-level JSON-LD block with `@type` exactly `"Product"` (0.7); `og:type` = `product` (0.5); the page URL or any link matching `/(cart\|checkout\|products?\|shop\|store\|collection\|category)\b` (0.4); `itemprop="price"` (0.4); a commerce control (0.3): a `<form>` button or submit/button input whose text or value matches "add to cart", "buy now" or "add to bag", or a link to a `/cart` or `/checkout` path whose text matches |
 | `local-business` | JSON-LD (including `@graph` children) whose `@type` is `LocalBusiness` or one of 31 subtypes such as `Restaurant`, `Dentist`, `Plumber` (0.8); one of `openTable`, `resy.com`, `calendly.com`, `acuityscheduling.com`, `booksy.com`, `vagaro.com`, `mindbodyonline.com` in the raw HTML, case-sensitive (0.6; the OpenTable entry is the mixed-case `openTable`, so a plain `opentable.com` link does not fire it); `itemprop="streetAddress"` or `itemprop="telephone"` (0.6); a Google Maps embed (0.5); `itemprop="openingHours"` or day-name-then-`hh:mm` text (0.5); a URL or link containing menu, services, treatments, appointments, reservations or booking (0.4); a `tel:` link (0.3) |
 
-A single strong signal is enough (a Shopify marker alone gives 0.8), and two weak ones are too (a commerce path plus "buy now" gives 0.58). The detection result (type, confidence, signals) is reported with the audit. `well-known-ucp` (§6.5) is N/A on any site not detected as `ecommerce` (§5).
+**Platform marker rules.** A marker counts only in markup or in code scripts (§6.0), never in page prose or data payloads. Shopify: `cdn.shopify.com` in a `script[src]` or `link[href]`, `Shopify.theme =` in a code script, or the `shopify-checkout-api-token` meta tag. WooCommerce: a `woocommerce`, `woocommerce-page`, `woocommerce-js` or `woocommerce-no-js` class on `<body>`, `/plugins/woocommerce/` or `wc-ajax=` in a script src or link href, `wc-ajax=` in an `a[href]` or `form[action]`, or `?wc-ajax=` in a code script. BigCommerce: an asset host `cdn<N>.bigcommerce.com/` in a script src, link href or image src. Magento: `script[type="text/x-magento-init"]`, a `data-mage-init` attribute, `mage/cookies` in a script src, or `Mage.Cookies` or `mage/cookies` in a code script. The words Shopify, WooCommerce, BigCommerce or Magento in prose, or a link to a vendor's developer site, do not match. Before 3.1 these were substring matches on the raw HTML, which classified documentation and SaaS pages that mention a platform as ecommerce.
+
+A single strong signal is enough (a Shopify marker alone gives 0.8), and two weak ones are too (a commerce path plus a "buy now" form button gives 0.58). The detection result (type, confidence, signals) is reported with the audit. `well-known-ucp` (§6.5) is N/A on any site not detected as `ecommerce` (§5).
 
 | ID | Site type | Category | Weight | Severity | Maturity |
 |---|---|---|---:|---|---|
@@ -1501,7 +1505,7 @@ These checks are platform-specific hygiene hints: most read string markers in th
 | `wp-robots-default-blocking` | WordPress | `bot-accessibility` | warning | Counts user-initiated and search tokens (§6.1 `ai-agent-access` table) blocked at the root; 0 → pass 100; n > 0 → fail, score max(0, 100 − 20n) | Root path only, same parser as `ai-agent-access`; training tokens not counted | M1 | Restates `ai-agent-access` for WordPress with a per-token gradient; overlaps it (limitation below) |
 | `wp-page-builder-soup` | WordPress | `content-quality` | info | Partial 50 when a page-builder marker (`elementor-widget`, `et_pb_`, `vc_row`, `fl-builder`) is on any page and some page has fewer than 20 characters of tag-stripped text per `<div`; else pass 100 | Marker and ratio may come from different pages | H | Builder markup is a common cause of content that agents extract badly |
 | `nextjs-well-known-served` | Next.js | `agent-discovery` | warning | Pass 100 when `/.well-known/agent-card.json` was credited by the metadata probe (§6.0 catch-all rule) and parses as a JSON object with a non-empty string `name`; else fail 0 | The same file `well-known-agent-card` reads, with a looser shape test | M1 | Hint that Next.js needs a route handler or `public/` file to serve `.well-known` |
-| `nextjs-static-generation` | Next.js | `technical` | info | Pass 100 when some page has `x-nextjs-cache: HIT`, `x-vercel-cache: HIT` or `__NEXT_DATA__` in the HTML, and no page has a `Cache-Control` containing `no-cache` or `private`; else partial 60 | Header and marker heuristics; `__NEXT_DATA__` is present on Pages Router SSR too | H | Cacheable static pages answer agents fast and consistently |
+| `nextjs-static-generation` | Next.js | `technical` | info | Each crawled page is classed. Dynamic (wins over static): `Cache-Control` containing `private` or `no-store`; `__NEXT_DATA__` with `"gssp":true` or `"gip":true`; or `"appGip":true` without `"gsp":true` or `"nextExport":true`. Static: an `x-nextjs-prerender` header; `x-nextjs-cache` or `x-vercel-cache` with a token of HIT, STALE, PRERENDER or REVALIDATED (comma-separated values split, case-insensitive); `Cache-Control` containing `s-maxage` or `public`; or `__NEXT_DATA__` with `"gsp"`, `"nextExport"` or `"autoExport"` true. Otherwise no evidence (a bare `__NEXT_DATA__`, a cache MISS and a lone `no-cache` are no evidence). Pass 100 when at least half of the pages with evidence are static; else partial 60, also when no page has evidence | Header and `__NEXT_DATA__` flags (read only inside that script tag); no request beyond the crawl. A site that is mostly dynamic stays at partial 60 | H | Cacheable static pages answer agents fast and consistently |
 | `nextjs-metadata-api` | Next.js | `structured-data` | info | Ratio of pages with a non-empty `<title>`, a `<meta name="description">` and a `<meta property="og:…">`; score = round(ratio × 100); ≥ 0.8 pass, ≥ 0.5 partial, else fail | Regex on raw HTML; attribute order matters (`name`/`property` must be the first attribute) | H | Page metadata is what agents show as the title and summary of a result |
 | `shopify-robots-editable` | Shopify | `bot-accessibility` | warning | Partial 60 when robots.txt contains all of `Disallow: /admin`, `Disallow: /cart`, `Disallow: /checkout` (the Shopify default); else pass 100 | Substring test; a customized file that keeps those three lines still counts as default; no robots.txt passes | H | Hint to add agent rules through `robots.txt.liquid` |
 | `shopify-product-schema` | Shopify | `structured-data` | warning | Among crawled URLs containing `/products/`, the ratio whose HTML contains `"@type":"Product"` or `"@type": "Product"`; ≥ 0.8 pass, > 0 partial, 0 fail; no such URL → skip | Exact-string match: other spacing, an array `@type` or microdata is missed; no field is checked | M2 | Overlaps `ecommerce-product-schema` on Shopify stores detected as ecommerce |
@@ -1595,3 +1599,4 @@ These are the philosophy and design questions this version does not fully answer
   Total file size: ~1200 lines, ~15K words. Per-check median depth: ~200 words (paragraph for controversial checks, shorter for self-evident ones).
 - **v1.0-draft (2026-09-14)** — rubric 3.0 (`RUBRIC_VERSION = "3.0"`, `w2agent-core` 0.2.0, OSS `ce4df45`). Renamed from the v0.1 filename. 54 checks (4 tracked), 7 categories, 9 cascade rules. `error` status and tracked checks (§3); bump rule and changelog pointer (§2); cascade table re-derived from `applyNaCascade`, including the sentinel `mcp-auth` rule and the non-sentinel UCP site-type gate (§5); catch-all / soft-404 evidence rule (§6); 17 checks retired (§6.9); 8 added (`ai-agent-access`, `oauth-discovery`, `mcp-auth`, `cimd-support`, `agent-operator-signing`, `reach-openai-user-agent`, `reach-perplexity-user-agent`, `reach-google-user-agent`); llms.txt checks reweighted to 0.5; `webmcp-declarative`, `webmcp-imperative` and `mcp-server-card` tracked (§6.8); detection rewritten for `mcp-discovery`, `pkce-s256`, `api-catalog-rfc9727`, `well-known-agent-card`, `well-known-ucp`, `response-time`, `content-negotiation`; new normative emerging-standards policy (§7). Rationale for unchanged checks is carried from v0.2. Per-check old/new weights: OSS `docs/RUBRIC-CHANGELOG.md`.
 - **v1.0 (2026-09-17)** — published. Engine unchanged: rubric 3.0, no `RUBRIC_VERSION` bump. Canonical copy moved to the OSS repo (`docs/spec/agent-readiness-spec-v1.0.md`, CC BY 4.0); the platform renders a byte-identical copy at `/methodology`. Draft label dropped; calibration disclosed as pending (header, §2, §3.4). Audited line by line against the 3.0 registry: 56 core checks (50 scored, 6 tracked), adding the tracked `usage-preference-declared` and `edge-agent-access` entries (§6.1, §6.8) and correcting detection rules and evidence boundaries where the prose had drifted from the code. New: audit-level failures, retry behaviour, challenge fingerprints and edge evidence (§3.5); inputs every check reads, including the crawl profile and the multi-UA probe set (§6.0, §6.1); a maturity tier on every check, defined in §7.1; rationale prose for category weights (§4) and cascade structure (§5); site-type checks (§6.10) and platform adapter checks (§6.11), with two adapter bugs disclosed; carried exceptions in §7.3; open questions 3–5 updated (§8).
+- **v1.1 (2026-10-16)** — rubric 3.1 (`RUBRIC_VERSION = "3.1"`). Detection fixes only; no check, weight, category or tracked status changed (57 core checks, 50 scored, 7 tracked). Visible text defined once (§6.0) and used by `answer-first`, `token-efficiency`, `content-length`, `faq-content`, `citation-readiness` and `no-js-dependency`; inline data payloads are not code (§6.0, `webmcp-imperative`); ecommerce detection rewritten to markup-bound markers and commerce controls (§6.10); `nextjs-static-generation` classifies each page and passes on a static majority (§6.11); `developer-portal` credits only HTML or untyped 2xx responses (§6.7). `/.well-known/mcp.json` stays unprobed (§6.9, §7.1). Measured delta pending: logged in `docs/RUBRIC-CHANGELOG.md` before cutover. The platform copy of this file must be re-synced.

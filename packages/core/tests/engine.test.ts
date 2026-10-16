@@ -237,8 +237,8 @@ describe("NA semantics", () => {
     expect(computeOverallScore(categories)).toBe(100);
   });
 
-  it("RUBRIC_VERSION is 3.0 and the package index re-exports that same constant", () => {
-    expect(RUBRIC_VERSION).toBe("3.0");
+  it("RUBRIC_VERSION is 3.1 and the package index re-exports that same constant", () => {
+    expect(RUBRIC_VERSION).toBe("3.1");
     expect(indexRubricVersion).toBe(RUBRIC_VERSION);
   });
 

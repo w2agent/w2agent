@@ -239,7 +239,7 @@ Platform-specific checks run automatically during audit:
 
 ## Scoring
 
-Rubric 3.0: 57 checks in seven weighted categories. 50 are scored; 7 are tracked (reported with weight 0, never scored). A detected `ecommerce` or `local-business` site adds 3 site-type checks, and a detected platform adds its checks above.
+Rubric 3.1: 57 checks in seven weighted categories. 50 are scored; 7 are tracked (reported with weight 0, never scored). A detected `ecommerce` or `local-business` site adds 3 site-type checks, and a detected platform adds its checks above.
 
 | Category | Weight | What it measures |
 |----------|--------|-----------------|

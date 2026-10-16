@@ -15,6 +15,62 @@
 - **Adding a tracked check does not bump the version.** A check that enters at weight 0 and `tracked: true` is excluded from category renormalization, so it moves no score and no weight — the major-bump row above covers promotion and demotion (tracked ↔ scored), not arrival. Such a check is logged under the current version's "tracked additions" heading, with the same rationale a scored entry owes; it becomes a version event when it is promoted.
 - Every entry states the expected median score delta. Before cutover, it also records the measured delta.
 
+## 3.1 — 2026-10-16
+
+Minor. Detection and accuracy fixes found by self-auditing w2agent.dev. No check id, weight, category or tracked status changes, so the major row of the rules does not apply, and nothing is added or retired. Each fix changes pass rates without changing what its check is meant to measure, which is the minor row. `allChecks` stays at 57, of which 7 are tracked, read from the registry. Every scored weight, every category intra-weight sum and `CATEGORY_CONFIG` are as in 3.0, so the delta can be attributed to the detection changes alone.
+
+The methodology spec is revised to v1.1 to match (same filename, `docs/spec/agent-readiness-spec-v1.0.md`).
+
+### Changed checks
+
+All weights are unchanged.
+
+| Check | Category | Weight | Action | Rationale (old → new) | Expected direction |
+|-------|----------|--------|--------|-----------------------|--------------------|
+| `answer-first` | content-quality | 1.5 | fix (detection) | First 500 chars of all body text, including script and JSON-LD placed in `<body>` → first 500 chars of visible text | Up where body-placed JSON-LD or a script filled the window; down where the window held only script |
+| `token-efficiency` | content-quality | 1.0 | fix (detection) | Ratio of all body text → ratio of visible text to HTML length | Down on script-heavy pages |
+| `content-length` | content-quality | 1.0 | fix (detection) | Words in all body text → words in visible text | Down on script-heavy and SPA pages; unchanged on static HTML |
+| `faq-content` | content-quality | 0.5 | fix (detection) | `?` and "frequently asked" matched anywhere in body text → in visible text. The `details`, `dt` and `FAQPage` indicators are unchanged | Down, rarely, where a script supplied the signal |
+| `citation-readiness` | content-quality | 1.0 | fix (detection) | Number, quote, reference-word and `by ` patterns matched in all body text → in visible text. `blockquote` and `rel="author"` still read the DOM | Down where scripts supplied the matches |
+| `no-js-dependency` | technical | 1.0 | fix (detection) | Word thresholds (50 / 100) and the SPA-shell text-to-script ratio used all body text → visible words | Down on JS-heavy pages: more fall under the thresholds and look like a shell |
+| `well-known-ucp` | agent-protocols | 0.5 | fix (applicability) | Applies only on ecommerce sites. Ecommerce detection matched platform names and "add to cart" as raw-HTML substrings and prose → markup-bound markers and commerce controls (see below). Non-store pages stop being detected as ecommerce | A failing UCP result becomes N/A on sites that were misdetected: Agent Protocols up. A real store whose only markers were prose now fails detection and gets the same N/A |
+| `ecommerce-product-schema` (2), `ecommerce-gtin-valid` (1), `ecommerce-checkout-accessible` (1.5) | structured-data, bot-accessibility | as shown | fix (applicability) | Site-type checks added only on ecommerce detection. They stop running on misdetected sites and, when the detection moves, local-business can win instead | Mixed: on misdetected sites they mostly skipped or failed, so Structured Data and Bot Accessibility move up; they drop out of the denominators |
+| `nextjs-static-generation` | technical | 1.0 | fix (detection) | Pass if any page had a cache HIT or `__NEXT_DATA__` and no page had `no-cache` or `private` → per page: dynamic = `private` or `no-store`, `gssp` or `gip` true, `appGip` true without `gsp` or `nextExport`; static = `x-nextjs-prerender`, cache HIT / STALE / PRERENDER / REVALIDATED, `s-maxage` or `public`, `gsp` / `nextExport` / `autoExport` true; dynamic wins. Pass (100) when at least half of the pages with evidence are static, else partial 60 | Up for mostly static sites with one dynamic page, App Router prerendered sites and static exports. Down for Pages Router SSR sites that passed on a bare `__NEXT_DATA__`. Mostly dynamic sites stay at 60 |
+| `developer-portal` | agent-auth | 2 | fix (detection) | First 2xx on a portal path or docs subdomain → first 2xx whose `content-type` contains `html` or is missing. A JSON, YAML, XML or plain-text reply is a machine endpoint | Down where only a JSON index answered (thin partial to fail). Up where an HTML docs page was shadowed by an earlier JSON path |
+| `agent-auth-docs` | agent-auth | 2 | cascade | Reads portal text, so it follows the portal change | Either way; gains signal when the real HTML page is found |
+| `scoped-permissions` | agent-auth | 1.5 | cascade | Same | Same |
+| `pkce-s256` | agent-auth | 1.5 | cascade | Documentation fallback (partial 50) reads portal text | Same. The authorization-server path is unchanged |
+
+`webmcp-imperative` (tracked, weight 0) also changes: its inline scan skips data payloads and Next.js flight data, so a site that only quoted `modelContext` in prose or JSON goes from pass to skip. It carries no weight, so no score moves.
+
+### Engine-level changes
+
+| Change | Effect |
+|--------|--------|
+| Visible text | `text`, `wordCount` and `textLength` come from the body DOM with `script`, `style`, `noscript` and `template` subtrees removed. `noscript` is excluded because the crawl models a JavaScript-capable reader, and `noscript` is mostly "enable JavaScript" banners and tracking pixels. Cost: a real no-JS fallback body inside `noscript` stops counting. The shared DOM is untouched, so JSON-LD, `blockquote`, `time[datetime]` and WebMCP scans are unaffected |
+| `isCodeScript` | An inline script is code only if its `type` is absent or a JavaScript type (parameters and a Rocket Loader hex prefix are stripped; `text/rocketscript` and `text/partytown` count as code) and its content does not start with `self.__next_f.push(`. Non-JS types (`application/json`, `ld+json`, `importmap`, `speculationrules`, other `text/x-*`) and Next.js flight data, which serializes page prose, are data. Used by `webmcp-imperative` and ecommerce platform markers |
+| Ecommerce detection | Platform markers (weight 0.8, labels unchanged) are bound to markup: Shopify, BigCommerce and Woo asset URLs in `script[src]`, `link[href]` (BigCommerce also `img[src]`, host `cdn<N>.bigcommerce.com`); a `woocommerce*` class on `<body>`; `type="text/x-magento-init"`, `data-mage-init`; `wc-ajax=` in links and forms; code tokens (`Shopify.theme =`, `Mage.Cookies`) only in code scripts. The cart signal (0.3) needs a form button or a link to `/cart` or `/checkout`. Other signals, weights and the 0.5 confidence floor are unchanged. Spec §6.10 has the full list |
+
+### Not changed
+
+- `/.well-known/mcp.json` was considered as a discovery path and not added. 3.0 retired it. It was the early path in MCP SEP-1649, which is a draft; its continuation (unmerged PR #2127) uses `/.well-known/mcp/server-card.json`. Spec §7.1 forbids probing retired paths, and criteria are frozen within a cycle (§7.2). Re-adding it is a major-bump decision. The evidence is in the run handoff, `docs/handoff/2026-10-16-audit-detection-fixes.md`, under "Rejected".
+- The `pkce-s256` and `oauth-discovery` applicability issue (a site with no OAuth surface is still measured) is out of scope for 3.1 and unchanged.
+- `edge-agent-access` is not promoted. The 3.0 tracked-additions table names promotion as a 3.1 decision; this release does not take it, and the check stays tracked at weight 0.
+- Thresholds in `technical.ts` and `content-quality.ts` are not retuned. Only their text input changes.
+
+### Expected median delta
+
+- Content sites with body-placed JSON-LD (common on Next.js): answer-first **up**.
+- JS-heavy and SPA pages: `content-length`, `token-efficiency`, `citation-readiness` and `no-js-dependency` **down**. This is the more accurate result, since the old text was script.
+- Non-store content and SaaS sites that were misdetected as ecommerce: `well-known-ucp` N/A, so Agent Protocols **up**; the three ecommerce checks drop out.
+- Next.js sites with mixed static and dynamic pages: `nextjs-static-generation` **up**. Other sites do not run this check.
+- Sites with a JSON `/api` index and an HTML docs page: developer-portal content and the three dependent checks **change**, up when the HTML page is now found.
+- Overall median: expected small, because the content checks move in both directions and the adapter and portal changes touch only some sites. This is reasoning, not a measurement.
+
+### Measured delta
+
+Not yet run. This run had no production access. Before cutover the owner must run the dual-run (`scripts/rescore-all.ts --rubric-compare` in the platform repo, as for 3.0) and record the result here. Until then, 3.1 carries only the expected direction above. No numbers are given because none were measured.
+
 ## 3.0 — 2026-09-15
 
 Major. `allChecks` 63 → 54 at cutover, of which 4 were tracked. `CATEGORY_CONFIG` is unchanged, so the delta can be attributed to check changes alone. Tracked checks added since cutover (see "3.0 tracked additions" below) bring `allChecks` to 57, of which 7 are tracked; they carry weight 0, so neither the sums below nor the measured delta move.

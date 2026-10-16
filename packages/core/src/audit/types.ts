@@ -53,7 +53,7 @@ export interface AuditWarning {
   details?: string;
 }
 
-export const RUBRIC_VERSION = "3.0";
+export const RUBRIC_VERSION = "3.1";
 
 export interface AuditReport {
   url: string;
