@@ -39,11 +39,12 @@ function classifyPageRendering(page: FetchedPage): PageRendering {
   const cacheControl = (page.headers["cache-control"] ?? "").toLowerCase();
   const nextData = NEXT_DATA_RE.exec(page.html)?.[1] ?? "";
   const isGsp = /"gsp"\s*:\s*true/.test(nextData);
+  const isExported = /"nextExport"\s*:\s*true/.test(nextData);
   const dynamic =
     /\b(private|no-store)\b/.test(cacheControl) ||
     /"gssp"\s*:\s*true/.test(nextData) ||
     /"gip"\s*:\s*true/.test(nextData) ||
-    (/"appGip"\s*:\s*true/.test(nextData) && !isGsp);
+    (/"appGip"\s*:\s*true/.test(nextData) && !isGsp && !isExported);
   if (dynamic) return "dynamic";
 
   const isStaticCacheValue = (v: string | undefined) =>

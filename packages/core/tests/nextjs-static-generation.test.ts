@@ -95,6 +95,12 @@ describe("nextjs-static-generation", () => {
     expect(r.message).toContain("0/2");
   });
 
+  it("static export with custom _app getInitialProps (appGip + nextExport) is static", () => {
+    const r = run([page({}, nextData('"appGip":true,"nextExport":true'))]);
+    expect(r).toMatchObject({ status: "pass" });
+    expect(r.message).toContain("1/1");
+  });
+
   it("getStaticProps pages stay static under a custom _app (appGip + gsp)", () => {
     const r = run([page({}, nextData('"appGip":true,"gsp":true'))]);
     expect(r).toMatchObject({ status: "pass" });
