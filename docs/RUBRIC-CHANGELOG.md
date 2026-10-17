@@ -72,7 +72,35 @@ The minor call for `nextjs-static-generation` is explicit: the pass rule moved f
 
 ### Measured delta
 
-Not yet run. This run had no production access. Before cutover the owner must run the dual-run (`scripts/rescore-all.ts --rubric-compare` in the platform repo, as for 3.0) and record the result here. Until then, 3.1 carries only the expected direction above. No numbers are given because none were measured.
+Measured on 2026-10-17 from production rows, not from a dual-run. Each measured domain's latest ok 3.0 row (the 2026-10-14 rescan) is paired with its latest ok 3.1 row (the rescan right after cutover). The two crawls are 2–3 days apart, so site changes in that window are mixed into the delta. 1,207 domains have both rows. The rescan settled 1,332 domains: 1,209 ok and 123 failed (blocked, unreachable, timeout).
+
+| Measure | 3.0 | 3.1 | Delta |
+|---------|-----|-----|-------|
+| Median overall score | 50.0 | 49.0 | −1.0 (mean −1.09; range −28 to +30) |
+| Domains up / down / unchanged (±0.5) | | | 294 / 710 / 203 |
+
+Median and mean category delta (n = 1,202 with both category scores):
+
+| Category | Median | Mean |
+|----------|--------|------|
+| content-quality | −8.0 | −9.22 |
+| bot-accessibility | 0.0 | +0.86 |
+| agent-protocols | 0.0 | +0.64 |
+| agent-auth | 0.0 | +0.52 |
+| agent-discovery | 0.0 | +0.31 |
+| structured-data | 0.0 | +0.06 |
+| technical | 0.0 | −0.48 |
+
+Largest check transitions (status in 3.0 → 3.1, domains):
+
+- `token-efficiency`: pass → fail 528, pass → partial 158, partial → fail 106. This is most of the content-quality drop. The ratio now uses visible text, and its thresholds were set when script text counted as content, so this is the expected direction at a larger size than "down on script-heavy pages" suggests. Retuning the threshold would be a separate, versioned decision.
+- `citation-readiness`: pass → partial 231, pass → fail 44, partial → fail 40. `faq-content`: pass → fail 115. `content-length`: pass → partial 88. `no-js-dependency`: pass → partial 47.
+- `answer-first`: fail → pass 132, partial → pass 60.
+- `well-known-ucp`: fail → skip 124, and the ecommerce site-type checks drop out on about 107–124 domains (misdetected stores). The local-business checks drop out on about 74–83.
+- `nextjs-static-generation`: partial → pass 95.
+- The cascade through `developer-portal` (skip → pass 31) makes `scoped-permissions` (50) and `pkce-s256` (44) go from skip to fail.
+
+`response-time`, `reach-*-user-agent` and `edge-agent-access` also move in both directions in roughly equal numbers. 3.1 did not change them, so they show crawl-to-crawl noise between the two runs. `agent-skills-index` (tracked, weight 0) appears on 1,188 domains for the first time; its rows were written after it was added.
 
 ## 3.0 — 2026-09-15
 
