@@ -48,7 +48,7 @@ Every bump MUST get an entry in the OSS repo's `docs/RUBRIC-CHANGELOG.md` that l
 
 Adding a check at weight 0 with `tracked: true` does not bump the version: it is excluded from category renormalization, so it moves no score. It is logged under the current version's "tracked additions" heading in `RUBRIC-CHANGELOG.md` and becomes a version event when it is promoted (§7.2). The same holds for a detection change confined to a tracked check.
 
-This spec carries an independent version string (`Spec version 1.0`) since the prose may iterate ahead of or behind engine changes. Prose-only spec edits do not bump `RUBRIC_VERSION`. Changes to the spec are listed in §9.
+This spec carries an independent version string (`Spec version 1.1`) since the prose may iterate ahead of or behind engine changes. Prose-only spec edits do not bump `RUBRIC_VERSION`. Changes to the spec are listed in §9.
 
 **Weights are not yet calibrated (normative disclosure).** Every weight and grade threshold in this version is set by the rationale recorded in §3.4, §4 and §6, not by measured agent task success. Outcome calibration (improvement plan P4-2) is pending. When its results change a weight or threshold, the change ships as a rubric version bump with a `RUBRIC-CHANGELOG.md` entry, never as a silent edit.
 
