@@ -57,7 +57,7 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 | **3. 集成** | `npx w2agent integrate <url>` | 安装平台原生文件（WordPress 插件、Next.js 中间件）。 |
 | **4. 部署** | `npx w2agent agentize <url>` | 将网站托管为实时 Agent 服务器，地址为 `<slug>.agent.w2agent.dev`。 |
 
-完整的分步方法论——网站分析、Agent 架构决策、输出验证和质量评估——请参阅 [AGENTIZE.md](AGENTIZE.md)。
+完整的分步方法论——网站分析、Agent 架构决策、输出验证和质量评估——请参阅 [AGENTIZE.md](docs/AGENTIZE.md)。
 
 ## Agent 网络
 
