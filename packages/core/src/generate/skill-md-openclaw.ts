@@ -1,9 +1,13 @@
+import type { EcommerceArtifacts } from "./ecommerce.js";
 import { extractSiteInfo } from "./llms-txt.js";
+import type { LocalBusinessArtifacts } from "./local-business.js";
 import { detectTools } from "./mcp-server.js";
 import type { GenerateContext } from "./types.js";
 
 export interface OpenClawSkillMdOptions {
   mcpEndpoint?: string;
+  artifacts?: EcommerceArtifacts | null;
+  localBusinessArtifacts?: LocalBusinessArtifacts | null;
 }
 
 export function generateOpenClawSkillMd(
@@ -11,7 +15,7 @@ export function generateOpenClawSkillMd(
   options?: OpenClawSkillMdOptions,
 ): string {
   const { siteName, siteDescription } = extractSiteInfo(ctx.pages, ctx.baseUrl);
-  const detected = detectTools(ctx);
+  const detected = detectTools(ctx, options?.artifacts, options?.localBusinessArtifacts);
   const slug = hostnameToSlug(ctx.baseUrl);
   const endpoint = options?.mcpEndpoint || "http://localhost:3100/mcp";
   const hasExplicitEndpoint = !!options?.mcpEndpoint;

@@ -1,5 +1,6 @@
 import type { OpenAPIEndpoint } from "../audit/types.js";
 import { parseHTML } from "../shared/html-parser.js";
+import { resolveOpenapiServerUrl } from "../shared/openapi.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
@@ -78,6 +79,34 @@ export function generateMcpServer(
 
 // --- Tool Detection ---
 
+const BUILTIN_TOOL_NAMES = [
+  "list-pages",
+  "get-page",
+  "search-site",
+  "search-faq",
+  "site-search",
+  "search-products",
+  "get-product",
+  "check-inventory",
+  "get-reviews",
+  "get-hours",
+  "get-menu",
+  "get-services",
+  "book-appointment",
+];
+
+function isTakenName(name: string, usedNames: Set<string>): boolean {
+  return usedNames.has(name) || name in Object.prototype;
+}
+
+function claimName(base: string, usedNames: Set<string>): string {
+  let name = base;
+  let counter = 2;
+  while (isTakenName(name, usedNames)) name = `${base}-${counter++}`;
+  usedNames.add(name);
+  return name;
+}
+
 function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<string>): string {
   let base: string | undefined;
 
@@ -103,15 +132,7 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
     : "";
   const sanitized = slugged ? `submit-${slugged}` : `submit-form-${index}`;
 
-  if (!usedNames.has(sanitized)) {
-    usedNames.add(sanitized);
-    return sanitized;
-  }
-  let counter = 2;
-  while (usedNames.has(`${sanitized}-${counter}`)) counter++;
-  const deduped = `${sanitized}-${counter}`;
-  usedNames.add(deduped);
-  return deduped;
+  return claimName(sanitized, usedNames);
 }
 
 function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): string {
@@ -135,15 +156,7 @@ function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): stri
         .replace(/^-|-$/g, "")
         .slice(0, 45) || "root"
     }`;
-  if (!usedNames.has(base)) {
-    usedNames.add(base);
-    return base;
-  }
-  let counter = 2;
-  while (usedNames.has(`${base}-${counter}`)) counter++;
-  const deduped = `${base}-${counter}`;
-  usedNames.add(deduped);
-  return deduped;
+  return claimName(base, usedNames);
 }
 
 export function detectTools(
@@ -305,9 +318,18 @@ export function detectTools(
   // OpenAPI endpoint tools (cap at 20)
   let hasOpenapi = false;
   const openapiEndpoints: OpenAPIEndpoint[] = [];
-  if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0) {
+  let openapiServerUrl: string | undefined;
+  const rawServerUrl = ctx.metadata.openapi?.serverUrl;
+  const resolvedServerUrl = rawServerUrl
+    ? resolveOpenapiServerUrl(rawServerUrl, ctx.baseUrl, ctx.allowedOffOriginHosts)
+    : ctx.baseUrl;
+  // An unresolvable or policy-rejected server URL drops the OpenAPI tools
+  // rather than falling back to the site origin, which would silently send
+  // calls to a host the spec never named.
+  if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0 && resolvedServerUrl) {
     hasOpenapi = true;
-    const usedOpenapiNames = new Set<string>(tools.map((t) => t.name));
+    openapiServerUrl = resolvedServerUrl;
+    const usedOpenapiNames = new Set<string>([...BUILTIN_TOOL_NAMES, ...tools.map((t) => t.name)]);
     const capped = ctx.metadata.openapi.endpoints.slice(0, 20);
     for (const ep of capped) {
       openapiEndpoints.push(ep);
@@ -325,7 +347,7 @@ export function detectTools(
     hasLocalBusiness,
     hasOpenapi,
     openapiEndpoints,
-    openapiServerUrl: ctx.metadata.openapi?.serverUrl,
+    openapiServerUrl,
     forms,
   };
 }
@@ -387,7 +409,10 @@ export function generateDataFiles(
 // --- OpenAPI Tool Handler Generation ---
 
 function reservedToolNames(detected: McpDetectedTools): string[] {
-  return detected.tools.filter((t) => t.condition !== "hasOpenapi").map((t) => t.name);
+  return [
+    ...BUILTIN_TOOL_NAMES,
+    ...detected.tools.filter((t) => t.condition !== "hasOpenapi").map((t) => t.name),
+  ];
 }
 
 function generateOpenapiToolHandlers(
@@ -758,7 +783,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     toolLines.push(`});`);
     toolLines.push(``);
 
-    const menuTool = detected.tools.find((t) => t.name === "get-menu");
+    const menuTool = detected.tools.find(
+      (t) => t.name === "get-menu" && t.condition === "hasLocalBusiness",
+    );
     if (menuTool) {
       toolLines.push(`// Tool: get-menu`);
       toolLines.push(
@@ -772,7 +799,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       toolLines.push(``);
     }
 
-    const servicesTool = detected.tools.find((t) => t.name === "get-services");
+    const servicesTool = detected.tools.find(
+      (t) => t.name === "get-services" && t.condition === "hasLocalBusiness",
+    );
     if (servicesTool) {
       toolLines.push(`// Tool: get-services`);
       toolLines.push(
@@ -786,7 +815,9 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       toolLines.push(``);
     }
 
-    const bookingTool = detected.tools.find((t) => t.name === "book-appointment");
+    const bookingTool = detected.tools.find(
+      (t) => t.name === "book-appointment" && t.condition === "hasLocalBusiness",
+    );
     if (bookingTool) {
       toolLines.push(`// Tool: book-appointment`);
       toolLines.push(
@@ -1167,7 +1198,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => transport.close());
   await server.connect(transport);
-  await transport.handleRequest(req, res);
+  await transport.handleRequest(req, res, req.body);
 }
 `;
 
@@ -1413,7 +1444,7 @@ ${
             form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }]),
           );
           const required = form.fields.filter((f) => f.required).map((f) => f.name);
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
         })
         .join("\n")
     : ""
@@ -1425,17 +1456,16 @@ ${
           const pathParams = ep.parameters.filter((p) => p.in === "path");
           const queryParams = ep.parameters.filter((p) => p.in === "query");
           const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
-          const properties: Record<string, { type: string }> = {};
-          for (const p of [...pathParams, ...queryParams]) {
-            properties[p.name] = {
-              type: p.type === "integer" || p.type === "number" ? "number" : "string",
-            };
-          }
-          for (const [name, def] of bodyProps) {
-            properties[name] = {
-              type: def.type === "integer" || def.type === "number" ? "number" : "string",
-            };
-          }
+          const properties = Object.fromEntries([
+            ...[...pathParams, ...queryParams].map((p) => [
+              p.name,
+              { type: p.type === "integer" || p.type === "number" ? "number" : "string" },
+            ]),
+            ...bodyProps.map(([name, def]) => [
+              name,
+              { type: def.type === "integer" || def.type === "number" ? "number" : "string" },
+            ]),
+          ]);
           const required = [
             ...pathParams.filter((p) => p.required),
             ...queryParams.filter((p) => p.required),
@@ -1445,7 +1475,7 @@ ${
             ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
             : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
           const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
         })
         .join("\n")
     : ""
@@ -1666,6 +1696,12 @@ ${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path dat
 }
 
 // --- Helpers ---
+
+// An object literal with a "__proto__" key sets the prototype instead of an own
+// property, so emit crawled-key objects through JSON.parse.
+function jsonObjectLiteral(value: unknown): string {
+  return `JSON.parse(${JSON.stringify(JSON.stringify(value))})`;
+}
 
 function makeFile(filename: string, content: string): GeneratedFile {
   return {

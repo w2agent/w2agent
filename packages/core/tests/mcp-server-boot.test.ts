@@ -1,17 +1,22 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
   type ServerResponse,
 } from "node:http";
-import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { generateMcpServer } from "../src/generate/mcp-server.js";
 import type { GenerateContext } from "../src/generate/types.js";
+import {
+  CORE_DIR,
+  freePort,
+  killTracked,
+  spawnServer,
+  waitForRunning,
+} from "./helpers/mcp-harness.js";
 
-const CORE_DIR = resolve(__dirname, "..");
 const PAGE_URL = "https://example.com/about";
 
 const HOLD_URL = "https://hold.example.net/hold";
@@ -51,21 +56,10 @@ let tmpRoot = "";
 let serverDir = "";
 let child: ChildProcess | null = null;
 let baseUrl = "";
-let output = "";
+let getOutput: () => string = () => "";
 let holdServer: HttpServer | null = null;
 let holdHits = 0;
 const heldResponses: ServerResponse[] = [];
-
-function freePort(): Promise<number> {
-  return new Promise((res, rej) => {
-    const srv = createServer();
-    srv.once("error", rej);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address() as { port: number };
-      srv.close(() => res(port));
-    });
-  });
-}
 
 function parseBody(text: string): any {
   const trimmed = text.trim();
@@ -120,36 +114,16 @@ beforeAll(async () => {
 
   const port = await freePort();
   baseUrl = `http://127.0.0.1:${port}`;
-  child = spawn(join(CORE_DIR, "node_modules/.bin/tsx"), ["server.ts"], {
-    cwd: serverDir,
-    env: { ...process.env, PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const proc = child;
-  await new Promise<void>((res, rej) => {
-    const timer = setTimeout(() => rej(new Error(`server did not start:\n${output}`)), 20000);
-    const onData = (d: Buffer) => {
-      output += d.toString();
-      if (output.includes("running at")) {
-        clearTimeout(timer);
-        res();
-      }
-    };
-    proc.stdout?.on("data", onData);
-    proc.stderr?.on("data", (d: Buffer) => {
-      output += d.toString();
-    });
-    proc.once("exit", (code) => {
-      clearTimeout(timer);
-      rej(new Error(`server exited early (${code}):\n${output}`));
-    });
-  });
+  const started = spawnServer(serverDir, port);
+  child = started.proc;
+  getOutput = started.output;
+  await waitForRunning(child, getOutput);
 }, 30000);
 
 afterAll(() => {
   for (const r of heldResponses) r.destroy();
   holdServer?.close();
-  if (child && alive()) child.kill("SIGKILL");
+  killTracked();
   if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
 });
 
@@ -306,7 +280,7 @@ describe("generated standalone MCP server (boot and drive)", () => {
     });
     expect(res.status).toBe(415);
     expect(parseBody(await res.text()).error.code).toBe(-32600);
-    expect(output).not.toContain("UnsupportedMediaTypeError");
+    expect(getOutput()).not.toContain("UnsupportedMediaTypeError");
     expect(alive()).toBe(true);
   });
 
@@ -317,18 +291,7 @@ describe("generated standalone MCP server (boot and drive)", () => {
     const data = JSON.parse(readFileSync(pagesPath, "utf-8"));
     writeFileSync(pagesPath, JSON.stringify([...data, data[0]]));
     const port = await freePort();
-    const proc = spawn(join(CORE_DIR, "node_modules/.bin/tsx"), ["server.ts"], {
-      cwd: dupDir,
-      env: { ...process.env, PORT: String(port) },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    proc.stdout?.on("data", (d: Buffer) => {
-      out += d.toString();
-    });
-    proc.stderr?.on("data", (d: Buffer) => {
-      out += d.toString();
-    });
+    const { proc, output: dupOutput } = spawnServer(dupDir, port);
     const code = await new Promise<number | null>((res) => {
       const timer = setTimeout(() => {
         proc.kill("SIGKILL");
@@ -341,8 +304,8 @@ describe("generated standalone MCP server (boot and drive)", () => {
     });
     expect(code).not.toBeNull();
     expect(code).not.toBe(0);
-    expect(out).not.toContain("running at");
-    expect(out).toContain("already registered");
+    expect(dupOutput()).not.toContain("running at");
+    expect(dupOutput()).toContain("already registered");
   }, 30000);
 
   it("keeps the /.well-known/mcp redirect", async () => {

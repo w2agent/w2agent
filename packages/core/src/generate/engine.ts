@@ -262,14 +262,22 @@ export async function runGenerate(
   // Generate SKILL.md
   if (options.formats.includes("skill-md")) {
     onProgress?.("Generating skill.md...");
-    const skillMd = generateSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    const skillMd = generateSkillMd(ctx, {
+      mcpEndpoint: options.mcpEndpoint,
+      artifacts: ecommerceArtifacts,
+      localBusinessArtifacts,
+    });
     files.push(makeFile("skill.md", skillMd));
   }
 
   // Generate OpenClaw SKILL.md
   if (options.formats.includes("openclaw")) {
     onProgress?.("Generating OpenClaw SKILL.md...");
-    const openClawSkillMd = generateOpenClawSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    const openClawSkillMd = generateOpenClawSkillMd(ctx, {
+      mcpEndpoint: options.mcpEndpoint,
+      artifacts: ecommerceArtifacts,
+      localBusinessArtifacts,
+    });
     files.push(makeFile("openclaw/SKILL.md", openClawSkillMd));
   }
 
