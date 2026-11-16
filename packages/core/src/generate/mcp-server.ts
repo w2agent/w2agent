@@ -492,9 +492,8 @@ function generateOpenapiToolHandlers(
       lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
     }
 
-    lines.push(`  const _controller = new AbortController();`);
-    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
     lines.push(`  try {`);
+    let initExpr: string;
     if (bodyProps.length > 0) {
       lines.push(`    const _body: Record<string, unknown> = {};`);
       for (const [propName] of bodyProps) {
@@ -503,22 +502,14 @@ function generateOpenapiToolHandlers(
           `    if (${access} !== undefined) _body[${JSON.stringify(propName)}] = ${access};`,
         );
       }
-      lines.push(
-        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body), signal: _controller.signal });`,
-      );
+      initExpr = `{ method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body) }`;
     } else {
-      lines.push(
-        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Accept": "application/json" }, signal: _controller.signal });`,
-      );
+      initExpr = `{ method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Accept": "application/json" } }`;
     }
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(`    const _text = await _res.text();`);
-    lines.push(`    const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;`);
     lines.push(
-      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };`,
+      `    return { content: [{ type: "text", text: await outboundFetch(_url, ${initExpr}, 3000) }] };`,
     );
     lines.push(`  } catch (err) {`);
-    lines.push(`    clearTimeout(_timer);`);
     lines.push(
       `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
     );
@@ -530,6 +521,60 @@ function generateOpenapiToolHandlers(
 }
 
 // --- Server Template ---
+
+// Runtime-neutral (Node and Workers): no Buffer, no node: imports. Emitted verbatim into every variant.
+export const OUTBOUND_HELPER_SOURCE = String.raw`const OUTBOUND_TIMEOUT_MS = 10000;
+const OUTBOUND_MAX_BYTES = 1048576;
+
+async function outboundFetch(url: string, init: RequestInit, maxChars: number): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+  const drop = (target: { cancel(): Promise<unknown> } | null | undefined) => {
+    try {
+      Promise.resolve(target?.cancel()).catch(() => {});
+    } catch {}
+  };
+  let res: Response | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let finished = false;
+  try {
+    res = await fetch(url, { ...init, redirect: "manual", signal: controller.signal });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      return "Status: " + res.status + "\n\nRedirect not followed. " + (location ? "Location: " + location : "Location header missing.");
+    }
+    let text = "";
+    let truncated = false;
+    if (res.body) {
+      reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const room = OUTBOUND_MAX_BYTES - total;
+        if (value.byteLength > room) {
+          text += decoder.decode(value.subarray(0, room));
+          truncated = true;
+          break;
+        }
+        total += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+      }
+      if (!truncated) text += decoder.decode();
+    }
+    finished = !truncated;
+    const out = text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
+    return "Status: " + res.status + "\n\n" + out + (truncated ? "\n\n[response truncated at " + OUTBOUND_MAX_BYTES + " bytes]" : "");
+  } finally {
+    clearTimeout(timer);
+    if (!finished) {
+      drop(reader ?? res?.body);
+      controller.abort();
+    }
+  }
+}
+`;
 
 function generateServerTs(siteName: string, baseUrl: string, detected: McpDetectedTools): string {
   const lines: string[] = [];
@@ -547,6 +592,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(``);
   lines.push(`const __dirname = dirname(fileURLToPath(import.meta.url));`);
   lines.push(``);
+  lines.push(OUTBOUND_HELPER_SOURCE);
   lines.push(`// Load data`);
   lines.push(
     `const pages = JSON.parse(readFileSync(resolve(__dirname, "data/pages.json"), "utf-8"));`,
@@ -692,25 +738,11 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
     );
     const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
-    toolLines.push(`  const _controller = new AbortController();`);
-    toolLines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
     toolLines.push(`  try {`);
-    toolLines.push(`    const _res = await fetch(${actionUrl}, {`);
-    toolLines.push(`      method: "POST",`);
-    toolLines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
     toolLines.push(
-      `      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`,
-    );
-    toolLines.push(`      signal: _controller.signal,`);
-    toolLines.push(`    });`);
-    toolLines.push(`    clearTimeout(_timer);`);
-    toolLines.push(`    const _text = await _res.text();`);
-    toolLines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
-    toolLines.push(
-      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`,
+      `    return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };`,
     );
     toolLines.push(`  } catch (err) {`);
-    toolLines.push(`    clearTimeout(_timer);`);
     toolLines.push(
       `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
     );
@@ -1081,6 +1113,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import pages from "../data/pages.json" with { type: "json" };
 ${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}
+${OUTBOUND_HELPER_SOURCE}
 function createServer() {
   const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
@@ -1173,21 +1206,9 @@ ${
   server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
 ${fieldSchemas.join(",\n")}
   }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
-    const _controller = new AbortController();
-    const _timer = setTimeout(() => _controller.abort(), 10000);
     try {
-      const _res = await fetch(${actionUrl}, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
-        signal: _controller.signal,
-      });
-      clearTimeout(_timer);
-      const _text = await _res.text();
-      const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-      return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+      return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
     } catch (err) {
-      clearTimeout(_timer);
       return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
     }
   });`;
@@ -1283,6 +1304,7 @@ id = "" # Run: npx wrangler kv namespace create MCP_DATA
   const workerTs = `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+${OUTBOUND_HELPER_SOURCE}
 interface Env {
   MCP_DATA: KVNamespace;
 }
@@ -1389,21 +1411,9 @@ ${
     server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
 ${fieldSchemas.join(",\n")}
     }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
-      const _controller = new AbortController();
-      const _timer = setTimeout(() => _controller.abort(), 10000);
       try {
-        const _res = await fetch(${actionUrl}, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
-          signal: _controller.signal,
-        });
-        clearTimeout(_timer);
-        const _text = await _res.text();
-        const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-        return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+        return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
       } catch (err) {
-        clearTimeout(_timer);
         return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
       }
     });`;
@@ -1561,21 +1571,9 @@ ${
                 const toolName = formTools[i]?.name ?? `submit-form-${i}`;
                 const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
                 return ` else if (toolName === ${JSON.stringify(toolName)}) {
-        const _controller = new AbortController();
-        const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
-          const _res = await fetch(${actionUrl}, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString(),
-            signal: _controller.signal,
-          });
-          clearTimeout(_timer);
-          const _text = await _res.text();
-          const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+          result = { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
         } catch (err) {
-          clearTimeout(_timer);
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
@@ -1631,17 +1629,10 @@ ${
                 const innerLines = [...queryLines, ...bodyLines].join("\n");
 
                 return ` else if (toolName === ${JSON.stringify(toolName)}) {
-        const _controller = new AbortController();
-        const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
           let _url = ${urlExpr};
-${innerLines ? `${innerLines}\n` : ""}          const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra}, signal: _controller.signal });
-          clearTimeout(_timer);
-          const _text = await _res.text();
-          const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;
-          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };
+${innerLines ? `${innerLines}\n` : ""}          result = { content: [{ type: "text", text: await outboundFetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra} }, 3000) }] };
         } catch (err) {
-          clearTimeout(_timer);
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
