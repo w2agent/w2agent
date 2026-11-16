@@ -481,6 +481,7 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
 
 function generateServerTs(siteName: string, baseUrl: string, detected: McpDetectedTools): string {
   const lines: string[] = [];
+  const toolLines: string[] = [];
 
   lines.push(`import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";`);
   lines.push(
@@ -518,104 +519,106 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   }
 
   lines.push(``);
-  lines.push(`// Create MCP server`);
+  lines.push(`// Build a fresh MCP server per request (stateless transport)`);
+  lines.push(`function createServer() {`);
   lines.push(`const server = new McpServer({`);
   lines.push(`  name: ${JSON.stringify(siteName)},`);
   lines.push(`  version: "1.0.0",`);
   lines.push(`});`);
   lines.push(``);
-
   // list-pages tool
-  lines.push(`// Tool: list-pages`);
-  lines.push(
+  toolLines.push(`// Tool: list-pages`);
+  toolLines.push(
     `server.tool("list-pages", "List all pages on the site with titles and URLs", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
   );
-  lines.push(`  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`);
-  lines.push(`  return { content: [{ type: "text", text: listing }] };`);
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(
+    `  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`,
+  );
+  toolLines.push(`  return { content: [{ type: "text", text: listing }] };`);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // get-page tool
-  lines.push(`// Tool: get-page`);
-  lines.push(
+  toolLines.push(`// Tool: get-page`);
+  toolLines.push(
     `server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url }) => {`,
   );
-  lines.push(
+  toolLines.push(
     `  const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));`,
   );
-  lines.push(`  if (!page) return { content: [{ type: "text", text: "Page not found" }] };`);
-  lines.push(
+  toolLines.push(`  if (!page) return { content: [{ type: "text", text: "Page not found" }] };`);
+  toolLines.push(
     `  return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };`,
   );
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // search-site tool
-  lines.push(`// Tool: search-site`);
-  lines.push(
+  toolLines.push(`// Tool: search-site`);
+  toolLines.push(
     `server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
   );
-  lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
-  lines.push(`  const scored = pages.map((p: any) => {`);
-  lines.push(`    let score = 0;`);
-  lines.push(`    for (const term of terms) {`);
-  lines.push(`      if (p.title?.toLowerCase().includes(term)) score += 3;`);
-  lines.push(`      if (p.description?.toLowerCase().includes(term)) score += 2;`);
-  lines.push(`      if (p.markdown?.toLowerCase().includes(term)) score += 1;`);
-  lines.push(`    }`);
-  lines.push(`    return { ...p, score };`);
-  lines.push(
+  toolLines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
+  toolLines.push(`  const scored = pages.map((p: any) => {`);
+  toolLines.push(`    let score = 0;`);
+  toolLines.push(`    for (const term of terms) {`);
+  toolLines.push(`      if (p.title?.toLowerCase().includes(term)) score += 3;`);
+  toolLines.push(`      if (p.description?.toLowerCase().includes(term)) score += 2;`);
+  toolLines.push(`      if (p.markdown?.toLowerCase().includes(term)) score += 1;`);
+  toolLines.push(`    }`);
+  toolLines.push(`    return { ...p, score };`);
+  toolLines.push(
     `  }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);`,
   );
-  lines.push(``);
-  lines.push(
+  toolLines.push(``);
+  toolLines.push(
     `  if (scored.length === 0) return { content: [{ type: "text", text: "No results found" }] };`,
   );
-  lines.push(`  const results = scored.map((p: any) => {`);
-  lines.push(`    const snippet = p.markdown?.slice(0, 3000) || "";`);
-  lines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
-  lines.push(`  }).join("\\n\\n");`);
-  lines.push(`  return { content: [{ type: "text", text: results }] };`);
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(`  const results = scored.map((p: any) => {`);
+  toolLines.push(`    const snippet = p.markdown?.slice(0, 3000) || "";`);
+  toolLines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
+  toolLines.push(`  }).join("\\n\\n");`);
+  toolLines.push(`  return { content: [{ type: "text", text: results }] };`);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // search-faq tool
   if (detected.hasFaq) {
-    lines.push(`// Tool: search-faq`);
-    lines.push(
+    toolLines.push(`// Tool: search-faq`);
+    toolLines.push(
       `server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
-    lines.push(`  const entries = faq.mainEntity || [];`);
-    lines.push(`  const matches = entries.filter((e: any) => {`);
-    lines.push(`    const text = (e.name + " " + e.acceptedAnswer?.text).toLowerCase();`);
-    lines.push(`    return terms.some((t: string) => text.includes(t));`);
-    lines.push(`  });`);
-    lines.push(
+    toolLines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
+    toolLines.push(`  const entries = faq.mainEntity || [];`);
+    toolLines.push(`  const matches = entries.filter((e: any) => {`);
+    toolLines.push(`    const text = (e.name + " " + e.acceptedAnswer?.text).toLowerCase();`);
+    toolLines.push(`    return terms.some((t: string) => text.includes(t));`);
+    toolLines.push(`  });`);
+    toolLines.push(
       `  if (matches.length === 0) return { content: [{ type: "text", text: "No FAQ matches found" }] };`,
     );
-    lines.push(
+    toolLines.push(
       `  const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");`,
     );
-    lines.push(`  return { content: [{ type: "text", text: result }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  return { content: [{ type: "text", text: result }] };`);
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // site-search tool (SearchAction stub)
   if (detected.hasSearchAction) {
-    lines.push(`// Tool: site-search (via SearchAction)`);
-    lines.push(
+    toolLines.push(`// Tool: site-search (via SearchAction)`);
+    toolLines.push(
       `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(
+    toolLines.push(
       `  const searchUrl = ${JSON.stringify(`${baseUrl}/search?q=`)} + encodeURIComponent(query);`,
     );
-    lines.push(
+    toolLines.push(
       `  return { content: [{ type: "text", text: \`Search URL: \${searchUrl}\\n\\nNote: This returns the search URL. For full results, use search-site instead.\` }] };`,
     );
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // Form submission tools
@@ -628,40 +631,40 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
     });
 
-    lines.push(`// Tool: ${toolName}`);
-    lines.push(
+    toolLines.push(`// Tool: ${toolName}`);
+    toolLines.push(
       `server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
     );
-    lines.push(fieldSchemas.join(",\n"));
-    lines.push(
+    toolLines.push(fieldSchemas.join(",\n"));
+    toolLines.push(
       `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
     );
     const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
-    lines.push(`  const _controller = new AbortController();`);
-    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
-    lines.push(`  try {`);
-    lines.push(`    const _res = await fetch(${actionUrl}, {`);
-    lines.push(`      method: "POST",`);
-    lines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
-    lines.push(
+    toolLines.push(`  const _controller = new AbortController();`);
+    toolLines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
+    toolLines.push(`  try {`);
+    toolLines.push(`    const _res = await fetch(${actionUrl}, {`);
+    toolLines.push(`      method: "POST",`);
+    toolLines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
+    toolLines.push(
       `      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`,
     );
-    lines.push(`      signal: _controller.signal,`);
-    lines.push(`    });`);
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(`    const _text = await _res.text();`);
-    lines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
-    lines.push(
+    toolLines.push(`      signal: _controller.signal,`);
+    toolLines.push(`    });`);
+    toolLines.push(`    clearTimeout(_timer);`);
+    toolLines.push(`    const _text = await _res.text();`);
+    toolLines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
+    toolLines.push(
       `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`,
     );
-    lines.push(`  } catch (err) {`);
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(
+    toolLines.push(`  } catch (err) {`);
+    toolLines.push(`    clearTimeout(_timer);`);
+    toolLines.push(
       `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
     );
-    lines.push(`  }`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  }`);
+    toolLines.push(`});`);
+    toolLines.push(``);
   });
 
   // Commerce tools
@@ -670,49 +673,61 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(generateCommerceToolHandlers());
     lines.push(``);
 
-    lines.push(`// Tool: search-products`);
-    lines.push(
+    toolLines.push(`// Tool: search-products`);
+    toolLines.push(
       `server.tool("search-products", "Search products by name, category, or description", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(`  const results = searchProducts(query, products);`);
-    lines.push(
+    toolLines.push(`  const results = searchProducts(query, products);`);
+    toolLines.push(
       `  if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };`,
     );
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: get-product`);
-    lines.push(
+    toolLines.push(`// Tool: get-product`);
+    toolLines.push(
       `server.tool("get-product", "Get full product details by product ID", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const product = getProduct(productId, products);`);
-    lines.push(
+    toolLines.push(`  const product = getProduct(productId, products);`);
+    toolLines.push(
       `  if (!product) return { content: [{ type: "text", text: "Product not found" }] };`,
     );
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: check-inventory`);
-    lines.push(
+    toolLines.push(`// Tool: check-inventory`);
+    toolLines.push(
       `server.tool("check-inventory", "Check product availability and price", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const result = checkInventory(productId, products);`);
-    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  const result = checkInventory(productId, products);`);
+    toolLines.push(
+      `  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`,
+    );
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: get-reviews`);
-    lines.push(
+    toolLines.push(`// Tool: get-reviews`);
+    toolLines.push(
       `server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const result = getReviews(productId, products);`);
-    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  const result = getReviews(productId, products);`);
+    toolLines.push(
+      `  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`,
+    );
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // Local business tool handlers
@@ -721,94 +736,147 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(generateLocalBusinessToolHandlers());
     lines.push(``);
 
-    lines.push(`// Tool: get-hours`);
-    lines.push(
+    toolLines.push(`// Tool: get-hours`);
+    toolLines.push(
       `server.tool("get-hours", "Get business hours and opening times", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
     );
-    lines.push(`  const result = getHours(business);`);
-    lines.push(
+    toolLines.push(`  const result = getHours(business);`);
+    toolLines.push(
       `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
     );
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`});`);
+    toolLines.push(``);
 
     const menuTool = detected.tools.find((t) => t.name === "get-menu");
     if (menuTool) {
-      lines.push(`// Tool: get-menu`);
-      lines.push(
+      toolLines.push(`// Tool: get-menu`);
+      toolLines.push(
         `server.tool("get-menu", "Get the menu URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = getMenu(business);`);
-      lines.push(
+      toolLines.push(`  const result = getMenu(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
 
     const servicesTool = detected.tools.find((t) => t.name === "get-services");
     if (servicesTool) {
-      lines.push(`// Tool: get-services`);
-      lines.push(
+      toolLines.push(`// Tool: get-services`);
+      toolLines.push(
         `server.tool("get-services", "Get the services page URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = getServices(business);`);
-      lines.push(
+      toolLines.push(`  const result = getServices(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
 
     const bookingTool = detected.tools.find((t) => t.name === "book-appointment");
     if (bookingTool) {
-      lines.push(`// Tool: book-appointment`);
-      lines.push(
+      toolLines.push(`// Tool: book-appointment`);
+      toolLines.push(
         `server.tool("book-appointment", "Get booking URL and instructions for scheduling", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = bookAppointment(business);`);
-      lines.push(
+      toolLines.push(`  const result = bookAppointment(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
   }
 
   // OpenAPI endpoint tools
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
     const apiBase = detected.openapiServerUrl || baseUrl;
-    lines.push(`// OpenAPI endpoint tools`);
-    lines.push(...generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase));
+    toolLines.push(`// OpenAPI endpoint tools`);
+    toolLines.push(...generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase));
   }
 
   // Page resources
-  lines.push(`// Resources: expose pages as MCP resources`);
-  lines.push(`for (const page of pages) {`);
-  lines.push(`  server.resource(page.url, page.url, async (uri) => ({`);
-  lines.push(`    contents: [{ uri: uri.href, mimeType: "text/markdown", text: page.markdown }],`);
-  lines.push(`  }));`);
-  lines.push(`}`);
-  lines.push(``);
+  toolLines.push(`// Resources: expose pages as MCP resources`);
+  toolLines.push(`for (const page of pages) {`);
+  toolLines.push(`  server.resource(page.url, page.url, async (uri) => ({`);
+  toolLines.push(
+    `    contents: [{ uri: uri.href, mimeType: "text/markdown", text: page.markdown }],`,
+  );
+  toolLines.push(`  }));`);
+  toolLines.push(`}`);
+  toolLines.push(``);
 
   // HTTP server
+  lines.push(...toolLines);
+  lines.push(`return server;`);
+  lines.push(`}`);
+  lines.push(``);
   lines.push(`// Start HTTP server with Streamable HTTP transport`);
   lines.push(`const app = express();`);
   lines.push(`app.use(express.json());`);
   lines.push(``);
-  lines.push(`app.all("/mcp", async (req, res) => {`);
-  lines.push(
-    `  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`,
-  );
-  lines.push(`  res.on("close", () => transport.close());`);
-  lines.push(`  await server.connect(transport);`);
-  lines.push(`  await transport.handleRequest(req, res);`);
+  lines.push(`const jsonRpcError = (code: number, message: string, id: unknown = null) => ({`);
+  lines.push(`  jsonrpc: "2.0" as const,`);
+  lines.push(`  error: { code, message },`);
+  lines.push(`  id,`);
   lines.push(`});`);
+  lines.push(``);
+  lines.push(`app.post("/mcp", async (req, res) => {`);
+  lines.push(`  try {`);
+  lines.push(`    const server = createServer();`);
+  lines.push(
+    `    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`,
+  );
+  lines.push(`    res.on("close", () => {`);
+  lines.push(`      transport.close().catch(() => {});`);
+  lines.push(`      server.close().catch(() => {});`);
+  lines.push(`    });`);
+  lines.push(`    await server.connect(transport);`);
+  lines.push(`    await transport.handleRequest(req, res, req.body);`);
+  lines.push(`  } catch (error) {`);
+  lines.push(`    console.error("Error handling MCP request:", error);`);
+  lines.push(`    if (!res.headersSent) {`);
+  lines.push(
+    `      res.status(500).json(jsonRpcError(-32603, "Internal server error", req.body?.id ?? null));`,
+  );
+  lines.push(`    }`);
+  lines.push(`  }`);
+  lines.push(`});`);
+  lines.push(``);
+  lines.push(`const methodNotAllowed = (_req: express.Request, res: express.Response) => {`);
+  lines.push(
+    `  res.status(405).set("Allow", "POST").json(jsonRpcError(-32000, "Method not allowed."));`,
+  );
+  lines.push(`};`);
+  lines.push(`app.get("/mcp", methodNotAllowed);`);
+  lines.push(`app.delete("/mcp", methodNotAllowed);`);
   lines.push(``);
   lines.push(`// .well-known/mcp discovery endpoint`);
   lines.push(`app.get("/.well-known/mcp", (_req, res) => {`);
   lines.push(`  res.redirect(307, "/mcp");`);
   lines.push(`});`);
+  lines.push(``);
+  lines.push(
+    `app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {`,
+  );
+  lines.push(`  if (res.headersSent) return next(err);`);
+  lines.push(`  const status = err?.status ?? err?.statusCode;`);
+  lines.push(`  if (typeof status === "number" && status >= 400 && status < 500) {`);
+  lines.push(
+    `    const parseFailure = err?.type === "entity.parse.failed" || err instanceof SyntaxError;`,
+  );
+  lines.push(
+    `    return res.status(status).json(parseFailure ? jsonRpcError(-32700, "Parse error") : jsonRpcError(-32600, "Invalid request"));`,
+  );
+  lines.push(`  }`);
+  lines.push(`  console.error(err);`);
+  lines.push(`  res.status(500).json(jsonRpcError(-32603, "Internal server error"));`);
+  lines.push(`});`);
+  lines.push(``);
+  lines.push(`// Fail at startup (not per request) if the data set cannot be registered`);
+  lines.push(`createServer().close().catch(() => {});`);
   lines.push(``);
   lines.push(`const PORT = process.env.PORT || 3100;`);
   lines.push(`app.listen(PORT, () => {`);

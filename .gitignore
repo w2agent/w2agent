@@ -52,3 +52,7 @@ claudedocs/
 
 # Platform validation results (generated)
 scripts/platform-validation/results-*.md
+
+# Boot-test scratch output
+packages/core/.tmp-mcp-boot-*/
+.pnpm-store/
