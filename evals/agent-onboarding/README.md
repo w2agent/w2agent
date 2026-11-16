@@ -51,3 +51,4 @@ Results are gitignored and never committed (`evals/**/results/`).
 - Both harnesses load the operator's own global instructions, settings and plugins. Results depend on whose machine runs them. Compare runs from the same machine and config.
 - Codex runs in a `workspace-write` sandbox that blocks writes outside the workspace. A full `pnpm build` of the monorepo fails on a tool cache under the home directory, so a codex agent must build only the CLI packages.
 - Claude has no write containment here. The scorer only flags Write/Edit calls, shell redirects and `cd` outside the workspace. For codex it reports "sandbox-enforced".
+- The scorer installs the site with `npm install --ignore-scripts` and flags changed `package.json` scripts (`scriptsChanged` in `result.json`), but `npm run build` and `npm run start` still run the site's own scripts.

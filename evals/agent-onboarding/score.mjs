@@ -301,6 +301,42 @@ export function compareToBaseline(baselineDir, siteDir) {
   };
 }
 
+// ---------- package.json scripts ----------
+
+function readScripts(text) {
+  if (text == null) return { error: "package.json missing" };
+  let pkg;
+  try {
+    pkg = JSON.parse(text);
+  } catch (e) {
+    return { error: `package.json unparseable: ${e.message}` };
+  }
+  const s = pkg?.scripts;
+  if (s == null) return { scripts: {} };
+  if (typeof s !== "object" || Array.isArray(s))
+    return { error: "package.json scripts is not an object" };
+  return { scripts: s };
+}
+
+// Pure. Inputs are package.json file contents (null when the file is missing).
+export function scriptsChanged(baselineText, siteText) {
+  const out = { flagged: false, added: {}, removed: [], changed: [], error: null };
+  const b = readScripts(baselineText);
+  const s = readScripts(siteText);
+  const error = s.error ?? (b.error ? `baseline ${b.error}` : null);
+  if (error) return { ...out, flagged: true, error };
+  for (const [name, cmd] of Object.entries(s.scripts)) {
+    if (!(name in b.scripts)) out.added[name] = cmd;
+    else if (b.scripts[name] !== cmd) out.changed.push({ name, from: b.scripts[name], to: cmd });
+  }
+  out.removed = Object.keys(b.scripts).filter((n) => !(n in s.scripts));
+  out.flagged =
+    Object.keys(out.added).length > 0 || out.changed.length > 0 || out.removed.length > 0;
+  return out;
+}
+
+const readIfExists = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null);
+
 // ---------- containment ----------
 
 function normAlias(p) {
@@ -472,11 +508,15 @@ export async function scoreSite({ siteDir, cacheDir, cli, outDir, timeoutMs }) {
   const env = buildChildEnv(process.env, cacheDir);
   const fail = (stage, r) => ({ ok: false, stage, tail: r.tail, overallScore: null, grade: null });
 
-  const install = await runStage("npm", ["install", "--no-audit", "--no-fund"], {
-    cwd: siteDir,
-    env,
-    timeoutMs,
-  });
+  const install = await runStage(
+    "npm",
+    ["install", "--ignore-scripts", "--no-audit", "--no-fund"],
+    {
+      cwd: siteDir,
+      env,
+      timeoutMs,
+    },
+  );
   if (!install.ok) return fail("install", install);
   const build = await runStage("npm", ["run", "build"], { cwd: siteDir, env, timeoutMs });
   if (!build.ok) return fail("build", build);
@@ -566,6 +606,8 @@ export function renderSummary(r) {
       ["baseline files replaced", String(r.baselineChanges.replaced.length)],
     );
   }
+  if (r.scriptsChanged)
+    rows.push(["package.json scripts changed", r.scriptsChanged.flagged ? "YES" : "no"]);
   if (r.transcript) {
     const t = r.transcript;
     rows.push(
@@ -599,6 +641,19 @@ export function renderSummary(r) {
     list(
       "Replaced baseline files",
       r.baselineChanges.replaced.map((x) => `${x.file} (${Math.round(x.kept * 100)}% kept)`),
+    );
+  }
+  if (r.scriptsChanged?.flagged) {
+    const sc = r.scriptsChanged;
+    list(
+      "package.json scripts changed",
+      sc.error
+        ? [sc.error]
+        : [
+            ...Object.entries(sc.added).map(([n, c]) => `added ${n}: \`${c}\``),
+            ...sc.changed.map((x) => `changed ${x.name}: \`${x.from}\` -> \`${x.to}\``),
+            ...sc.removed.map((n) => `removed ${n}`),
+          ],
     );
   }
   if (r.transcript) {
@@ -654,6 +709,10 @@ export async function main(argv = process.argv.slice(2)) {
     mkdirSync(out, { recursive: true });
 
     const baselineChanges = compareToBaseline(path.join(runDir, "baseline"), siteDir);
+    const scripts = scriptsChanged(
+      readIfExists(path.join(runDir, "baseline", "package.json")),
+      readIfExists(path.join(siteDir, "package.json")),
+    );
     const tPath = path.join(runDir, "transcript.jsonl");
     const parsed = parseTranscript(
       existsSync(tPath) ? readFileSync(tPath, "utf8") : "",
@@ -664,6 +723,7 @@ export async function main(argv = process.argv.slice(2)) {
       mode: "run",
       run,
       baselineChanges,
+      scriptsChanged: scripts,
       transcript: {
         badLines: parsed.badLines,
         toolCalls: countToolCalls(parsed.calls),
