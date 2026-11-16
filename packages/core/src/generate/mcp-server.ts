@@ -94,17 +94,14 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
     if (segment) base = segment;
   }
 
-  if (!base) {
-    const name = `submit-form-${index}`;
-    usedNames.add(name);
-    return name;
-  }
-
-  const sanitized = `submit-${base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 45)}`;
+  const slugged = base
+    ? base
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 45)
+    : "";
+  const sanitized = slugged ? `submit-${slugged}` : `submit-form-${index}`;
 
   if (!usedNames.has(sanitized)) {
     usedNames.add(sanitized);
@@ -118,7 +115,7 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
 }
 
 function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): string {
-  const base = ep.operationId
+  const fromOperationId = ep.operationId
     ? ep.operationId
         .replace(/([a-z])([A-Z])/g, "$1-$2")
         .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
@@ -126,12 +123,18 @@ function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): stri
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 50)
-    : `${ep.method.toLowerCase()}-${ep.path
+    : "";
+  const base =
+    fromOperationId ||
+    `${ep.method.toLowerCase().replace(/[^a-z0-9]+/g, "") || "call"}-${
+      ep.path
         .replace(/[{}]/g, "")
+        .toLowerCase()
         .replace(/[^a-z0-9/]+/g, "-")
         .replace(/\/+/g, "-")
         .replace(/^-|-$/g, "")
-        .slice(0, 45)}`;
+        .slice(0, 45) || "root"
+    }`;
   if (!usedNames.has(base)) {
     usedNames.add(base);
     return base;
@@ -304,7 +307,7 @@ export function detectTools(
   const openapiEndpoints: OpenAPIEndpoint[] = [];
   if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0) {
     hasOpenapi = true;
-    const usedOpenapiNames = new Set<string>();
+    const usedOpenapiNames = new Set<string>(tools.map((t) => t.name));
     const capped = ctx.metadata.openapi.endpoints.slice(0, 20);
     for (const ep of capped) {
       openapiEndpoints.push(ep);
@@ -383,9 +386,17 @@ export function generateDataFiles(
 
 // --- OpenAPI Tool Handler Generation ---
 
-function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: string): string[] {
+function reservedToolNames(detected: McpDetectedTools): string[] {
+  return detected.tools.filter((t) => t.condition !== "hasOpenapi").map((t) => t.name);
+}
+
+function generateOpenapiToolHandlers(
+  endpoints: OpenAPIEndpoint[],
+  serverUrl: string,
+  reservedNames: string[],
+): string[] {
   const lines: string[] = [];
-  const usedNames = new Set<string>();
+  const usedNames = new Set<string>(reservedNames);
 
   for (const ep of endpoints) {
     const toolName = inferOpenapiToolName(ep, usedNames);
@@ -794,7 +805,13 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
     const apiBase = detected.openapiServerUrl || baseUrl;
     toolLines.push(`// OpenAPI endpoint tools`);
-    toolLines.push(...generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase));
+    toolLines.push(
+      ...generateOpenapiToolHandlers(
+        detected.openapiEndpoints,
+        apiBase,
+        reservedToolNames(detected),
+      ),
+    );
   }
 
   // Page resources
@@ -881,7 +898,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`const PORT = process.env.PORT || 3100;`);
   lines.push(`app.listen(PORT, () => {`);
   lines.push(
-    `  console.log(\`Agent server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`,
+    `  console.log(${JSON.stringify(`Agent server for ${siteName} running at http://localhost:`)} + PORT + "/mcp");`,
   );
   lines.push(`});`);
 
@@ -936,16 +953,30 @@ function generateTsConfig(): string {
 
 // --- README ---
 
+function mdText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\`*_[\]<>|]/g, "\\$&");
+}
+
+function mdUrl(value: string): string {
+  return value
+    .replace(/\s/g, (c) => encodeURIComponent(c))
+    .replace(/[()<>]/g, (c) => encodeURIComponent(c));
+}
+
 function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: string): string {
   const lines: string[] = [];
-  lines.push(`# ${siteName} Agent Server`);
+  const title = mdText(siteName);
+  lines.push(`# ${title} Agent Server`);
   lines.push(``);
-  lines.push(`Auto-generated agent server for [${siteName}](${baseUrl}).`);
+  lines.push(`Auto-generated agent server for [${title}](${mdUrl(baseUrl)}).`);
   lines.push(``);
   lines.push(`## Tools`);
   lines.push(``);
   for (const tool of detected.tools) {
-    lines.push(`- **${tool.name}**: ${tool.description}`);
+    lines.push(`- **${mdText(tool.name)}**: ${mdText(tool.description)}`);
   }
   lines.push(``);
   lines.push(`## Setup`);
@@ -1119,7 +1150,11 @@ ${fieldSchemas.join(",\n")}
 }${
   detected.hasOpenapi && detected.openapiEndpoints.length > 0
     ? "\n" +
-      generateOpenapiToolHandlers(detected.openapiEndpoints, detected.openapiServerUrl || baseUrl)
+      generateOpenapiToolHandlers(
+        detected.openapiEndpoints,
+        detected.openapiServerUrl || baseUrl,
+        reservedToolNames(detected),
+      )
         .map((l) => (l ? `  ${l}` : l))
         .join("\n")
     : ""
@@ -1183,7 +1218,7 @@ function generateCloudflareTemplate(
   const apiBase = detected.openapiServerUrl || baseUrl;
   const openapiTools: Array<{ toolName: string; ep: (typeof detected.openapiEndpoints)[0] }> = [];
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
-    const usedNames = new Set<string>();
+    const usedNames = new Set<string>(reservedToolNames(detected));
     for (const ep of detected.openapiEndpoints) {
       openapiTools.push({ toolName: inferOpenapiToolName(ep, usedNames), ep });
     }
@@ -1332,7 +1367,7 @@ ${fieldSchemas.join(",\n")}
 ${
   openapiTools.length > 0
     ? "\n" +
-      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase)
+      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase, reservedToolNames(detected))
         .map((l) => (l ? `    ${l}` : l))
         .join("\n")
     : ""
@@ -1511,7 +1546,7 @@ ${
 
                 let urlExpr = JSON.stringify(apiBase + ep.path);
                 for (const p of pathParams) {
-                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args.${p.name}))`;
+                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args[${JSON.stringify(p.name)}]))`;
                 }
 
                 const queryLines: string[] = [];
@@ -1520,11 +1555,11 @@ ${
                   for (const p of queryParams) {
                     if (p.required) {
                       queryLines.push(
-                        `          _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                        `          _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(p.name)}]));`,
                       );
                     } else {
                       queryLines.push(
-                        `          if (args.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                        `          if (args[${JSON.stringify(p.name)}] !== undefined) _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(p.name)}]));`,
                       );
                     }
                   }
@@ -1539,7 +1574,7 @@ ${
                   bodyLines.push(`          const _body: Record<string, unknown> = {};`);
                   for (const [propName] of bodyProps) {
                     bodyLines.push(
-                      `          if (args.${propName} !== undefined) _body[${JSON.stringify(propName)}] = args.${propName};`,
+                      `          if (args[${JSON.stringify(propName)}] !== undefined) _body[${JSON.stringify(propName)}] = args[${JSON.stringify(propName)}];`,
                     );
                   }
                   fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
