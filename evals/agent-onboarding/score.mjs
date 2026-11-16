@@ -195,18 +195,81 @@ function unwrapShell(command) {
   return m ? m[2] : command;
 }
 
-function segmentsOf(command) {
-  return unwrapShell(command)
-    .split(/&&|\|\||;|\||\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+// Walks a shell string once, tracking quotes and backslash escapes. `onChar`
+// sees each character with `quoted` true inside quotes or after a backslash.
+function scanQuotes(str, onChar) {
+  let quote = null;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (quote) {
+      if (ch === "\\" && quote === '"' && i + 1 < str.length) {
+        onChar(ch, true, i);
+        onChar(str[++i], true, i);
+      } else {
+        onChar(ch, ch !== quote, i);
+        if (ch === quote) quote = null;
+      }
+    } else if (ch === "\\" && i + 1 < str.length) {
+      onChar(ch, true, i);
+      onChar(str[++i], true, i);
+    } else {
+      onChar(ch, false, i);
+      if (ch === "'" || ch === '"') quote = ch;
+    }
+  }
+}
+
+export function segmentsOf(command) {
+  const str = unwrapShell(command);
+  const out = [];
+  let cur = "";
+  let skip = 0;
+  scanQuotes(str, (ch, quoted, i) => {
+    if (skip > 0) {
+      skip--;
+      return;
+    }
+    if (!quoted) {
+      const two = str.slice(i, i + 2);
+      if (two === "&&" || two === "||") {
+        out.push(cur);
+        cur = "";
+        skip = 1;
+        return;
+      }
+      if (ch === ";" || ch === "|" || ch === "\n") {
+        out.push(cur);
+        cur = "";
+        return;
+      }
+    }
+    cur += ch;
+  });
+  out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
 }
 
 function tokensOf(segment) {
-  return segment
-    .split(/\s+/)
-    .map((t) => t.replace(/^['"(]+|['"()]+$/g, ""))
-    .filter(Boolean);
+  const tokens = [];
+  let cur = "";
+  let has = false;
+  const flush = () => {
+    if (has) tokens.push(cur);
+    cur = "";
+    has = false;
+  };
+  scanQuotes(segment, (ch, quoted) => {
+    if (!quoted && (ch === "'" || ch === '"')) {
+      has = true;
+    } else if (!quoted && /\s/.test(ch)) {
+      flush();
+    } else {
+      cur += ch;
+      has = true;
+    }
+  });
+  flush();
+  return tokens.map((t) => t.replace(/^\(+|\)+$/g, "")).filter(Boolean);
 }
 
 const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -527,7 +590,17 @@ function isOutsideTarget(target, cwd, workspace) {
   return abs != null && !isInside(abs, workspace);
 }
 
-const REDIRECT = /(?<![<>&\d])(?:\d?>>?|&>>?)\s*(["']?)([^\s;&|)"']+)\1/g;
+const REDIRECT = /(?<![<>&\d])(?:\d?>>?|&>>?)\s*(["']?)([^\s;&|)"']+)\1/dg;
+const MASK = "\u0001";
+
+// Redirect targets of a segment; `>` inside quotes or after a backslash is ignored.
+function redirectTargets(raw) {
+  let masked = "";
+  scanQuotes(raw, (ch, quoted) => {
+    masked += quoted ? MASK : ch;
+  });
+  return [...masked.matchAll(REDIRECT)].map((m) => raw.slice(...m.indices[2]));
+}
 
 // Positional arguments of a write verb that land on disk, or [].
 function writeTargets(t) {
@@ -558,13 +631,18 @@ export function containmentFlags(calls, workspace, { persistCwd = true } = {}) {
         flags.push({ kind: "write-tool", tool: c.name, target: c.filePath });
       }
     }
+    if (c.name === "file_change") {
+      for (const p of c.paths ?? []) {
+        if (!isInside(p, workspace)) flags.push({ kind: "file-change", target: p });
+      }
+    }
     if (!isShellCall(c)) continue;
     if (!persistCwd) cwd = workspace;
     const a = analyzeCall(c, cwd);
     for (const seg of a.segments) {
-      for (const m of seg.raw.matchAll(REDIRECT)) {
-        if (isOutsideTarget(m[2], seg.cwd, workspace))
-          flags.push({ kind: "redirect", command: c.command, target: m[2] });
+      for (const target of redirectTargets(seg.raw)) {
+        if (isOutsideTarget(target, seg.cwd, workspace))
+          flags.push({ kind: "redirect", command: c.command, target });
       }
       const [verb] = seg.tokens;
       if (verb === "cd" || verb === "pushd") {
