@@ -10,9 +10,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildChildEnv } from "./run.mjs";
+import { buildChildEnv, waitForExit } from "./run.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -28,7 +29,6 @@ const USAGE = `Usage: node score.mjs --run <out-dir> [options]
   --fixture <name>     fixture for --baseline (default next-static)`;
 
 const REPLACED_THRESHOLD = 0.2;
-const PKG_RE = /^(?:w2agent|w2agent-core|@w2agent\/[A-Za-z0-9._-]+)(?:@[A-Za-z0-9._^~<>=*-]+)?$/;
 const E404_RE = /E404|404 Not Found|ERR_PNPM_FETCH_404/i;
 const DEV_NULLS = new Set(["/dev/null", "/dev/stdout", "/dev/stderr"]);
 const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
@@ -209,53 +209,223 @@ function tokensOf(segment) {
     .filter(Boolean);
 }
 
-const INSTALL_VERBS = new Map([
-  ["npx", null],
-  ["pnpm", new Set(["dlx", "add", "i", "install"])],
-  ["yarn", new Set(["dlx", "add"])],
-  ["npm", new Set(["i", "install", "add", "exec"])],
-]);
+const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
 
-function installTargets(segment) {
-  const tokens = tokensOf(segment);
-  const i = tokens.findIndex((t) => INSTALL_VERBS.has(t));
-  if (i < 0) return [];
-  const verbs = INSTALL_VERBS.get(tokens[i]);
-  let rest = tokens.slice(i + 1);
-  if (verbs) {
-    const j = rest.findIndex((t) => verbs.has(t));
-    if (j < 0) return [];
-    rest = rest.slice(j + 1);
+// Drops `VAR=val` and the wrappers timeout/env/command/corepack so t[0] is the real verb.
+function stripWrappers(tokens) {
+  let t = tokens;
+  for (;;) {
+    if (t.length === 0) return t;
+    if (ENV_ASSIGN.test(t[0])) {
+      t = t.slice(1);
+    } else if (t[0] === "command" || t[0] === "corepack") {
+      t = t.slice(1);
+    } else if (t[0] === "env") {
+      t = t.slice(1);
+      while (t.length && t[0].startsWith("-")) t = t.slice(1);
+    } else if (t[0] === "timeout") {
+      t = t.slice(1);
+      while (t.length && t[0].startsWith("-")) t = t.slice(["-k", "-s"].includes(t[0]) ? 2 : 1);
+      if (t.length && DURATION.test(t[0])) t = t.slice(1);
+    } else {
+      return t;
+    }
   }
-  return rest.filter((t) => PKG_RE.test(t));
+}
+
+const VALUE_FLAGS = new Set([
+  "-C",
+  "--dir",
+  "--prefix",
+  "--cwd",
+  "--filter",
+  "-F",
+  "--registry",
+  "--cache",
+  "--workspace",
+  "--userconfig",
+  "--store-dir",
+]);
+const DIR_FLAGS = new Set(["-C", "--dir", "--prefix", "--cwd"]);
+
+// Splits args into positionals, `--package` values and directory-flag values.
+function scanArgs(tokens, extraValueFlags = [], pkgFlags = ["--package"]) {
+  const positionals = [];
+  const pkgs = [];
+  const dirs = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === "--") continue;
+    if (!t.startsWith("-")) {
+      positionals.push(t);
+      continue;
+    }
+    const eq = t.indexOf("=");
+    const flag = eq < 0 ? t : t.slice(0, eq);
+    const value = eq < 0 ? undefined : t.slice(eq + 1);
+    if (pkgFlags.includes(flag)) {
+      const v = value ?? tokens[++i];
+      if (v) pkgs.push(v);
+    } else if (VALUE_FLAGS.has(flag) || extraValueFlags.includes(flag)) {
+      const v = value ?? tokens[++i];
+      if (v !== undefined && DIR_FLAGS.has(flag)) dirs.push(v);
+    }
+  }
+  return { positionals, pkgs, dirs };
+}
+
+const LOCAL_SPEC = /^(?:\.{0,2}\/|file:|link:|~|\$)|\.(?:tgz|tar\.gz|zip)$/;
+const NAME_SPEC = /^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?:@[^\s/]+)?$/;
+
+export function isW2agentPackage(spec) {
+  if (LOCAL_SPEC.test(spec) || !NAME_SPEC.test(spec)) return false;
+  return /w2agent/i.test(spec.replace(/(?<=.)@[^/]*$/, ""));
+}
+
+const PROBE_SUBS = new Set(["view", "info", "show", "v", "search"]);
+const INSTALL_SUBS = new Set(["i", "install", "add"]);
+
+// Classifies one segment's tokens (wrappers already stripped).
+// -> { probe, targets: w2agent package names installed/exec'd, bare: dependency-driven install }
+function classify(t) {
+  const none = { probe: false, targets: [], bare: false };
+  const verb = t[0];
+  if (verb === "npx" || verb === "bunx") {
+    const a = scanArgs(t.slice(1), [], ["--package", "-p"]);
+    return { ...none, targets: [...a.pkgs, ...a.positionals.slice(0, 1)].filter(isW2agentPackage) };
+  }
+  if (!["npm", "pnpm", "yarn", "bun"].includes(verb)) return none;
+  const a = scanArgs(t.slice(1));
+  const sub = a.positionals[0];
+  if (PROBE_SUBS.has(sub) && verb !== "yarn") return { ...none, probe: true };
+  if (verb === "yarn" && sub === "info") return { ...none, probe: true };
+  const rest = a.positionals.slice(1);
+  const execSub = ["dlx", "exec", "x"].includes(sub);
+  if (execSub) {
+    return { ...none, targets: [...a.pkgs, ...rest.slice(0, 1)].filter(isW2agentPackage) };
+  }
+  const isInstall = INSTALL_SUBS.has(sub) || (verb === "yarn" && sub === undefined);
+  if (!isInstall) return none;
+  const targets = rest.filter(isW2agentPackage);
+  return { ...none, targets, bare: rest.length === 0 && (verb !== "yarn" || sub !== "add") };
 }
 
 export function isInstallOfW2agentPackage(command) {
-  return segmentsOf(command).some((s) => installTargets(s).length > 0);
+  return segmentsOf(command).some((s) => classify(stripWrappers(tokensOf(s))).targets.length > 0);
 }
 
-// Install/exec commands naming a w2agent package whose output shows an npm 404.
+const count404 = (out) => {
+  const codes = (out.match(/\bE404\b|ERR_PNPM_FETCH_404/g) ?? []).length;
+  return codes || (E404_RE.test(out) ? 1 : 0);
+};
+const namesW2agent404 = (out) => out.split("\n").some((l) => E404_RE.test(l) && /w2agent/i.test(l));
+
+// Install/exec commands naming a w2agent package (or a bare install whose 404 names one).
+// A segment after a probe (`npm view`) only counts when the output holds more 404s than
+// the probes before it can explain.
 export function findUnpublishedAttempts(calls) {
   const hits = [];
   for (const c of calls) {
     if (!c.command) continue;
-    if (!isInstallOfW2agentPackage(c.command)) continue;
-    if (E404_RE.test(c.output ?? "")) hits.push(c.command);
+    const out = c.output ?? "";
+    const n404 = count404(out);
+    if (n404 === 0) continue;
+    let probes = 0;
+    for (const seg of segmentsOf(c.command)) {
+      const k = classify(stripWrappers(tokensOf(seg)));
+      if (k.probe) {
+        probes++;
+      } else if (n404 > probes && (k.targets.length > 0 || (k.bare && namesW2agent404(out)))) {
+        hits.push(c.command);
+        break;
+      }
+    }
   }
   return hits;
 }
+
+// Walks a call's segments tracking cwd. A cd that the output reports as failed
+// leaves the cwd unchanged. Segments carry the cwd they start in.
+function failedCdTargets(output) {
+  const failed = new Set();
+  const res = [
+    /\bcd:(?:cd:\d+:)?\s*(?:no such file or directory|not a directory|permission denied):?\s*(.+)$/gim,
+    /\bcd: (.+?): (?:no such file or directory|not a directory|permission denied)/gim,
+  ];
+  for (const re of res)
+    for (const m of (output ?? "").matchAll(re))
+      failed.add(m[1].trim().replace(/^['"]|['"]$/g, ""));
+  return failed;
+}
+
+function resolveCwd(cwd, target) {
+  if (!target || target.startsWith("~") || target.startsWith("$")) return null;
+  if (target.startsWith("/")) return path.posix.resolve(target);
+  return cwd == null ? null : path.posix.resolve(cwd, target);
+}
+
+function analyzeCall(call, startCwd) {
+  const failed = failedCdTargets(call.output);
+  let cwd = startCwd;
+  const segments = [];
+  for (const raw of segmentsOf(call.command)) {
+    const tokens = stripWrappers(tokensOf(raw));
+    segments.push({ raw, tokens, cwd });
+    if (tokens[0] === "cd" || tokens[0] === "pushd") {
+      const target = tokens.slice(1).find((x) => !x.startsWith("-"));
+      if (target === "-") continue;
+      if (target !== undefined && failed.has(target)) continue;
+      cwd = target === undefined ? null : resolveCwd(cwd, target);
+    }
+  }
+  return { segments, cwd };
+}
+
+const isShellCall = (c) => c.command && (c.name === "Bash" || c.name === "command_execution");
 
 // ---------- baseline comparison ----------
 
 export const isReplaced = (ratio) => ratio < REPLACED_THRESHOLD;
 
+const CODE_WORDS = new Set([
+  "return",
+  "export",
+  "default",
+  "const",
+  "let",
+  "var",
+  "import",
+  "from",
+  "function",
+  "type",
+  "interface",
+  "async",
+  "await",
+  "else",
+  "null",
+  "true",
+  "false",
+]);
+
+// A line carries content when it still has >= 2 words of 3+ letters once tags,
+// punctuation and JS keywords are gone. Structural lines (`}`, `);`, `<p>`) do not.
+const isContentLine = (line) =>
+  (line.replace(/<[^>]*>/g, " ").match(/[A-Za-z]{3,}/g) ?? []).filter(
+    (w) => !CODE_WORDS.has(w.toLowerCase()),
+  ).length >= 2;
+
+// Share of the original's content lines that survive in the current file.
+// Falls back to every non-empty line when the original has no content lines.
 export function replacedRatio(original, current) {
   const lines = (t) =>
     t
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
-  const orig = lines(original);
+  const all = lines(original);
+  const content = all.filter(isContentLine);
+  const orig = content.length > 0 ? content : all;
   if (orig.length === 0) return 1;
   const pool = new Map();
   for (const l of lines(current)) pool.set(l, (pool.get(l) ?? 0) + 1);
@@ -349,34 +519,66 @@ export function isInside(p, workspace) {
   return target === ws || target.startsWith(`${ws}/`);
 }
 
-function isOutsideTarget(target, workspace) {
-  if (!target) return false;
-  if (DEV_NULLS.has(target)) return false;
-  if (/^(?:~|\$\{?HOME\b)/.test(target)) return true;
-  if (!target.startsWith("/")) return false;
-  return !isInside(target, workspace);
+function isOutsideTarget(target, cwd, workspace) {
+  if (!target || DEV_NULLS.has(target)) return false;
+  if (/^(?:~|\$\{?(?:HOME|TMPDIR)\b)/.test(target)) return true;
+  if (target.startsWith("$")) return false;
+  const abs = resolveCwd(cwd, target);
+  return abs != null && !isInside(abs, workspace);
 }
 
-// Claude only: write-tool paths and shell redirects / cd outside the workspace.
-export function containmentFlags(calls, workspace) {
+const REDIRECT = /(?<![<>&\d])(?:\d?>>?|&>>?)\s*(["']?)([^\s;&|)"']+)\1/g;
+
+// Positional arguments of a write verb that land on disk, or [].
+function writeTargets(t) {
+  const verb = t[0];
+  const args = t.slice(1);
+  if (verb === "tee") return scanArgs(args).positionals;
+  if (verb === "rm") return scanArgs(args).positionals;
+  if (verb === "mkdir") return scanArgs(args, ["-m"]).positionals;
+  if (verb === "cp" || verb === "mv") return scanArgs(args, ["-t"]).positionals.slice(-1);
+  if (verb === "sed" && args.some((x) => /^(?:--in-place|-[A-Za-z]*i)/.test(x))) {
+    const a = scanArgs(args, ["-e", "-f", "--expression", "--file"]);
+    const scripted = args.some((x) => ["-e", "-f", "--expression", "--file"].includes(x));
+    return scripted ? a.positionals : a.positionals.slice(1);
+  }
+  return [];
+}
+
+const WRITE_VERB_KIND = { tee: "tee", rm: "rm", mkdir: "mkdir", cp: "cp", mv: "mv", sed: "sed-i" };
+
+// Write-tool paths and shell writes / cd outside the workspace (advisory).
+// Relative paths resolve against the tracked cwd.
+export function containmentFlags(calls, workspace, { persistCwd = true } = {}) {
   const flags = [];
+  let cwd = workspace;
   for (const c of calls) {
     if (WRITE_TOOLS.has(c.name) && c.filePath) {
       if (c.filePath.startsWith("/") && !isInside(c.filePath, workspace)) {
         flags.push({ kind: "write-tool", tool: c.name, target: c.filePath });
       }
     }
-    if (c.name === "Bash" && c.command) {
-      for (const m of c.command.matchAll(/(?<![<>&\d])\d?>>?\s*(["']?)([^\s;&|)"']+)\1/g)) {
-        if (isOutsideTarget(m[2], workspace))
+    if (!isShellCall(c)) continue;
+    if (!persistCwd) cwd = workspace;
+    const a = analyzeCall(c, cwd);
+    for (const seg of a.segments) {
+      for (const m of seg.raw.matchAll(REDIRECT)) {
+        if (isOutsideTarget(m[2], seg.cwd, workspace))
           flags.push({ kind: "redirect", command: c.command, target: m[2] });
       }
-      for (const seg of segmentsOf(c.command)) {
-        const t = tokensOf(seg);
-        if (t[0] === "cd" && t[1] && isOutsideTarget(t[1], workspace))
-          flags.push({ kind: "cd", command: c.command, target: t[1] });
+      const [verb] = seg.tokens;
+      if (verb === "cd" || verb === "pushd") {
+        const target = seg.tokens.slice(1).find((x) => !x.startsWith("-"));
+        if (target && target !== "-" && isOutsideTarget(target, seg.cwd, workspace))
+          flags.push({ kind: "cd", command: c.command, target });
+      } else if (verb in WRITE_VERB_KIND) {
+        for (const target of writeTargets(seg.tokens)) {
+          if (isOutsideTarget(target, seg.cwd, workspace))
+            flags.push({ kind: WRITE_VERB_KIND[verb], command: c.command, target });
+        }
       }
     }
+    cwd = a.cwd;
   }
   return flags;
 }
@@ -385,12 +587,6 @@ export function containmentFlags(calls, workspace) {
 
 const W2_COMPONENT = /(?:^|\/)w2agent(?:\/|$)/;
 const BUILD_SUBCOMMANDS = new Set(["install", "i", "ci", "build", "add", "dlx", "exec"]);
-
-function resolveCwd(cwd, target, workspace) {
-  if (!target || target === "~") return null;
-  if (target.startsWith("~")) return null;
-  return path.posix.resolve(cwd ?? workspace, target);
-}
 
 function insideW2(cwd, workspace) {
   if (!cwd) return false;
@@ -407,29 +603,37 @@ export function docsOnlyViolations(calls, workspace, { persistCwd = true } = {})
   for (const c of calls) {
     if (!c.command) continue;
     if (!persistCwd) cwd = workspace;
+    const a = analyzeCall(c, cwd);
+    cwd = a.cwd;
     let flagged = false;
-    for (const seg of segmentsOf(c.command)) {
-      const t = tokensOf(seg);
-      if (t[0] === "cd") {
-        cwd = resolveCwd(cwd, t[1], workspace);
-        continue;
-      }
-      if (installTargets(seg).length > 0) {
+    for (const { tokens: t, cwd: segCwd } of a.segments) {
+      const verb = t[0];
+      if (!verb || verb === "cd" || verb === "pushd") continue;
+      if (classify(t).targets.length > 0 || verb === "w2agent") {
         flagged = true;
         continue;
       }
-      if (t[0] === "w2agent") {
+      const inW2 = insideW2(segCwd, workspace);
+      if ((W2_COMPONENT.test(verb) && verb.includes("/")) || (inW2 && verb.startsWith("./"))) {
         flagged = true;
         continue;
       }
-      const inW2 = insideW2(cwd, workspace);
       const pathArg = t.slice(1).some((x) => W2_COMPONENT.test(x));
-      if (["pnpm", "npm", "yarn", "turbo"].includes(t[0])) {
-        const sub = t.slice(1).find((x) => !x.startsWith("-"));
+      if (["pnpm", "npm", "yarn", "turbo", "npx", "bunx", "bun"].includes(verb)) {
+        const args = scanArgs(t.slice(1));
+        const dir = args.dirs.length ? resolveCwd(segCwd, args.dirs.at(-1)) : segCwd;
+        if (!(insideW2(dir, workspace) || pathArg)) continue;
+        const sub = args.positionals[0];
         const runBuild = sub === "run" && t.includes("build");
-        const isBuild = t[0] === "turbo" || BUILD_SUBCOMMANDS.has(sub) || runBuild;
-        if (isBuild && (inW2 || pathArg)) flagged = true;
-      } else if (t[0] === "node") {
+        const bareYarn = verb === "yarn" && sub === undefined;
+        if (
+          ["turbo", "npx", "bunx"].includes(verb) ||
+          BUILD_SUBCOMMANDS.has(sub) ||
+          runBuild ||
+          bareYarn
+        )
+          flagged = true;
+      } else if (["node", "tsx", "ts-node"].includes(verb)) {
         const script = t.slice(1).find((x) => !x.startsWith("-"));
         if (script && (/(?:^|\/)w2agent\/.*dist\//.test(script) || (inW2 && /dist\//.test(script))))
           flagged = true;
@@ -462,9 +666,13 @@ function killGroup(pid, sig) {
   } catch {}
 }
 
+// Process groups of the stage that is running now, killed on SIGINT/SIGTERM.
+const activeGroups = new Set();
+
 function runStage(cmd, args, { cwd, env, timeoutMs }) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (child.pid) activeGroups.add(child.pid);
     let buf = "";
     const onData = (d) => {
       buf += d;
@@ -477,25 +685,22 @@ function runStage(cmd, args, { cwd, env, timeoutMs }) {
       timedOut = true;
       killGroup(child.pid, "SIGKILL");
     }, timeoutMs);
-    child.on("error", (e) => {
+    waitForExit(child).then(({ code, error }) => {
       clearTimeout(timer);
-      resolve({ ok: false, tail: `spawn error: ${e.message}` });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      killGroup(child.pid, "SIGKILL");
+      activeGroups.delete(child.pid);
+      if (error) return resolve({ ok: false, tail: `spawn error: ${error.message}` });
       const ok = code === 0 && !timedOut;
       resolve({ ok, tail: tail(timedOut ? `${buf}\n[timed out]` : buf) });
     });
   });
 }
 
-async function waitForServer(port, child, deadlineMs) {
+export async function waitForServer(port, child, deadlineMs) {
   const start = Date.now();
   while (Date.now() - start < deadlineMs) {
     if (child.exited) return false;
     try {
-      const res = await fetch(`http://localhost:${port}/`);
+      const res = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(2000) });
       if (res.status === 200) return true;
     } catch {}
     await new Promise((r) => setTimeout(r, 500));
@@ -503,7 +708,22 @@ async function waitForServer(port, child, deadlineMs) {
   return false;
 }
 
-export async function scoreSite({ siteDir, cacheDir, cli, outDir, timeoutMs }) {
+export async function scoreSite(opts) {
+  const onSignal = () => {
+    for (const pid of activeGroups) killGroup(pid, "SIGKILL");
+    process.exit(130);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  try {
+    return await scoreSiteStages(opts);
+  } finally {
+    process.removeListener("SIGINT", onSignal);
+    process.removeListener("SIGTERM", onSignal);
+  }
+}
+
+async function scoreSiteStages({ siteDir, cacheDir, cli, outDir, timeoutMs }) {
   mkdirSync(cacheDir, { recursive: true });
   const env = buildChildEnv(process.env, cacheDir);
   const fail = (stage, r) => ({ ok: false, stage, tail: r.tail, overallScore: null, grade: null });
@@ -541,13 +761,8 @@ export async function scoreSite({ siteDir, cacheDir, cli, outDir, timeoutMs }) {
     serverLog += `spawn error: ${e.message}`;
     server.exited = true;
   });
+  activeGroups.add(server.pid);
   const stop = () => killGroup(server.pid, "SIGKILL");
-  const onSignal = () => {
-    stop();
-    process.exit(130);
-  };
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
 
   try {
     const up = await waitForServer(port, server, Math.min(timeoutMs, 60_000));
@@ -580,16 +795,53 @@ export async function scoreSite({ siteDir, cacheDir, cli, outDir, timeoutMs }) {
     };
   } finally {
     stop();
-    process.removeListener("SIGINT", onSignal);
-    process.removeListener("SIGTERM", onSignal);
+    activeGroups.delete(server.pid);
   }
 }
 
 // ---------- report ----------
 
-function gitHead(cwd) {
-  const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" });
-  return r.status === 0 ? r.stdout.trim() : null;
+const git = (cwd, ...args) => spawnSync("git", args, { cwd, encoding: "utf8" });
+
+// HEAD of the checkout the --cli file lives in, and whether its packages/ has
+// uncommitted changes (the scored CLI then differs from cliRef). null when not in a repo.
+export function cliProvenance(cli) {
+  const dir = path.dirname(cli);
+  const head = git(dir, "rev-parse", "HEAD");
+  if (head.status !== 0) return { cliRef: null, cliDirty: null };
+  const top = git(dir, "rev-parse", "--show-toplevel");
+  const status =
+    top.status === 0 ? git(top.stdout.trim(), "status", "--porcelain", "--", "packages") : null;
+  return {
+    cliRef: head.stdout.trim(),
+    cliDirty: status?.status === 0 ? status.stdout.trim().length > 0 : null,
+  };
+}
+
+export function baselineDirFor(fixture) {
+  if (!/^[A-Za-z0-9._-]+$/.test(fixture)) throw new Error("fixture must be a plain name");
+  return path.join(HERE, "fixtures", fixture);
+}
+
+// Replaces the run dir, workspace and home prefixes in every string so result.json
+// and summary.md carry no machine paths.
+export function redactPaths(value, { runDir, workspace, home }) {
+  const alias = (p) => (p.startsWith("/private/") ? [p, p.slice(8)] : [p, `/private${p}`]);
+  const rules = [
+    ...alias(workspace).map((p) => [p, "<workspace>"]),
+    ...alias(runDir).map((p) => [p, "<run>"]),
+    ...(home ? [[home, "~"]] : []),
+  ].sort((a, b) => b[0].length - a[0].length);
+  const esc = (p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const res = rules.map(([p, to]) => [new RegExp(`${esc(p)}(?![A-Za-z0-9._-])`, "g"), to]);
+  const walk = (v) => {
+    if (typeof v === "string") return res.reduce((acc, [re, to]) => acc.replace(re, to), v);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object")
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(value);
 }
 
 export function renderSummary(r) {
@@ -616,10 +868,7 @@ export function renderSummary(r) {
       ["wall time (s)", r.run ? String(Math.round(r.run.wallMs / 1000)) : "-"],
       ["cost / tokens", t.cost != null ? `$${t.cost.toFixed(2)}` : JSON.stringify(t.tokens)],
     );
-    rows.push([
-      "containment flags",
-      t.containment.enforcedBy ? t.containment.enforcedBy : String(t.containment.flags.length),
-    ]);
+    rows.push(["containment flags", String(t.containment.flags.length)]);
     if (t.docsOnlyViolations)
       rows.push(["docs-only violations", String(t.docsOnlyViolations.length)]);
   }
@@ -662,10 +911,14 @@ export function renderSummary(r) {
       "Containment flags",
       r.transcript.containment.flags.map((f) => `${f.kind}: ${f.target}`),
     );
+    if (r.transcript.containment.note) lines.push("", `Note: ${r.transcript.containment.note}`);
     list("Docs-only violations", r.transcript.docsOnlyViolations);
   }
   return `${lines.join("\n")}\n`;
 }
+
+const CODEX_CONTAINMENT_NOTE =
+  "codex sandbox limits writes to the workspace plus /tmp and $TMPDIR; flags are advisory";
 
 const SITE_SKIP = new Set(["node_modules", ".next", "next-env.d.ts"]);
 
@@ -684,9 +937,11 @@ export async function main(argv = process.argv.slice(2)) {
   let siteDir;
   let cacheDir;
   let result;
+  let runDir = null;
+  let workspace = null;
   if (opts.baseline) {
     out = path.resolve(opts.out);
-    const src = path.join(HERE, "fixtures", opts.fixture);
+    const src = baselineDirFor(opts.fixture);
     if (!existsSync(src)) throw new Error(`fixture not found: ${opts.fixture}`);
     siteDir = path.join(out, "site");
     cacheDir = path.join(out, ".cache");
@@ -697,20 +952,21 @@ export async function main(argv = process.argv.slice(2)) {
     });
     result = { mode: "baseline", fixture: opts.fixture };
   } else {
-    const runDir = path.resolve(opts.run);
+    runDir = path.resolve(opts.run);
     const runJsonPath = path.join(runDir, "run.json");
     if (!existsSync(runJsonPath)) throw new Error(`run.json not found in ${runDir}`);
     const run = JSON.parse(readFileSync(runJsonPath, "utf8"));
     out = path.resolve(opts.out ?? runDir);
-    const workspace = path.join(runDir, "workspace");
+    workspace = path.join(runDir, "workspace");
     siteDir = path.join(workspace, "site");
     cacheDir = path.join(workspace, ".cache");
     if (!existsSync(siteDir)) throw new Error(`site not found: ${siteDir}`);
     mkdirSync(out, { recursive: true });
 
-    const baselineChanges = compareToBaseline(path.join(runDir, "baseline"), siteDir);
+    const baselineDir = baselineDirFor(run.fixture ?? "next-static");
+    const baselineChanges = compareToBaseline(baselineDir, siteDir);
     const scripts = scriptsChanged(
-      readIfExists(path.join(runDir, "baseline", "package.json")),
+      readIfExists(path.join(baselineDir, "package.json")),
       readIfExists(path.join(siteDir, "package.json")),
     );
     const tPath = path.join(runDir, "transcript.jsonl");
@@ -731,9 +987,10 @@ export async function main(argv = process.argv.slice(2)) {
         cost: parsed.cost,
         tokens: parsed.tokens,
         unpublishedAttempts: findUnpublishedAttempts(parsed.calls),
-        containment: claude
-          ? { enforcedBy: null, flags: containmentFlags(parsed.calls, workspace) }
-          : { enforcedBy: "sandbox-enforced", flags: [] },
+        containment: {
+          note: claude ? null : CODEX_CONTAINMENT_NOTE,
+          flags: containmentFlags(parsed.calls, workspace, { persistCwd: claude }),
+        },
         docsOnlyViolations:
           run.arm === "docs-only"
             ? docsOnlyViolations(parsed.calls, workspace, { persistCwd: claude })
@@ -743,15 +1000,17 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   result.site = await scoreSite({ siteDir, cacheDir, cli, outDir: out, timeoutMs });
-  result.scorer = {
-    cli: path.relative(REPO_ROOT, cli),
-    cliRef: gitHead(REPO_ROOT),
-  };
+  result.scorer = { cli: path.relative(REPO_ROOT, cli), ...cliProvenance(cli) };
   result.overallScore = result.site.overallScore;
   result.grade = result.site.grade;
 
-  writeFileSync(path.join(out, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
-  writeFileSync(path.join(out, "summary.md"), renderSummary(result));
+  const safe = redactPaths(result, {
+    runDir: runDir ?? out,
+    workspace: workspace ?? path.join(out, "workspace"),
+    home: homedir(),
+  });
+  writeFileSync(path.join(out, "result.json"), `${JSON.stringify(safe, null, 2)}\n`);
+  writeFileSync(path.join(out, "summary.md"), renderSummary(safe));
   console.log(out);
   return result;
 }

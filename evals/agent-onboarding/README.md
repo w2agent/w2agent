@@ -24,7 +24,7 @@ evals/agent-onboarding/
   test/         node --test unit tests
 ```
 
-A run dir holds `workspace/site/` (what the agent edits), `workspace/w2agent/` (the exported checkout), `baseline/` (the pristine fixture), `transcript.jsonl`, `stderr.log` and `run.json`. The scorer adds `result.json`, `summary.md` and `audit.json`.
+A run dir holds `workspace/site/` (what the agent edits), `workspace/w2agent/` (the exported checkout), `transcript.jsonl`, `stderr.log` and `run.json`. The scorer compares against the repo's `fixtures/<name>/`, not a copy in the run dir, because the agent can reach files next to its workspace. The scorer adds `result.json`, `summary.md` and `audit.json`.
 
 ## Run
 
@@ -32,23 +32,27 @@ Prerequisites: Node >= 22, network, `pnpm build` done (the scorer audits with `p
 
 ```sh
 pnpm build
-pnpm eval:agents --harness claude --arm tool --out evals/agent-onboarding/results/claude-tool
-node evals/agent-onboarding/score.mjs --run evals/agent-onboarding/results/claude-tool
+pnpm eval:agents --harness claude --arm tool
+node evals/agent-onboarding/score.mjs --run <dir printed by run.mjs>
 ```
 
-`run.mjs` options: `--harness claude|codex`, `--arm tool|docs-only`, `--fixture`, `--ref <rev>` (export an older commit of w2agent for the agent), `--w2agent <path>`, `--model`, `--timeout <min>`, `--out <dir>` (default: a fresh dir in the OS temp dir), `--dry-run` (build the workspace, print the argv and env, do not launch).
+Use the default output dir (a fresh dir in the OS temp dir). `run.mjs` refuses an `--out` that is not empty or sits inside any git work tree: agents load `AGENTS.md` / `CLAUDE.md` from parent repos and could read the scorer and prompts there.
+
+`run.mjs` options: `--harness claude|codex`, `--arm tool|docs-only`, `--fixture`, `--ref <rev>` (export an older commit of w2agent for the agent), `--w2agent <path>`, `--model`, `--timeout <min>`, `--out <dir>` (default: a fresh dir in the OS temp dir; must be empty or new, and outside any git repo), `--dry-run` (build the workspace, print the argv and env, do not launch).
 
 `score.mjs` options: `--run <dir>`, `--cli <path>` (audit with another CLI build), `--out <dir>` (default: the run dir), `--timeout <min>` (limit per install, build and start step). `--baseline --fixture <name> --out <dir>` scores the untouched fixture with no transcript.
 
-To score an older commit, check it out in a worktree, build it, and pass its CLI with `--cli`. Use `--ref` on `run.mjs` to give the agent that same commit. The result records the scorer's `cliRef`.
+Score the before and after runs with one fixed scorer CLI (`--cli <path>`), so the rubric does not drift between them. Use `--ref` on `run.mjs` to give the agent an older commit of w2agent. The result records `scorer.cliRef` (HEAD of the checkout holding the CLI) and `scorer.cliDirty` (uncommitted changes under its `packages/`).
+
+`result.json` and `summary.md` print `<run>`, `<workspace>` and `~` in place of machine paths.
 
 If the agent breaks the site (install, build, start or audit fails), the result is `site.ok: false` with the failing stage and an output tail, and the score is null.
 
-Results are gitignored and never committed (`evals/**/results/`).
+`evals/**/results/` stays in `.gitignore` as a safety net; do not write results into the repo.
 
 ## Confounds
 
 - Both harnesses load the operator's own global instructions, settings and plugins. Results depend on whose machine runs them. Compare runs from the same machine and config.
-- Codex runs in a `workspace-write` sandbox that blocks writes outside the workspace. A full `pnpm build` of the monorepo fails on a tool cache under the home directory, so a codex agent must build only the CLI packages.
-- Claude has no write containment here. The scorer only flags Write/Edit calls, shell redirects and `cd` outside the workspace. For codex it reports "sandbox-enforced".
+- Codex runs in a `workspace-write` sandbox that blocks writes outside the workspace except `/tmp` and `$TMPDIR`. A full `pnpm build` of the monorepo fails on a tool cache under the home directory, so a codex agent must build only the CLI packages.
+- Claude has no write containment here. For both harnesses the scorer flags Write/Edit calls, shell redirects, `tee`, `cp`, `mv`, `rm`, `sed -i`, `mkdir` and `cd` that land outside the workspace (relative paths resolve against the tracked cwd). Flags are advisory and heuristic: quoted `>` and heredocs are not parsed.
 - The scorer installs the site with `npm install --ignore-scripts` and flags changed `package.json` scripts (`scriptsChanged` in `result.json`), but `npm run build` and `npm run start` still run the site's own scripts.

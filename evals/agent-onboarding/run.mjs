@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import {
   cpSync,
   createWriteStream,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -150,6 +152,51 @@ function run(cmd, args, opts = {}) {
   return r.stdout.trim();
 }
 
+// Refuses an --out that already holds files, or sits inside any git work tree
+// (agents load AGENTS.md/CLAUDE.md from parent repos and could read the scorer).
+export function assertFreshOut(out) {
+  if (existsSync(out) && readdirSync(out).length > 0)
+    throw new Error(`--out ${out} exists and is not empty`);
+  let probe = out;
+  while (!existsSync(probe)) probe = path.dirname(probe);
+  const r = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: probe,
+    encoding: "utf8",
+  });
+  if (r.status === 0 && r.stdout.trim() === "true")
+    throw new Error(`--out ${out} is inside a git work tree; use a directory outside any repo`);
+}
+
+// Resolves when the child exits, not when its pipes close: a grandchild in another
+// process group can hold them open forever. Kills the group, gives the pipes a short
+// grace to drain, then destroys them.
+export async function waitForExit(child, graceMs = 2000) {
+  const result = await new Promise((resolve) => {
+    child.once("error", (error) => resolve({ code: null, signal: null, error }));
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {}
+  const ended = (st) =>
+    new Promise((r) => {
+      if (!st || st.destroyed || st.readableEnded) return r();
+      st.once("end", r);
+      st.once("close", r);
+    });
+  let timer;
+  await Promise.race([
+    Promise.all([ended(child.stdout), ended(child.stderr)]),
+    new Promise((r) => {
+      timer = setTimeout(r, graceMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  return result;
+}
+
 function exportW2agent(checkout, ref, dest) {
   mkdirSync(dest, { recursive: true });
   const archive = spawn("git", exportArgs(ref), {
@@ -206,11 +253,11 @@ export async function main(argv = process.argv.slice(2)) {
   const sha = run("git", ["rev-parse", "--verify", `${opts.ref}^{commit}`], { cwd: checkout });
 
   const out = path.resolve(opts.out ?? mkdtempSync(path.join(tmpdir(), "w2agent-onboarding-")));
+  assertFreshOut(out);
   const workspace = path.join(out, "workspace");
   const cache = path.join(workspace, ".cache");
   mkdirSync(cache, { recursive: true });
   copyFixture(fixtureSrc, path.join(workspace, "site"));
-  copyFixture(fixtureSrc, path.join(out, "baseline"));
   await exportW2agent(checkout, sha, path.join(workspace, "w2agent"));
 
   const env = buildChildEnv(process.env, cache);
@@ -260,16 +307,12 @@ export async function main(argv = process.argv.slice(2)) {
   process.once("SIGINT", () => onSignal("SIGINT"));
   process.once("SIGTERM", () => onSignal("SIGTERM"));
 
-  const { exitCode, signal } = await new Promise((resolve) => {
-    child.on("error", (e) => {
-      stderrLog.write(`spawn error: ${e.message}\n`);
-      resolve({ exitCode: null, signal: null });
-    });
-    child.on("close", (code, sig) => resolve({ exitCode: code, signal: sig }));
-  });
+  const exited = await waitForExit(child);
+  if (exited.error) stderrLog.write(`spawn error: ${exited.error.message}\n`);
+  const exitCode = exited.code;
+  const signal = exited.signal;
   clearTimeout(timer);
   clearTimeout(killTimer);
-  killGroup("SIGKILL");
   await Promise.all([new Promise((r) => transcript.end(r)), new Promise((r) => stderrLog.end(r))]);
 
   const endedAt = new Date();

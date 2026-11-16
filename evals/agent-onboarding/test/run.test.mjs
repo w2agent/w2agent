@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -97,7 +97,7 @@ test("dry-run builds a workspace without evals/ and with the fixture site", () =
   assert.ok(existsSync(path.join(ws, "w2agent", "package.json")));
   assert.ok(!existsSync(path.join(ws, "w2agent", "evals")));
   assert.ok(existsSync(path.join(ws, "site", "app", "page.tsx")));
-  assert.ok(existsSync(path.join(out, "baseline", "package.json")));
+  assert.ok(!existsSync(path.join(out, "baseline")));
   assert.equal(
     readFileSync(path.join(ws, "site", "package.json"), "utf8"),
     readFileSync(path.join(HERE, "..", "fixtures", "next-static", "package.json"), "utf8"),
@@ -139,4 +139,67 @@ test("export from a checkout that tracks evals/ leaves evals/ out and ignores un
   assert.ok(existsSync(path.join(exp, "src", "a.txt")));
   assert.ok(!existsSync(path.join(exp, "evals")));
   assert.ok(!existsSync(path.join(exp, "src", "untracked.txt")));
+});
+
+const dry = (out, extra = []) =>
+  spawnSync(
+    process.execPath,
+    [
+      path.join(HERE, "..", "run.mjs"),
+      "--harness",
+      "claude",
+      "--arm",
+      "tool",
+      "--out",
+      out,
+      "--dry-run",
+      ...extra,
+    ],
+    { encoding: "utf8" },
+  );
+
+test("run refuses an --out that is non-empty", () => {
+  const out = mkdtempSync(path.join(tmpdir(), "w2agent-eval-test-"));
+  writeFileSync(path.join(out, "old.txt"), "x");
+  const r = dry(out);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /not empty/);
+});
+
+test("run refuses an --out inside a git work tree, even one that does not exist yet", () => {
+  const repo = mkdtempSync(path.join(tmpdir(), "w2agent-eval-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  const r = dry(path.join(repo, "a", "b"));
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /git work tree/);
+  assert.ok(!existsSync(path.join(repo, "a")));
+});
+
+test("waitForExit resolves on exit when a grandchild in another group holds the pipe", {
+  timeout: 20000,
+}, async () => {
+  const { waitForExit } = await import("../run.mjs");
+  const gc =
+    'const {spawn}=require("node:child_process");const g=spawn("sleep",["30"],{detached:true,stdio:["ignore","inherit","inherit"]});console.log(g.pid);g.unref();';
+  const child = spawn(process.execPath, ["-e", gc], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (d) => {
+    out += d;
+  });
+  const t0 = Date.now();
+  try {
+    const r = await waitForExit(child, 500);
+    assert.equal(r.code, 0);
+    assert.ok(Date.now() - t0 < 8000);
+  } finally {
+    const gpid = Number(out.trim());
+    if (gpid > 0) {
+      try {
+        process.kill(gpid, "SIGKILL");
+      } catch {}
+    }
+  }
 });
