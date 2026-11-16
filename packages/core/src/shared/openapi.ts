@@ -190,6 +190,7 @@ export function parseOpenAPISpec(
 
   for (const [path, pathItem] of Object.entries(paths as Record<string, unknown>)) {
     if (!pathItem || typeof pathItem !== "object") continue;
+    if (!path.startsWith("/")) continue;
     for (const method of methods) {
       const operation = (pathItem as Record<string, unknown>)[method];
       if (!operation) continue;

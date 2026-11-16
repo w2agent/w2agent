@@ -95,6 +95,17 @@ const BUILTIN_TOOL_NAMES = [
   "book-appointment",
 ];
 
+// A spec path key is untrusted: concatenated onto the server URL it must not be
+// able to rewrite the authority ("@host", ".evil.test", "{id}" at the start).
+function isEndpointOnOrigin(serverUrl: string, path: string): boolean {
+  if (typeof path !== "string" || !path.startsWith("/")) return false;
+  try {
+    return new URL(serverUrl + path).origin === new URL(serverUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 function isTakenName(name: string, usedNames: Set<string>): boolean {
   return usedNames.has(name) || name in Object.prototype;
 }
@@ -326,11 +337,16 @@ export function detectTools(
   // An unresolvable or policy-rejected server URL drops the OpenAPI tools
   // rather than falling back to the site origin, which would silently send
   // calls to a host the spec never named.
-  if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0 && resolvedServerUrl) {
+  const safeEndpoints = resolvedServerUrl
+    ? (ctx.metadata.openapi?.endpoints ?? []).filter((ep) =>
+        isEndpointOnOrigin(resolvedServerUrl, ep.path),
+      )
+    : [];
+  if (safeEndpoints.length > 0 && resolvedServerUrl) {
     hasOpenapi = true;
     openapiServerUrl = resolvedServerUrl;
     const usedOpenapiNames = new Set<string>([...BUILTIN_TOOL_NAMES, ...tools.map((t) => t.name)]);
-    const capped = ctx.metadata.openapi.endpoints.slice(0, 20);
+    const capped = safeEndpoints.slice(0, 20);
     for (const ep of capped) {
       openapiEndpoints.push(ep);
       const toolName = inferOpenapiToolName(ep, usedOpenapiNames);
@@ -457,7 +473,7 @@ function generateOpenapiToolHandlers(
 
     let urlExpr = JSON.stringify(serverUrl + ep.path);
     for (const p of pathParams) {
-      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(params[${JSON.stringify(p.name)}]))`;
+      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(params[${JSON.stringify(p.name)}])))`;
     }
     lines.push(`  let _url = ${urlExpr};`);
 
@@ -1576,7 +1592,7 @@ ${
 
                 let urlExpr = JSON.stringify(apiBase + ep.path);
                 for (const p of pathParams) {
-                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args[${JSON.stringify(p.name)}]))`;
+                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(args[${JSON.stringify(p.name)}])))`;
                 }
 
                 const queryLines: string[] = [];

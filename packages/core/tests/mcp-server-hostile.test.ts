@@ -630,6 +630,117 @@ describe("OpenAPI server URL is resolved and validated before it reaches generat
   });
 });
 
+describe("OpenAPI path keys and path-param values cannot steer the request host", () => {
+  const badPaths = ["@169.254.169.254/latest", ".evil.test/y", "{id}/x"];
+  const mkCtx = (paths: string[], serverUrl = `${API_HOST}/v1`): GenerateContext => ({
+    pages: [{ url: "https://example.com/", title: "S", description: "", markdown: "m" }],
+    rawPages: [],
+    metadata: {
+      baseUrl: "https://example.com",
+      wellKnown: {},
+      openapi: {
+        specUrl: `${API_HOST}/openapi.json`,
+        version: "3.0.0",
+        serverUrl,
+        endpoints: paths.map((path, i) => ({
+          path,
+          method: "get",
+          operationId: `op${i}`,
+          parameters: [{ name: "id", in: "path" as const, type: "string", required: true }],
+        })),
+      },
+    },
+    baseUrl: "https://example.com",
+    allowedOffOriginHosts: ["api.example.net"],
+  });
+
+  it("parseOpenAPISpec drops path keys that do not start with a slash", () => {
+    const paths = Object.fromEntries(
+      [...badPaths, "/ok"].map((k) => [k, { get: { operationId: "x" } }]),
+    );
+    const parsed = parseOpenAPISpec(
+      { openapi: "3.0.0", servers: [{ url: "https://example.com" }], paths },
+      "https://example.com/openapi.json",
+      { baseUrl: "https://example.com" },
+    );
+    expect(parsed?.endpoints.map((e) => e.path)).toEqual(["/ok"]);
+  });
+
+  it("detectTools and every generated variant drop the hostile paths", () => {
+    const ctx = mkCtx([...badPaths, "/ok"], "https://example.com");
+    expect(detectTools(ctx).openapiEndpoints.map((e) => e.path)).toEqual(["/ok"]);
+    expect(detectTools(mkCtx(badPaths, "https://example.com")).hasOpenapi).toBe(false);
+    for (const variant of [undefined, "cf", "vercel"] as const) {
+      for (const f of generateMcpServer(ctx, variant)) {
+        if (f.filename.endsWith("openapi.json")) continue;
+        expect(f.content).not.toContain("169.254.169.254");
+        expect(f.content).not.toContain("evil.test");
+      }
+    }
+  });
+
+  const values = ["@169.254.169.254", "../../admin?x=1#", "$&"];
+  const expectedPaths = values.map((v) => `/v1/items/${encodeURIComponent(v)}/x`);
+  const call = (name: string, v: string, id: number) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: { id: v } },
+  });
+  const ctx = () => mkCtx(["/items/{id}/x"]);
+  const sentPaths = () => echoHits.map((h) => h.url);
+
+  it("Express encodes substituted path-param values", async () => {
+    const h = await startExpress("path-express", ctx());
+    for (const [i, v] of values.entries()) {
+      const r = await h.rpc(call("op0", v, i + 1));
+      expect(r.result.content[0].text).toContain("Status: 200");
+    }
+    expect(sentPaths()).toEqual(expectedPaths);
+  }, 40000);
+
+  it("Cloudflare Worker encodes substituted path-param values", async () => {
+    const { call: rpc } = await loadWorker("path-cf", ctx());
+    for (const [i, v] of values.entries()) {
+      const r = await rpc(call("op0", v, i + 1));
+      expect(r.result.content[0].text).toContain("Status: 200");
+    }
+    expect(sentPaths()).toEqual(expectedPaths);
+  });
+
+  it("Vercel handler encodes substituted path-param values", async () => {
+    const root = join(tmpRoot, "path-vercel");
+    writeFiles(generateMcpServer(ctx(), "vercel"), root);
+    const dir = join(root, "mcp-server");
+    transpile(join(dir, "api/mcp.ts"));
+    const mod = await import(/* @vite-ignore */ pathToFileURL(join(dir, "api/mcp.mjs")).href);
+    const srv = createHttpServer(async (req, res) => {
+      const raw = await readBody(req);
+      (req as any).body = raw ? JSON.parse(raw) : undefined;
+      await mod.default(req, res);
+    });
+    await new Promise<void>((res) => srv.listen(0, "127.0.0.1", () => res()));
+    const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}/mcp`;
+    try {
+      for (const [i, v] of values.entries()) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+          },
+          body: JSON.stringify(call("op0", v, i + 1)),
+          signal: AbortSignal.timeout(4000),
+        });
+        expect(parseBody(await res.text()).result.content[0].text).toContain("Status: 200");
+      }
+    } finally {
+      srv.close();
+    }
+    expect(sentPaths()).toEqual(expectedPaths);
+  }, 15000);
+});
+
 describe("hostile crawl data: README and package.json", () => {
   it("keeps the README heading and tool bullets on one line and package name safe", () => {
     for (const variant of [undefined, "cf", "vercel"] as const) {
