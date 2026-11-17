@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 type AstroOutputMode = "static" | "server" | "hybrid" | "unknown";
@@ -99,9 +100,6 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push(
-        "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
-      );
       continue;
     }
 
@@ -118,5 +116,13 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
 
-  return { platform: "astro", actions, warnings, postInstallSteps };
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  if (willWrite(guarded.actions, "w2agent-integration.mjs")) {
+    postInstallSteps.push(
+      "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
+    );
+  }
+
+  return { platform: "astro", actions: guarded.actions, warnings, postInstallSteps };
 }

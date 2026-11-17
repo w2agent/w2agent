@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,6 +32,7 @@ describe("Next.js install resolver", () => {
     tempDir = mkdtempSync(join(tmpdir(), "w2agent-nextjs-install-"));
     // Create a basic Next.js app-router project
     mkdirSync(join(tempDir, "app"), { recursive: true });
+    writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"next":"15.0.0"}}', "utf-8");
   });
 
   afterEach(() => {
@@ -252,5 +253,82 @@ describe("Next.js install resolver", () => {
     expect(
       plan.actions.some((a) => a.type === "skip" && a.dest === "src/app/llms.txt/route.ts"),
     ).toBe(true);
+  });
+  it("skips the route and adds a manual action for any public file on the route path", () => {
+    mkdirSync(join(tempDir, "public", ".well-known"), { recursive: true });
+    writeFileSync(join(tempDir, "public", ".well-known", "agent-card.json"), "{}", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    expect(
+      plan.actions.some(
+        (a) => a.type === "write" && a.dest === "app/.well-known/agent-card.json/route.ts",
+      ),
+    ).toBe(false);
+    expect(
+      plan.actions.some(
+        (a) => a.type === "skip" && a.dest === "app/.well-known/agent-card.json/route.ts",
+      ),
+    ).toBe(true);
+    const manual = plan.actions.find(
+      (a) => a.type === "manual" && a.dest === "public/.well-known/agent-card.json",
+    );
+    expect(manual?.reason).toContain("/.well-known/agent-card.json");
+    expect(readFileSync(join(tempDir, "public", ".well-known", "agent-card.json"), "utf-8")).toBe(
+      "{}",
+    );
+  });
+
+  describe("project check", () => {
+    function expectNotNext(plan: ReturnType<typeof resolveNextjsInstall>) {
+      expect(plan.actions).toHaveLength(0);
+      expect(plan.postInstallSteps).toHaveLength(0);
+      expect(plan.warnings).toHaveLength(1);
+      expect(plan.warnings[0]).toContain(tempDir);
+      expect(plan.warnings[0]).toContain("not a Next.js project");
+      expect(plan.warnings[0]).toContain("--project-dir");
+    }
+
+    it("refuses an empty directory", () => {
+      rmSync(join(tempDir, "app"), { recursive: true });
+      rmSync(join(tempDir, "package.json"));
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("refuses a package.json without next, even with an app/ dir", () => {
+      writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"react":"19.0.0"}}', "utf-8");
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("refuses an unreadable package.json", () => {
+      writeFileSync(join(tempDir, "package.json"), "{not json", "utf-8");
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("accepts next.config.mjs without a package.json", () => {
+      rmSync(join(tempDir, "package.json"));
+      writeFileSync(join(tempDir, "next.config.mjs"), "export default {};", "utf-8");
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions.some((a) => a.type === "write")).toBe(true);
+      expect(plan.warnings).toHaveLength(0);
+    });
+
+    it("accepts next in devDependencies", () => {
+      writeFileSync(
+        join(tempDir, "package.json"),
+        '{"devDependencies":{"next":"15.0.0"}}',
+        "utf-8",
+      );
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions.some((a) => a.type === "write")).toBe(true);
+    });
+
+    it("keeps the Pages Router refusal for a Next.js project", () => {
+      rmSync(join(tempDir, "app"), { recursive: true });
+      mkdirSync(join(tempDir, "pages"), { recursive: true });
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions).toHaveLength(0);
+      expect(plan.warnings[0]).toContain("App Router required");
+    });
   });
 });

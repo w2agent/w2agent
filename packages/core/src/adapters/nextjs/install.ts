@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions, hasWrittenCopy, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface NextjsLayout {
@@ -62,11 +63,40 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   };
 }
 
+const NEXT_CONFIG_NAMES = ["js", "mjs", "ts", "cjs", "mts"].map((ext) => `next.config.${ext}`);
+
+function isNextjsProject(projectDir: string): boolean {
+  if (NEXT_CONFIG_NAMES.some((name) => existsSync(join(projectDir, name)))) return true;
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf-8"));
+    return !!(pkg?.dependencies?.next || pkg?.devDependencies?.next);
+  } catch {
+    return false;
+  }
+}
+
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string): InstallPlan {
   const layout = detectNextjsLayout(projectDir);
   const actions: InstallAction[] = [];
   const warnings: string[] = [];
   const postInstallSteps: string[] = [];
+
+  if (!isNextjsProject(projectDir)) {
+    warnings.push(
+      `${projectDir} is not a Next.js project (no next dependency in package.json and no next.config). ` +
+        "Pass --project-dir <your Next.js app>; in a monorepo, the app package.",
+    );
+    return { platform: "nextjs", actions, warnings, postInstallSteps };
+  }
 
   // Pages Router only — no App Router support
   if (layout.hasPagesDir && !layout.hasAppDir) {
@@ -81,6 +111,8 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
   // Determine app dir prefix for path rewriting
   const appPrefix = layout.hasSrcDir ? "src/app" : "app";
+
+  const mergeCopies: { dest: string; manualDest: string }[] = [];
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
@@ -104,13 +136,9 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       }
 
       // A public/ file and a route on the same path make Next.js error; never delete the user's file
-      const publicName =
-        relPath === "app/llms.txt/route.ts"
-          ? "llms.txt"
-          : relPath === "app/llms-full.txt/route.ts"
-            ? "llms-full.txt"
-            : null;
-      if (publicName && existsSync(join(projectDir, "public", publicName))) {
+      const routeMatch = relPath.match(/^app\/(.+)\/route\.ts$/);
+      const publicName = routeMatch ? routeMatch[1] : null;
+      if (publicName && pathExists(join(projectDir, "public", publicName))) {
         actions.push({
           type: "skip",
           dest: adjustedPath,
@@ -162,17 +190,7 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       if (layout.hasMiddleware) {
         const mergedName = relPath.replace(/\.(ts|js)$/, ".w2agent.$1");
         actions.push({ type: "write", dest: mergedName, content: file.content });
-        actions.push({
-          type: "manual",
-          dest: relPath,
-          reason:
-            "Existing middleware found. Merge the content from " +
-            mergedName.split("/").pop() +
-            " into your existing middleware.",
-        });
-        warnings.push(
-          `Existing middleware found — saved as ${mergedName.split("/").pop()}. Merge manually.`,
-        );
+        mergeCopies.push({ dest: mergedName, manualDest: relPath });
         continue;
       }
 
@@ -201,14 +219,35 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
   }
 
   // Post-install: suggest adding build script to package.json
-  const hasBuildAction = actions.some((a) => a.type === "write" && a.dest === "w2agent-build.mjs");
-  if (hasBuildAction) {
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  for (const copy of mergeCopies) {
+    const name = copy.dest.split("/").pop();
+    if (hasWrittenCopy(guarded.actions, copy.dest)) {
+      guarded.actions.push({
+        type: "manual",
+        dest: copy.manualDest,
+        reason: `Existing middleware found. Merge the content from ${name} into your existing middleware.`,
+      });
+      warnings.push(`Existing middleware found — saved as ${name}. Merge manually.`);
+    } else {
+      guarded.actions.push({
+        type: "manual",
+        dest: copy.manualDest,
+        reason:
+          "Existing middleware found, but the w2agent middleware was not written (see warnings). " +
+          "Merge it by hand, for example from `w2agent integrate <url> --output <dir>`.",
+      });
+    }
+  }
+
+  if (willWrite(guarded.actions, "w2agent-build.mjs")) {
     postInstallSteps.push(
       'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',
     );
   }
 
-  const webmcpWrite = actions.find(
+  const webmcpWrite = guarded.actions.find(
     (a) => a.type === "write" && a.dest.endsWith("/WebMcpScript.tsx"),
   );
   if (webmcpWrite) {
@@ -221,5 +260,5 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     );
   }
 
-  return { platform: "nextjs", actions, warnings, postInstallSteps };
+  return { platform: "nextjs", actions: guarded.actions, warnings, postInstallSteps };
 }

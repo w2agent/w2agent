@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions, hasWrittenCopy, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface NuxtLayout {
@@ -71,6 +72,7 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
 
   const prefix = "nuxt/";
   const platformFiles = files.filter((f) => f.filename.startsWith(prefix));
+  const mergeCopies: { dest: string; name: string }[] = [];
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
@@ -101,9 +103,7 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
       if (layout.hasExistingMiddleware) {
         const mergedName = relPath.replace(/\.(ts|js)$/, ".w2agent.$1");
         actions.push({ type: "write", dest: mergedName, content: file.content });
-        warnings.push(
-          `Existing middleware found — saved as ${baseName.replace(/\.(ts|js)$/, ".w2agent.$1")}. Merge manually.`,
-        );
+        mergeCopies.push({ dest: mergedName, name: mergedName.split("/").pop() ?? mergedName });
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
@@ -135,12 +135,19 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
 
-  const hasBuildAction = actions.some((a) => a.type === "write" && a.dest === "w2agent-build.mjs");
-  if (hasBuildAction) {
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  for (const copy of mergeCopies) {
+    if (hasWrittenCopy(guarded.actions, copy.dest)) {
+      warnings.push(`Existing middleware found — saved as ${copy.name}. Merge manually.`);
+    }
+  }
+
+  if (willWrite(guarded.actions, "w2agent-build.mjs")) {
     postInstallSteps.push(
       'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',
     );
   }
 
-  return { platform: "nuxt", actions, warnings, postInstallSteps };
+  return { platform: "nuxt", actions: guarded.actions, warnings, postInstallSteps };
 }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface DocusaurusLayout {
@@ -60,6 +61,8 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
   const prefix = "docusaurus/";
   const platformFiles = files.filter((f) => f.filename.startsWith(prefix));
 
+  let pluginDest: string | null = null;
+
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
     const baseName = relPath.split("/").pop() || relPath;
@@ -78,7 +81,7 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push('Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]');
+      pluginDest = relPath;
       continue;
     }
 
@@ -96,9 +99,15 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
 
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  if (pluginDest && willWrite(guarded.actions, pluginDest)) {
+    postInstallSteps.push('Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]');
+  }
+
   if (!layout.hasGrayMatter) {
     postInstallSteps.push("Install gray-matter: npm install gray-matter");
   }
 
-  return { platform: "docusaurus", actions, warnings, postInstallSteps };
+  return { platform: "docusaurus", actions: guarded.actions, warnings, postInstallSteps };
 }

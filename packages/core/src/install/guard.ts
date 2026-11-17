@@ -143,3 +143,15 @@ export function guardInstallActions(actions: InstallAction[], projectDir: string
 
   return { actions: guarded, warnings };
 }
+
+export function hasWrittenCopy(actions: InstallAction[], dest: string): boolean {
+  return actions.some(
+    (a) =>
+      a.dest === dest &&
+      (a.type === "write" || (a.type === "skip" && a.reason === "already up to date")),
+  );
+}
+
+export function willWrite(actions: InstallAction[], dest: string): boolean {
+  return actions.some((a) => a.type === "write" && a.dest === dest);
+}

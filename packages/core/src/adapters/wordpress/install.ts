@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface WordPressLayout {
@@ -148,7 +149,11 @@ export function resolveWordPressInstall(files: GeneratedFile[], projectDir: stri
     actions.push({ type: "write", dest, content: file.content });
   }
 
-  postInstallSteps.push("Activate the w2agent plugin in WordPress Admin → Plugins.");
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  if (guarded.actions.some((a) => a.type === "write")) {
+    postInstallSteps.push("Activate the w2agent plugin in WordPress Admin → Plugins.");
+  }
 
-  return { platform: "wordpress", actions, warnings, postInstallSteps };
+  return { platform: "wordpress", actions: guarded.actions, warnings, postInstallSteps };
 }

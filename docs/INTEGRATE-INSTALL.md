@@ -37,6 +37,8 @@ Install never overwrites or deletes files, and never writes outside `--project-d
 - `dest` already exists (a dangling symlink counts). An identical file is skipped as "already up to date" without a warning. To replace a file, remove it and re-run.
 - A code file with the same name and another extension sits next to it (for example `route.js` beside a planned `route.ts`).
 
+Each resolver runs the guard itself before it builds post-install steps and merge instructions, so those only mention files this run writes. `planInstall` runs it again as a backstop.
+
 The executor re-checks containment and creates files with exclusive-create (`wx`), so a file that appears between planning and writing is also skipped, never overwritten.
 
 ## CLI Flags
@@ -55,12 +57,13 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 | Scenario | Detection | Action |
 |----------|-----------|--------|
+| Not a Next.js project | No `next` in `dependencies`/`devDependencies` and no `next.config.{js,mjs,ts,cjs,mts}` | No actions; warning names the directory and says to pass `--project-dir <your Next.js app>` (in a monorepo, the app package) |
 | `src/app/` layout | `src/app/` dir exists | Adjusts all `app/` paths to `src/app/` |
 | Pages Router only | Has `pages/` but no `app/` | Skip all with warning |
 | Existing `app/llms.txt/route.ts` | File exists | Skip + warn |
 | Existing middleware (with w2agent) | Read file, check content | Skip |
 | Existing middleware (no w2agent) | Read file, check content | Write as `.w2agent.ts` + merge instructions |
-| Existing `public/llms.txt` or `public/llms-full.txt` | File exists | Skip the matching route, manual step to remove or rename the public file (Next.js errors when both exist) and re-run. The file is never deleted |
+| Any `public/<path>` that matches a planned route `app/<path>/route.ts` (for example `public/llms.txt`, `public/index.md`, `public/.well-known/agent-card.json`) | File exists | Skip that route, manual step to remove or rename the public file (Next.js errors when both exist) and re-run. The file is never deleted |
 | Existing `app/llms.txt/route.js` (or other extension) | Same stem, other extension | Skip + warn |
 | Existing `w2agent-build.mjs` | File exists | Skip + warn |
 | Any other generated file already present | File exists | Skip + warn (guard) |
@@ -115,11 +118,12 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (117 tests across 8 test files)
+### Unit tests (137 tests across 9 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
-- `tests/install-nextjs.test.ts` — src/app, pages-router, middleware merge, existing files, public/ conflicts (17 tests)
+- `tests/install-nextjs.test.ts` — project check, src/app, pages-router, middleware merge, existing files, public/ conflicts (24 tests)
+- `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall` (13 tests)
 - `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (10 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
