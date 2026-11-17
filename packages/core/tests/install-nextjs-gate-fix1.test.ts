@@ -68,19 +68,73 @@ describe("Next.js install gate fixes (round 1)", () => {
     it("names proxy.ts for a root proxy", () => {
       setup("16.0.0");
       put("proxy.ts", "export function proxy() {}\n");
-      expect(resolve().warnings.join("\n")).toMatch(
-        /ignore a root proxy\.ts in a src\/app project; move it to src\/proxy\.ts/,
+      const w = resolve().warnings.join("\n");
+      expect(w).toContain(
+        "Next.js ignores a root proxy.ts in a src/app project; move it to src/proxy.ts.",
       );
+      expect(w).not.toMatch(/15 and earlier/);
     });
 
-    it("prefers the src file when both exist and does not warn", () => {
+    it("prefers the src file when both exist and tells the user to remove the root one", () => {
       setup("^15.5.0");
       put("middleware.ts", "export function middleware() {}\n");
       put("src/middleware.ts", "export function middleware() {}\n");
       const plan = resolve();
       expect(writes(plan)).toContain("src/middleware.w2agent.ts");
       expect(manuals(plan).map((a) => a.dest)).toContain("src/middleware.ts");
-      expect(plan.warnings.join("\n")).not.toMatch(/ignore a root/);
+      const w = plan.warnings.join("\n");
+      expect(w).toContain(
+        "middleware.ts at the project root is ignored by Next.js 15 and earlier in a src/app project; remove it once src/middleware.ts has the w2agent code.",
+      );
+      expect(w).not.toMatch(/move it to/);
+    });
+
+    it("root refs beside a live src file without refs: the src file decides, merge copy beside it", () => {
+      setup("^15.5.0");
+      put("middleware.ts", "// w2agent\nexport function middleware() {}\n");
+      put("src/middleware.ts", "export function middleware() {}\n");
+      const plan = resolve();
+      expect(skips(plan)).toEqual([]);
+      expect(writes(plan)).toContain("src/middleware.w2agent.ts");
+      expect(manuals(plan).map((a) => a.dest)).toContain("src/middleware.ts");
+      const w = plan.warnings.join("\n");
+      expect(w).not.toMatch(/move it to/);
+      expect(w).toContain("remove it once src/middleware.ts has the w2agent code");
+    });
+
+    it("src file with refs skips naming the src file and warns about the root file", () => {
+      setup("^15.5.0");
+      put("middleware.ts", "export function middleware() {}\n");
+      put("src/middleware.ts", "// w2agent\nexport function middleware() {}\n");
+      const plan = resolve();
+      expect(skips(plan).map((a) => a.dest)).toEqual(["src/middleware.ts"]);
+      expect(writes(plan).filter((d) => /middleware/.test(d))).toEqual([]);
+      expect(plan.warnings.join("\n")).toContain(
+        "remove it once src/middleware.ts has the w2agent code",
+      );
+    });
+
+    it("root proxy beside a live src proxy: remove text has no version qualifier", () => {
+      setup("16.0.0");
+      put("proxy.ts", "// w2agent\nexport function proxy() {}\n");
+      put("src/proxy.ts", "export function proxy() {}\n");
+      const plan = resolve();
+      expect(skips(plan)).toEqual([]);
+      expect(writes(plan)).toContain("src/proxy.w2agent.ts");
+      const w = plan.warnings.join("\n");
+      expect(w).toContain(
+        "proxy.ts at the project root is ignored by Next.js in a src/app project; remove it once src/proxy.ts has the w2agent code.",
+      );
+    });
+
+    it("a src file of the other name still decides (root middleware, src proxy)", () => {
+      setup("16.0.0");
+      put("middleware.ts", "// w2agent\nexport function middleware() {}\n");
+      put("src/proxy.ts", "export function proxy() {}\n");
+      const plan = resolve();
+      expect(skips(plan)).toEqual([]);
+      expect(writes(plan)).toContain("src/proxy.w2agent.ts");
+      expect(manuals(plan).map((a) => a.dest)).toContain("src/proxy.ts");
     });
 
     it("does not warn for a root file in a root app project", () => {

@@ -26,6 +26,7 @@ interface NextjsLayout {
   hasExistingBuildScript: boolean;
   hasW2agentRefs: boolean;
   refsFile: string | null;
+  rootEdgeFile: string | null;
 }
 
 export function detectNextjsLayout(projectDir: string): NextjsLayout {
@@ -38,9 +39,18 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   const srcApp = hasSrcDir && existsSync(join(projectDir, "src", "app"));
   // The directory Next reads comes first, so it wins when a root and a src/ file both exist
   const edgeDirs = srcApp ? ["src/", ""] : ["", "src/"];
-  const edgePaths = (name: string) =>
-    edgeDirs.flatMap((dir) => ["ts", "js", "tsx", "jsx"].map((ext) => `${dir}${name}.${ext}`));
+  const pathsIn = (dirs: string[], name: string) =>
+    dirs.flatMap((dir) => ["ts", "js", "tsx", "jsx"].map((ext) => `${dir}${name}.${ext}`));
   const existing = (paths: string[]) => paths.find((p) => existsSync(join(projectDir, p))) ?? null;
+  // A live src/ file in a src/app project alone decides; a root file beside it is ignored by Next
+  const srcLive =
+    srcApp &&
+    existing([...pathsIn(["src/"], "middleware"), ...pathsIn(["src/"], "proxy")]) !== null;
+  const liveDirs = srcLive ? ["src/"] : edgeDirs;
+  const rootEdgeFile = srcApp
+    ? existing([...pathsIn([""], "middleware"), ...pathsIn([""], "proxy")])
+    : null;
+  const edgePaths = (name: string) => pathsIn(liveDirs, name);
   const existingMiddleware = existing(edgePaths("middleware"));
   const existingProxy = existing(edgePaths("proxy"));
   const hasMiddleware = existingMiddleware !== null;
@@ -73,6 +83,7 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
     hasExistingBuildScript,
     hasW2agentRefs: refsFile !== null,
     refsFile,
+    rootEdgeFile,
   };
 }
 
@@ -307,10 +318,22 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     if (baseName === "middleware.ts" || baseName === "middleware.js") {
       if (staticExport) continue;
       const dest = `${edgeDir}${edgeFn}.${ext}`;
-      const rootWarning = (file: string) => {
-        if (layout.hasSrcDir && !file.includes("/")) {
+      const rootWarning = () => {
+        const root = layout.rootEdgeFile;
+        if (!root) return;
+        const live = layout.refsFile ?? layout.existingEdgeFile;
+        const isProxy = root.startsWith("proxy.");
+        if (live?.startsWith("src/")) {
           warnings.push(
-            `Next.js 15 and earlier ignore a root ${file} in a src/app project; move it to src/${file}.`,
+            `${root} at the project root is ignored by Next.js${isProxy ? "" : " 15 and earlier"} in a src/app project; remove it once ${live} has the w2agent code.`,
+          );
+        } else if (isProxy) {
+          warnings.push(
+            `Next.js ignores a root ${root} in a src/app project; move it to src/${root}.`,
+          );
+        } else {
+          warnings.push(
+            `Next.js 15 and earlier ignore a root ${root} in a src/app project; move it to src/${root}.`,
           );
         }
       };
@@ -320,13 +343,13 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
           dest: layout.refsFile,
           reason: "already has w2agent integration",
         });
-        rootWarning(layout.refsFile);
+        rootWarning();
         continue;
       }
 
       const content = nextjsMiddlewareSource({ lang, fn: edgeFn });
       if (layout.existingEdgeFile) {
-        rootWarning(layout.existingEdgeFile);
+        rootWarning();
         const existingDir = layout.existingEdgeFile.includes("/") ? "src/" : "";
         const mergedName = `${existingDir}${edgeFn}.w2agent.${ext}`;
         actions.push({ type: "write", dest: mergedName, content });
