@@ -52,6 +52,7 @@ export default function w2agent(_options: unknown, nuxt: W2agentNuxt) {
     const configured = nuxt.options.dir.public;
     const dir = isAbsolute(configured) ? configured : resolve(nuxt.options.srcDir, configured);
     nitroConfig.serverAssets ||= [];
+    if (nitroConfig.serverAssets.some((a) => a.baseName === "w2agent")) return;
     nitroConfig.serverAssets.push({
       baseName: "w2agent",
       dir,
@@ -168,8 +169,13 @@ The module auto-registers all Nitro routes. No manual file copying needed.
 ## Architecture
 
 This integration uses **Nitro cached event handlers**. A small local module
-(\`modules/w2agent.ts\`) inlines \`public/llms.txt\`, \`public/llms-full.txt\` and the agent card
-into the server bundle at build time. Content is cached for 1 hour with SWR.
+(\`modules/w2agent.ts\`) inlines \`public/llms.txt\` and \`public/llms-full.txt\` into the server
+bundle at build time. The agent card route serves the JSON embedded at generation time by
+\`w2agent generate\`; regenerate to change it. Content is cached for 1 hour with SWR.
+
+On Nuxt 3.0 to 3.2 Nuxt does not auto-register \`modules/\`: add
+\`modules: ['./modules/w2agent']\` to \`nuxt.config.ts\`, or \`/index.md\` returns 404. Nuxt 3.3 and
+later register it on their own. If you also install \`@w2agent/nuxt\`, only one \`w2agent\` asset is mounted.
 
 \`\`\`
 nuxi build

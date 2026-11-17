@@ -137,6 +137,13 @@ describe("Nuxt INSTALL.md and build script describe the build-time behaviour", (
     expect(md).not.toMatch(/generates minimal|minimal fallback|Static fallback/);
   });
 
+  it("INSTALL.md says the agent card is the JSON written by generate, and notes Nuxt < 3.3", () => {
+    expect(md).not.toMatch(/inlines[^.]*agent card/);
+    expect(md).toMatch(/agent card[^.]*(written|embedded)[^.]*generate/i);
+    expect(md).toContain("modules: ['./modules/w2agent']");
+    expect(md).toContain("3.3");
+  });
+
   it("the build-script warning no longer promises fallback content", () => {
     expect(script).not.toContain("fallback content");
     expect(script).toContain("as of the last build");
@@ -181,6 +188,29 @@ describe("Nuxt emitted module (NU-2)", () => {
     const [entry] = config.serverAssets ?? [];
     expect(entry.baseName).toBe("w2agent");
     expect(entry.dir).toBe("/proj/public");
+  });
+
+  it("does not register a second w2agent entry (hook run twice or entry pre-existing)", () => {
+    const mod = run(emitted("nuxt/modules/w2agent.ts"), {
+      "node:path": require("node:path"),
+    }).default as (options: unknown, nuxt: unknown) => void;
+    let hook: ((c: NitroConfig) => void) | undefined;
+    mod(
+      {},
+      {
+        options: { dir: { public: "/proj/public" }, srcDir: "/proj" },
+        hook: (_: string, f: (c: NitroConfig) => void) => {
+          hook = f;
+        },
+      },
+    );
+    const config: NitroConfig = {};
+    hook?.(config);
+    hook?.(config);
+    expect(config.serverAssets?.filter((a) => a.baseName === "w2agent")).toHaveLength(1);
+    const pre: NitroConfig = { serverAssets: [{ baseName: "w2agent", dir: "/other" }] };
+    hook?.(pre);
+    expect(pre.serverAssets).toEqual([{ baseName: "w2agent", dir: "/other" }]);
   });
 
   it("resolves a relative public dir against srcDir and keeps existing assets", () => {

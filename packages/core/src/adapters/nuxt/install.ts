@@ -6,6 +6,7 @@ import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface NuxtLayout {
   version: number | null;
+  minor: number | null;
   hasServerDir: boolean;
   hasExistingRoutes: boolean;
   hasExistingMiddleware: boolean;
@@ -14,18 +15,35 @@ interface NuxtLayout {
   hasExistingBuildScript: boolean;
 }
 
+function installedNuxtVersion(projectDir: string): { major: number; minor: number } | null {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(projectDir, "node_modules", "nuxt", "package.json"), "utf-8"),
+    );
+    const match = String(pkg.version).match(/^(\d+)\.(\d+)/);
+    return match ? { major: parseInt(match[1], 10), minor: parseInt(match[2], 10) } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Highest major a manifest range names; an exclusive `<N` bound is not counted.
+function rangeMajor(range: string): number | null {
+  const majors = [...range.replace(/<(?!=)\s*v?\d[^\s|]*/g, "").matchAll(/(?:^|[\s^~>=|v])(\d+)/g)];
+  return majors.length ? Math.max(...majors.map((m) => parseInt(m[1], 10))) : null;
+}
+
 export function detectNuxtLayout(projectDir: string): NuxtLayout {
-  let version: number | null = null;
+  const installed = installedNuxtVersion(projectDir);
+  let version: number | null = installed?.major ?? null;
+  const minor: number | null = installed?.minor ?? null;
   const pkgPath = join(projectDir, "package.json");
-  if (existsSync(pkgPath)) {
+  if (version === null && existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
       const nuxtVer = deps.nuxt || deps.nuxt3;
-      if (nuxtVer) {
-        const match = nuxtVer.match(/(\d+)/);
-        if (match) version = parseInt(match[1], 10);
-      }
+      if (nuxtVer) version = rangeMajor(String(nuxtVer));
     } catch {}
   }
 
@@ -47,6 +65,7 @@ export function detectNuxtLayout(projectDir: string): NuxtLayout {
 
   return {
     version,
+    minor,
     hasServerDir,
     hasExistingRoutes,
     hasExistingMiddleware,
@@ -62,7 +81,8 @@ const NUXT_CONFIG_NAMES = [
   "nuxt.config.mjs",
   "nuxt.config.mts",
 ];
-const SRC_DIR_LITERAL = /\bsrcDir\s*:\s*(?:"([^"\\\n]*)"|'([^'\\\n]*)'|`([^`$\\\n]*)`)/;
+const SRC_DIR_LITERAL =
+  /\bsrcDir\s*:\s*(?:"([^"\\\n]*)"|'([^'\\\n]*)'|`([^`$\\\n]*)`)(?=\s*(?:[,}]|\/\/|$))/;
 
 function readNuxtConfigText(projectDir: string): string {
   for (const name of NUXT_CONFIG_NAMES) {
@@ -75,18 +95,6 @@ function readNuxtConfigText(projectDir: string): string {
     } catch {}
   }
   return "";
-}
-
-function installedNuxtMajor(projectDir: string): number | null {
-  try {
-    const pkg = JSON.parse(
-      readFileSync(join(projectDir, "node_modules", "nuxt", "package.json"), "utf-8"),
-    );
-    const match = String(pkg.version).match(/^(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
-  } catch {
-    return null;
-  }
 }
 
 // Mirrors @nuxt/schema's `srcDir` resolution. Returns the srcDir relative to the project
@@ -107,7 +115,7 @@ export function resolveNuxtSrcDir(
       ? "nuxt.config sets srcDir with a value that is not a string literal; placing the WebMCP plugin by Nuxt's default rule. Move plugins/w2agent-webmcp.client.ts into <srcDir>/plugins/ if that differs."
       : undefined;
 
-  const major = version ?? installedNuxtMajor(projectDir);
+  const major = version ?? installedNuxtVersion(projectDir)?.major ?? null;
   const nuxt4Mode =
     (major !== null && major >= 4) || /\bcompatibilityVersion\s*:\s*4\b/.test(config);
   if (!nuxt4Mode) return { dir: "", warning };
@@ -124,6 +132,11 @@ export function resolveNuxtSrcDir(
   if (hasContent) return { dir: "app", warning };
   const rootMarkers = ["app.vue", "App.vue", "assets", "layouts", "middleware", "pages", "plugins"];
   if (rootMarkers.some((name) => existsSync(join(projectDir, name)))) return { dir: "", warning };
+  if (/\bdir\s*:/.test(config)) {
+    const note =
+      "app/ is empty and nuxt.config sets dir names, so Nuxt may be using the project root as srcDir; placing the WebMCP plugin in plugins/w2agent-webmcp.client.ts. Move it to app/plugins/ if your srcDir is app/.";
+    return { dir: "", warning: warning ? `${warning} ${note}` : note };
+  }
   return { dir: "app", warning };
 }
 
@@ -233,6 +246,17 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
     if (hasWrittenCopy(guarded.actions, copy.dest)) {
       warnings.push(`Existing middleware found — saved as ${copy.name}. Merge manually.`);
     }
+  }
+
+  if (
+    layout.version === 3 &&
+    layout.minor !== null &&
+    layout.minor < 3 &&
+    willWrite(guarded.actions, "modules/w2agent.ts")
+  ) {
+    postInstallSteps.push(
+      "Nuxt 3.0 to 3.2 does not auto-register modules/. Add `modules: ['./modules/w2agent']` to nuxt.config, or /index.md, /llms.txt and /llms-full.txt return 404.",
+    );
   }
 
   if (willWrite(guarded.actions, "w2agent-build.mjs")) {

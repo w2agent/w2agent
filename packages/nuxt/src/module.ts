@@ -18,6 +18,7 @@ export function registerServerAssets(nuxt: NuxtLike) {
     const configured = nuxt.options.dir.public;
     const dir = isAbsolute(configured) ? configured : resolve(nuxt.options.srcDir, configured);
     nitroConfig.serverAssets ||= [];
+    if (nitroConfig.serverAssets.some((a) => a.baseName === ASSET_BASE_NAME)) return;
     nitroConfig.serverAssets.push({ baseName: ASSET_BASE_NAME, dir, pattern: ASSET_PATTERN });
   };
   nuxt.hook("nitro:config" as never, onNitroConfig as never);

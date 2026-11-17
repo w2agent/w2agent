@@ -61,6 +61,24 @@ describe("@w2agent/nuxt module", () => {
     ]);
   });
 
+  it("does not add a second w2agent entry when one exists or the hook runs twice", async () => {
+    const { registerServerAssets } = await import("../src/module");
+    let hook: ((config: Record<string, unknown>) => void) | undefined;
+    registerServerAssets({
+      options: { dir: { public: "/proj/public" }, srcDir: "/proj" },
+      hook: ((_: string, fn: never) => {
+        hook = fn;
+      }) as never,
+    });
+    const config: { serverAssets?: { baseName: string; dir: string }[] } = {};
+    hook?.(config);
+    hook?.(config);
+    expect(config.serverAssets?.filter((a) => a.baseName === "w2agent")).toHaveLength(1);
+    const pre = { serverAssets: [{ baseName: "w2agent", dir: "/other" }] };
+    hook?.(pre);
+    expect(pre.serverAssets).toEqual([{ baseName: "w2agent", dir: "/other" }]);
+  });
+
   it("resolves a relative dir.public against srcDir", async () => {
     const { registerServerAssets } = await import("../src/module");
     let hook: ((config: Record<string, unknown>) => void) | undefined;

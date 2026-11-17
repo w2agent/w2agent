@@ -65,6 +65,9 @@ jobs:
       - name: Build core
         run: pnpm --filter w2agent-core build
 
+      - name: Build Nuxt module
+        run: pnpm --filter @w2agent/nuxt build
+
       - name: Run conformance tests
         run: pnpm --filter w2agent-core test:integration -- --reporter=verbose -t "conformance"
         env:

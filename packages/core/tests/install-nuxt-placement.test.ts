@@ -135,6 +135,105 @@ describe("Nuxt install: module and plugin placement (NU-2, NU-3)", () => {
     );
   });
 
+  it("a srcDir literal that is only a prefix of an expression warns and falls back", () => {
+    setup("^4.0.0", 'export default defineNuxtConfig({ srcDir: "src" + "/client" })');
+    put("app/app.vue");
+    const p = plan();
+    expect(p.warnings.some((w) => w.includes("srcDir"))).toBe(true);
+    expect(p.actions.find((a) => a.dest.endsWith("w2agent-webmcp.client.ts"))?.dest).toBe(
+      "app/plugins/w2agent-webmcp.client.ts",
+    );
+  });
+
+  it("srcDir literals followed by a comma, brace, newline or comment stay literal", () => {
+    for (const cfg of [
+      'export default defineNuxtConfig({ srcDir: "src", ssr: true })',
+      "export default defineNuxtConfig({ srcDir: 'src'\n})",
+      'export default defineNuxtConfig({\n  srcDir: "src" // client code\n})',
+      'export default defineNuxtConfig({ srcDir: "src"})',
+    ]) {
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "w2agent-nuxt-place-"));
+      setup("^3.8.0", cfg);
+      expect(pluginDest(), cfg).toBe("src/plugins/w2agent-webmcp.client.ts");
+      expect(plan().warnings.some((w) => w.includes("srcDir"))).toBe(false);
+    }
+  });
+
+  it("installed Nuxt 4.6.4 beats a union manifest range", () => {
+    setup("^3.0.0 || ^4.0.0");
+    put("node_modules/nuxt/package.json", JSON.stringify({ version: "4.6.4" }));
+    put("app/app.vue");
+    expect(pluginDest()).toBe("app/plugins/w2agent-webmcp.client.ts");
+  });
+
+  it("without node_modules a union range uses the highest major named", () => {
+    setup("^3.0.0 || ^4.0.0");
+    put("app/app.vue");
+    expect(pluginDest()).toBe("app/plugins/w2agent-webmcp.client.ts");
+  });
+
+  it("an exclusive upper bound is not counted as a major", () => {
+    setup(">=3.0.0 <4");
+    put("app/app.vue");
+    expect(pluginDest()).toBe("plugins/w2agent-webmcp.client.ts");
+  });
+
+  it("the nuxt3 alias is still read", () => {
+    put("package.json", JSON.stringify({ dependencies: { nuxt3: "^3.8.0" } }));
+    put("app.vue");
+    expect(pluginDest()).toBe("plugins/w2agent-webmcp.client.ts");
+  });
+
+  it("Nuxt 2 is still refused (range and installed)", () => {
+    setup("^2.15.0");
+    let p = plan();
+    expect(p.actions).toEqual([]);
+    expect(p.warnings.some((w) => w.includes("Nuxt 2"))).toBe(true);
+    setup("latest");
+    put("node_modules/nuxt/package.json", JSON.stringify({ version: "2.18.1" }));
+    p = plan();
+    expect(p.actions).toEqual([]);
+  });
+
+  it("installed Nuxt 3.2.0 gets a post-install step to register the local module", () => {
+    setup("^3.0.0");
+    put("node_modules/nuxt/package.json", JSON.stringify({ version: "3.2.0" }));
+    const p = plan();
+    expect(p.postInstallSteps.some((s) => s.includes("modules: ['./modules/w2agent']"))).toBe(true);
+  });
+
+  it("installed Nuxt 3.21.11 and 4.x get no register-the-module step", () => {
+    for (const v of ["3.3.0", "3.21.11", "4.6.4"]) {
+      setup("^3.0.0");
+      put("node_modules/nuxt/package.json", JSON.stringify({ version: v }));
+      const p = plan();
+      expect(
+        p.postInstallSteps.some((s) => s.includes("./modules/w2agent")),
+        v,
+      ).toBe(false);
+    }
+  });
+
+  it("empty app/ with a custom dir.* name and its root dir: root, with a move warning", () => {
+    setup("^4.0.0", 'export default defineNuxtConfig({ dir: { pages: "views" } })');
+    mkdirSync(join(dir, "app"), { recursive: true });
+    put("views/index.vue");
+    const p = plan();
+    expect(p.actions.find((a) => a.dest.endsWith("w2agent-webmcp.client.ts"))?.dest).toBe(
+      "plugins/w2agent-webmcp.client.ts",
+    );
+    expect(
+      p.warnings.some((w) => w.includes("plugins/w2agent-webmcp.client.ts") && w.includes("app/")),
+    ).toBe(true);
+  });
+
+  it("empty app/ without a dir key and no root markers still picks app/", () => {
+    setup("^4.0.0", "export default defineNuxtConfig({})");
+    mkdirSync(join(dir, "app"), { recursive: true });
+    expect(pluginDest()).toBe("app/plugins/w2agent-webmcp.client.ts");
+  });
+
   it("a srcDir that escapes the project is refused by the guard", () => {
     setup("^3.8.0", 'export default defineNuxtConfig({ srcDir: "../elsewhere" })');
     const p = plan();
