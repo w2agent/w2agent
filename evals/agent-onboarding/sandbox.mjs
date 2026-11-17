@@ -137,11 +137,13 @@ export function execWithStdin(name, argv, input, { runner = run, ...opts } = {})
   if (r.status !== 0) throw new Error(`exec in ${name} exited ${r.status}`);
 }
 
-export function copyIn(name, hostDir, guestDir, { user, spawner = spawn } = {}) {
+export function copyIn(name, hostDir, guestDir, { user, spawner = spawn, producer } = {}) {
   return new Promise((resolve, reject) => {
-    const tar = spawner("tar", ["-c", "-C", hostDir, "."], {
+    const src = producer ?? { cmd: "tar", args: ["-c", "-C", hostDir, "."] };
+    const tar = spawner(src.cmd, src.args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, COPYFILE_DISABLE: "1" },
+      ...(src.cwd ? { cwd: src.cwd } : {}),
     });
     const ex = spawner(
       RUNTIME,
