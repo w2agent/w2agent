@@ -864,6 +864,8 @@ describe("Shopify MCP webhook snippet", () => {
     const webhook = files.find((f) => f.filename.includes("MCP-WEBHOOK"));
     expect(webhook).toBeDefined();
     expect(webhook?.content).toContain("products/update");
+    expect(webhook?.content).toContain("X-Shopify-Hmac-SHA256");
+    expect(webhook?.content).not.toContain("webhook register");
   });
 });
 
