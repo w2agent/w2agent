@@ -9,6 +9,22 @@ import {
   WEBHOOK_ROUTE_PATH,
 } from "./templates.js";
 
+function homeMarkdown(ctx: GenerateContext): string | undefined {
+  const home = ctx.pages.find((p) => {
+    try {
+      const { pathname } = new URL(p.url);
+      return pathname === "/" || pathname === "";
+    } catch {
+      return false;
+    }
+  });
+  if (!home) return undefined;
+  const body = home.markdown.trim();
+  if (!body) return undefined;
+  const heading = home.title && !/^# /.test(body) ? `# ${home.title}\n\n` : "";
+  return `${heading}${body}\n`;
+}
+
 export const nextjsAdapter: PlatformAdapter = {
   id: "nextjs",
   name: "Next.js",
@@ -58,7 +74,13 @@ export const nextjsAdapter: PlatformAdapter = {
     const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content || "";
     const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content;
 
-    const files = generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
+    const files = generateNextjsIntegration(
+      llmsTxt,
+      llmsFullTxt,
+      agentCard,
+      ctx.baseUrl,
+      homeMarkdown(ctx),
+    );
 
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookRoute = nextjsWebhookRouteSource("ts");
