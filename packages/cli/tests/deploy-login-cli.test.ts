@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -305,5 +305,81 @@ describe("openBrowser", () => {
       ["open", [url]],
       ["xdg-open", [url]],
     ]);
+  });
+});
+
+describe("credential hygiene (gate fix A, B)", () => {
+  const SECRET = "w2a_secretpart";
+  const freshHome = () => {
+    const h = mkdtempSync(join(tmpdir(), "w2agent-dl-test-"));
+    dirs.push(h);
+    return h;
+  };
+
+  it.skipIf(skip)("login rejects a key with a control character before any request", async () => {
+    const home = freshHome();
+    const r = await run(
+      ["login", "--api-key", `${SECRET}\ncopy`, "--json"],
+      "http://127.0.0.1:1",
+      home,
+    );
+    expect(r.code).toBe(2);
+    expect(JSON.parse(r.stdout).error.reason).toBe("invalid_argument");
+    expect(r.stdout + r.stderr).not.toContain("secretpart");
+    expect(existsSync(join(home, ".w2agent", "config.json"))).toBe(false);
+  });
+
+  it.skipIf(skip)("login rejects a key with a space", async () => {
+    const r = await run(["login", "--api-key", "w2a_two words"], "http://127.0.0.1:1", freshHome());
+    expect(r.code).toBe(2);
+  });
+
+  it.skipIf(skip)("login with a bad key keeps a good saved config", async () => {
+    const home = freshHome();
+    await run(["login", "--api-key", "w2a_good"], apiUrl, home);
+    const before = readFileSync(join(home, ".w2agent", "config.json"));
+    const r = await run(["login", "--api-key", `${SECRET}\ncopy`], apiUrl, home);
+    expect(r.code).toBe(2);
+    expect(readFileSync(join(home, ".w2agent", "config.json")).equals(before)).toBe(true);
+    expect(seen.filter((s) => s.auth?.includes("secretpart"))).toEqual([]);
+  });
+
+  it.skipIf(skip)(
+    "deploy --api-key with a control character: exit 2, no echo, no request",
+    async () => {
+      const r = await run(
+        ["deploy", "https://example.com", "--api-key", `${SECRET}\ncopy`],
+        apiUrl,
+      );
+      expect(r.code).toBe(2);
+      expect(r.stdout + r.stderr).not.toContain("secretpart");
+      expect(seen).toEqual([]);
+    },
+  );
+
+  it.skipIf(skip)("deploy with an unusable saved token says to log in again, no echo", async () => {
+    const home = freshHome();
+    mkdirSync(join(home, ".w2agent"), { recursive: true });
+    writeFileSync(
+      join(home, ".w2agent", "config.json"),
+      JSON.stringify({ token: `${SECRET}\ncopy`, created: "2026-01-01T00:00:00Z" }),
+    );
+    const r = await run(["deploy", "https://example.com"], "http://127.0.0.1:1", home);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("login --force");
+    expect(r.stdout + r.stderr).not.toContain("secretpart");
+  });
+
+  it.skipIf(skip)("a --token usage error never echoes the token (json and human)", async () => {
+    for (const args of [
+      ["agent", "--token=w2wh_topsecret", "update", "demo"],
+      ["agent", "--token", "w2wh_topsecret", "update", "demo"],
+    ]) {
+      for (const extra of [["--json"], []]) {
+        const r = await run([...args, ...extra], apiUrl);
+        expect(r.code).toBe(2);
+        expect(r.stdout + r.stderr).not.toContain("topsecret");
+      }
+    }
   });
 });

@@ -12,7 +12,13 @@ import {
   jsonRequested,
   loginRequiresApiKey,
 } from "../agent/output.js";
-import { clearCredentials, getApiUrl, loadCredentials, saveCredentials } from "../auth.js";
+import {
+  clearCredentials,
+  getApiUrl,
+  isHeaderSafeToken,
+  loadCredentials,
+  saveCredentials,
+} from "../auth.js";
 
 export function openBrowser(
   url: string,
@@ -54,15 +60,18 @@ export function registerLoginCommand(program: Command): void {
       // --api-key path
       if (opts.apiKey !== undefined) {
         const key = opts.apiKey;
-        if (!key.startsWith("w2a_") || key.length <= 4) {
+        if (!key.startsWith("w2a_") || key.length <= 4 || !isHeaderSafeToken(key)) {
           await failWith(
             json,
             {
               reason: "invalid_argument",
-              message: "Invalid API key format. Keys must start with w2a_",
+              message:
+                "Invalid API key format. Keys start with w2a_ and contain only visible ASCII characters.",
             },
             undefined,
-            chalk.red("Invalid API key format. Keys must start with w2a_"),
+            chalk.red(
+              "Invalid API key format. Keys start with w2a_ and contain only visible ASCII characters.",
+            ),
           );
           return;
         }

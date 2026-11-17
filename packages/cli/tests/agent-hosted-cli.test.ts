@@ -222,7 +222,7 @@ describe("agent status (DEP-4)", () => {
     const { code, out } = await run(["agent", "status", "my-site"]);
     expect(code).toBe(1);
     expect(out).toContain("Unexpected response");
-    expect(out).not.toContain("live");
+    expect(out).not.toContain("deployed");
   });
 
   it.skipIf(skip)("a 200 with a non-object JSON body is an error", async () => {
@@ -243,7 +243,7 @@ describe("agent status (DEP-4)", () => {
     expect(seen.map((x) => x.path)).toEqual(["/api/agent/my-site"]);
   });
 
-  it.skipIf(skip)("200 prints the live endpoint, pages and tools", async () => {
+  it.skipIf(skip)("200 prints the deployed endpoint, pages and tools", async () => {
     respond = () => ({
       status: 200,
       body: {
@@ -256,7 +256,8 @@ describe("agent status (DEP-4)", () => {
     });
     const { code, out } = await run(["agent", "status", "my-site"]);
     expect(code).toBe(0);
-    expect(out).toContain("live");
+    expect(out).toContain("deployed");
+    expect(out).not.toContain("live");
     expect(out).toContain("https://my-site.example.test/mcp");
     expect(out).toContain("12");
     expect(out).toContain("search-site, get-page");

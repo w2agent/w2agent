@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import { getApiUrl, getAuthHeaders } from "../auth.js";
+import { getApiUrl, getAuthHeaders, isHeaderSafeToken, loadCredentials } from "../auth.js";
 
 interface DeployResult {
   slug: string;
@@ -9,8 +9,8 @@ interface DeployResult {
   pagesIndexed: number;
   totalPagesFound?: number;
   tools: Array<{ name: string; description?: string }>;
-  webhookUrl: string;
-  webhookToken: string;
+  webhookUrl?: string;
+  webhookToken?: string;
   isRedeploy: boolean;
 }
 
@@ -25,6 +25,22 @@ async function handleDeployAction(
 ): Promise<void> {
   const apiUrl = getApiUrl();
   const authHeaders = opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : getAuthHeaders();
+
+  const token = opts.apiKey || loadCredentials()?.token;
+  if (token !== undefined && !isHeaderSafeToken(token)) {
+    if (opts.apiKey) {
+      console.error(
+        chalk.red("✗ Invalid API key: use visible ASCII characters only (it starts with w2a_)."),
+      );
+      process.exit(2);
+    }
+    console.error(
+      chalk.red(
+        "✗ The saved credentials are not valid. Run `w2agent login --force` to log in again.",
+      ),
+    );
+    process.exit(1);
+  }
 
   if (Object.keys(authHeaders).length === 0) {
     console.log(
@@ -193,8 +209,12 @@ function printResult(result: DeployResult, showToken: boolean): void {
     );
   }
 
-  const displayToken = showToken ? result.webhookToken : maskToken(result.webhookToken);
-  console.log(`  ${chalk.gray("Webhook")}       ${chalk.white(result.webhookUrl)}`);
-  console.log(`  ${chalk.gray("Webhook token")} ${chalk.gray(displayToken)}`);
+  if (result.webhookUrl) {
+    console.log(`  ${chalk.gray("Webhook")}       ${chalk.white(result.webhookUrl)}`);
+  }
+  if (result.webhookToken) {
+    const displayToken = showToken ? result.webhookToken : maskToken(result.webhookToken);
+    console.log(`  ${chalk.gray("Webhook token")} ${chalk.gray(displayToken)}`);
+  }
   console.log();
 }

@@ -155,6 +155,21 @@ export function registerGenerateCommand(program: Command): void {
           );
         }
 
+        // Platform files embed crawl-derived seeds (llms.txt and friends), so an empty crawl
+        // must not write them over a good seed.
+        if (result.pagesProcessed === 0 && result.platform) {
+          const prefix = `${result.platform.platform}/`;
+          const skipped = result.files.filter((f) => f.filename.startsWith(prefix));
+          if (skipped.length > 0) {
+            result.files = result.files.filter((f) => !f.filename.startsWith(prefix));
+            console.log(
+              chalk.yellow(
+                `  ⚠ ${skipped.length} ${result.platform.platform} platform files skipped: no page had extractable content.`,
+              ),
+            );
+          }
+        }
+
         // Write files to disk
         const outputDir = resolve(opts.output);
         for (const file of result.files) {

@@ -65,6 +65,10 @@ export function clearCredentials(): void {
   }
 }
 
+export function isHeaderSafeToken(token: string): boolean {
+  return /^[\x21-\x7e]+$/.test(token);
+}
+
 export function getAuthHeaders(): Record<string, string> {
   const creds = loadCredentials();
   if (!creds) return {};

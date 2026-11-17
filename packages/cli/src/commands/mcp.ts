@@ -4,7 +4,7 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
 import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "w2agent-core";
-import { getApiUrl } from "../auth.js";
+import { getApiUrl, isHeaderSafeToken } from "../auth.js";
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program
@@ -188,7 +188,7 @@ export function registerMcpCommand(program: Command): void {
         console.error(`  ${chalk.red("✗")} Unexpected response from ${getApiUrl()}`);
         process.exit(1);
       }
-      console.log(`  ${chalk.green("✓")} ${slug} is ${chalk.green("live")}`);
+      console.log(`  ${chalk.green("✓")} ${slug} is ${chalk.green("deployed")}`);
       if (info.agentEndpoint) console.log(`    Endpoint:       ${info.agentEndpoint}`);
       if (info.pagesIndexed !== undefined) console.log(`    Pages indexed:  ${info.pagesIndexed}`);
       if (Array.isArray(info.tools)) {
@@ -221,7 +221,7 @@ export function registerMcpCommand(program: Command): void {
         process.exit(1);
       }
 
-      if (!/^[\x21-\x7e]+$/.test(token)) {
+      if (!isHeaderSafeToken(token)) {
         console.error(
           `  ${chalk.red("✗")} Webhook token contains characters that are not allowed in a header (visible ASCII only).`,
         );

@@ -290,6 +290,18 @@ describe("deploy command", () => {
       expect(errored()).toContain('{"code":7}');
     });
 
+    it("a result without webhook fields still prints", async () => {
+      const { webhookToken: _t, webhookUrl: _u, ...bare } = makeResultData();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(makeSseResponse([{ type: "result", data: bare }])),
+      );
+      await deploy();
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(logged()).toContain("test-site");
+      expect(logged()).not.toContain("Webhook");
+    });
+
     it("treats a result without tools as empty", async () => {
       const { tools: _tools, ...noTools } = makeResultData();
       vi.stubGlobal(

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   AGENT_ENV_VARS,
+  apiKeyValues,
   argvHasJson,
   buildErrorEnvelope,
   EXIT,
@@ -88,6 +89,24 @@ describe("next rules", () => {
     expect(sanitizeNext([failing, ["w2agent", "schema"]], failing)).toEqual([
       ["w2agent", "schema"],
     ]);
+  });
+
+  it("redacts --token in both forms, in argv and in messages", () => {
+    expect(redactArgv(["w2agent", "agent", "--token=w2wh_secret", "update"])).toEqual([
+      "w2agent",
+      "agent",
+      "--token=<api-key>",
+      "update",
+    ]);
+    expect(redactArgv(["w2agent", "agent", "--token", "w2wh_secret", "update"])).toEqual([
+      "w2agent",
+      "agent",
+      "--token",
+      "<api-key>",
+      "update",
+    ]);
+    expect(redactMessage("unknown option '--token=w2wh_secret'")).not.toContain("secret");
+    expect(apiKeyValues(["w2agent", "--token", "w2wh_secret"])).toEqual(["w2wh_secret"]);
   });
 
   it("redacts --api-key in both forms", () => {

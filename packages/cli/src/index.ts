@@ -2,7 +2,14 @@
 
 import { readFileSync } from "node:fs";
 import { Command, CommanderError } from "commander";
-import { argvHasJson, buildErrorEnvelope, currentArgv, EXIT } from "./agent/output.js";
+import {
+  apiKeyValues,
+  argvHasJson,
+  buildErrorEnvelope,
+  currentArgv,
+  EXIT,
+  redactMessage,
+} from "./agent/output.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAgentizeCommand, registerDeployCommand } from "./commands/deploy.js";
 import { registerGenerateCommand } from "./commands/generate.js";
@@ -30,7 +37,7 @@ program
   .exitOverride()
   .configureOutput({
     outputError: (str, write) => {
-      if (!jsonRequested) write(str);
+      if (!jsonRequested) write(redactMessage(str, apiKeyValues(currentArgv())));
     },
   });
 

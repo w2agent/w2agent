@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,8 +67,10 @@ const RICH: Record<string, string> = {
 
 let rich: Server;
 let empty: Server;
+let astroEmpty: Server;
 let richUrl = "";
 let emptyUrl = "";
+let astroUrl = "";
 const dirs: string[] = [];
 
 function listen(handler: Parameters<typeof createServer>[1]): Promise<Server> {
@@ -116,12 +126,19 @@ beforeAll(async () => {
     res.setHeader("content-type", "text/html");
     res.end("<html><head></head><body></body></html>");
   });
+  astroEmpty = await listen((_req, res) => {
+    res.setHeader("content-type", "text/html");
+    res.end(
+      '<html><head><meta name="generator" content="Astro v5.0.0"></head><body></body></html>',
+    );
+  });
   richUrl = urlOf(rich);
+  astroUrl = urlOf(astroEmpty);
   emptyUrl = urlOf(empty);
 });
 
 afterAll(async () => {
-  for (const s of [rich, empty]) {
+  for (const s of [rich, empty, astroEmpty]) {
     s.closeAllConnections();
     await new Promise<void>((r) => s.close(() => r()));
   }
@@ -245,5 +262,24 @@ describe("zero usable pages write nothing and exit 1 (DEP-3, carry-over)", () =>
     expect(code).toBe(0);
     expect(out).toContain("extractable content");
     expect(listFiles(join(cwd, "out"))).toEqual(["robots.txt"]);
+  });
+
+  it.skipIf(skip)("an empty crawl never overwrites a platform seed", async () => {
+    const cwd = tmp();
+    const seedPath = join(cwd, "out", "astro", "public", "llms.txt");
+    mkdirSync(dirname(seedPath), { recursive: true });
+    const seed = "# Seed\n\n> hand-written llms.txt\n";
+    writeFileSync(seedPath, seed);
+    const { code, out } = await run(
+      ["generate", astroUrl, "--format", "robots-txt", "-o", "out"],
+      cwd,
+    );
+    expect(code).toBe(0);
+    expect(out).toContain("platform files skipped");
+    expect(out).not.toContain("integration files generated");
+    expect(readFileSync(seedPath, "utf-8")).toBe(seed);
+    expect(listFiles(join(cwd, "out"))).toEqual(
+      ["astro", "astro/public", "astro/public/llms.txt", "robots.txt"].sort(),
+    );
   });
 });

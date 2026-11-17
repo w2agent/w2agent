@@ -65,8 +65,13 @@ export function redactArgv(argv: readonly string[]): string[] {
     if (arg === "--api-key" && i + 1 < argv.length) {
       out.push(arg, API_KEY_PLACEHOLDER);
       i++;
+    } else if (arg === "--token" && i + 1 < argv.length) {
+      out.push(arg, API_KEY_PLACEHOLDER);
+      i++;
     } else if (arg.startsWith("--api-key=")) {
       out.push(`--api-key=${API_KEY_PLACEHOLDER}`);
+    } else if (arg.startsWith("--token=")) {
+      out.push(`--token=${API_KEY_PLACEHOLDER}`);
     } else {
       out.push(arg);
     }
@@ -78,8 +83,9 @@ export function apiKeyValues(argv: readonly string[]): string[] {
   const values: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--api-key" && i + 1 < argv.length) values.push(argv[i + 1]);
+    if ((arg === "--api-key" || arg === "--token") && i + 1 < argv.length) values.push(argv[i + 1]);
     else if (arg.startsWith("--api-key=")) values.push(arg.slice("--api-key=".length));
+    else if (arg.startsWith("--token=")) values.push(arg.slice("--token=".length));
   }
   // Shorter values would also match ordinary words in a message.
   return values.filter((v) => v.length >= 5).sort((a, b) => b.length - a.length);
@@ -89,7 +95,7 @@ export function redactMessage(message: string, secrets: readonly string[] = []):
   let text = message;
   for (const secret of secrets) text = text.split(secret).join(API_KEY_PLACEHOLDER);
   return text
-    .replace(/--api-key([= ])\S+/g, `--api-key$1${API_KEY_PLACEHOLDER}`)
+    .replace(/--(api-key|token)([= ])\S+/g, `--$1$2${API_KEY_PLACEHOLDER}`)
     .replace(/w2a_[A-Za-z0-9_-]+/g, API_KEY_PLACEHOLDER);
 }
 
