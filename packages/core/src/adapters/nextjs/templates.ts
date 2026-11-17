@@ -268,7 +268,7 @@ your-nextjs-app/
 
 1. **Route handlers** serve content with ISR (revalidates every hour)
 2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx --no -- w2agent generate\` (the CLI must be installed in your project)
-3. **Middleware** rewrites \`/\` (also under \`basePath\`, with \`Vary: Accept\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page
+3. **Middleware** rewrites \`/\` (also under \`basePath\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page. The rewritten \`/index.md\` and \`/llms.txt\` responses carry \`Vary: Accept\`, but Next.js overwrites \`Vary\` on the HTML page (neither middleware nor \`next.config\` \`headers()\` can add it), so a cache in front of Next must key \`/\` on \`Accept\` itself
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
 
 ## Customization

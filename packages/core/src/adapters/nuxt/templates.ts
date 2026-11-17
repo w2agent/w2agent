@@ -94,8 +94,8 @@ export default defineEventHandler((event) => {
   const variant = homeVariant(getRequestHeader(event, "accept") ?? null);
   // "/" depends on Accept in every branch: caches must not mix the variants
   appendResponseHeader(event, "Vary", "Accept");
-  if (variant === "markdown") return sendRedirect(event, "/index.md", 302);
-  if (variant === "plain") return sendRedirect(event, "/llms.txt", 302);
+  if (variant === "markdown") return sendRedirect(event, "index.md", 302);
+  if (variant === "plain") return sendRedirect(event, "llms.txt", 302);
 });
 `;
 

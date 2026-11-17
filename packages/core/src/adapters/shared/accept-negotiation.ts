@@ -5,11 +5,33 @@ export const HOME_VARIANT_SOURCE = `type HomeVariant = "markdown" | "plain" | "h
 // Most specific matching Accept range decides q. Markdown wins equal-q ties
 // when explicitly listed; text/plain must beat text/html strictly (generic
 // clients list text/plain next to */*).
+function splitOutsideQuotes(value: string, separator: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < value.length; i++) {
+    const char = value.charAt(i);
+    if (quoted && char === "\\\\") {
+      current += char + value.charAt(++i);
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (char === separator && !quoted) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current);
+  return parts;
+}
+
 function homeVariant(accept: string | null): HomeVariant {
   if (!accept || !accept.trim()) return "html";
   const ranges: { type: string; q: number }[] = [];
-  for (const part of accept.split(",")) {
-    const [rawType, ...params] = part.split(";");
+  for (const part of splitOutsideQuotes(accept, ",")) {
+    const [rawType = "", ...params] = splitOutsideQuotes(part, ";");
     const type = rawType.trim().toLowerCase();
     if (!type) continue;
     let q = 1;

@@ -60,5 +60,23 @@ export const ACCEPT_CASES: AcceptCase[] = [
     path: "/",
     branch: "html",
   },
+  {
+    name: "comma inside a quoted parameter does not split the range",
+    accept: 'text/markdown;profile="a,b";q=0.1,text/html;q=0.9',
+    path: "/",
+    branch: "html",
+  },
+  {
+    name: "semicolon and escaped quote inside a quoted parameter",
+    accept: 'text/markdown;profile="a;q=0.1\\",b";q=0.1,text/html;q=0.9',
+    path: "/",
+    branch: "html",
+  },
+  {
+    name: "quoted parameter before a real q on a winning range",
+    accept: 'text/markdown;profile="x,y";q=0.9,text/html;q=0.5',
+    path: "/",
+    branch: "markdown",
+  },
   { name: "text/markdown on /about", accept: "text/markdown", path: "/about", branch: "untouched" },
 ];

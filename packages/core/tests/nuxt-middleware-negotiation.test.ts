@@ -44,7 +44,7 @@ function loadMiddleware(source: string): EventHandler {
   return (sandbox.exports as { default: EventHandler }).default;
 }
 
-const TARGETS = { markdown: "/index.md", plain: "/llms.txt" } as const;
+const TARGETS = { markdown: "index.md", plain: "llms.txt" } as const;
 
 describe("Nuxt middleware Accept negotiation (NU-4), emitted file in real h3", () => {
   it("is emitted", () => {

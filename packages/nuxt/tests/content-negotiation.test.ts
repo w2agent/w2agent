@@ -28,7 +28,7 @@ const request = (path: string, accept: string | null) =>
     }),
   );
 
-const TARGETS = { markdown: "/index.md", plain: "/llms.txt" } as const;
+const TARGETS = { markdown: "index.md", plain: "llms.txt" } as const;
 
 describe("content negotiation middleware + /index.md route", () => {
   beforeEach(() => {
