@@ -1,6 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
-import { generatorVersion, pageMarkers } from "../shared/page-markers.js";
+import { generatorVersion, hasPathMarker, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { astroChecks } from "./checks.js";
 import { resolveAstroInstall } from "./install.js";
@@ -44,7 +44,7 @@ export const astroAdapter: PlatformAdapter = {
         details.cid = "data-astro-cid attributes detected";
       }
 
-      if (markers.assetUrls.some((u) => u.includes("/_astro/"))) {
+      if (hasPathMarker(markers.assetUrls, page.url, "/_astro/")) {
         confidence = Math.max(confidence, 0.85);
         details.assets = "/_astro/ assets detected";
       }

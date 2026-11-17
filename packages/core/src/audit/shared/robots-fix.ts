@@ -27,6 +27,7 @@ interface RobotsGroup {
 }
 
 export interface RobotsAccessFix {
+  openGroup: boolean;
   named: string[];
   groups: string[][];
 }
@@ -131,17 +132,26 @@ export function planRobotsAccessFix(
     byRules.set(key, [...(byRules.get(key) ?? []), token]);
   }
 
+  const openGroup = endsInOpenGroup(robotsTxt);
   return {
+    openGroup,
     named,
-    groups: [...byRules].map(([rules, tokens]) => [
-      ...tokens.map((t) => `User-agent: ${t}`),
-      ...rules.split("\n"),
-    ]),
+    groups: openGroup
+      ? []
+      : [...byRules].map(([rules, tokens]) => [
+          ...tokens.map((t) => `User-agent: ${t}`),
+          ...rules.split("\n"),
+        ]),
   };
 }
 
 export function robotsAccessFixSnippet(fix: RobotsAccessFix): string {
   const lines: string[] = [];
+  if (fix.openGroup) {
+    lines.push(
+      "# robots.txt ends in a User-agent line with no rules, so appended groups would join it; add that group's rules (or remove the line) before adding Allow groups",
+    );
+  }
   if (fix.groups.length > 0) {
     lines.push(
       '# These AI agents are blocked only by the "User-agent: *" group; append these groups to allow them:',

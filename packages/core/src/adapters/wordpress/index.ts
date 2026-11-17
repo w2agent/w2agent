@@ -1,6 +1,11 @@
 import type { FetchedPage, SiteMetadata } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
-import { generatorVersion, isRelativeOrSameHost, pageMarkers } from "../shared/page-markers.js";
+import {
+  generatorVersion,
+  isRelativeOrSameHost,
+  pageMarkers,
+  urlPathname,
+} from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { wordpressChecks } from "./checks.js";
 import { resolveWordPressInstall } from "./install.js";
@@ -26,9 +31,10 @@ export const wordpressAdapter: PlatformAdapter = {
         details.signal = "generator meta tag";
       }
 
-      const wpAssets = markers.assetUrls.filter(
-        (u) => u.includes("/wp-content/") || u.includes("/wp-includes/"),
-      );
+      const wpAssets = markers.assetUrls.filter((u) => {
+        const path = urlPathname(u, page.url);
+        return path.includes("/wp-content/") || path.includes("/wp-includes/");
+      });
       if (wpAssets.length > 0) {
         const sameHost = wpAssets.some((u) => isRelativeOrSameHost(u, page.url));
         confidence = Math.max(confidence, sameHost ? 0.95 : 0.5);

@@ -1,4 +1,4 @@
-import { endsInOpenGroup, planRobotsAccessFix } from "../audit/shared/robots-fix.js";
+import { planRobotsAccessFix } from "../audit/shared/robots-fix.js";
 import type { GenerateContext } from "./types.js";
 
 const HEADER = "# --- w2agent: suggested AI bot rules ---";
@@ -30,7 +30,7 @@ export function generateRobotsTxt(ctx: GenerateContext): string {
  * the file ends in a `User-agent` line with no rules (appended agents would join that group).
  */
 export function robotsAllowGroups(robotsTxt: string | undefined, baseUrl: string): string[][] {
-  if (!robotsTxt || endsInOpenGroup(robotsTxt)) return [];
+  if (!robotsTxt) return [];
   return planRobotsAccessFix(robotsTxt, baseUrl)?.groups ?? [];
 }
 

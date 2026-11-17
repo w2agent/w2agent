@@ -34,7 +34,7 @@ export const nextjsWellKnownCheck: Check = {
       score: hasAgentCard ? 100 : 0,
       message: hasAgentCard
         ? ".well-known/ directory serves agent discovery files correctly"
-        : ".well-known/ agent discovery files not found — Next.js needs route handlers or public/ files for these",
+        : "agent-card.json is served but is not an A2A agent card",
       details: hasAgentCard
         ? undefined
         : "Add files to public/.well-known/ or create route handlers in app/.well-known/",

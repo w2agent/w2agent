@@ -21,7 +21,7 @@ export function pageMarkers(page: FetchedPage): PageMarkers {
     ...$("script[src]")
       .toArray()
       .map((el) => $(el).attr("src") ?? ""),
-    ...$("link[href]")
+    ...$("link[href]:not([as=image i])")
       .toArray()
       .map((el) => $(el).attr("href") ?? ""),
   ];
@@ -57,12 +57,28 @@ export function generatorVersion(
   return null;
 }
 
+function bareHost(host: string): string {
+  return host.toLowerCase().replace(/^www\./, "");
+}
+
 export function isRelativeOrSameHost(url: string, pageUrl: string): boolean {
   try {
-    return new URL(url, pageUrl).host === new URL(pageUrl).host;
+    return bareHost(new URL(url, pageUrl).host) === bareHost(new URL(pageUrl).host);
   } catch {
     return false;
   }
+}
+
+export function urlPathname(url: string, pageUrl: string): string {
+  try {
+    return new URL(url, pageUrl).pathname;
+  } catch {
+    return "";
+  }
+}
+
+export function hasPathMarker(urls: string[], pageUrl: string, marker: string): boolean {
+  return urls.some((u) => urlPathname(u, pageUrl).includes(marker));
 }
 
 export function hasClassToken(classAttr: string | undefined, prefix: string): boolean {

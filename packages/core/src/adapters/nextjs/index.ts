@@ -1,6 +1,11 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
-import { isRelativeOrSameHost, pageMarkers } from "../shared/page-markers.js";
+import {
+  hasPathMarker,
+  isRelativeOrSameHost,
+  pageMarkers,
+  urlPathname,
+} from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nextjsChecks } from "./checks.js";
 import { resolveNextjsInstall } from "./install.js";
@@ -35,9 +40,10 @@ export const nextjsAdapter: PlatformAdapter = {
       }
 
       if (
-        markers.assetUrls.some((u) => u.includes("/_next/static/")) ||
+        hasPathMarker(markers.assetUrls, page.url, "/_next/static/") ||
         markers.imageUrls.some(
-          (u) => u.includes("/_next/image") && isRelativeOrSameHost(u, page.url),
+          (u) =>
+            urlPathname(u, page.url).includes("/_next/image") && isRelativeOrSameHost(u, page.url),
         )
       ) {
         confidence = Math.max(confidence, 0.95);

@@ -389,3 +389,72 @@ describe("platform detection: tie-break", () => {
     expect(detect([page(html)])?.platform).toBe("wordpress");
   });
 });
+
+describe("platform detection: gate fix round 1", () => {
+  it("a __NUXT__ mention inside another script's string is not Nuxt", () => {
+    const html = shell(
+      '<script>window.__INITIAL_STATE__={"article":"window.__NUXT__ holds state"}</script>',
+    );
+    expect(nuxtAdapter.detect([page(html)], meta)).toBeNull();
+  });
+
+  it("the real window.__NUXT__ assignment is Nuxt", () => {
+    const html = shell("<script>window.__NUXT__={};window.__NUXT__.config={}</script>");
+    expect(nuxtAdapter.detect([page(html)], meta)?.confidence).toBe(0.95);
+  });
+
+  it("a Shopify.theme mention inside a string is not Shopify, the assignment is", () => {
+    const mention = shell('<script>var t={"a":"see Shopify.theme docs"}</script>');
+    expect(shopifyAdapter.detect([page(mention)], meta)).toBeNull();
+    const real = shell('<script>var Shopify=Shopify||{};Shopify.theme = {"id":1}</script>');
+    expect(shopifyAdapter.detect([page(real)], meta)?.confidence).toBe(0.9);
+  });
+
+  it.each([
+    ["next", nextjsAdapter, '<img src="/image-proxy?url=https://up.example/_next/image">'],
+    ["next static", nextjsAdapter, '<script src="/proxy?u=/_next/static/a.js"></script>'],
+    ["nuxt", nuxtAdapter, '<script src="/proxy?u=/_nuxt/a.js"></script>'],
+    ["astro", astroAdapter, '<script src="/proxy?u=/_astro/a.js"></script>'],
+    ["wordpress", wordpressAdapter, '<link rel="stylesheet" href="/p?u=/wp-content/a.css">'],
+    ["wordpress includes", wordpressAdapter, '<script src="/p?u=/wp-includes/a.js"></script>'],
+  ])("%s marker inside a URL query is not a signal", (_l, adapter, head) => {
+    expect(adapter.detect([page(shell(head))], meta)).toBeNull();
+  });
+
+  it("markers still match in the pathname, including relative to a nested page URL", () => {
+    expect(
+      nextjsAdapter.detect(
+        [page(shell('<script src="../_next/static/a.js"></script>'), `${SITE}/a/b`)],
+        meta,
+      )?.confidence,
+    ).toBe(0.95);
+    expect(
+      nextjsAdapter.detect([page(shell('<img src="/_next/image?url=%2Fa.png&w=64&q=75">'))], meta)
+        ?.confidence,
+    ).toBe(0.95);
+  });
+
+  it("apex and www count as the same WordPress host", () => {
+    const html = shell(
+      '<link rel="stylesheet" href="https://www.site.example/wp-content/themes/t/style.css">',
+    );
+    expect(wordpressAdapter.detect([page(html)], meta)?.confidence).toBe(0.95);
+    expect(
+      wordpressAdapter.detect(
+        [
+          page(html, "https://www.site.example/"),
+          page(html.replace("www.", ""), "https://site.example/"),
+        ],
+        meta,
+      )?.confidence,
+    ).toBe(0.95);
+  });
+
+  it.each([
+    "preload",
+    "prefetch",
+  ])("an image %s of a wp-content upload is not a theme asset", (rel) => {
+    const html = shell(`<link rel="${rel}" as="image" href="/wp-content/uploads/hero.jpg">`);
+    expect(wordpressAdapter.detect([page(html)], meta)).toBeNull();
+  });
+});

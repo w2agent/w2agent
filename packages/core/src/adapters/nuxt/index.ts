@@ -1,6 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
-import { generatorVersion, pageMarkers } from "../shared/page-markers.js";
+import { generatorVersion, hasPathMarker, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nuxtChecks } from "./checks.js";
 import { resolveNuxtInstall } from "./install.js";
@@ -29,12 +29,12 @@ export const nuxtAdapter: PlatformAdapter = {
       if (markers.$("script#__NUXT_DATA__").length > 0) {
         confidence = Math.max(confidence, 0.95);
         details.nuxtData = "__NUXT_DATA__ detected";
-      } else if (markers.codeScripts.some((c) => c.includes("__NUXT__"))) {
+      } else if (markers.codeScripts.some((c) => /\bwindow\.__NUXT__\s*=(?!=)/.test(c))) {
         confidence = Math.max(confidence, 0.95);
         details.nuxtData = "__NUXT__ global detected";
       }
 
-      if (markers.assetUrls.some((u) => u.includes("/_nuxt/"))) {
+      if (hasPathMarker(markers.assetUrls, page.url, "/_nuxt/")) {
         confidence = Math.max(confidence, 0.85);
         details.assets = "/_nuxt/ assets detected";
       }

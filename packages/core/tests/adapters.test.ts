@@ -445,6 +445,8 @@ describe("Next.js checks", () => {
       wellKnown: { "agent-card.json": '{"error":"not found"}' },
     });
     expect(namelessJson).toMatchObject({ status: "fail", score: 0 });
+    expect(namelessJson?.message).toContain("not an A2A agent card");
+    expect(namelessJson?.message).not.toContain("not found");
   });
 });
 

@@ -47,7 +47,7 @@ export const shopifyAdapter: PlatformAdapter = {
       }
 
       if (
-        markers.codeScripts.some((c) => /\bShopify\.theme\b/.test(c)) ||
+        markers.codeScripts.some((c) => /\bShopify\.theme\s*=(?!=)/.test(c)) ||
         markers.$("script#shopify-features").length > 0
       ) {
         confidence = Math.max(confidence, 0.9);
