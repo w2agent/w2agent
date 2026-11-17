@@ -54,6 +54,24 @@ program
     },
   });
 
+program.hook("preAction", (_program, actionCommand) => {
+  for (const option of actionCommand.options) {
+    const value: unknown = actionCommand.getOptionValue(option.attributeName());
+    const values = Array.isArray(value) ? value : [value];
+    const swallowed = values.some(
+      (v) =>
+        typeof v === "string" &&
+        (v === "--api-key" || v === "--token" || /^--(api-key|token)=/.test(v)),
+    );
+    if (swallowed) {
+      actionCommand.error(
+        `error: ${option.long ?? option.flags} took a secret flag (--api-key or --token) as its value. Give ${option.long ?? option.flags} a value.`,
+        { exitCode: EXIT.usage, code: "w2agent.secretFlagAsValue" },
+      );
+    }
+  }
+});
+
 registerAuditCommand(program);
 registerAgentizeCommand(program);
 registerDeployCommand(program);

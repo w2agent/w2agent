@@ -11,6 +11,7 @@ import {
   loginRequiresApiKey,
   REASONS,
   redactArgv,
+  redactDocument,
   redactMessage,
   sanitizeNext,
 } from "../src/agent/output.js";
@@ -307,5 +308,58 @@ describe("enterJsonMode", () => {
     mode.restore();
     target.log("e");
     expect(orig.log).toHaveBeenCalledWith("e");
+  });
+});
+
+describe("case-insensitive and structural redaction", () => {
+  it("redacts a case-changed copy of a secret in an envelope message", () => {
+    const env = buildErrorEnvelope(
+      { reason: "unreachable", message: "Could not reach secretabc.test" },
+      ["w2agent", "--token=SECRETabc.Test"],
+    );
+    expect(env.error.message).toBe("Could not reach <api-key>");
+  });
+
+  it("redacts string leaves only, never keys, booleans or words that equal a secret name", () => {
+    const doc = {
+      ok: false,
+      error: { reason: "x", message: "path /tmp/Canary99", list: ["canary99", 3, null] },
+    };
+    const out = redactDocument(doc, ["CANARY99"]);
+    expect(out).toEqual({
+      ok: false,
+      error: { reason: "x", message: "path /tmp/<api-key>", list: ["<api-key>", 3, null] },
+    });
+    const hostile = redactDocument({ ok: false, error: { reason: "error" } }, [
+      "false",
+      "error",
+      "reason",
+      "ok",
+    ]);
+    expect(Object.keys(hostile)).toEqual(["ok", "error"]);
+    expect(hostile.ok).toBe(false);
+    expect(redactDocument(doc, [])).toBe(doc);
+  });
+
+  it("redacts the document that json.emit writes", async () => {
+    const argv = process.argv;
+    process.argv = [argv[0], argv[1], "integrate", "--output", "--token=Canary99x"];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: () => void,
+    ) => {
+      cb?.();
+      return true;
+    }) as never);
+    const mode = enterJsonMode({ log() {}, info() {}, warn() {}, debug() {}, error() {} });
+    try {
+      await mode.emit({ ok: true, outputDir: "/tmp/canary99X" });
+      const written = String(write.mock.calls[0][0]);
+      expect(JSON.parse(written)).toEqual({ ok: true, outputDir: "/tmp/<api-key>" });
+    } finally {
+      mode.restore();
+      write.mockRestore();
+      process.argv = argv;
+    }
   });
 });

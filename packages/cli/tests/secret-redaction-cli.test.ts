@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,14 +160,14 @@ describe("secret values never reach stdout or stderr", () => {
       cwd,
       home,
     );
-    expect(a.stderr).toContain("Unknown --format value");
+    expect(a.stderr).toContain("took a secret flag");
     expect(a.stderr).not.toContain(CANARY);
     const b = await run(
       ["agent", "deploy", "http://127.0.0.1:1", "--self-host", `--token=${CANARY}`],
       cwd,
       home,
     );
-    expect(b.stderr).toContain("Unknown self-host platform");
+    expect(b.stderr).toContain("took a secret flag");
     expect(b.stderr).not.toContain(CANARY);
   });
 
@@ -219,5 +219,60 @@ describe("secret values never reach stdout or stderr", () => {
   it("scrubs a case-changed copy of the secret", async () => {
     const r = await run(["audit", "--output", "--api-key", "SECRETabc.Test"], cwd, home);
     expect((r.stdout + r.stderr).toLowerCase()).not.toContain("secretabc");
+  });
+
+  describe("a secret flag taken as an option value", () => {
+    const cases: { label: string; args: string[]; canary: string }[] = [
+      {
+        label: "integrate --output --token=",
+        args: [
+          "integrate",
+          "http://127.0.0.1:1",
+          "--platform",
+          "nextjs",
+          "--output",
+          "--token=CANARYxyz123",
+        ],
+        canary: "CANARYxyz123",
+      },
+      {
+        label: "generate --output --token=",
+        args: ["generate", "http://127.0.0.1:1", "--output", "--token=CANARYxyz123"],
+        canary: "CANARYxyz123",
+      },
+      {
+        label: "generate --output --api-key (space form)",
+        args: ["generate", "http://127.0.0.1:1", "--output", "--api-key", "CANARYxyz123"],
+        canary: "CANARYxyz123",
+      },
+      {
+        label: "generate --format with a comma-split secret",
+        args: ["generate", "http://127.0.0.1:1", "--format", "--api-key=w2a_CANARY123,XYZ"],
+        canary: "CANARY123",
+      },
+      {
+        label: "generate --format with a short secret",
+        args: ["generate", "http://127.0.0.1:1", "--format", "--api-key=abcd"],
+        canary: "abcd",
+      },
+    ];
+    for (const c of cases) {
+      for (const json of [false, true]) {
+        it(`${c.label}${json ? " --json" : ""} exits 2 with no side effects`, async () => {
+          const dir = mkdtempSync(join(tmpdir(), "w2agent-redact-fresh-"));
+          const r = await run(json ? [...c.args, "--json"] : c.args, dir, home);
+          expect(r.code).toBe(2);
+          expect(readdirSync(dir)).toEqual([]);
+          expect(r.stdout + r.stderr).not.toContain(c.canary);
+          if (json) {
+            const doc = JSON.parse(r.stdout) as { ok: boolean; error: { reason: string } };
+            expect(doc.ok).toBe(false);
+            expect(doc.error.reason).toBe("invalid_argument");
+          } else {
+            expect(r.stderr).toMatch(/took a secret flag|too many arguments/);
+          }
+        });
+      }
+    }
   });
 });

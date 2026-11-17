@@ -91,9 +91,33 @@ export function apiKeyValues(argv: readonly string[]): string[] {
   return values.filter((v) => v.length >= 5).sort((a, b) => b.length - a.length);
 }
 
+function secretPatterns(secrets: readonly string[]): RegExp[] {
+  return secrets.map((secret) => new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"));
+}
+
+function scrubText(text: string, patterns: readonly RegExp[]): string {
+  let out = text;
+  for (const pattern of patterns) out = out.replace(pattern, API_KEY_PLACEHOLDER);
+  return out;
+}
+
+/** Replaces secret values (any case) in the string leaves of a document, leaving keys and other types alone. */
+export function redactDocument<T>(doc: T, secrets: readonly string[]): T {
+  if (secrets.length === 0) return doc;
+  const patterns = secretPatterns(secrets);
+  const walk = (value: unknown): unknown => {
+    if (typeof value === "string") return scrubText(value, patterns);
+    if (Array.isArray(value)) return value.map(walk);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)]));
+    }
+    return value;
+  };
+  return walk(doc) as T;
+}
+
 export function redactMessage(message: string, secrets: readonly string[] = []): string {
-  let text = message;
-  for (const secret of secrets) text = text.split(secret).join(API_KEY_PLACEHOLDER);
+  const text = scrubText(message, secretPatterns(secrets));
   return text
     .replace(/--(api-key|token)([= ])\S+/g, `--$1$2${API_KEY_PLACEHOLDER}`)
     .replace(/w2a_[A-Za-z0-9_-]+/g, API_KEY_PLACEHOLDER);
@@ -111,14 +135,8 @@ export function installOutputRedaction(
   streams: readonly WritableLike[] = [process.stdout, process.stderr],
 ): void {
   if (secrets.length === 0) return;
-  const patterns = secrets.map(
-    (secret) => new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
-  );
-  const scrub = (text: string): string => {
-    let out = text;
-    for (const pattern of patterns) out = out.replace(pattern, API_KEY_PLACEHOLDER);
-    return out;
-  };
+  const patterns = secretPatterns(secrets);
+  const scrub = (text: string): string => scrubText(text, patterns);
   for (const stream of streams) {
     const original = stream.write as unknown as (...args: unknown[]) => boolean;
     const bound = original.bind(stream);
@@ -237,7 +255,10 @@ export function enterJsonMode(target: ConsoleLike = console): JsonMode {
   chalk.level = 0;
   return {
     emit(doc) {
-      const text = typeof doc === "string" ? doc : JSON.stringify(doc, null, 2);
+      const text =
+        typeof doc === "string"
+          ? doc
+          : JSON.stringify(redactDocument(doc, apiKeyValues(currentArgv())), null, 2);
       return new Promise((resolve) => {
         process.stdout.write(`${text}\n`, () => resolve());
       });

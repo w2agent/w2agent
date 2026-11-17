@@ -147,7 +147,6 @@ On failure, with `--json`, stdout holds:
 ### `next` rules
 
 - `next` never contains the command that just failed.
-- Secret values never reach stdout or stderr. The CLI replaces the exact values of `--api-key` and `--token` (values of 5 or more characters) with `<api-key>` in everything it prints to stderr, and to stdout in human mode. Under `--json`, stdout is one document whose error envelope already redacts the values. The match ignores case. Help and version text is never rewritten.
 - `next` never contains a secret. The value of `--api-key` (both `--api-key v` and `--api-key=v`) becomes the placeholder `<api-key>`. Replace it with a real key before you run the command. The same value is also redacted wherever it appears in `message`.
 - When the command line has a `--` terminator, added flags go before it.
 
@@ -182,6 +181,14 @@ Every other mention of the crawl host is reported in `warnings` (on stderr in hu
 ## `w2agent schema`
 
 `w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It exits 0, or 2 on a usage error.
+
+## Secret values in output
+
+The values of `--api-key` and `--token` (`--flag value` and `--flag=value`) are redacted to `<api-key>` as follows. Values shorter than 5 characters are not redacted by the text scrubber.
+
+- Text written to stderr, and to stdout in human mode, is scrubbed for those exact values, ignoring case. Help and version text is never rewritten.
+- Under `--json`, stdout is not text-scrubbed. The emitted document has the values replaced (ignoring case) in its string values only, never in keys, booleans or numbers.
+- A secret flag given where another option expects a value (for example `--output --token=abc`, or `--format '--api-key=abc,def'`) is refused before the command runs: `invalid_argument`, exit 2, a fixed message naming the option, and no directory, file or request. The value is never echoed. Without a `=` (`--output --api-key abc`) the arguments are usually rejected as `too many arguments`, also exit 2.
 
 ## Hosted API address (`W2AGENT_API_URL`)
 
