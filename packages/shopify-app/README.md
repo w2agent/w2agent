@@ -92,7 +92,7 @@ All other app proxy paths return 404.
 
 ## Canonical URL
 
-The canonical endpoint is `/apps/w2agent/llms.txt` on the merchant's storefront. Shopify already serves `/llms.txt` for every store, so a URL redirect from that path does not apply. To replace the store's `/llms.txt` with the generated content, use the optional `templates/llms.txt.liquid` override that `w2agent integrate <url> --platform shopify --output <dir>` writes. The app does not install it.
+The canonical endpoint is `/apps/w2agent/llms.txt` on the merchant's storefront. Shopify already serves `/llms.txt` for every store, so a URL redirect from that path does not apply. To replace the store's `/llms.txt`, use the optional `templates/llms.txt.liquid` theme template (not this app's output) that `w2agent integrate <url> --platform shopify --output <dir>` writes. The app does not install it.
 
 ## Architecture
 

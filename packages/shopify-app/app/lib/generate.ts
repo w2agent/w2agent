@@ -1,5 +1,8 @@
 interface AdminClient {
-  graphql(query: string, options?: { variables?: Record<string, unknown> }): Promise<Response>;
+  graphql(
+    query: string,
+    options?: { variables?: Record<string, unknown>; signal?: AbortSignal },
+  ): Promise<Response>;
 }
 
 function stripHtml(html: string): string {
@@ -83,15 +86,21 @@ function assertNoErrors(body: { errors?: unknown } | null | undefined) {
 const PAGE_SIZE = 250;
 const MAX_ITEMS = 2000;
 
-async function fetchAll<T>(admin: AdminClient, query: string, rootField: string): Promise<T[]> {
+async function fetchAll<T>(
+  admin: AdminClient,
+  query: string,
+  rootField: string,
+  signal: AbortSignal,
+): Promise<T[]> {
   const items: T[] = [];
   let cursor: string | null = null;
 
   while (items.length < MAX_ITEMS) {
+    if (signal.aborted) throw new Error("Shopify Admin API scan aborted");
     const variables: Record<string, unknown> = { first: PAGE_SIZE };
     if (cursor) variables.after = cursor;
 
-    const res = await admin.graphql(query, { variables });
+    const res = await admin.graphql(query, { variables, signal });
     const data = await res.json();
     assertNoErrors(data);
     const connection = data?.data?.[rootField];
@@ -123,11 +132,32 @@ interface Page {
 }
 
 export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
-  const [shopRes, allProducts, allPages] = await Promise.all([
-    admin.graphql(SHOP_QUERY),
-    fetchAll<Product>(admin, PRODUCTS_QUERY, "products"),
-    fetchAll<Page>(admin, PAGES_QUERY, "pages"),
+  const controller = new AbortController();
+  const { signal } = controller;
+  let failed = false;
+  let firstError: unknown;
+  const guard = async <T>(run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (!failed) {
+        failed = true;
+        firstError = error;
+        controller.abort();
+      }
+      throw error;
+    }
+  };
+
+  const settled = await Promise.allSettled([
+    guard(() => admin.graphql(SHOP_QUERY, { signal })),
+    guard(() => fetchAll<Product>(admin, PRODUCTS_QUERY, "products", signal)),
+    guard(() => fetchAll<Page>(admin, PAGES_QUERY, "pages", signal)),
   ]);
+  if (failed) throw firstError;
+  const [shopRes, allProducts, allPages] = settled.map((r) =>
+    r.status === "fulfilled" ? r.value : undefined,
+  ) as [Response, Product[], Page[]];
 
   const products = allProducts.filter((p) => p.onlineStoreUrl != null);
   const pages = allPages.filter((p) => p.isPublished === true);
