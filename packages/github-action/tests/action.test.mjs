@@ -186,6 +186,29 @@ describe("Expression injection (GHA-2)", () => {
   });
 });
 
+describe("README action ref (GHA-3)", () => {
+  const version = JSON.parse(readFileSync(cliPkgPath, "utf8")).version;
+  const readme = readFileSync(join(here, "..", "README.md"), "utf8");
+  const expected = `interskh/w2agent/packages/github-action@v${version}`;
+  const refs = [...readme.matchAll(/uses:\s*(\S*github-action\S*)/g)].map((m) => m[1]);
+
+  it("has action examples", () => {
+    assert.ok(refs.length >= 5);
+  });
+
+  it("pins every uses: ref to the CLI version", () => {
+    for (const ref of refs) assert.equal(ref, expected);
+  });
+
+  it("has no generate-action ref left", () => {
+    assert.doesNotMatch(readme, /generate-action/);
+  });
+
+  it("has no uses: ref to w2agent other than the action", () => {
+    for (const m of readme.matchAll(/uses:\s*(\S*w2agent\S*)/g)) assert.equal(m[1], expected);
+  });
+});
+
 describe("CLI pin", () => {
   const version = JSON.parse(readFileSync(cliPkgPath, "utf8")).version;
 

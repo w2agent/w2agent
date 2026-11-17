@@ -64,7 +64,7 @@ CI runs `pnpm lint`, `pnpm test` and `pnpm test:agent-surfaces` on Node 22.
 Packages: `w2agent-core` and `w2agent`. A GitHub release triggers `.github/workflows/publish.yml`. It runs build and test, then publishes both packages to npm.
 
 1. Bump `version` in `packages/cli/package.json` (and in `packages/core/package.json` when core changed).
-2. Update the pinned `w2agent@<version>` in `README.md`, `README_CN.md`, `docs/AGENT-PLAYBOOK.md` and `skills/w2agent/SKILL.md`.
+2. Update the pinned `w2agent@<version>` in `README.md`, `README_CN.md`, `docs/AGENT-PLAYBOOK.md` and `skills/w2agent/SKILL.md`. Also update the install pin in `packages/github-action/action.yml` and the `@vX.Y.Z` action ref in `packages/github-action/README.md`. `pnpm test` (the github-action package tests) fails until they match.
 3. Update `version` in `.claude-plugin/plugin.json` and the root `plugin.json`.
 4. Run `pnpm test:agent-surfaces`. It fails until every pin matches the CLI version.
 5. Merge, then `gh release create vX.Y.Z`.

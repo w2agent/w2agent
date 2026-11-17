@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: w2agent/generate-action@v1
+      - uses: interskh/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           threshold: 80
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: w2agent/generate-action@v1
+      - uses: interskh/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           output-dir: .w2agent/
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: w2agent/generate-action@v1
+      - uses: interskh/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           threshold: 80
@@ -119,7 +119,7 @@ jobs:
 Generate only specific agent file formats instead of all of them:
 
 ```yaml
-- uses: w2agent/generate-action@v1
+- uses: interskh/w2agent/packages/github-action@v0.1.0
   with:
     url: https://example.com
     formats: 'llms-txt,robots-txt'
@@ -145,7 +145,7 @@ your workflow does both.
 Reference `score`, `grade`, and `badge-url` in downstream steps by giving the action an `id`:
 
 ```yaml
-- uses: w2agent/generate-action@v1
+- uses: interskh/w2agent/packages/github-action@v0.1.0
   id: audit
   with:
     url: https://example.com
@@ -156,8 +156,8 @@ Reference `score`, `grade`, and `badge-url` in downstream steps by giving the ac
 
 ## Troubleshooting
 
-**`npm install -g w2agent` fails — package not found**
-The `w2agent` npm package must be published before this action is functional. See [npmjs.com/package/w2agent](https://www.npmjs.com/package/w2agent) for status.
+**`npm install -g w2agent@0.1.0` fails — package not found**
+The action installs the pinned `w2agent@0.1.0`. It works once that version is published to npm and the `v0.1.0` release tag exists. See [npmjs.com/package/w2agent](https://www.npmjs.com/package/w2agent) for status.
 
 **Audit fails with "URL unreachable" or timeout**
 Ensure the URL is publicly accessible from GitHub Actions runners. Private/intranet URLs require a self-hosted runner with network access. Use `max-pages: '5'` to reduce timeout risk on large sites.
