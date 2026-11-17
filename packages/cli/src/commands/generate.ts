@@ -132,12 +132,20 @@ export function registerGenerateCommand(program: Command): void {
           spinner.text = status;
         });
 
-        if (result.pagesProcessed === 0) {
+        if (result.pagesFetched === 0) {
           spinner.fail(`No pages could be crawled from ${url} (nothing written)`);
           process.exit(1);
         }
 
         spinner.stop();
+
+        if (result.pagesProcessed === 0) {
+          console.log(
+            chalk.yellow(
+              "  ⚠ No page had extractable content (or matched --sections); output may be empty.",
+            ),
+          );
+        }
 
         // Write files to disk
         const outputDir = resolve(opts.output);

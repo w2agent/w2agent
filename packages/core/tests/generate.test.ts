@@ -811,6 +811,39 @@ describe("generateAgentCard", () => {
     }
   });
 
+  it("runGenerate pagesFetched is 0 when nothing is reachable and counts empty-body pages", async () => {
+    const emptyHtml = "<html><head><title>Catalog</title></head><body></body></html>";
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+        throw new TypeError("fetch failed");
+      });
+      const dead = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["llms-txt"],
+      });
+      expect(dead.pagesFetched).toBe(0);
+      expect(dead.pagesProcessed).toBe(0);
+      vi.restoreAllMocks();
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = input instanceof Request ? input.url : String(input);
+        return url === "https://example.com/"
+          ? new Response(emptyHtml, { headers: { "content-type": "text/html" } })
+          : new Response("not found", { status: 404, headers: { "content-type": "text/html" } });
+      });
+      const empty = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["schema-org"],
+        platformFiles: false,
+      });
+      expect(empty.pagesProcessed).toBe(0);
+      expect(empty.pagesFetched).toBe(1);
+      expect(empty.files.map((f) => f.filename)).toContain("schema-org.json");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("provides fallback description when none exists", () => {
     const ctx = makeCtx({
       pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],

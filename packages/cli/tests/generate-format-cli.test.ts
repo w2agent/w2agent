@@ -234,6 +234,42 @@ describe("generate --format and --no-platform (NX-14, NX-5)", () => {
   );
 
   it.skipIf(skip)(
+    "reachable page with no extractable content still writes schema-org.json and warns",
+    async () => {
+      const empty = createServer((_req, res) => {
+        res.setHeader("content-type", "text/html");
+        res.end("<html><head><title>Catalog</title></head><body></body></html>");
+      });
+      await new Promise<void>((r) => empty.listen(0, "127.0.0.1", r));
+      try {
+        const url = `http://127.0.0.1:${(empty.address() as AddressInfo).port}`;
+        const cwd = tmp();
+        const { code, out } = await run(
+          [
+            "generate",
+            url,
+            "--format",
+            "schema-org",
+            "--no-platform",
+            "--max-pages",
+            "1",
+            "-o",
+            "out",
+          ],
+          cwd,
+        );
+        expect(code).toBe(0);
+        expect(out).not.toContain("No pages could be crawled");
+        expect(out).toContain("extractable content");
+        expect(listFiles(join(cwd, "out"))).toEqual(["schema-org.json"]);
+      } finally {
+        await new Promise<void>((r) => empty.close(() => r()));
+      }
+    },
+    90000,
+  );
+
+  it.skipIf(skip)(
     "empty --format segment is rejected before any request",
     async () => {
       const cwd = tmp();

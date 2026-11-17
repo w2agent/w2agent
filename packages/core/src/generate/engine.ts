@@ -308,6 +308,7 @@ export async function runGenerate(
     url,
     duration,
     pagesProcessed: filteredPages.length,
+    pagesFetched: seenUrls.size,
     totalPagesFound,
     files,
     sections: sectionNames,
