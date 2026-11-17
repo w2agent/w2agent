@@ -113,9 +113,6 @@ importers:
       '@docusaurus/core':
         specifier: ^3.0.0
         version: 3.9.2(@mdx-js/react@3.1.1(@types/react@19.2.14)(react@19.2.4))(lightningcss@1.31.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
-      gray-matter:
-        specifier: ^4.0.3
-        version: 4.0.3
     devDependencies:
       '@docusaurus/types':
         specifier: ^3.0.0

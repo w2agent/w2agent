@@ -104,16 +104,34 @@ describe("gate fix round 1", () => {
     expect(dests.every((d) => d.startsWith("w2agent/"))).toBe(true);
   });
 
-  it("6: no gray-matter step when the plugin write was guarded out", () => {
-    writeFileSync(join(dir, "w2agent-plugin.ts"), "// mine");
-    const plan = planInstall(docusaurusAdapter, [makeFile("docusaurus/w2agent-plugin.js")], dir);
+  it("6: no clientModules step when the WebMCP module write was guarded out", () => {
+    writeFileSync(join(dir, "w2agent-webmcp-module.ts"), "// mine");
+    const plan = planInstall(
+      docusaurusAdapter,
+      [makeFile("docusaurus/w2agent-webmcp-module.js")],
+      dir,
+    );
     expect(plan.actions.some((a) => a.type === "write")).toBe(false);
-    expect(plan.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(false);
+    expect(plan.postInstallSteps.some((s) => s.includes("clientModules"))).toBe(false);
   });
 
-  it("6: gray-matter step stays when the plugin is written", () => {
-    const plan = planInstall(docusaurusAdapter, [makeFile("docusaurus/w2agent-plugin.js")], dir);
-    expect(plan.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(true);
+  it("6: clientModules step stays when the WebMCP module is written", () => {
+    const plan = planInstall(
+      docusaurusAdapter,
+      [makeFile("docusaurus/w2agent-webmcp-module.js")],
+      dir,
+    );
+    expect(plan.postInstallSteps.some((s) => s.includes("clientModules"))).toBe(true);
+  });
+
+  it("6: the plugin step follows the plugin write, with no gray-matter step", () => {
+    const written = planInstall(docusaurusAdapter, [makeFile("docusaurus/w2agent-plugin.js")], dir);
+    expect(written.postInstallSteps.some((s) => s.includes("plugins:"))).toBe(true);
+    expect(written.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(false);
+    writeFileSync(join(dir, "w2agent-plugin.ts"), "// mine");
+    const guarded = planInstall(docusaurusAdapter, [makeFile("docusaurus/w2agent-plugin.js")], dir);
+    expect(guarded.actions.some((a) => a.type === "write")).toBe(false);
+    expect(guarded.postInstallSteps).toEqual([]);
   });
 
   it("2: executor reports fs write failures and the summary withdraws post-install steps", () => {

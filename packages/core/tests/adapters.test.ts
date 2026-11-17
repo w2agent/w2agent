@@ -719,14 +719,15 @@ describe("Docusaurus integration generation", () => {
     expect(files).toHaveLength(4);
   });
 
-  it("generates build plugin that reads from docs directory", () => {
+  it("generates a build plugin that reads the loaded docs content, not the docs directory", () => {
     const files = docusaurusAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const plugin = files.find((f) => f.filename === "docusaurus/w2agent-plugin.js");
     expect(plugin).toBeDefined();
-    expect(plugin?.content).toContain("generateFromDocs");
-    expect(plugin?.content).toContain("walkDir");
-    expect(plugin?.content).toContain("gray-matter");
+    expect(plugin?.content).toContain("docusaurus-plugin-content-docs");
+    expect(plugin?.content).toContain("loadedVersions");
     expect(plugin?.content).toContain("postBuild");
+    expect(plugin?.content).not.toContain("walkDir");
+    expect(plugin?.content).not.toContain("gray-matter");
   });
 
   it("includes static fallback files", () => {

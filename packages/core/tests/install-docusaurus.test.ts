@@ -30,7 +30,7 @@ describe("Docusaurus install resolver", () => {
     );
     writeFileSync(
       join(tempDir, "package.json"),
-      JSON.stringify({ dependencies: { "@docusaurus/core": "^3.0.0", "gray-matter": "^4.0.0" } }),
+      JSON.stringify({ dependencies: { "@docusaurus/core": "^3.0.0" } }),
       "utf-8",
     );
   });
@@ -75,7 +75,7 @@ describe("Docusaurus install resolver", () => {
     const noConfigDir = mkdtempSync(join(tmpdir(), "w2agent-docu-noconfig-"));
     writeFileSync(
       join(noConfigDir, "package.json"),
-      JSON.stringify({ dependencies: { "gray-matter": "^4.0.0" } }),
+      JSON.stringify({ dependencies: { "@docusaurus/core": "^3.0.0" } }),
       "utf-8",
     );
     try {
@@ -89,20 +89,51 @@ describe("Docusaurus install resolver", () => {
     }
   });
 
-  it("suggests installing gray-matter when missing", () => {
-    writeFileSync(
-      join(tempDir, "package.json"),
-      JSON.stringify({ dependencies: { "@docusaurus/core": "^3.0.0" } }),
-      "utf-8",
-    );
-
-    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
-    expect(plan.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(true);
-  });
-
-  it("does not suggest gray-matter when already installed", () => {
+  it("never asks for gray-matter (the plugin reads the loaded docs content)", () => {
     const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
     expect(plan.postInstallSteps.some((s) => s.includes("gray-matter"))).toBe(false);
+  });
+
+  it("tells the user the seed static/llms.txt is served as is unless overwrite: true", () => {
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    const step = plan.postInstallSteps.find((s) => s.includes("w2agent-plugin.js"));
+    expect(step).toContain("overwrite: true");
+  });
+
+  it("gives the same note when static/llms.txt already exists", () => {
+    mkdirSync(join(tempDir, "static"), { recursive: true });
+    writeFileSync(join(tempDir, "static", "llms.txt"), "# existing", "utf-8");
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    const step = plan.postInstallSteps.find((s) => s.includes("w2agent-plugin.js"));
+    expect(step).toContain("overwrite: true");
+  });
+
+  it("gives no overwrite note when there is no static/llms.txt at all", () => {
+    const files = makeDocusaurusFiles().filter((f) => f.filename !== "docusaurus/static/llms.txt");
+    const plan = resolveDocusaurusInstall(files, tempDir);
+    const step = plan.postInstallSteps.find((s) => s.includes("w2agent-plugin.js"));
+    expect(step).toBeDefined();
+    expect(step).not.toContain("overwrite");
+  });
+
+  it("adds the clientModules step when the WebMCP module is written", () => {
+    const files = [
+      ...makeDocusaurusFiles(),
+      makeFile("docusaurus/w2agent-webmcp-module.js", "// module"),
+    ];
+    const plan = resolveDocusaurusInstall(files, tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests).toContain("w2agent-webmcp-module.js");
+    expect(
+      plan.postInstallSteps.some((s) =>
+        s.includes('clientModules: ["./w2agent-webmcp-module.js"]'),
+      ),
+    ).toBe(true);
+  });
+
+  it("adds no clientModules step when there is no WebMCP module", () => {
+    const plan = resolveDocusaurusInstall(makeDocusaurusFiles(), tempDir);
+    expect(plan.postInstallSteps.some((s) => s.includes("clientModules"))).toBe(false);
   });
 
   it("skips plugin when file already exists on disk", () => {

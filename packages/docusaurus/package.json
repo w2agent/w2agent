@@ -37,9 +37,6 @@
     "lint": "biome check .",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "gray-matter": "^4.0.3"
-  },
   "peerDependencies": {
     "@docusaurus/core": "^3.0.0"
   },

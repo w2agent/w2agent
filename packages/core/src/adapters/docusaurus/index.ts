@@ -98,8 +98,11 @@ module.exports = function w2agentMcpWebhookPlugin() {
       const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
       if (webmcpJs) {
         const webmcpModule = `// W2Agent WebMCP Registration
-// Add to docusaurus.config.js clientModules: ['./w2agent-webmcp-module.js']
+// Add to docusaurus.config.js: clientModules: ["./w2agent-webmcp-module.js"],
+// Docusaurus imports client modules during the server-side render too, so the script only runs in a browser.
+if (typeof window !== "undefined" && typeof document !== "undefined") {
 ${webmcpJs}
+}
 `;
         files.push({
           filename: "docusaurus/w2agent-webmcp-module.js",

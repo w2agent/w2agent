@@ -1,160 +1,136 @@
 import type { GeneratedFile } from "../../generate/types.js";
 
+// String.raw keeps the regex backslashes of the emitted plugin readable: it must not contain a
+// backtick or a dollar-brace sequence.
+const PLUGIN_JS = String.raw`/**
+ * w2agent Docusaurus Plugin
+ *
+ * Generates llms.txt at build time from the docs Docusaurus loaded (permalinks, titles,
+ * descriptions), so URLs follow baseUrl, routeBasePath, slugs and number prefixes.
+ * A static/llms.txt that already exists is kept unless you pass overwrite: true.
+ *
+ * Usage in docusaurus.config.js:
+ *   plugins: ["./w2agent-plugin.js"],
+ *   // or: plugins: [["./w2agent-plugin.js", { overwrite: true }]],
+ */
+const fs = require("fs");
+const path = require("path");
+
+const DOCS_PLUGIN = "docusaurus-plugin-content-docs";
+
+function oneLine(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function sectionName(sourceDirName) {
+  const top = (sourceDirName || ".").split("/")[0];
+  if (!top || top === ".") return "Docs";
+  const name = top.replace(/^\d+[-_.]/, "").replace(/-/g, " ");
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// Same rule as Docusaurus applyTrailingSlash, so links match the emitted routes.
+function applyTrailingSlash(permalink, trailingSlash, baseUrl) {
+  if (typeof trailingSlash === "undefined") return permalink;
+  const pathname = permalink.split(/[#?]/)[0];
+  if (pathname === "/" || pathname === baseUrl) return permalink;
+  const next = trailingSlash ? (pathname.endsWith("/") ? pathname : pathname + "/") : pathname.replace(/\/$/, "");
+  return permalink.replace(pathname, next);
+}
+
+function collectSections(plugins, siteConfig) {
+  const sections = new Map();
+  const origin = siteConfig.url.replace(/\/+$/, "");
+
+  for (const plugin of plugins) {
+    if (plugin.name !== DOCS_PLUGIN) continue;
+    const versions = (plugin.content && plugin.content.loadedVersions) || [];
+    for (const version of versions) {
+      if (version.isLast !== true) continue;
+      for (const doc of version.docs || []) {
+        if (doc.unlisted || doc.draft) continue;
+        const title = oneLine(doc.title);
+        if (!title || !doc.permalink) continue;
+        const name = sectionName(doc.sourceDirName);
+        const items = sections.get(name) || [];
+        items.push({ title, description: oneLine(doc.description), url: origin + applyTrailingSlash(doc.permalink, siteConfig.trailingSlash, siteConfig.baseUrl) });
+        sections.set(name, items);
+      }
+    }
+  }
+
+  return sections;
+}
+
+function renderLlmsTxt(sections, siteName, siteDesc) {
+  let output = "# " + oneLine(siteName) + "\n\n";
+  if (oneLine(siteDesc)) output += "> " + oneLine(siteDesc) + "\n\n";
+
+  for (const [section, items] of sections) {
+    output += "## " + section + "\n\n";
+    for (const item of items) {
+      output += "- [" + item.title + "](" + item.url + ")";
+      if (item.description) output += ": " + item.description;
+      output += "\n";
+    }
+    output += "\n";
+  }
+
+  return output;
+}
+
+module.exports = function w2agentPlugin(context, options = {}) {
+  const overwrite = options.overwrite === true;
+  const staticDirs = (context.siteConfig.staticDirectories || ["static"]).map((d) =>
+    path.resolve(context.siteDir, d),
+  );
+
+  return {
+    name: "w2agent-plugin",
+
+    async postBuild({ siteConfig, outDir, plugins = [] }) {
+      const sections = collectSections(plugins, siteConfig);
+
+      if (sections.size > 0) {
+        const kept = staticDirs.map((d) => path.join(d, "llms.txt")).find((f) => fs.existsSync(f));
+        if (kept && !overwrite) {
+          console.log(
+            "[w2agent] Keeping existing " + path.relative(context.siteDir, kept) + " (set overwrite: true to replace)",
+          );
+        } else {
+          const llmsTxt = renderLlmsTxt(
+            sections,
+            siteConfig.title || "Documentation",
+            siteConfig.tagline || "",
+          );
+          fs.writeFileSync(path.join(outDir, "llms.txt"), llmsTxt);
+          console.log("[w2agent] Generated llms.txt (" + llmsTxt.length + " bytes)");
+        }
+      }
+
+      // Copy agent card
+      const wellKnownDir = path.join(outDir, ".well-known");
+      fs.mkdirSync(wellKnownDir, { recursive: true });
+
+      for (const dir of staticDirs) {
+        const agentCardSrc = path.join(dir, ".well-known", "agent-card.json");
+        if (fs.existsSync(agentCardSrc)) {
+          fs.copyFileSync(agentCardSrc, path.join(wellKnownDir, "agent-card.json"));
+          console.log("[w2agent] Copied agent-card.json");
+          break;
+        }
+      }
+    },
+  };
+};
+`;
+
 export function generateDocusaurusIntegration(
   llmsTxtContent: string,
   agentCardContent: string | undefined,
   siteUrl: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
-
-  // Build plugin that generates llms.txt from actual docs content at build time
-  const pluginJs = `/**
- * w2agent Docusaurus Plugin
- *
- * Generates llms.txt dynamically from your docs at build time.
- * Reads sidebar structure + markdown files to produce a comprehensive llms.txt.
- *
- * Usage in docusaurus.config.js:
- *   plugins: [require.resolve('./w2agent-plugin')],
- */
-const fs = require("fs");
-const path = require("path");
-let matter;
-try {
-  matter = require("gray-matter");
-} catch {
-  console.warn("[w2agent] gray-matter not installed — dynamic llms.txt generation disabled, using static fallback");
-}
-
-module.exports = function w2agentPlugin(context) {
-  return {
-    name: "w2agent-plugin",
-
-    async postBuild({ siteConfig, outDir }) {
-      const siteUrl = siteConfig.url || "${siteUrl}";
-      const siteName = siteConfig.title || "Documentation";
-      const siteDesc = siteConfig.tagline || "";
-
-      // Try to generate dynamically from docs
-      let llmsTxt = generateFromDocs(context, siteUrl, siteName, siteDesc);
-
-      // Fallback to pre-generated file if dynamic generation found nothing
-      if (!llmsTxt) {
-        const staticFile = path.join(__dirname, "static", "llms.txt");
-        if (fs.existsSync(staticFile)) {
-          llmsTxt = fs.readFileSync(staticFile, "utf-8");
-          console.log("[w2agent] Using pre-generated llms.txt");
-        }
-      }
-
-      if (llmsTxt) {
-        fs.writeFileSync(path.join(outDir, "llms.txt"), llmsTxt);
-        console.log("[w2agent] Generated llms.txt (" + llmsTxt.length + " bytes)");
-      }
-
-      // Copy agent card
-      const wellKnownDir = path.join(outDir, ".well-known");
-      if (!fs.existsSync(wellKnownDir)) {
-        fs.mkdirSync(wellKnownDir, { recursive: true });
-      }
-
-      const agentCardSrc = path.join(__dirname, "static", ".well-known", "agent-card.json");
-      if (fs.existsSync(agentCardSrc)) {
-        fs.copyFileSync(agentCardSrc, path.join(wellKnownDir, "agent-card.json"));
-        console.log("[w2agent] Copied agent-card.json");
-      }
-    },
-  };
-};
-
-function generateFromDocs(context, siteUrl, siteName, siteDesc) {
-  if (!matter) return null;
-  const docsDir = path.join(context.siteDir, "docs");
-  if (!fs.existsSync(docsDir)) return null;
-
-  const sections = {};
-
-  // Walk the docs directory
-  walkDir(docsDir, (filePath) => {
-    if (!filePath.endsWith(".md") && !filePath.endsWith(".mdx")) return;
-
-    const relativePath = path.relative(docsDir, filePath);
-    const content = fs.readFileSync(filePath, "utf-8");
-
-    // Parse frontmatter
-    let title, description;
-    try {
-      const parsed = matter(content);
-      title = parsed.data.title || parsed.data.sidebar_label;
-      description = parsed.data.description;
-
-      // Extract title from first heading if not in frontmatter
-      if (!title) {
-        const headingMatch = parsed.content.match(/^#\\s+(.+)/m);
-        if (headingMatch) title = headingMatch[1];
-      }
-
-      // Extract description from first paragraph if not in frontmatter
-      if (!description) {
-        const lines = parsed.content.split("\\n").filter(l => l.trim() && !l.startsWith("#"));
-        if (lines.length > 0) {
-          description = lines[0].trim().substring(0, 150);
-          if (lines[0].length > 150) description += "...";
-        }
-      }
-    } catch {
-      return; // Skip files that can't be parsed
-    }
-
-    if (!title) return;
-
-    // Determine section from directory structure
-    const parts = relativePath.split(path.sep);
-    const section = parts.length > 1 ? parts[0] : "General";
-    const sectionName = section.charAt(0).toUpperCase() + section.slice(1).replace(/-/g, " ");
-
-    // Build URL path from file path
-    const urlPath = relativePath
-      .replace(/\\.mdx?$/, "")
-      .replace(/\\/index$/, "")
-      .replace(/\\\\/g, "/");
-    const fullUrl = siteUrl.replace(/\\/$/, "") + "/docs/" + urlPath;
-
-    if (!sections[sectionName]) sections[sectionName] = [];
-    sections[sectionName].push({ title, description, url: fullUrl });
-  });
-
-  if (Object.keys(sections).length === 0) return null;
-
-  // Build llms.txt
-  let output = "# " + siteName + "\\n\\n";
-  if (siteDesc) output += "> " + siteDesc + "\\n\\n";
-
-  for (const [section, items] of Object.entries(sections)) {
-    output += "## " + section + "\\n\\n";
-    for (const item of items) {
-      output += "- [" + item.title + "](" + item.url + ")";
-      if (item.description) output += ": " + item.description;
-      output += "\\n";
-    }
-    output += "\\n";
-  }
-
-  return output;
-}
-
-function walkDir(dir, callback) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkDir(fullPath, callback);
-    } else {
-      callback(fullPath);
-    }
-  }
-}
-`;
 
   const installMd = `# w2agent Docusaurus Integration — Installation
 
@@ -166,7 +142,9 @@ npm install @w2agent/docusaurus
 
 Then add to \`docusaurus.config.js\`:
 \`\`\`js
-plugins: [['@w2agent/docusaurus', { siteUrl: '${siteUrl}' }]],
+plugins: ['@w2agent/docusaurus'],
+// to replace an existing static/llms.txt with the generated one:
+// plugins: [['@w2agent/docusaurus', { overwrite: true }]],
 \`\`\`
 
 ---
@@ -175,30 +153,29 @@ plugins: [['@w2agent/docusaurus', { siteUrl: '${siteUrl}' }]],
 
 ## How It Works
 
-The build plugin **generates llms.txt dynamically from your docs directory** at build time:
-1. Walks your \`docs/\` directory
-2. Reads frontmatter (title, description) from each .md/.mdx file
-3. Groups by directory structure (sections)
-4. Outputs a complete llms.txt to the build output
+The build plugin **generates llms.txt from the docs Docusaurus loaded** at build time:
+1. Reads the docs plugin content in \`postBuild\` (title, description and permalink of each doc)
+2. Skips unlisted and draft docs, and docs from older versions
+3. Groups by top-level docs directory (sections)
+4. Writes a complete llms.txt to the build output
 
-If dynamic generation finds no docs, it falls back to the pre-generated static file.
+Links use the real permalinks, so they follow \`baseUrl\`, \`routeBasePath\`, \`slug\` and \`trailingSlash\`.
+**An existing \`static/llms.txt\` is served as is** (Docusaurus copies it and the plugin keeps it). The file in this folder's \`static/\` is such a file once you copy it. To have the build generate llms.txt from your docs instead, leave it out or set \`overwrite: true\`:
+\`\`\`js
+plugins: [['./w2agent-plugin.js', { overwrite: true }]],
+\`\`\`
 
 ## Setup
 
 ### Option A: Build Plugin (Recommended)
 
-1. Copy the \`docusaurus/\` folder into your project root
+1. Copy \`w2agent-plugin.js\` from this \`docusaurus/\` folder into your project root (next to \`docusaurus.config.js\`)
 
-2. Install the gray-matter dependency (for frontmatter parsing):
-\`\`\`bash
-npm install gray-matter
-\`\`\`
-
-3. Add the plugin to \`docusaurus.config.js\`:
+2. Add the plugin to \`docusaurus.config.js\`:
 \`\`\`js
 module.exports = {
   // ...
-  plugins: [require.resolve('./docusaurus/w2agent-plugin')],
+  plugins: ['./w2agent-plugin.js'],
   headTags: [
     {
       tagName: 'link',
@@ -213,8 +190,15 @@ module.exports = {
 };
 \`\`\`
 
-4. Build your site: \`npm run build\`
-5. Verify: \`/llms.txt\` is in the build output (and \`/.well-known/agent-card.json\`, if you generated one with \`--a2a-endpoint\`)
+3. Copy the files under \`static/\` from this folder into your project's \`static/\` directory (\`static/.well-known/agent-card.json\` if present; \`static/llms.txt\` only if you want it served as is, see above)
+
+4. If \`w2agent-webmcp-module.js\` is present, copy it into your project root and add it to \`docusaurus.config.js\`:
+\`\`\`js
+clientModules: ['./w2agent-webmcp-module.js'],
+\`\`\`
+
+5. Build your site: \`npm run build\`
+6. Verify: \`/llms.txt\` is in the build output (and \`/.well-known/agent-card.json\`, if you generated one with \`--a2a-endpoint\`)
 
 ### Option B: Static Files Only
 
@@ -226,9 +210,10 @@ module.exports = {
 
 \`\`\`
 docusaurus/
-  w2agent-plugin.js                  <- Build plugin (reads docs/ at build time)
+  w2agent-plugin.js                  <- Build plugin (reads the loaded docs content at build time)
+  w2agent-webmcp-module.js           <- WebMCP client module (only when WebMCP tools were generated)
   static/
-    llms.txt                         <- Pre-generated fallback
+    llms.txt                         <- Pre-generated file (kept by the plugin unless overwrite: true)
     .well-known/
       agent-card.json                <- A2A agent card (only with --a2a-endpoint)
 \`\`\`
@@ -237,9 +222,9 @@ docusaurus/
 
 - Add descriptive \`title\` and \`description\` to your doc frontmatter — the plugin uses these
 - Organize docs in subdirectories for automatic section grouping
-- The plugin runs during \`postBuild\`, so llms.txt reflects the actual published docs
+- When the plugin generates llms.txt (no static file, or \`overwrite: true\`), it runs during \`postBuild\` and reflects the actual published docs
 
-## Regenerating Static Fallback
+## Regenerating the Static File
 
 \`\`\`bash
 npx --no -- w2agent generate ${siteUrl} --format llms-txt --no-platform --output ./static/
@@ -250,7 +235,7 @@ the CLI is not published on npm yet, so build it from the w2agent repo and run
 \`npm install -D <path-to-w2agent>/packages/cli\`.
 `;
 
-  files.push(makeFile("docusaurus/w2agent-plugin.js", pluginJs));
+  files.push(makeFile("docusaurus/w2agent-plugin.js", PLUGIN_JS));
   files.push(makeFile("docusaurus/static/llms.txt", llmsTxtContent));
   if (agentCardContent) {
     files.push(makeFile("docusaurus/static/.well-known/agent-card.json", agentCardContent));

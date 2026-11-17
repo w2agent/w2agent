@@ -170,7 +170,7 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 | **Nuxt** | Nitro server routes + middleware | Server routes generate llms.txt dynamically per request |
 | **Astro** | Static files + middleware | Static output at build time, middleware for content negotiation |
 | **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |
-| **Docusaurus** | Build plugin | Reads docs/ directory at build time, generates fresh llms.txt |
+| **Docusaurus** | Build plugin | Reads the built docs content, generates llms.txt with real URLs; an existing `static/llms.txt` is served as is unless `overwrite: true` |
 
 ## CI/CD Integration
 

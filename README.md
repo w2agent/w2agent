@@ -253,7 +253,7 @@ w2agent auto-detects your platform and generates native integration code:
 | **Nuxt** | `__NUXT`, Nuxt meta tags | Nitro server routes, auto-imported middleware | Build + live audit |
 | **Astro** | Generator meta, astro assets | Static files + middleware for content negotiation | Build + live audit |
 | **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt.liquid, Product JSON-LD · **Shopify App** (`packages/shopify-app`) with OAuth + App Proxy | Syntax + structure |
-| **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from docs directory | Build + live audit |
+| **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from the built docs content (serves an existing `static/llms.txt` as is unless `overwrite: true`) | Build + live audit |
 
 Platform-specific checks run automatically during audit:
 
@@ -375,7 +375,7 @@ packages/cli      CLI tool — audit, generate, integrate, agentize, mcp
                   (published as w2agent)
 packages/nuxt      Installable Nuxt module — auto-serves llms.txt, agent-card.json, webhook
                    (published as @w2agent/nuxt)
-packages/docusaurus  Installable Docusaurus plugin — generates llms.txt at build time from docs/
+packages/docusaurus  Installable Docusaurus plugin — generates llms.txt at build time from the built docs content
                      (published as @w2agent/docusaurus)
 ```
 

@@ -120,7 +120,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 |----------|-----------|--------|
 | Plugin already in config | Read config for "w2agent" | Skip plugin + warn |
 | Existing `static/llms.txt` | File exists | Skip + warn |
-| Missing `gray-matter` dep | Check `package.json` | Post-install step |
+| `w2agent-webmcp-module.js` written | Not guarded out | Post-install step: add `clientModules: ["./w2agent-webmcp-module.js"]` to the config (only when written) |
 | No config found | Missing config | Warn + install to static/ |
 
 ### WordPress (`packages/core/src/adapters/wordpress/install.ts`)
@@ -146,7 +146,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (311 tests across 17 test files)
+### Unit tests (338 tests across 18 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -160,10 +160,11 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`) (18 tests)
 - `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording (16 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (11 tests)
-- `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
+- `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases (22 tests)
+- `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note (14 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
 - `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro prebuild step (12 tests)
-- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus gray-matter step, executor `failed`, physical `..` resolution, interpolated-string refusal (17 tests)
+- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus plugin and clientModules steps, executor `failed`, physical `..` resolution, interpolated-string refusal (18 tests)
 - `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
 
 All tests use temp directories with fixture files — fast, no network.

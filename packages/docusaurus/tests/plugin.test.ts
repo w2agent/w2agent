@@ -1,199 +1,147 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("node:fs");
-
-import * as fs from "node:fs";
+import {
+  EMPTY_PLUGINS,
+  EXPECTED_LLMS_TXT,
+  FORBIDDEN_FRAGMENTS,
+  PLUGINS,
+  SITE_CONFIG,
+  TRAILING_PLUGINS,
+  TRAILING_SLASH_CASES,
+} from "../../core/tests/helpers/docusaurus-cases";
 import w2agentPlugin from "../src/index";
 
-const mockFs = vi.mocked(fs);
+let dir: string;
+let siteDir: string;
+let outDir: string;
+let logs: string[];
 
-function makeContext(siteDir = "/site") {
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "w2agent-docu-pkg-"));
+  siteDir = join(dir, "site");
+  outDir = join(dir, "build");
+  mkdirSync(siteDir);
+  mkdirSync(outDir);
+  logs = [];
+  vi.spyOn(console, "log").mockImplementation((...a) => {
+    logs.push(a.join(" "));
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function load(options?: { overwrite?: boolean; verbose?: boolean }, siteConfig = SITE_CONFIG) {
+  const plugin = w2agentPlugin({ siteDir, siteConfig }, options);
   return {
-    siteDir,
-    siteConfig: { url: "https://example.com", title: "My Docs", tagline: "Great docs" },
+    postBuild: (plugins: unknown[]) => plugin.postBuild({ siteConfig, outDir, plugins } as never),
   };
 }
 
-function makePostBuildProps(outDir = "/out") {
-  return {
-    siteConfig: { url: "https://example.com", title: "My Docs", tagline: "Great docs" },
-    outDir,
-  };
-}
+const llms = () => readFileSync(join(outDir, "llms.txt"), "utf-8");
 
-function setupDocsMd(content: string) {
-  mockFs.existsSync.mockImplementation((p) => {
-    const s = String(p);
-    return s.endsWith("/docs") || s.endsWith("intro.md");
-  });
-  mockFs.readdirSync.mockReturnValue([{ name: "intro.md", isDirectory: () => false }] as never);
-  mockFs.readFileSync.mockReturnValue(content as never);
-  mockFs.mkdirSync.mockReturnValue(undefined);
-  mockFs.writeFileSync.mockReturnValue(undefined);
-  mockFs.copyFileSync.mockReturnValue(undefined);
-}
-
-describe("postBuild — llms.txt generation", () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
+describe("postBuild — llms.txt from the loaded docs content", () => {
+  it("builds llms.txt with permalinks that carry baseUrl", async () => {
+    await load().postBuild(PLUGINS);
+    expect(llms()).toBe(EXPECTED_LLMS_TXT);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
+  it("lists no unlisted, draft, old-version or non-docs entries", async () => {
+    await load().postBuild(PLUGINS);
+    for (const fragment of FORBIDDEN_FRAGMENTS) expect(llms()).not.toContain(fragment);
   });
 
-  it("generates llms.txt from docs frontmatter title", async () => {
-    setupDocsMd("---\ntitle: Introduction\n---\nHello world paragraph here.");
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("/out/llms.txt"),
-      expect.stringContaining("# My Docs"),
+  it("keeps an existing static/llms.txt and logs one line", async () => {
+    mkdirSync(join(siteDir, "static"));
+    writeFileSync(join(siteDir, "static", "llms.txt"), "# crawled\n");
+    await load().postBuild(PLUGINS);
+    expect(() => readFileSync(join(outDir, "llms.txt"))).toThrow();
+    expect(logs.filter((l) => l.includes("Keeping existing static/llms.txt"))).toHaveLength(1);
+  });
+
+  it("keeps a static llms.txt found in a custom staticDirectories entry", async () => {
+    mkdirSync(join(siteDir, "assets"));
+    writeFileSync(join(siteDir, "assets", "llms.txt"), "# crawled\n");
+    await load({}, { ...SITE_CONFIG, staticDirectories: ["assets"] } as never).postBuild(PLUGINS);
+    expect(() => readFileSync(join(outDir, "llms.txt"))).toThrow();
+  });
+
+  it("overwrite: true replaces the static file with the generated one", async () => {
+    mkdirSync(join(siteDir, "static"));
+    writeFileSync(join(siteDir, "static", "llms.txt"), "# crawled\n");
+    await load({ overwrite: true }).postBuild(PLUGINS);
+    expect(llms()).toBe(EXPECTED_LLMS_TXT);
+  });
+
+  it('overwrite: "true" (not boolean true) keeps the static file', async () => {
+    mkdirSync(join(siteDir, "static"));
+    writeFileSync(join(siteDir, "static", "llms.txt"), "# crawled\n");
+    await load({ overwrite: "true" as never }).postBuild(PLUGINS);
+    expect(() => readFileSync(join(outDir, "llms.txt"))).toThrow();
+  });
+
+  it("names the kept file relative to the site dir in the log", async () => {
+    mkdirSync(join(siteDir, "assets"));
+    writeFileSync(join(siteDir, "assets", "llms.txt"), "# crawled\n");
+    await load({}, { ...SITE_CONFIG, staticDirectories: ["assets"] } as never).postBuild(PLUGINS);
+    expect(logs.some((l) => l.includes("Keeping existing assets/llms.txt"))).toBe(true);
+  });
+
+  it.each(TRAILING_SLASH_CASES)("follows trailingSlash: $trailingSlash", async (c) => {
+    await load({}, { ...SITE_CONFIG, trailingSlash: c.trailingSlash } as never).postBuild(
+      TRAILING_PLUGINS,
     );
-    const written = vi.mocked(mockFs.writeFileSync).mock.calls[0][1] as string;
-    expect(written).toContain("- [Introduction](");
-  });
-
-  it("uses sidebar_label when title is absent from frontmatter", async () => {
-    setupDocsMd("---\nsidebar_label: Quick Start\n---\nBody text");
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    const written = vi.mocked(mockFs.writeFileSync).mock.calls[0][1] as string;
-    expect(written).toContain("- [Quick Start](");
-  });
-
-  it("falls back to first H1 heading when no frontmatter title", async () => {
-    setupDocsMd("---\n---\n# Getting Started\n\nBody text");
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    const written = vi.mocked(mockFs.writeFileSync).mock.calls[0][1] as string;
-    expect(written).toContain("- [Getting Started](");
-  });
-
-  it("skips file with no title at all", async () => {
-    setupDocsMd("---\n---\nJust a body paragraph.");
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it("groups files into sections by subdirectory", async () => {
-    mockFs.existsSync.mockImplementation((p) => String(p).endsWith("/docs"));
-    mockFs.readdirSync
-      .mockReturnValueOnce([{ name: "api", isDirectory: () => true }] as never)
-      .mockReturnValueOnce([{ name: "config.md", isDirectory: () => false }] as never);
-    mockFs.readFileSync.mockReturnValue("---\ntitle: Config\n---\nDesc" as never);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    const written = vi.mocked(mockFs.writeFileSync).mock.calls[0][1] as string;
-    expect(written).toContain("## Api\n");
-  });
-
-  it("does not generate llms.txt when docsDir does not exist", async () => {
-    mockFs.existsSync.mockReturnValue(false);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it("falls back to static/llms.txt when docs dir missing", async () => {
-    mockFs.existsSync.mockImplementation((p) => String(p).endsWith("static/llms.txt"));
-    mockFs.readFileSync.mockReturnValue("# Fallback content" as never);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("llms.txt"),
-      "# Fallback content",
+    const links = [...llms().matchAll(/\]\(https:\/\/docs\.example\.com([^)]*)\)/g)].map(
+      (m) => m[1],
     );
+    expect(links).toEqual(c.links);
   });
 
-  it("respects custom docsDir option", async () => {
-    mockFs.existsSync.mockReturnValue(false);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
+  it("writes nothing when there are no listable docs", async () => {
+    await load().postBuild(EMPTY_PLUGINS);
+    expect(() => readFileSync(join(outDir, "llms.txt"))).toThrow();
+    await load().postBuild([]);
+    expect(() => readFileSync(join(outDir, "llms.txt"))).toThrow();
+  });
 
-    const plugin = w2agentPlugin(makeContext(), { docsDir: "content" });
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.existsSync).toHaveBeenCalledWith(expect.stringContaining("/content"));
-    const docsCalls = vi
-      .mocked(mockFs.existsSync)
-      .mock.calls.filter((c) => String(c[0]).endsWith("/docs"));
-    expect(docsCalls).toHaveLength(0);
+  it("keeps each title and description on one line", async () => {
+    await load().postBuild(PLUGINS);
+    const lines = llms().split("\n");
+    expect(lines).toContain(
+      "- [Setup Guide](https://docs.example.com/proj/guides/setup): Install the thing.",
+    );
+    expect(lines.filter((l) => l.startsWith("- ["))).toHaveLength(4);
   });
 });
 
 describe("postBuild — agent-card.json", () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-  });
-
   it("copies agent-card.json to .well-known/ when source exists", async () => {
-    mockFs.existsSync.mockImplementation((p) => String(p).includes(".well-known/agent-card.json"));
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.mkdirSync).toHaveBeenCalledWith("/out/.well-known", { recursive: true });
-    expect(mockFs.copyFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("static/.well-known/agent-card.json"),
-      expect.stringContaining(".well-known/agent-card.json"),
+    mkdirSync(join(siteDir, "static", ".well-known"), { recursive: true });
+    writeFileSync(join(siteDir, "static", ".well-known", "agent-card.json"), '{"name":"card"}');
+    await load().postBuild(PLUGINS);
+    expect(readFileSync(join(outDir, ".well-known", "agent-card.json"), "utf-8")).toBe(
+      '{"name":"card"}',
     );
   });
 
   it("skips agent-card copy when source does not exist", async () => {
-    mockFs.existsSync.mockReturnValue(false);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
-    expect(mockFs.copyFileSync).not.toHaveBeenCalled();
+    await load().postBuild(PLUGINS);
+    expect(() => readFileSync(join(outDir, ".well-known", "agent-card.json"))).toThrow();
   });
 });
 
 describe("postBuild — webhook", () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    vi.unstubAllEnvs();
-    mockFs.existsSync.mockReturnValue(false);
-    mockFs.mkdirSync.mockReturnValue(undefined);
-    mockFs.writeFileSync.mockReturnValue(undefined);
-    mockFs.copyFileSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-  });
-
   it("fires webhook when W2AGENT_WEBHOOK_URL is set", async () => {
     vi.stubEnv("W2AGENT_WEBHOOK_URL", "https://hook.example.com");
     const mockFetch = vi.fn().mockResolvedValue(new Response());
     vi.stubGlobal("fetch", mockFetch);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
+    await load().postBuild(PLUGINS);
     expect(mockFetch).toHaveBeenCalledWith(
       "https://hook.example.com",
       expect.objectContaining({ method: "POST" }),
@@ -201,11 +149,10 @@ describe("postBuild — webhook", () => {
   });
 
   it("does not fire webhook when W2AGENT_WEBHOOK_URL is not set", async () => {
+    vi.stubEnv("W2AGENT_WEBHOOK_URL", "");
     const mockFetch = vi.fn();
     vi.stubGlobal("fetch", mockFetch);
-
-    const plugin = w2agentPlugin(makeContext());
-    await plugin.postBuild(makePostBuildProps());
+    await load().postBuild(PLUGINS);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

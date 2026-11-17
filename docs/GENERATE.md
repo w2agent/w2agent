@@ -136,7 +136,7 @@ When a platform is detected, additional integration files are generated (omitted
 | **Nuxt** | `nuxt/server/routes/{llms.txt,llms-full.txt,index.md}.ts` — Nitro server routes, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/modules/w2agent.ts` — bundles the seed files into the server build, `nuxt/public/{llms.txt,llms-full.txt}` seeds, `nuxt/w2agent-build.mjs` — build script, run as `prebuild`, `nuxt/INSTALL.md` |
 | **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/pages/llms.txt.ts` and `astro/src/pages/.well-known/agent-card.json.ts` — SSR endpoints, `astro/w2agent-integration.mjs`, `astro/w2agent-build.mjs`, `astro/INSTALL.md` |
 | **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/templates/robots.txt.liquid`, `shopify/INSTALL.md` |
-| **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from docs directory, `docusaurus/INSTALL.md` |
+| **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from the docs Docusaurus loaded (keeps an existing `static/llms.txt` unless `overwrite: true`), `docusaurus/w2agent-webmcp-module.js` (WebMCP client module, only when WebMCP tools are generated), `docusaurus/INSTALL.md` |
 
 ## Platform Detection
 
@@ -192,7 +192,7 @@ Each platform has a dedicated install resolver that detects your project layout 
 - **Next.js** — detects `src/app/` vs `app/`, Pages Router vs App Router, existing middleware/routes
 - **Nuxt** — detects Nuxt 2 vs 3, existing server routes and middleware
 - **Astro** — detects static vs SSR/hybrid output mode, installs SSR endpoints only when applicable
-- **Docusaurus** — detects existing plugin config, checks for `gray-matter` dependency
+- **Docusaurus** — detects existing plugin config; adds a `clientModules` post-install step when the WebMCP module is written
 - **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent/`
 - **Shopify** — detects theme directory, never overwrites existing `robots.txt.liquid`
 

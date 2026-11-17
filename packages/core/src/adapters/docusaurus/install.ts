@@ -9,7 +9,6 @@ interface DocusaurusLayout {
   hasW2agentInConfig: boolean;
   hasExistingStaticLlms: boolean;
   hasExistingPlugin: boolean;
-  hasGrayMatter: boolean;
 }
 
 export function detectDocusaurusLayout(projectDir: string): DocusaurusLayout {
@@ -29,22 +28,11 @@ export function detectDocusaurusLayout(projectDir: string): DocusaurusLayout {
     }
   }
 
-  let hasGrayMatter = false;
-  const pkgPath = join(projectDir, "package.json");
-  if (existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      hasGrayMatter = !!deps["gray-matter"];
-    } catch {}
-  }
-
   return {
     hasConfig,
     hasW2agentInConfig,
     hasExistingStaticLlms: existsSync(join(projectDir, "static", "llms.txt")),
     hasExistingPlugin: existsSync(join(projectDir, "w2agent-plugin.js")),
-    hasGrayMatter,
   };
 }
 
@@ -62,6 +50,7 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
   const platformFiles = files.filter((f) => f.filename.startsWith(prefix));
 
   let pluginDest: string | null = null;
+  let webmcpDest: string | null = null;
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
@@ -97,16 +86,26 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
     }
 
     actions.push({ type: "write", dest: relPath, content: file.content });
+    if (baseName === "w2agent-webmcp-module.js") webmcpDest = relPath;
   }
 
   const guarded = guardInstallActions(actions, projectDir);
   warnings.push(...guarded.warnings);
   if (pluginDest && willWrite(guarded.actions, pluginDest)) {
-    postInstallSteps.push('Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]');
+    const seeded = layout.hasExistingStaticLlms || willWrite(guarded.actions, "static/llms.txt");
+    postInstallSteps.push(
+      `Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]${
+        seeded
+          ? '. static/llms.txt is served as is; to generate it from your docs use plugins: [["./w2agent-plugin.js", { overwrite: true }]]'
+          : ""
+      }`,
+    );
   }
 
-  if (!layout.hasGrayMatter && pluginDest && willWrite(guarded.actions, pluginDest)) {
-    postInstallSteps.push("Install gray-matter: npm install gray-matter");
+  if (webmcpDest && willWrite(guarded.actions, webmcpDest)) {
+    postInstallSteps.push(
+      'Add the WebMCP module to docusaurus.config.js: clientModules: ["./w2agent-webmcp-module.js"]',
+    );
   }
 
   return { platform: "docusaurus", actions: guarded.actions, warnings, postInstallSteps };
