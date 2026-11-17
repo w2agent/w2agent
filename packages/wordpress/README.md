@@ -22,7 +22,7 @@ Search "w2agent" in **Plugins → Add New** in your WordPress admin.
 - Serves `/.well-known/agent-card.json` only if you add `data/agent-card.json` (generate it with `w2agent generate <url> --format agent-card --a2a-endpoint <url>` when your site runs an A2A agent); otherwise the path 404s
 - Adds AI discovery `<link>` tag to all pages
 - Merges AI bot rules into `robots.txt`
-- Notifies w2agent.dev on content changes (optional, requires API key)
+- Notifies w2agent.dev when a published page, post, or other type listed in `llms.txt` is published, updated, unpublished, trashed, or deleted (optional, needs a Site Slug and API Key; drafts, menu items, and non-listed types send nothing)
 
 ## Settings
 
@@ -30,6 +30,12 @@ Go to **Settings → w2agent** to:
 
 - View active endpoints
 - Enter your Site Slug and API Key from [w2agent.dev](https://w2agent.dev) to enable automatic re-crawling
+
+## End-to-end test
+
+`pnpm test:e2e` (from this package) runs both plugins on real WordPress in Docker: standalone plugin first, then `w2agent integrate --platform wordpress --install`, then checks for `llms.txt` content and caching, WebMCP loading, webhooks, subdirectory and multisite installs, activation order, and `php -l` under PHP 7.4 and 8.3.
+
+Prerequisites: Docker, and `pnpm build` at the repo root (the script uses `packages/cli/dist`). It creates containers and a network named `w2agent-e2e-*` on free local ports and removes them on exit. It exits non-zero on any `FAIL` or `PRECONDITION-FAILED` line. It is not part of `pnpm test`.
 
 ## Environment
 

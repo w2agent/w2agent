@@ -139,7 +139,15 @@ function w2agent_generate_llms_txt() {
         return $cache[ $key ];
     }
 
-    $output = w2agent_render( w2agent_sections() );
+    // The cached text is shared by every visitor, so build it with no user: a membership filter
+    // that checks current_user_can() must not list gated items for whoever triggers the rebuild.
+    $previous_user = get_current_user_id();
+    wp_set_current_user( 0 );
+    try {
+        $output = w2agent_render( w2agent_sections() );
+    } finally {
+        wp_set_current_user( $previous_user );
+    }
     unset( $cache[ $key ] );
     $cache[ $key ] = $output;
     $cache = array_slice( $cache, -8, null, true );
@@ -196,23 +204,40 @@ foreach ( [ 'save_post', 'deleted_post', 'trashed_post', 'untrashed_post', 'upda
     add_action( $w2agent_hook, 'w2agent_flush_cache' );
 }
 
-add_action( 'save_post', function ( $post_id ) {
-    if ( wp_is_post_revision( $post_id ) ) return;
+// ─── Platform notifications ──────────────────────────────────────
 
-    // Notify w2agent.dev platform if configured
+// Notifies w2agent.dev when a post that llms.txt lists changes while published, if configured.
+function w2agent_notify_platform( $post ) {
     $api_key      = get_option( 'w2agent_api_key', '' );
     $webhook_slug = get_option( 'w2agent_webhook_slug', '' );
-    if ( $api_key && $webhook_slug ) {
-        wp_remote_post( 'https://w2agent.dev/api/agent/webhook/' . sanitize_text_field( $webhook_slug ), [
-            'headers'  => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-            ],
-            'body'     => wp_json_encode( [ 'trigger' => 'wordpress', 'post_id' => $post_id ] ),
-            'blocking' => false,
-        ] );
-    }
-} );
+    if ( ! $api_key || ! $webhook_slug ) return;
+
+    $post = get_post( $post );
+    if ( ! $post || wp_is_post_revision( $post ) || wp_is_post_autosave( $post ) ) return;
+    if ( ! in_array( $post->post_type, w2agent_post_types(), true ) ) return;
+
+    wp_remote_post( 'https://w2agent.dev/api/agent/webhook/' . sanitize_text_field( $webhook_slug ), [
+        'headers'  => [
+            'Content-Type'  => 'application/json',
+            'Authorization' => 'Bearer ' . $api_key,
+        ],
+        'body'     => wp_json_encode( [ 'trigger' => 'wordpress', 'post_id' => $post->ID ] ),
+        'blocking' => false,
+    ] );
+}
+
+// Publish, update of a published post, unpublish and trash all have "publish" as the old or new status.
+add_action( 'transition_post_status', function ( $new_status, $old_status, $post ) {
+    if ( $new_status !== 'publish' && $old_status !== 'publish' ) return;
+    w2agent_notify_platform( $post );
+}, 10, 3 );
+
+// Permanent deletion of a post that is still published (trashed posts were announced when trashed).
+add_action( 'before_delete_post', function ( $post_id, $post = null ) {
+    $post = $post ? $post : get_post( $post_id );
+    if ( ! $post || $post->post_status !== 'publish' ) return;
+    w2agent_notify_platform( $post );
+}, 10, 2 );
 
 // ─── Settings page ───────────────────────────────────────────────
 

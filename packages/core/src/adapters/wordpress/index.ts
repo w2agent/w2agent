@@ -68,31 +68,57 @@ export const wordpressAdapter: PlatformAdapter = {
 /**
  * w2agent MCP Webhook — WordPress Integration
  *
- * Add this to your theme's functions.php or a custom plugin.
- * Triggers a re-crawl of your MCP server when content changes.
+ * Triggers a re-crawl of your MCP server when published content changes.
+ * Replace YOUR_SLUG and YOUR_WEBHOOK_TOKEN below. Until you do, nothing is sent.
+ * The w2agent plugin in this folder (w2agent-plugin.php) loads this file for you.
+ * You can also paste it into your theme's functions.php instead; copies never conflict.
  */
+if (!defined('ABSPATH')) exit;
 
-define('W2AGENT_WEBHOOK_URL', 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG');
-define('W2AGENT_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
+if (!defined('W2AGENT_WEBHOOK_URL')) define('W2AGENT_WEBHOOK_URL', 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG');
+if (!defined('W2AGENT_WEBHOOK_TOKEN')) define('W2AGENT_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
 
-add_action('save_post', 'w2agent_mcp_notify', 10, 3);
-add_action('delete_post', 'w2agent_mcp_notify', 10, 1);
+if (!defined('W2AGENT_MCP_WEBHOOK_HOOKED')) {
+    define('W2AGENT_MCP_WEBHOOK_HOOKED', true);
 
-function w2agent_mcp_notify($post_id, $post = null, $update = true) {
-    // Only trigger on published posts/pages
-    if ($post && $post->post_status !== 'publish') return;
+    // Only types that llms.txt lists: the generated plugin's type list when it is loaded,
+    // otherwise any publicly viewable type (menu items, revisions and the like never are).
+    $w2agent_mcp_notify = function ($post) {
+        // The placeholder words are split so a find-and-replace of the two values above cannot rewrite this check.
+        if (strpos(W2AGENT_WEBHOOK_URL, 'YOUR' . '_SLUG') !== false || W2AGENT_WEBHOOK_TOKEN === 'YOUR' . '_WEBHOOK_TOKEN') return;
+        $post = get_post($post);
+        if (!$post || wp_is_post_revision($post) || wp_is_post_autosave($post)) return;
+        if (function_exists('w2agent_site_post_types')) {
+            if (!in_array($post->post_type, w2agent_site_post_types(), true)) return;
+        } elseif (!is_post_type_viewable($post->post_type)) {
+            return;
+        }
 
-    wp_remote_post(W2AGENT_WEBHOOK_URL, array(
-        'headers' => array(
-            'Content-Type'  => 'application/json',
-            'Authorization' => 'Bearer ' . W2AGENT_WEBHOOK_TOKEN,
-        ),
-        'body'    => wp_json_encode(array(
-            'trigger' => 'wordpress',
-            'post_id' => $post_id,
-        )),
-        'blocking' => false,
-    ));
+        wp_remote_post(W2AGENT_WEBHOOK_URL, array(
+            'headers' => array(
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . W2AGENT_WEBHOOK_TOKEN,
+            ),
+            'body'    => wp_json_encode(array(
+                'trigger' => 'wordpress',
+                'post_id' => $post->ID,
+            )),
+            'blocking' => false,
+        ));
+    };
+
+    // Publish, update of a published post, unpublish and trash all have "publish" as the old or new status.
+    add_action('transition_post_status', function ($new_status, $old_status, $post) use ($w2agent_mcp_notify) {
+        if ($new_status !== 'publish' && $old_status !== 'publish') return;
+        $w2agent_mcp_notify($post);
+    }, 10, 3);
+
+    // Permanent deletion of a post that is still published (trashed posts were announced when trashed).
+    add_action('before_delete_post', function ($post_id, $post = null) use ($w2agent_mcp_notify) {
+        $post = $post ? $post : get_post($post_id);
+        if (!$post || $post->post_status !== 'publish') return;
+        $w2agent_mcp_notify($post);
+    }, 10, 2);
 }
 `;
       files.push({
@@ -109,8 +135,10 @@ function w2agent_mcp_notify($post_id, $post = null, $update = true) {
 /**
  * W2Agent WebMCP Registration
  * Outputs WebMCP tool registration script in the footer.
- * Add to your theme's functions.php: require_once __DIR__ . '/w2agent-webmcp.php';
+ * Loaded by w2agent-plugin.php from this folder; nothing else to set up.
  */
+if (!defined('ABSPATH')) exit;
+
 add_action('wp_footer', function() {
 ?>
 <script>

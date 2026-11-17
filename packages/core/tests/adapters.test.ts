@@ -824,7 +824,7 @@ describe("WordPress MCP webhook snippet", () => {
     const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFilesWithMcp());
     const webhook = files.find((f) => f.filename === "wordpress/w2agent-mcp-webhook.php");
     expect(webhook).toBeDefined();
-    expect(webhook?.content).toContain("save_post");
+    expect(webhook?.content).toContain("transition_post_status");
     expect(webhook?.content).toContain("wp_remote_post");
     expect(webhook?.content).toContain("W2AGENT_WEBHOOK_TOKEN");
   });

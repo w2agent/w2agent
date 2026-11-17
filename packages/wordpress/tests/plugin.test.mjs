@@ -162,10 +162,33 @@ test("yields every front-end callback to the site-specific plugin, checked at ca
 
 test("keeps the settings page and webhook when yielding", () => {
   assert.doesNotMatch(
-    block("add_action( 'save_post', function", "// ─── Settings page"),
+    block("// ─── Platform notifications", "// ─── Settings page"),
     /front_end_yielded/,
   );
   assert.match(php, /add_options_page\(/);
+});
+
+// WP-9
+test("notifies on publish transitions and published deletes, only for listed types", () => {
+  const notify = block("// ─── Platform notifications", "// ─── Settings page");
+  assert.doesNotMatch(notify, /'save_post'|'delete_post'/);
+  assert.match(notify, /add_action\( 'transition_post_status', function \( \$new_status, \$old_status, \$post \)/);
+  assert.ok(notify.includes("if ( $new_status !== 'publish' && $old_status !== 'publish' ) return;"));
+  assert.match(notify, /add_action\( 'before_delete_post', function \( \$post_id, \$post = null \)/);
+  assert.ok(notify.includes("$post->post_status !== 'publish'"));
+  assert.ok(notify.includes("in_array( $post->post_type, w2agent_post_types(), true )"));
+  assert.ok(notify.includes("wp_is_post_revision( $post ) || wp_is_post_autosave( $post )"));
+  assert.ok(notify.includes("if ( ! $api_key || ! $webhook_slug ) return;"));
+});
+
+// Security review: the cache is shared, so it must not be built in the requester's context.
+test("builds the cached llms.txt with no current user and restores it", () => {
+  const gen = block("function w2agent_generate_llms_txt()", "// ─── Serve");
+  const set = gen.indexOf("wp_set_current_user( 0 );");
+  assert.ok(set > -1);
+  assert.ok(set < gen.indexOf("w2agent_sections()"));
+  assert.ok(gen.includes("} finally {\n        wp_set_current_user( $previous_user );"));
+  assert.ok(gen.indexOf("wp_set_current_user( $previous_user )") < gen.indexOf("set_transient("));
 });
 
 test("avoids PHP newer than 7.4 and the placeholder word", () => {

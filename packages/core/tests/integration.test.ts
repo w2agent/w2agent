@@ -635,6 +635,13 @@ describe("integration: WordPress", () => {
     expect(plugin.content).toContain("delete_transient");
   });
 
+  it("plugin loads the optional WebMCP and webhook files from its own folder", () => {
+    const plugin = files.find((f) => f.filename === "wordpress/w2agent-plugin.php")!;
+    expect(plugin.content).toContain("'w2agent-webmcp.php'");
+    expect(plugin.content).toContain("'w2agent-mcp-webhook.php'");
+    expect(plugin.content).toContain("require_once __DIR__");
+  });
+
   // Fix for Issue #8: skip with message instead of silently passing with 0 assertions
   it.skipIf(!phpAvailable())("validates PHP syntax with php -l", () => {
     const phpFile = join(fixtureDir, "w2agent-plugin.php");

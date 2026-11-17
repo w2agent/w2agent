@@ -153,14 +153,22 @@ function w2agent_site_generate_llms_txt() {
         return $cache[$key];
     }
 
-    $sections = w2agent_site_sections();
-    $output = '';
-    // No published content yet: serve the crawl-time seed file when there is one.
-    if (empty($sections)) {
-        $output = w2agent_site_seed('llms.txt');
-    }
-    if ($output === '') {
-        $output = w2agent_site_render($sections);
+    // The cached text is shared by every visitor, so build it with no user: a membership filter
+    // that checks current_user_can() must not list gated items for whoever triggers the rebuild.
+    $previous_user = get_current_user_id();
+    wp_set_current_user(0);
+    try {
+        $sections = w2agent_site_sections();
+        $output = '';
+        // No published content yet: serve the crawl-time seed file when there is one.
+        if (empty($sections)) {
+            $output = w2agent_site_seed('llms.txt');
+        }
+        if ($output === '') {
+            $output = w2agent_site_render($sections);
+        }
+    } finally {
+        wp_set_current_user($previous_user);
     }
 
     unset($cache[$key]);
@@ -234,6 +242,19 @@ foreach (['save_post', 'deleted_post', 'trashed_post', 'untrashed_post', 'update
     add_action($w2agent_site_hook, 'w2agent_site_flush_cache');
 }
 
+// ─── Optional files from the same folder ────────────────────────
+
+// w2agent-webmcp.php (WebMCP tool script) and w2agent-mcp-webhook.php (re-crawl notifications,
+// sends nothing until its slug and token are filled in) are written next to this file when the
+// crawl produced them. Like the data/ files, they belong to the crawled site: main site only.
+if (w2agent_site_serves_data_files()) {
+    foreach (['w2agent-webmcp.php', 'w2agent-mcp-webhook.php'] as $w2agent_site_extra) {
+        if (file_exists(__DIR__ . '/' . $w2agent_site_extra)) {
+            require_once __DIR__ . '/' . $w2agent_site_extra;
+        }
+    }
+}
+
 // ─── Admin settings page ────────────────────────────────────────
 
 add_action('admin_menu', function() {
@@ -296,6 +317,8 @@ function w2agent_site_settings_page() {
 - **\`/llms-full.txt\`** — Served from \`data/llms-full.txt\`, the anonymous crawl snapshot from the last \`w2agent integrate\` run (re-run it to refresh). It is never built from post content, so gated content cannot leak; the path 404s when the file is absent
 - **\`/.well-known/agent-card.json\`** — Served from \`data/agent-card.json\` only if present. Generate it with \`w2agent generate ${siteUrl} --format agent-card --a2a-endpoint <url>\` when your site runs an A2A agent
 - **\`<link>\` tag** — Adds AI discovery link to all pages
+- **WebMCP** — When \`w2agent-webmcp.php\` is present in this folder, the plugin loads it and the WebMCP tool script is added to the page footer. No other step is needed
+- **Webhook** — When \`w2agent-mcp-webhook.php\` is present, set your site slug and webhook token in it (replace \`YOUR_SLUG\` and \`YOUR_WEBHOOK_TOKEN\`). The plugin loads the file, and it sends nothing while the placeholders remain. It notifies w2agent when a published page, post, or other type listed in llms.txt is published, updated, unpublished, trashed, or deleted
 - **robots.txt** — Merges AI-friendly bot rules via WordPress filter
 
 ## How Content Generation Works
@@ -333,6 +356,8 @@ Both plugins can be active: this one lives in \`w2agent-site/\`, the standalone 
 \`\`\`
 w2agent-site/
   w2agent-plugin.php    ← Main plugin (dynamic generation + serving)
+  w2agent-webmcp.php    ← WebMCP script, loaded by the main plugin (present when generated)
+  w2agent-mcp-webhook.php ← Re-crawl webhook, loaded by the main plugin (present when generated)
   data/
     llms.txt            ← Seed content (used only while the site has no published content)
     llms-full.txt       ← Crawl snapshot served at /llms-full.txt (present when generated)

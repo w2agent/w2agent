@@ -62,7 +62,7 @@ Yes. Install the generated plugin in its own folder (`w2agent-site`). When it is
 This plugin can notify the w2agent platform when your content changes.
 
 * Service: w2agent, [https://w2agent.dev](https://w2agent.dev)
-* When: only after you enter a Site Slug and API Key under **Settings → w2agent**, and then each time a post is saved. Until you configure both, nothing is sent.
+* When: only after you enter a Site Slug and API Key under **Settings → w2agent**, and then each time a published post, page, or other type listed in llms.txt is published, updated, unpublished, trashed, or deleted. Drafts, menu items, and types not listed in llms.txt send nothing. Until you configure both, nothing is sent.
 * What is sent: a request to a URL that contains your Site Slug, with the trigger name (`wordpress`) and the ID of the changed post in the body and your API Key as a bearer token. No post content is sent.
 * Terms of service and privacy policy: [https://w2agent.dev](https://w2agent.dev)
 
