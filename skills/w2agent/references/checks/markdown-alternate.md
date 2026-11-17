@@ -41,7 +41,7 @@ export const metadata: Metadata = {
 ```
 
 2. If the page already exports `alternates` (for example `canonical`), add `types` inside it. Do not make a second `alternates` key.
-3. If `next.config` sets `basePath`, include it in the `href` (`/<basePath>/index.md`): Next.js does not apply `basePath` to metadata URLs, and the generated route serves `<basePath>/index.md`. Next.js resolves the relative `href` against `metadataBase`. The root layout needs `metadataBase`; add the production origin if it is missing.
+3. If `next.config` sets `basePath`, include it in the `href` (`<basePath>/index.md`, for example `/docs/index.md`): Next.js does not apply `basePath` to metadata URLs, and the generated route serves `<basePath>/index.md`. Next.js resolves the relative `href` against `metadataBase`. The root layout needs `metadataBase`; add the production origin if it is missing.
 4. Do not leave `alternates` for `/index.md` in the root layout. Next.js replaces `alternates` as a whole, so a page that sets its own `alternates` (for a canonical) loses the layout's `types`. A layout-level link would also tell every other page that `/index.md` is its twin.
 
 ## Pitfalls
