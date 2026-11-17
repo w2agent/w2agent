@@ -52,7 +52,7 @@ describe("detectTools", () => {
     const html = `<html><head>
       <script type="application/ld+json">{
         "@type": "WebSite",
-        "potentialAction": { "@type": "SearchAction", "target": "https://example.com/search?q={query}" }
+        "potentialAction": { "@type": "SearchAction", "target": "https://example.com/search?q={query}", "query-input": "required name=query" }
       }</script>
     </head><body></body></html>`;
     const ctx = makeCtx({

@@ -89,6 +89,7 @@ export interface ExtractedFormField {
   min?: string;
   max?: string;
   maxlength?: number;
+  value?: string;
 }
 
 export interface ExtractedForm {

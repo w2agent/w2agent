@@ -5,10 +5,14 @@ import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
 import { generateFaq } from "./faq.js";
+import type { FormFieldSpec, FormToolSpec } from "./form-tools.js";
+import { formContractKey, formRequestUrl, formToolSpec } from "./form-tools.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { LocalBusinessArtifacts } from "./local-business.js";
 import { generateLocalBusinessToolHandlers } from "./local-business.js";
 import { mdText, mdUrl } from "./markdown-text.js";
+import type { SearchActionTemplate } from "./search-action.js";
+import { findSearchAction } from "./search-action.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
@@ -23,6 +27,7 @@ export interface McpDetectedTools {
   tools: McpTool[];
   hasFaq: boolean;
   hasSearchAction: boolean;
+  searchAction?: SearchActionTemplate;
   hasProducts: boolean;
   hasLocalBusiness: boolean;
   hasOpenapi: boolean;
@@ -36,6 +41,8 @@ export interface DetectedForm {
   method: string;
   fields: ExtractedFormField[];
   pageUrl: string;
+  resolvedAction: string;
+  toolSpec: FormToolSpec;
   id?: string;
   name?: string;
 }
@@ -215,33 +222,6 @@ export function detectTools(
     });
   }
 
-  // Check for SearchAction in JSON-LD
-  for (const page of ctx.rawPages) {
-    if (page.status !== 200 || !page.html) continue;
-    const parsed = parseHTML(page.html);
-    for (const ld of parsed.jsonLd) {
-      const obj = ld as Record<string, unknown>;
-      if (obj?.potentialAction) {
-        const action = obj.potentialAction as Record<string, unknown>;
-        if (action?.["@type"] === "SearchAction" && action?.target) {
-          hasSearchAction = true;
-          tools.push({
-            name: "site-search",
-            description: "Search using the site's native search (via SearchAction)",
-            condition: "hasSearchAction",
-          });
-          break;
-        }
-      }
-    }
-    if (hasSearchAction) break;
-  }
-
-  // Collect pre-extracted forms from pages. Filter out forms whose resolved
-  // action would steer the generated server off-origin or to a private IP,
-  // unless the operator allowlisted the target host. Without this check, a
-  // crawled page with `<form action="http://169.254.169.254/…">` would let an
-  // attacker turn the generated MCP server into an SSRF / proxy surface.
   const baseOrigin = (() => {
     try {
       return new URL(ctx.baseUrl).origin;
@@ -249,6 +229,35 @@ export function detectTools(
       return ctx.baseUrl;
     }
   })();
+
+  // Check for SearchAction in JSON-LD (the site's own template, never fetched server-side)
+  let searchAction: SearchActionTemplate | undefined;
+  for (const page of ctx.rawPages) {
+    if (page.status !== 200 || !page.html) continue;
+    const found = findSearchAction(
+      parseHTML(page.html).jsonLd,
+      baseOrigin,
+      ctx.allowedOffOriginHosts,
+    );
+    if (found) {
+      searchAction = found;
+      hasSearchAction = true;
+      tools.push({
+        name: "site-search",
+        description: "Get the site's native search URL for a query (via SearchAction)",
+        condition: "hasSearchAction",
+      });
+      break;
+    }
+  }
+
+  // Collect pre-extracted forms from pages. Filter out forms whose resolved
+  // action would steer the generated server off-origin or to a private IP,
+  // unless the operator allowlisted the target host. Without this check, a
+  // crawled page with `<form action="http://169.254.169.254/…">` would let an
+  // attacker turn the generated MCP server into an SSRF / proxy surface.
+  // Identical forms repeated across pages (a site-wide search box) become one tool.
+  const seenForms = new Set<string>();
   for (const page of ctx.pages) {
     if (page.forms) {
       for (const form of page.forms) {
@@ -259,9 +268,19 @@ export function detectTools(
           continue;
         }
         if (!isOriginAllowed(resolved.href, baseOrigin, ctx.allowedOffOriginHosts)) continue;
+        const toolSpec = formToolSpec(form);
+        if (!toolSpec) continue;
+        const requestUrl = formRequestUrl(resolved, toolSpec.method);
+        if (!requestUrl) continue;
+        const key = formContractKey(requestUrl, toolSpec);
+        if (seenForms.has(key)) continue;
+        seenForms.add(key);
         forms.push({
           ...form,
+          method: toolSpec.method,
           pageUrl: page.url,
+          resolvedAction: requestUrl,
+          toolSpec,
         });
       }
     }
@@ -270,7 +289,7 @@ export function detectTools(
   // Add form tools
   const usedFormNames = new Set<string>();
   forms.forEach((form, i) => {
-    const fieldNames = form.fields.map((f) => f.name).join(", ");
+    const fieldNames = form.toolSpec.fields.map((f) => f.name).join(", ");
     tools.push({
       name: inferFormToolName(form, i, usedFormNames),
       description: `Submit form (${form.method} ${form.action}) with fields: ${fieldNames}`,
@@ -366,6 +385,7 @@ export function detectTools(
     tools,
     hasFaq,
     hasSearchAction,
+    searchAction,
     hasProducts,
     hasLocalBusiness,
     hasOpenapi,
@@ -632,6 +652,118 @@ async function outboundFetch(url: string, init: RequestInit, maxChars: number): 
 }
 `;
 
+// Serialises only the successful controls of a form (HTML form submission semantics) and
+// builds the request. The method arrives as a fixed "GET"/"POST" literal from the generator.
+export const FORM_HELPER_SOURCE = String.raw`type FormFieldSpec = { name: string; kind: string; required: boolean; value?: string; options?: string[] };
+
+function serializeForm(fields: FormFieldSpec[], params: Record<string, unknown>): URLSearchParams {
+  const out = new URLSearchParams();
+  for (const f of fields) {
+    const raw = Object.prototype.hasOwnProperty.call(params, f.name) ? params[f.name] : undefined;
+    if (raw !== undefined && raw !== null) {
+      const options = f.options ?? [];
+      if (f.kind === "checkbox") {
+        if (typeof raw !== "boolean") throw new Error("Field " + f.name + " must be true or false");
+        if (raw) out.append(f.name, f.value ?? "on");
+      } else if (f.kind === "checkbox-group") {
+        if (!Array.isArray(raw)) throw new Error("Field " + f.name + " must be a list");
+        for (const v of raw) {
+          if (typeof v !== "string" || !options.includes(v)) throw new Error("Field " + f.name + " has a value that is not an option");
+          out.append(f.name, v);
+        }
+      } else if (f.kind === "radio" || f.kind === "select") {
+        if (typeof raw !== "string" || !options.includes(raw)) throw new Error("Field " + f.name + " must be one of its options");
+        out.append(f.name, raw);
+      } else if (f.kind === "number") {
+        if (typeof raw !== "number" || !Number.isFinite(raw)) throw new Error("Field " + f.name + " must be a number");
+        out.append(f.name, String(raw));
+      } else {
+        if (typeof raw !== "string") throw new Error("Field " + f.name + " must be a string");
+        out.append(f.name, raw);
+      }
+    }
+    if (f.required && !out.has(f.name)) throw new Error("Missing required field: " + f.name);
+  }
+  return out;
+}
+
+function buildFormRequest(action: string, method: "GET" | "POST", fields: FormFieldSpec[], params: Record<string, unknown>): { url: string; init: RequestInit } {
+  const data = serializeForm(fields, params);
+  if (method === "GET") {
+    const u = new URL(action);
+    u.search = data.toString();
+    return { url: u.href, init: { method: "GET" } };
+  }
+  return { url: action, init: { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: data.toString() } };
+}
+`;
+
+interface FormToolEmit {
+  name: string;
+  description: string;
+  action: string;
+  spec: FormToolSpec;
+}
+
+function formToolEmits(detected: McpDetectedTools): FormToolEmit[] {
+  const names = detected.tools.filter((t) => t.condition === "hasForm").map((t) => t.name);
+  return detected.forms.map((form, i) => ({
+    name: names[i] ?? `submit-form-${i}`,
+    description: `Submit form: ${form.toolSpec.method} ${form.action}`,
+    action: form.resolvedAction,
+    spec: form.toolSpec,
+  }));
+}
+
+function formAnnotations(method: string): string {
+  return method === "GET"
+    ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
+    : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
+}
+
+function formZodType(f: FormFieldSpec): string {
+  const optionList = `${JSON.stringify(f.options ?? [])} as [string, ...string[]]`;
+  let zodType = "z.string()";
+  if (f.kind === "checkbox") zodType = "z.boolean()";
+  else if (f.kind === "checkbox-group") zodType = `z.array(z.enum(${optionList}))`;
+  else if (f.kind === "radio" || f.kind === "select") zodType = `z.enum(${optionList})`;
+  else if (f.kind === "number") zodType = "z.number()";
+  return `${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(f.label)})`;
+}
+
+function formZodShape(spec: FormToolSpec, indent: string): string {
+  return spec.fields
+    .map((f) => `${indent}[${JSON.stringify(f.name)}]: ${formZodType(f)}`)
+    .join(",\n");
+}
+
+function formFieldJsonSchema(f: FormFieldSpec): Record<string, unknown> {
+  if (f.kind === "checkbox") return { type: "boolean" };
+  if (f.kind === "checkbox-group") {
+    return { type: "array", items: { type: "string", enum: f.options } };
+  }
+  if (f.kind === "radio" || f.kind === "select") return { type: "string", enum: f.options };
+  return { type: f.kind === "number" ? "number" : "string" };
+}
+
+function formJsonSchema(spec: FormToolSpec): { properties: unknown; required: string[] } {
+  return {
+    properties: Object.fromEntries(spec.fields.map((f) => [f.name, formFieldJsonSchema(f)])),
+    required: spec.fields.filter((f) => f.required).map((f) => f.name),
+  };
+}
+
+function formRequestExpr(tool: FormToolEmit, paramsVar: string): string {
+  const method = tool.spec.method === "GET" ? '"GET"' : '"POST"';
+  return `buildFormRequest(${JSON.stringify(tool.action)}, ${method}, ${jsonObjectLiteral(tool.spec.fields)} as FormFieldSpec[], ${paramsVar})`;
+}
+
+function siteSearchUrlExpr(sa: SearchActionTemplate, queryExpr: string): string {
+  return `${JSON.stringify(sa.template)}.split(${JSON.stringify(`{${sa.placeholder}}`)}).join(encodeURIComponent(${queryExpr}))`;
+}
+
+const SITE_SEARCH_DESCRIPTION = "Get the site's native search URL for a query (via SearchAction)";
+
 function generateServerTs(siteName: string, baseUrl: string, detected: McpDetectedTools): string {
   const lines: string[] = [];
   const toolLines: string[] = [];
@@ -649,6 +781,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(`const __dirname = dirname(fileURLToPath(import.meta.url));`);
   lines.push(``);
   lines.push(OUTBOUND_HELPER_SOURCE);
+  if (detected.forms.length > 0) lines.push(FORM_HELPER_SOURCE);
   lines.push(`// Load data`);
   lines.push(
     `const pages = JSON.parse(readFileSync(resolve(__dirname, "data/pages.json"), "utf-8"));`,
@@ -759,44 +892,30 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     toolLines.push(``);
   }
 
-  // site-search tool (SearchAction stub)
-  if (detected.hasSearchAction) {
+  // site-search tool (SearchAction): returns the site's own search URL, never fetched here
+  if (detected.searchAction) {
     toolLines.push(`// Tool: site-search (via SearchAction)`);
     toolLines.push(
-      `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
+      `server.tool("site-search", ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    toolLines.push(
-      `  const searchUrl = ${JSON.stringify(`${baseUrl}/search?q=`)} + encodeURIComponent(query);`,
-    );
-    toolLines.push(
-      `  return { content: [{ type: "text", text: \`Search URL: \${searchUrl}\\n\\nNote: This returns the search URL. For full results, use search-site instead.\` }] };`,
-    );
+    toolLines.push(`  const searchUrl = ${siteSearchUrlExpr(detected.searchAction, "query")};`);
+    toolLines.push(`  return { content: [{ type: "text", text: searchUrl }] };`);
     toolLines.push(`});`);
     toolLines.push(``);
   }
 
   // Form submission tools
-  const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-  detected.forms.forEach((form, i) => {
-    const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-    const fieldSchemas = form.fields.map((f) => {
-      const zodType = f.type === "number" ? "z.number()" : "z.string()";
-      const desc = f.label || f.name;
-      return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
-    });
-
-    toolLines.push(`// Tool: ${toolName}`);
+  for (const tool of formToolEmits(detected)) {
+    toolLines.push(`// Tool: ${tool.name}`);
     toolLines.push(
-      `server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
+      `server.tool(${JSON.stringify(tool.name)}, ${JSON.stringify(tool.description)}, {`,
     );
-    toolLines.push(fieldSchemas.join(",\n"));
-    toolLines.push(
-      `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
-    );
-    const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+    toolLines.push(formZodShape(tool.spec, "    "));
+    toolLines.push(`}, ${formAnnotations(tool.spec.method)}, async (params) => {`);
     toolLines.push(`  try {`);
+    toolLines.push(`    const _req = ${formRequestExpr(tool, "params")};`);
     toolLines.push(
-      `    return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };`,
+      `    return { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };`,
     );
     toolLines.push(`  } catch (err) {`);
     toolLines.push(
@@ -805,7 +924,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     toolLines.push(`  }`);
     toolLines.push(`});`);
     toolLines.push(``);
-  });
+  }
 
   // Commerce tools
   if (detected.hasProducts) {
@@ -1157,6 +1276,7 @@ import { z } from "zod";
 import pages from "../data/pages.json" with { type: "json" };
 ${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}
 ${OUTBOUND_HELPER_SOURCE}
+${detected.forms.length > 0 ? FORM_HELPER_SOURCE : ""}
 function createServer() {
   const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
@@ -1187,6 +1307,14 @@ function createServer() {
     return { content: [{ type: "text", text: results }] };
   });
 ${
+  detected.searchAction
+    ? `
+  server.tool("site-search", ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
+    return { content: [{ type: "text", text: ${siteSearchUrlExpr(detected.searchAction, "query")} }] };
+  });
+`
+    : ""
+}${
   detected.hasFaq
     ? `
   server.tool("search-faq", "Search FAQ", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
@@ -1234,23 +1362,16 @@ ${generateCommerceToolHandlers()}
     : ""
 }
 ${
-  detected.forms.length > 0
-    ? detected.forms
-        .map((form, i) => {
-          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-          const fieldSchemas = form.fields.map((f) => {
-            const zodType = f.type === "number" ? "z.number()" : "z.string()";
-            const desc = f.label || f.name;
-            return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
-          });
-          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+  formToolEmits(detected).length > 0
+    ? formToolEmits(detected)
+        .map((tool) => {
           return `
-  server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
-${fieldSchemas.join(",\n")}
-  }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
+  server.tool(${JSON.stringify(tool.name)}, ${JSON.stringify(tool.description)}, {
+${formZodShape(tool.spec, "    ")}
+  }, ${formAnnotations(tool.spec.method)}, async (params) => {
     try {
-      return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
+      const _req = ${formRequestExpr(tool, "params")};
+      return { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };
     } catch (err) {
       return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
     }
@@ -1356,6 +1477,7 @@ id = "" # Run: npx wrangler kv namespace create MCP_DATA
 import { z } from "zod";
 
 ${OUTBOUND_HELPER_SOURCE}
+${detected.forms.length > 0 ? FORM_HELPER_SOURCE : ""}
 interface Env {
   MCP_DATA: KVNamespace;
 }
@@ -1414,7 +1536,15 @@ ${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    cons
       const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
       return { content: [{ type: "text", text: results }] };
     });
-
+${
+  detected.searchAction
+    ? `
+    server.tool("site-search", ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
+      return { content: [{ type: "text", text: ${siteSearchUrlExpr(detected.searchAction, "query")} }] };
+    });
+`
+    : ""
+}
 ${
   detected.hasProducts
     ? `
@@ -1448,22 +1578,15 @@ ${generateCommerceToolHandlers()}
 }
 ${
   detected.forms.length > 0
-    ? detected.forms
-        .map((form, i) => {
-          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-          const fieldSchemas = form.fields.map((f) => {
-            const zodType = f.type === "number" ? "z.number()" : "z.string()";
-            const desc = f.label || f.name;
-            return `      [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
-          });
-          const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
+    ? formToolEmits(detected)
+        .map((tool) => {
           return `
-    server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
-${fieldSchemas.join(",\n")}
-    }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
+    server.tool(${JSON.stringify(tool.name)}, ${JSON.stringify(tool.description)}, {
+${formZodShape(tool.spec, "      ")}
+    }, ${formAnnotations(tool.spec.method)}, async (params) => {
       try {
-        return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
+        const _req = ${formRequestExpr(tool, "params")};
+        return { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };
       } catch (err) {
         return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
       }
@@ -1504,6 +1627,11 @@ ${
             { name: "get-page", description: "Get page content", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
             { name: "search-site", description: "Search site content", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
             ${
+              detected.searchAction
+                ? `{ name: "site-search", description: ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },`
+                : ""
+            }
+            ${
               detected.hasProducts
                 ? `{ name: "search-products", description: "Search products by name, category, or description", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
             { name: "get-product", description: "Get full product details by product ID", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
@@ -1513,15 +1641,10 @@ ${
             }
 ${
   detected.forms.length > 0
-    ? detected.forms
-        .map((form, i) => {
-          const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-          const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-          const properties = Object.fromEntries(
-            form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }]),
-          );
-          const required = form.fields.filter((f) => f.required).map((f) => f.name);
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
+    ? formToolEmits(detected)
+        .map((tool) => {
+          const { properties, required } = formJsonSchema(tool.spec);
+          return `            { name: ${JSON.stringify(tool.name)}, description: ${JSON.stringify(tool.description)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: ${formAnnotations(tool.spec.method)} },`;
         })
         .join("\n")
     : ""
@@ -1587,6 +1710,17 @@ ${
           : scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
         result = { content: [{ type: "text", text }] };
       }${
+        detected.searchAction
+          ? ` else if (toolName === "site-search") {
+        try {
+          if (typeof args.query !== "string") throw new Error("Field query must be a string");
+          result = { content: [{ type: "text", text: ${siteSearchUrlExpr(detected.searchAction, "args.query")} }] };
+        } catch (err) {
+          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+        }
+      }`
+          : ""
+      }${
         detected.hasProducts
           ? ` else if (toolName === "search-products") {
         const results = searchProducts(args.query || "", products);
@@ -1612,14 +1746,12 @@ ${
           : ""
       }${
         detected.forms.length > 0
-          ? detected.forms
-              .map((form, i) => {
-                const formTools = detected.tools.filter((t) => t.condition === "hasForm");
-                const toolName = formTools[i]?.name ?? `submit-form-${i}`;
-                const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
-                return ` else if (toolName === ${JSON.stringify(toolName)}) {
+          ? formToolEmits(detected)
+              .map((tool) => {
+                return ` else if (toolName === ${JSON.stringify(tool.name)}) {
         try {
-          result = { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
+          const _req = ${formRequestExpr(tool, "args")};
+          result = { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };
         } catch (err) {
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }

@@ -1,5 +1,6 @@
 import type { CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
+import { normalizeFormMethod } from "./form-tools.js";
 import { oneLine } from "./markdown-text.js";
 import type { ExtractedForm, ExtractedFormField, PageMarkdown } from "./types.js";
 
@@ -30,59 +31,97 @@ function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
     const $form = $(el);
     const action = $form.attr("action");
     if (!action) return;
+    const method = normalizeFormMethod($form.attr("method"));
+    if (!method) return;
 
     const fields: ExtractedFormField[] = [];
-    $form.find("input, select, textarea").each((_, input) => {
-      const $input = $(input);
-      const name = $input.attr("name");
-      const type =
-        $input.attr("type") ||
-        ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text");
-      if (!name || type === "hidden" || type === "submit") return;
+    const byName = new Map<string, ExtractedFormField>();
+    let hasPassword = false;
+    const controls = "input, select, textarea";
+    const formId = $form.attr("id");
+    // Controls outside the <form> that point at it with form="id" belong to it too.
+    const associated = formId
+      ? $(controls).filter((_, c) => $(c).attr("form") === formId && $form.find(c).length === 0)
+      : $();
+    $form
+      .find(controls)
+      .add(associated)
+      .each((_, input) => {
+        const $input = $(input);
+        const name = $input.attr("name");
+        const type = (
+          $input.attr("type") ||
+          ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text")
+        ).toLowerCase();
+        if (type === "password") hasPassword = true;
+        if (!name || type === "hidden" || type === "submit") return;
 
-      const field: ExtractedFormField = {
-        name,
-        type,
-        required: $input.attr("required") !== undefined,
-      };
+        const required = $input.attr("required") !== undefined;
+        const existing = byName.get(name);
+        if (existing) {
+          const value = $input.attr("value") ?? "on";
+          if (existing.type === type && type === "radio") {
+            if (existing.options && !existing.options.includes(value)) existing.options.push(value);
+            if (required) existing.required = true;
+          } else if (existing.type === type && type === "checkbox") {
+            if (!existing.options) {
+              existing.options = existing.value !== undefined ? [existing.value] : [];
+              delete existing.value;
+              delete existing.label;
+            }
+            if (!existing.options.includes(value)) existing.options.push(value);
+            if (required) existing.required = true;
+          }
+          return;
+        }
 
-      const id = $input.attr("id");
-      if (id) {
-        const label = $(`label[for="${id}"]`).text().trim();
-        if (label) field.label = label;
-      }
-      if (!field.label) {
-        const ariaLabel = $input.attr("aria-label");
-        if (ariaLabel) field.label = ariaLabel;
-      }
+        const field: ExtractedFormField = { name, type, required };
 
-      if ($input.is("select")) {
-        const options: string[] = [];
-        $input.find("option").each((_, opt) => {
-          const val = $(opt).attr("value");
-          if (val) options.push(val);
-        });
-        if (options.length > 0) field.options = options;
-      }
+        if (type === "radio") {
+          field.options = [$input.attr("value") ?? "on"];
+          byName.set(name, field);
+          fields.push(field);
+          return;
+        }
+        if (type === "checkbox") field.value = $input.attr("value") ?? "on";
 
-      const pattern = $input.attr("pattern");
-      if (pattern) field.pattern = pattern;
-      const min = $input.attr("min");
-      if (min) field.min = min;
-      const max = $input.attr("max");
-      if (max) field.max = max;
-      const maxlength = $input.attr("maxlength");
-      if (maxlength) field.maxlength = parseInt(maxlength, 10);
+        const id = $input.attr("id");
+        if (id) {
+          const label = $(`label[for="${id}"]`).text().trim();
+          if (label) field.label = label;
+        }
+        if (!field.label) {
+          const ariaLabel = $input.attr("aria-label");
+          if (ariaLabel) field.label = ariaLabel;
+        }
 
-      fields.push(field);
-    });
+        if ($input.is("select")) {
+          const options: string[] = [];
+          $input.find("option").each((_, opt) => {
+            const val = $(opt).attr("value");
+            if (val) options.push(val);
+          });
+          if (options.length > 0) field.options = options;
+        }
 
-    if (fields.length > 0) {
-      const formId = $form.attr("id");
+        const pattern = $input.attr("pattern");
+        if (pattern) field.pattern = pattern;
+        const min = $input.attr("min");
+        if (min) field.min = min;
+        const max = $input.attr("max");
+        if (max) field.max = max;
+        const maxlength = $input.attr("maxlength");
+        if (maxlength) field.maxlength = parseInt(maxlength, 10);
+
+        byName.set(name, field);
+        fields.push(field);
+      });
+
+    if (fields.length > 0 && !hasPassword) {
       const formName = $form.attr("name");
       forms.push({
         action,
-        method: ($form.attr("method") || "GET").toUpperCase(),
+        method,
         fields,
         ...(formId ? { id: formId } : {}),
         ...(formName ? { name: formName } : {}),

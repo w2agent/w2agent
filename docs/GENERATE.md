@@ -100,8 +100,8 @@ Auto-detected tools:
 | `get-page` | Always | Get markdown content by URL or slug |
 | `search-site` | Always | Keyword search with weighted scoring (title 3x, description 2x, content 1x) |
 | `search-faq` | FAQ content found | Search FAQ question/answer pairs |
-| `site-search` | SearchAction in JSON-LD | Site's native search URL |
-| `submit-form-N` | Forms with action + named inputs | One tool per detected form |
+| `site-search` | SearchAction in JSON-LD (also inside `@graph`, or in an array of `potentialAction`) | Returns the site's own search URL for a query. It never fetches the URL. The template is accepted only when the placeholder is in the query string, no other `{...}` variable and no userinfo is present, and the URL passes the same-origin or allowlist check |
+| `submit-<form>` | Forms with action + named inputs | One tool per distinct form (identical forms on many pages, such as a header search box, become one tool). A GET form is sent as a GET with the fields as the query (read-only hint); a POST form is sent urlencoded. Radio groups become an enum, checkboxes a boolean (or a list for a same-name group), and unchecked or unset fields are not sent. Forms with a password input, a required file input, or `method="dialog"` get no tool. Hidden fields (CSRF tokens) are not sent, so token-protected forms still fail |
 
 #### SKILL.md (`skill-md`)
 
