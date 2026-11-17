@@ -13,6 +13,8 @@ export function generateAstroIntegration(
 import fs from "node:fs";
 import path from "node:path";
 
+// Rendered on demand, so the project needs an adapter: output "server", or static
+// output with an adapter (Astro 5+). Without one the build fails with NoAdapterInstalled.
 export const prerender = false;
 
 export const GET: APIRoute = async () => {
@@ -53,7 +55,9 @@ export const GET: APIRoute = async () => {
  *   import w2agent from "./w2agent-integration.mjs";
  *   export default defineConfig({ integrations: [w2agent()] });
  *
- * Regenerates llms.txt and llms-full.txt after each build.
+ * Regenerates llms-full.txt after each build, and llms.txt too unless the project
+ * has its own public/llms.txt (Astro copies it into the build and it is kept).
+ * To regenerate llms.txt as well: w2agent({ overwrite: true })
  *
  * Requires the w2agent CLI installed in this project. It is not published on npm
  * yet: build it from the w2agent repo, then run
@@ -61,22 +65,41 @@ export const GET: APIRoute = async () => {
  * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export default function w2agentIntegration() {
+export default function w2agentIntegration(options = {}) {
+  const overwrite = options.overwrite === true;
+  let siteRoot = process.cwd();
+  let publicDir = join(siteRoot, "public");
+
   return {
     name: "w2agent",
     hooks: {
+      "astro:config:done": ({ config }) => {
+        siteRoot = fileURLToPath(config.root);
+        publicDir = config.publicDir
+          ? typeof config.publicDir === "string" ? config.publicDir : fileURLToPath(config.publicDir)
+          : join(siteRoot, "public");
+      },
       "astro:build:done": async ({ dir, logger }) => {
         const siteUrl = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
         const outDir = fileURLToPath(dir);
+        const existing = join(publicDir, "llms.txt");
+        const keep = !overwrite && existsSync(existing);
 
         logger.info("Regenerating AI content for " + siteUrl + "...");
+        if (keep) {
+          logger.info(
+            "Keeping existing " + relative(siteRoot, existing) + "; set overwrite: true to replace it with a generated llms.txt"
+          );
+        }
 
         try {
           execFileSync(
             "npx",
-            ["--no", "--", "w2agent", "generate", siteUrl, "--format", "llms-txt,full", "--no-platform", "--output", outDir],
+            ["--no", "--", "w2agent", "generate", siteUrl, "--format", keep ? "full" : "llms-txt,full", "--no-platform", "--output", outDir],
             { stdio: "inherit" }
           );
           logger.info("Done. Files written to " + outDir);
@@ -200,14 +223,16 @@ export default defineConfig({
 });
 \`\`\`
 
+An existing \`public/llms.txt\` (such as the file copied in step 1) is kept: Astro copies it into the build and the integration only regenerates \`llms-full.txt\`. To regenerate \`llms.txt\` too, use \`w2agent({ overwrite: true })\`.
+
 ### Alternative: prebuild script
 \`\`\`bash
 cp astro/w2agent-build.mjs your-astro-app/
 \`\`\`
 
-Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build.
+Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build. The script replaces \`public/llms.txt\` and \`public/llms-full.txt\` on every run, so do not use it when you write \`public/llms.txt\` by hand.
 \n### 3. (Optional) Add SSR endpoints
-If using \`output: "server"\`:
+These endpoints render on demand, so the project needs an adapter: \`output: "server"\` with an adapter, or static output with an adapter (Astro 5+). In a static project without an adapter the build fails with \`NoAdapterInstalled\`; skip this step there and serve the files in \`public/\` as they are.
 \`\`\`bash
 cp astro/src/pages/llms.txt.ts your-astro-app/src/pages/
 cp -r astro/src/pages/.well-known/ your-astro-app/src/pages/.well-known/

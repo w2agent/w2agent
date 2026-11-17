@@ -120,7 +120,9 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
   warnings.push(...guarded.warnings);
   if (willWrite(guarded.actions, "w2agent-integration.mjs")) {
     postInstallSteps.push(
-      "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
+      willWrite(guarded.actions, "public/llms.txt")
+        ? "Add w2agent integration to your astro.config: integrations: [w2agentIntegration({ overwrite: true })]. public/llms.txt is the seed this install wrote, so overwrite lets each build refresh it."
+        : "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
     );
   }
   if (willWrite(guarded.actions, "w2agent-build.mjs")) {

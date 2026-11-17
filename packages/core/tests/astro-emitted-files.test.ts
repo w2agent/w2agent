@@ -1,7 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,6 +90,150 @@ describe("emitted Astro .mjs files", () => {
   });
 });
 
+describe("emitted w2agent-integration.mjs against a project with public/llms.txt", () => {
+  type Hook = (a: unknown) => Promise<void> | void;
+  let site: string;
+  let dist: string;
+  let callLog: string;
+  let originalPath: string | undefined;
+  let counter = 0;
+
+  beforeEach(() => {
+    site = join(dir, "site");
+    dist = join(site, "dist");
+    callLog = join(dir, "npx-calls.log");
+    mkdirSync(dist, { recursive: true });
+    const bin = join(dir, "bin");
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, "npx");
+    writeFileSync(
+      fake,
+      `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const val = (flag) => args[args.indexOf(flag) + 1];
+const out = val("--output");
+const formats = (val("--format") || "").split(",");
+fs.appendFileSync(${JSON.stringify(callLog)}, args.join(" ") + "\\n");
+if (formats.includes("llms-txt")) fs.writeFileSync(path.join(out, "llms.txt"), "GENERATED-LLMS\\n");
+if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), "GENERATED-FULL\\n");
+`,
+    );
+    chmodSync(fake, 0o755);
+    originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  async function plugin(options?: { overwrite?: boolean }) {
+    const p = join(dir, `integration-${counter++}.mjs`);
+    writeFileSync(p, emitted("astro/w2agent-integration.mjs").content);
+    const mod = await import(pathToFileURL(p).href);
+    const hooks = mod.default(options).hooks as Record<string, Hook>;
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    return {
+      logger,
+      async build(publicDir?: URL | string) {
+        if (publicDir !== undefined) {
+          await hooks["astro:config:done"]?.({
+            config: { root: pathToFileURL(`${site}/`), publicDir },
+          });
+        }
+        await hooks["astro:build:done"]({ dir: pathToFileURL(`${dist}/`), logger });
+      },
+    };
+  }
+
+  function put(path: string, content: string) {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, content);
+  }
+
+  const publicUrl = () => pathToFileURL(`${join(site, "public")}/`);
+  const calls = () =>
+    existsSync(callLog) ? readFileSync(callLog, "utf-8").trim().split("\n") : [];
+  const infos = (logger: { info: ReturnType<typeof vi.fn> }) =>
+    logger.info.mock.calls.map((c) => String(c[0]));
+
+  it("generates llms.txt and llms-full.txt when the project has no public/llms.txt", async () => {
+    const { logger, build } = await plugin();
+    await build(publicUrl());
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("GENERATED-LLMS\n");
+    expect(readFileSync(join(dist, "llms-full.txt"), "utf-8")).toBe("GENERATED-FULL\n");
+    expect(calls()[0]).toContain("--format llms-txt,full");
+    expect(infos(logger).some((m) => m.includes("Keeping"))).toBe(false);
+  });
+
+  it("keeps the build's llms.txt copied from public/, still writes llms-full.txt, logs one keep line", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    const { logger, build } = await plugin();
+    await build(publicUrl());
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+    expect(readFileSync(join(dist, "llms-full.txt"), "utf-8")).toBe("GENERATED-FULL\n");
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0]).toMatch(/--format full(\s|$)/);
+    const keeps = infos(logger).filter((m) => m.includes("Keeping"));
+    expect(keeps).toHaveLength(1);
+    expect(keeps[0]).toContain("public/llms.txt");
+  });
+
+  it("regenerates llms.txt over public/llms.txt when called with overwrite: true", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    const { logger, build } = await plugin({ overwrite: true });
+    await build(publicUrl());
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("GENERATED-LLMS\n");
+    expect(readFileSync(join(dist, "llms-full.txt"), "utf-8")).toBe("GENERATED-FULL\n");
+    expect(calls()[0]).toContain("--format llms-txt,full");
+    expect(infos(logger).some((m) => m.includes("Keeping"))).toBe(false);
+  });
+
+  it("treats only overwrite === true as overwrite", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    const { build } = await plugin({ overwrite: "yes" as unknown as boolean });
+    await build(publicUrl());
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+  });
+
+  it("reads publicDir from the config, as a URL or a string", async () => {
+    put(join(site, "assets", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    const viaUrl = await plugin();
+    await viaUrl.build(pathToFileURL(`${join(site, "assets")}/`));
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+    expect(infos(viaUrl.logger).find((m) => m.includes("Keeping"))).toContain("assets/llms.txt");
+
+    const viaString = await plugin();
+    await viaString.build(join(site, "assets"));
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+    expect(viaString.logger.info.mock.calls.some((c) => String(c[0]).includes("Keeping"))).toBe(
+      true,
+    );
+  });
+
+  it("ignores a public/llms.txt when the configured publicDir is elsewhere", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    const { build } = await plugin();
+    await build(pathToFileURL(`${join(site, "assets")}/`));
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("GENERATED-LLMS\n");
+  });
+
+  it("defaults to public/ under the working directory when no config hook ran", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    vi.spyOn(process, "cwd").mockReturnValue(site);
+    const { build } = await plugin();
+    await build();
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+  });
+});
+
 describe("emitted astro/src/pages/llms.txt.ts endpoint", () => {
   async function load(): Promise<{ GET: () => Promise<Response> }> {
     const src = emitted("astro/src/pages/llms.txt.ts").content;
@@ -137,5 +289,16 @@ describe("emitted astro/INSTALL.md", () => {
     expect(md).toContain("w2agent()");
     expect(md).toContain("overwrite: true");
     expect(md).toContain("404");
+  });
+
+  it("says the endpoints need an adapter and that a kept public/llms.txt needs overwrite: true", () => {
+    const md = emitted("astro/INSTALL.md").content;
+    expect(md).toContain("needs an adapter");
+    expect(md).toContain("NoAdapterInstalled");
+    expect(md).toContain("w2agent({ overwrite: true })");
+    const src = emitted("astro/src/pages/llms.txt.ts").content;
+    expect(src).toContain("needs an adapter");
+    expect(src).toContain("export const prerender = false;");
+    expect(md).toContain("do not use it when you write `public/llms.txt` by hand");
   });
 });

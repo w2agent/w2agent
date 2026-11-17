@@ -110,7 +110,8 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Static mode (default) | `astro.config.*` output setting | Only install `public/` files, skip SSR endpoints |
 | SSR/hybrid mode | `output: "server"` or `"hybrid"` | Install all files |
 | No config found | Missing `astro.config.*` | Warn + proceed with public/ files |
-| Existing `public/llms.txt` | File exists | Skip + warn |
+| Existing `public/llms.txt` | File exists | Skip + warn; the integration step stays `w2agentIntegration()` (the build keeps that file) |
+| `public/llms.txt` seed written | Not already present | Integration step says `w2agentIntegration({ overwrite: true })` so each build refreshes the seed |
 | `WebMcpScript.astro` | Generated as `src/components/WebMcpScript.astro` | Install under `src/`; post-install step to import it in a layout and render `<WebMcpScript />` (only when written) |
 | `w2agent-build.mjs` written | Not already present | Post-install step: add `"prebuild": "node w2agent-build.mjs"` as an alternative to the integration (use one, not both) |
 
@@ -164,8 +165,8 @@ The template and robots manual actions name `w2agent integrate <url> --platform 
 - `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
 - `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`) (18 tests)
 - `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording (16 tests)
-- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (11 tests)
-- `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), INSTALL.md wording (7 tests)
+- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection, integration step wording for a written or kept seed (13 tests)
+- `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), emitted `w2agent-integration.mjs` run with a fake `npx` (keeps `public/llms.txt`, `overwrite`, `publicDir`), INSTALL.md wording (16 tests)
 - `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases (22 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note (14 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, older generated plugin, standalone beside it, `WP_PLUGIN_DIR` forms (24 tests)
