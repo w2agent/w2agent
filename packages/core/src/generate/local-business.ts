@@ -81,9 +81,9 @@ const BOOKING_PLATFORMS = [
 ];
 
 function parseOpeningHoursSpec(spec: unknown): OpeningHours[] {
-  if (!Array.isArray(spec)) return [];
+  const entries = Array.isArray(spec) ? spec : [spec];
   const result: OpeningHours[] = [];
-  for (const entry of spec) {
+  for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const opens = typeof e.opens === "string" ? e.opens : "";
