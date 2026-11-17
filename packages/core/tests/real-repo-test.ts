@@ -69,7 +69,6 @@ const PLATFORM_FILES: Record<string, GeneratedFile[]> = {
     makeFile("wordpress/w2agent-plugin.php", "<?php /* Plugin */"),
     makeFile("wordpress/data/llms.txt", "# LLMs"),
     makeFile("wordpress/data/agent-card.json", "{}"),
-    makeFile("wordpress/data/robots-rules.txt", "# rules"),
     makeFile("wordpress/INSTALL.md", "# Install"),
   ],
   shopify: [

@@ -52,15 +52,7 @@ export const wordpressAdapter: PlatformAdapter = {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
     const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content;
     const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content;
-    const robotsTxt = coreFiles.find((f) => f.filename === "robots.txt")?.content || "";
-
-    // Extract just the AI-specific rules from generated robots.txt
-    const robotsRules = robotsTxt
-      .split("\n")
-      .filter((line) => line.trim() && !line.startsWith("Sitemap:"))
-      .join("\n");
-
-    const files = generateWpPlugin(llmsTxt, agentCard, robotsRules, ctx.baseUrl, llmsFullTxt);
+    const files = generateWpPlugin(llmsTxt, agentCard, ctx.baseUrl, llmsFullTxt);
 
     // Add MCP webhook snippet if mcp-server format is active
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {

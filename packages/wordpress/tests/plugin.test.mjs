@@ -37,7 +37,7 @@ test("serves /.well-known/agent-card.json only when data/agent-card.json exists,
 });
 
 test("robots.txt rules do not advertise an agent card that may not exist", () => {
-  const robots = block("add_filter( 'robots_txt'", "}, 10, 2 );");
+  const robots = block("add_filter( 'robots_txt'", "}, 99, 2 );");
   assert.doesNotMatch(robots, /agent-card/);
 });
 
@@ -156,7 +156,7 @@ test("yields every front-end callback to the site-specific plugin, checked at ca
   assert.match(redirect, /if \( w2agent_front_end_yielded\(\) \) return;/);
   const head = block("add_action( 'wp_head'", "echo");
   assert.match(head, /if \( w2agent_front_end_yielded\(\) \) return;/);
-  const robots = block("add_filter( 'robots_txt'", "$rules");
+  const robots = block("add_filter( 'robots_txt'", "}, 99, 2 );");
   assert.match(robots, /if \( w2agent_front_end_yielded\(\) \) return \$output;/);
 });
 
@@ -204,4 +204,15 @@ test("readme.txt discloses the external service", () => {
   assert.match(section, /nothing is sent/i);
   assert.match(section, /bearer token/);
   assert.match(section, /post/i);
+});
+
+// WP-5
+test("robots.txt filter runs late, bails when discouraged, adds no Sitemap or * group", () => {
+  const filter = block("add_filter( 'robots_txt'", "}, 99, 2 );");
+  assert.match(filter, /if \( ! \$public \) return \$output;/);
+  const additions = block("function w2agent_robots_additions", "add_filter( 'robots_txt'");
+  assert.match(additions, /if \( ! isset\( \$named\[ strtolower\( \$token \) \] \) \)/);
+  assert.match(additions, /if \( ! w2agent_robots_blocks_root\( \$star \) \) return '';/);
+  assert.doesNotMatch(additions, /sitemap/i);
+  assert.doesNotMatch(additions, /'User-agent: \*'/);
 });

@@ -592,9 +592,9 @@ describe("Astro checks", () => {
 // ─── Integration File Generation ────────────────────────────────
 
 describe("WordPress integration generation", () => {
-  it("generates 6 files (plugin, 4 data files, INSTALL.md)", () => {
+  it("generates 5 files (plugin, 3 data files, INSTALL.md)", () => {
     const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(6);
+    expect(files).toHaveLength(5);
     expect(files.map((f) => f.filename)).toContain("wordpress/data/llms-full.txt");
   });
 
@@ -632,7 +632,7 @@ describe("WordPress integration generation", () => {
     const filenames = files.map((f) => f.filename);
     expect(filenames).toContain("wordpress/data/llms.txt");
     expect(filenames).toContain("wordpress/data/agent-card.json");
-    expect(filenames).toContain("wordpress/data/robots-rules.txt");
+    expect(filenames).not.toContain("wordpress/data/robots-rules.txt");
   });
 });
 

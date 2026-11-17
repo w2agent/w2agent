@@ -346,6 +346,15 @@ export function resolveWordPressInstall(files: GeneratedFile[], projectDir: stri
   warnings.push(...guarded.warnings);
   if (guarded.actions.some((a) => a.type === "write")) {
     postInstallSteps.push("Activate the w2agent plugin in WordPress Admin → Plugins.");
+    if (existsSync(join(projectDir, "robots.txt"))) {
+      guarded.actions.push({
+        type: "manual",
+        dest: "robots.txt",
+        reason:
+          "This site has a physical robots.txt. The web server serves that file, so the plugin's robots.txt filter never runs. " +
+          "Merge the AI-agent groups from the generated robots.txt into it by hand; `w2agent integrate <url> --output <dir>` writes the generated file.",
+      });
+    }
   }
 
   return { platform: "wordpress", actions: guarded.actions, warnings, postInstallSteps };

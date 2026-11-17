@@ -1,0 +1,49 @@
+[
+  { "name": "disallow slash dollar", "robots": "User-agent: *\nDisallow: /$\n", "blocksRoot": true },
+  { "name": "disallow slash star", "robots": "User-agent: *\nDisallow: /*\n", "blocksRoot": true },
+  { "name": "disallow bare star", "robots": "User-agent: *\nDisallow: *\n", "blocksRoot": true },
+  { "name": "disallow pdf pattern", "robots": "User-agent: *\nDisallow: /*.pdf\n", "blocksRoot": false },
+  { "name": "disallow slash-dollar pdf", "robots": "User-agent: *\nDisallow: /*.pdf$\n", "blocksRoot": false },
+  { "name": "allow and disallow slash tie, allow first", "robots": "User-agent: *\nAllow: /\nDisallow: /\n", "blocksRoot": false },
+  { "name": "allow and disallow slash tie, disallow first", "robots": "User-agent: *\nDisallow: /\nAllow: /\n", "blocksRoot": false },
+  { "name": "longer allow beats disallow", "robots": "User-agent: *\nDisallow: /\nAllow: /$\n", "blocksRoot": false },
+  { "name": "longer disallow beats allow", "robots": "User-agent: *\nAllow: /\nDisallow: /*\n", "blocksRoot": true },
+  { "name": "empty disallow", "robots": "User-agent: *\nDisallow:\n", "blocksRoot": false },
+  { "name": "empty allow does not rescue", "robots": "User-agent: *\nDisallow: /\nAllow:\n", "blocksRoot": true },
+  {
+    "name": "versioned agent names the token",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User/1.0\nDisallow: /\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"]
+  },
+  {
+    "name": "shared group names the token",
+    "robots": "User-agent: *\nUser-agent: GPTBot\nUser-agent: Claude-User\nDisallow: /\n",
+    "blocksRoot": true,
+    "named": ["Claude-User"]
+  },
+  {
+    "name": "named allow keeps the token and the others get a group",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: OAI-SearchBot\nAllow: /\n",
+    "blocksRoot": true,
+    "named": ["OAI-SearchBot"]
+  },
+  { "name": "CRLF line endings", "robots": "User-agent: *\r\nDisallow: /\r\n\r\nUser-agent: Googlebot\r\nDisallow: /x\r\n", "blocksRoot": true, "named": ["Googlebot"] },
+  { "name": "lone CR line endings", "robots": "User-agent: *\rDisallow: /\r", "blocksRoot": true },
+  { "name": "two star groups, the second blocks", "robots": "User-agent: *\nDisallow: /a/\n\nUser-agent: *\nDisallow: /\n", "blocksRoot": true },
+  { "name": "blank line inside a group", "robots": "User-agent: *\n\nDisallow: /\n", "blocksRoot": true },
+  { "name": "upper-case keys and comments", "robots": "USER-AGENT: * # everyone\nDISALLOW: / # all\n", "blocksRoot": true },
+  { "name": "comment line between agent lines", "robots": "User-agent: *\n# note\nUser-agent: GPTBot\nDisallow: /\n", "blocksRoot": true },
+  { "name": "no star group at all", "robots": "User-agent: GPTBot\nDisallow: /\n", "blocksRoot": false },
+  { "name": "empty output", "robots": "", "blocksRoot": false },
+  {
+    "name": "path rule and crawl-delay carry into the group",
+    "robots": "User-agent: *\nDisallow: /\nDisallow: /private/\nAllow: /public/\nCrawl-delay: 5\n",
+    "blocksRoot": true,
+    "paths": [
+      { "agent": "Claude-User", "path": "/private/x", "allowed": false },
+      { "agent": "Claude-User", "path": "/public/x", "allowed": true },
+      { "agent": "Claude-User", "path": "/other", "allowed": true }
+    ]
+  }
+]

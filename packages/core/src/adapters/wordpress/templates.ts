@@ -1,13 +1,28 @@
+import { BOT_TOKENS } from "../../audit/shared/bot-tokens.js";
 import type { GeneratedFile } from "../../generate/types.js";
+
+/** AI user-triggered and search agents with a robots.txt token, in BOT_TOKENS order (never training agents). */
+export function wpRobotsTokens(): string[] {
+  const tokens = BOT_TOKENS.filter(
+    (b) => b.robotsToken && (b.purpose === "user" || b.purpose === "search"),
+  ).map((b) => b.token);
+  return [...new Set(tokens)];
+}
+
+export function phpString(value: string): string {
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
 
 export function generateWpPlugin(
   llmsTxtContent: string,
   agentCardContent: string | undefined,
-  robotsRules: string,
   siteUrl: string,
   llmsFullContent?: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
+  const tokenLines = wpRobotsTokens()
+    .map((token) => `        ${phpString(token)},`)
+    .join("\n");
 
   const pluginPhp = `<?php
 /**
@@ -232,17 +247,126 @@ add_action('wp_head', function() {
 
 // ─── Robots.txt integration ─────────────────────────────────────
 
-add_filter('robots_txt', function($output, $public) {
-    if (!w2agent_site_serves_data_files()) return $output;
-    $rules_file = W2AGENT_SITE_DATA_DIR . 'robots-rules.txt';
-    if (file_exists($rules_file)) {
-        $rules = file_get_contents($rules_file);
-        if ($rules) {
-            $output .= "\\n" . $rules;
+// AI user-triggered and search agents (same list as the w2agent core generator; training agents are never listed).
+function w2agent_site_robots_bot_tokens() {
+    return [
+${tokenLines}
+    ];
+}
+
+function w2agent_site_robots_groups($output) {
+    $groups = [];
+    $current = -1;
+    $last_agent = false;
+    $lines = explode("\\n", str_replace(["\\r\\n", "\\r"], "\\n", (string) $output));
+    foreach ($lines as $raw) {
+        $hash = strpos($raw, '#');
+        $text = $hash === false ? $raw : substr($raw, 0, $hash);
+        $colon = strpos($text, ':');
+        if ($colon === false) continue;
+        $key = strtolower(trim(substr($text, 0, $colon)));
+        $value = trim(substr($text, $colon + 1));
+        if ($key === '') continue;
+        if ($key === 'user-agent') {
+            if (!$last_agent || $current < 0) {
+                $groups[] = ['agents' => [], 'rules' => [], 'delay' => null];
+                $current = count($groups) - 1;
+            }
+            if ($value !== '') {
+                $agent = strtolower($value);
+                $slash = strpos($agent, '/');
+                if ($slash !== false) $agent = substr($agent, 0, $slash);
+                $groups[$current]['agents'][] = trim($agent);
+            }
+            $last_agent = true;
+            continue;
+        }
+        $last_agent = false;
+        if ($current < 0) continue;
+        if ($key === 'allow' || $key === 'disallow') {
+            $groups[$current]['rules'][] = ['allow' => $key === 'allow', 'value' => $value];
+        } elseif ($key === 'crawl-delay') {
+            $groups[$current]['delay'] = $value;
         }
     }
-    return $output;
-}, 10, 2);
+    return $groups;
+}
+
+// Robots pattern match: \`*\` matches any run, a trailing \`$\` anchors the end.
+function w2agent_site_robots_match($pattern, $path) {
+    $plen = strlen($pattern);
+    $len = strlen($path);
+    $lengths = [0];
+    for ($p = 0; $p < $plen; $p++) {
+        $c = $pattern[$p];
+        if ($c === '$' && $p + 1 === $plen) return $lengths[count($lengths) - 1] === $len;
+        if ($c === '*') {
+            $next = [];
+            for ($i = $lengths[0]; $i <= $len; $i++) $next[] = $i;
+            $lengths = $next;
+            continue;
+        }
+        $next = [];
+        foreach ($lengths as $l) {
+            if ($l < $len && $path[$l] === $c) $next[] = $l + 1;
+        }
+        if (!$next) return false;
+        $lengths = $next;
+    }
+    return true;
+}
+
+// True when the rules block "/": longest matching pattern wins, Allow wins a tie, empty values are ignored.
+function w2agent_site_robots_blocks_root($rules) {
+    $best = null;
+    foreach ($rules as $rule) {
+        if ($rule['value'] === '' || !w2agent_site_robots_match($rule['value'], '/')) continue;
+        $longer = $best === null || strlen($rule['value']) > strlen($best['value']);
+        $tie = $best !== null && strlen($rule['value']) === strlen($best['value']) && $rule['allow'] && !$best['allow'];
+        if ($longer || $tie) $best = $rule;
+    }
+    return $best !== null && !$best['allow'];
+}
+
+// The text to append to the live robots.txt: one group that lets the AI agents through when the
+// \`*\` rules block "/". An agent named anywhere in the output is never touched. '' when nothing is needed.
+function w2agent_site_robots_additions($output) {
+    $named = [];
+    $star = [];
+    $delay = null;
+    foreach (w2agent_site_robots_groups($output) as $group) {
+        foreach ($group['agents'] as $agent) $named[$agent] = true;
+        if (in_array('*', $group['agents'], true)) {
+            $star = array_merge($star, $group['rules']);
+            if ($group['delay'] !== null && $group['delay'] !== '') $delay = $group['delay'];
+        }
+    }
+    if (!w2agent_site_robots_blocks_root($star)) return '';
+
+    $lines = [];
+    foreach (w2agent_site_robots_bot_tokens() as $token) {
+        if (!isset($named[strtolower($token)])) $lines[] = 'User-agent: ' . $token;
+    }
+    if (!$lines) return '';
+    foreach ($star as $rule) {
+        if ($rule['value'] === '' || $rule['value'] === '/') continue;
+        if (!$rule['allow'] && w2agent_site_robots_match($rule['value'], '/')) continue;
+        $lines[] = ($rule['allow'] ? 'Allow: ' : 'Disallow: ') . $rule['value'];
+    }
+    if ($delay !== null) $lines[] = 'Crawl-delay: ' . $delay;
+    $lines[] = 'Allow: /';
+    return implode("\\n", $lines) . "\\n";
+}
+
+add_filter('robots_txt', function($output, $public) {
+    if (!$public) return $output;
+    $output = (string) $output;
+    $additions = w2agent_site_robots_additions($output);
+    $comment = stripos($output, 'llms.txt') === false ? '# llms.txt: ' . home_url('/llms.txt') . "\\n" : '';
+    if ($additions === '' && $comment === '') return $output;
+    if ($output !== '' && substr($output, -1) !== "\\n") $output .= "\\n";
+    return $output . "\\n" . $additions . $comment;
+}, 99, 2);
 
 // ─── Cache invalidation ─────────────────────────────────────────
 
@@ -296,7 +420,7 @@ function w2agent_site_settings_page() {
             <?php if (w2agent_site_serves_data_files() && file_exists(W2AGENT_SITE_DATA_DIR . 'agent-card.json')) : ?>
             <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo esc_url(home_url('/.well-known/agent-card.json')); ?>" target="_blank">View</a></td><td>Served from data/agent-card.json</td></tr>
             <?php endif; ?>
-            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo esc_url(home_url('/robots.txt')); ?>" target="_blank">View</a></td><td>AI bot rules merged<?php echo w2agent_site_serves_data_files() ? '' : ' (main site only)'; ?></td></tr>
+            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo esc_url(home_url('/robots.txt')); ?>" target="_blank">View</a></td><td>Allows AI agents when the site-wide rules block everything (needs a virtual robots.txt)</td></tr>
         </table>
 
         <h2>How It Works</h2>
@@ -332,7 +456,7 @@ function w2agent_site_settings_page() {
 - **\`<link>\` tag** — Adds AI discovery link to all pages
 - **WebMCP** — When \`w2agent-webmcp.php\` is present in this folder, the plugin loads it and the WebMCP tool script is added to the page footer. No other step is needed
 - **Webhook** — When \`w2agent-mcp-webhook.php\` is present, set your site slug and webhook token in it (replace \`YOUR_SLUG\` and \`YOUR_WEBHOOK_TOKEN\`). The plugin loads the file, and it sends nothing while the placeholders remain. It notifies w2agent when a published page, post, or other type listed in llms.txt is published, updated, unpublished, trashed, or deleted
-- **robots.txt** — Merges AI-friendly bot rules via WordPress filter
+- **robots.txt** — A WordPress filter reads the robots.txt WordPress serves at request time. If \`User-agent: *\` blocks the whole site, it appends one group that allows the AI user and search agents (such as ChatGPT-User, Claude-User, OAI-SearchBot) with \`Allow: /\`. It skips any agent your robots.txt names, never changes or removes an existing line, adds no \`Sitemap:\` line, and does nothing when "Discourage search engines" is on. It cannot run when a physical \`robots.txt\` file exists in the web root, because the web server serves that file; merge the groups from the generated \`robots.txt\` (\`w2agent integrate ${siteUrl} --output <dir>\`) by hand instead
 
 ## How Content Generation Works
 
@@ -353,7 +477,7 @@ As soon as a post exists, the dynamic output replaces it, even if none of the po
 
 ## Multisite and Subdirectory Installs
 
-- The files in \`data/\` describe the site that w2agent crawled. On multisite, only the main site serves them (\`agent-card.json\`, \`robots-rules.txt\`, \`llms-full.txt\`, and the \`llms.txt\` seed). Other sites get dynamic llms.txt only.
+- The files in \`data/\` describe the site that w2agent crawled. On multisite, only the main site serves them (\`agent-card.json\`, \`llms-full.txt\`, and the \`llms.txt\` seed). Other sites get dynamic llms.txt only.
 - The WebMCP script (\`w2agent-webmcp.php\`) and the webhook file (\`w2agent-mcp-webhook.php\`) also load on the main site only, because they describe the crawled site too.
 - For a site installed in a subdirectory (for example \`/blog\`), the endpoints are served under that path (\`/blog/llms.txt\`) and the discovery link points there. This needs pretty permalinks (rewrite rules that route through \`index.php\`); \`index.php/llms.txt\` style permalinks are not supported.
 - Limits: with plain permalinks on a server that does not rewrite to \`index.php\`, the request never reaches WordPress, so these paths cannot be served. A subdirectory site cannot serve the origin-root \`robots.txt\` or \`/.well-known/\`; add those at the web-server level.
@@ -377,7 +501,6 @@ w2agent-site/
     llms.txt            ← Seed content (used only while the site has no posts of the listed types)
     llms-full.txt       ← Crawl snapshot served at /llms-full.txt (present when generated)
     agent-card.json     ← A2A agent card (only with --a2a-endpoint)
-    robots-rules.txt    ← AI bot rules for robots.txt
 \`\`\`
 
 ## Refreshing the Crawl Snapshot
@@ -393,7 +516,6 @@ w2agent-site/
   if (agentCardContent) {
     files.push(makeFile("wordpress/data/agent-card.json", agentCardContent));
   }
-  files.push(makeFile("wordpress/data/robots-rules.txt", robotsRules));
   files.push(makeFile("wordpress/INSTALL.md", installMd));
 
   return files;

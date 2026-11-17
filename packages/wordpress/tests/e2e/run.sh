@@ -9,7 +9,7 @@ E2E_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$E2E_DIR/../../../.." && pwd)
 CLI=$REPO/packages/cli/dist/index.js
 CORE=$REPO/packages/core/dist/index.js
-STANDALONE=$REPO/packages/wordpress/w2agent-plugin.php
+STANDALONE=${W2AGENT_E2E_STANDALONE:-$REPO/packages/wordpress/w2agent-plugin.php} # override: run the E2E against another copy
 
 RUN_ID=${W2AGENT_E2E_RUN_ID:-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')} # the override exists for the collision repro
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/w2agent-e2e.XXXXXX") || exit 1
@@ -94,6 +94,9 @@ done
 chk "WP-10 no fatal in debug.log" '! grep -qi "fatal" "$WPLOG"'
 chk "WP-10 no w2agent warning or notice in debug.log" '[ "$(grep -i "w2agent" "$WPLOG" | grep -cE "Warning|Notice|Deprecated" || true)" = 0 ]'
 chk "WP-10 no PHP fatal in the Apache log" '! docker logs "$PREFIX-wp-$R" 2>&1 | grep -q "PHP Fatal"'
+
+. "$E2E_DIR/checks-robots.sh"
+robots_checks
 
 echo "=== WP-9 webhook hooks"
 wpc "$R" option update w2agent_api_key k >/dev/null

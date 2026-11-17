@@ -43,7 +43,8 @@ ms_checks() {
   chk "second site llms lists own post" 'grep -q SecondSitePost <<<"$l2"'
   chk "second site llms omits main post" '! grep -q MainSitePost <<<"$l2"'
   r2=$(M second.w2a.test /robots.txt)
-  chk "WP-6 second site robots has no crawled rules copy" '! grep -q "w2agent: suggested" <<<"$r2"'
+  chk "WP-6 second site robots.txt is served by WordPress (positive control)" 'grep -qx "Disallow: /wp-admin/" <<<"$r2"'
+  chk "WP-6 second site robots has no crawled rules copy" '! grep -qiE "^User-agent: (ChatGPT-User|OAI-SearchBot|Claude-User)" <<<"$r2"'
   chk "WP-2 second site front page has no webmcp script" '! M second.w2a.test / | grep -q modelContext'
   chk "WP-2 main site front page has the webmcp script" 'M w2a.test / | grep -q modelContext'
 }

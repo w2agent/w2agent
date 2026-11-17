@@ -586,7 +586,7 @@ describe("integration: WordPress", () => {
     const filenames = files.map((f) => f.filename);
     expect(filenames).toContain("wordpress/w2agent-plugin.php");
     expect(filenames).toContain("wordpress/data/llms.txt");
-    expect(filenames).toContain("wordpress/data/robots-rules.txt");
+    expect(filenames).not.toContain("wordpress/data/robots-rules.txt");
   });
 
   it("generated PHP has valid syntax", () => {
@@ -626,7 +626,7 @@ describe("integration: WordPress", () => {
   it("plugin hooks into robots.txt", () => {
     const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("robots_txt");
-    expect(plugin.content).toContain("robots-rules.txt");
+    expect(plugin.content).not.toContain("robots-rules.txt");
   });
 
   it("plugin auto-regenerates on content changes", () => {

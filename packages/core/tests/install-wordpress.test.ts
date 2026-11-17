@@ -17,7 +17,6 @@ function makeWpFiles(): GeneratedFile[] {
     makeFile("wordpress/w2agent-plugin.php", "<?php /* Plugin */"),
     makeFile("wordpress/data/llms.txt", "# LLMs"),
     makeFile("wordpress/data/agent-card.json", "{}"),
-    makeFile("wordpress/data/robots-rules.txt", "# rules"),
     makeFile("wordpress/INSTALL.md", "# Install"),
   ];
 }
@@ -41,8 +40,21 @@ describe("WordPress install resolver", () => {
     expect(dests).toContain("wp-content/plugins/w2agent-site/w2agent-plugin.php");
     expect(dests).toContain("wp-content/plugins/w2agent-site/data/llms.txt");
     expect(dests).toContain("wp-content/plugins/w2agent-site/data/agent-card.json");
-    expect(dests).toContain("wp-content/plugins/w2agent-site/data/robots-rules.txt");
     expect(plan.postInstallSteps.some((s) => s.includes("Activate"))).toBe(true);
+  });
+
+  it("adds a manual robots.txt action only when a physical robots.txt exists", () => {
+    const manual = (plan: ReturnType<typeof resolveWordPressInstall>) =>
+      plan.actions.filter((a) => a.type === "manual" && a.dest === "robots.txt");
+    expect(manual(resolveWordPressInstall(makeWpFiles(), tempDir))).toHaveLength(0);
+
+    writeFileSync(join(tempDir, "robots.txt"), "User-agent: *\nDisallow: /\n");
+    const found = manual(resolveWordPressInstall(makeWpFiles(), tempDir));
+    expect(found).toHaveLength(1);
+    const reason = found[0].type === "manual" ? found[0].reason : "";
+    expect(reason).toContain("physical robots.txt");
+    expect(reason).toContain("never runs");
+    expect(reason).toContain("--output");
   });
 
   it("warns when not in WP root but still writes", () => {

@@ -24,7 +24,6 @@ function makeFile(filename: string, content = "test content"): GeneratedFile {
 const wpFiles = [
   makeFile("robots.txt", "User-agent: GPTBot\nAllow: /\n"),
   makeFile("wordpress/w2agent-plugin.php", "<?php"),
-  makeFile("wordpress/data/robots-rules.txt", "# rules"),
 ];
 
 describe("gate fix round 1", () => {

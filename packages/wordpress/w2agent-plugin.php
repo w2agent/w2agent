@@ -188,11 +188,140 @@ add_action( 'wp_head', function () {
 
 // ─── Robots.txt ──────────────────────────────────────────────────
 
+// AI user-triggered and search agents (same list as the w2agent core generator; training agents are never listed).
+function w2agent_robots_bot_tokens() {
+    return [
+        'OAI-SearchBot',
+        'ChatGPT-User',
+        'Claude-User',
+        'Claude-SearchBot',
+        'Googlebot',
+        'PerplexityBot',
+        'Perplexity-User',
+        'Applebot',
+        'Amzn-SearchBot',
+        'Amzn-User',
+        'MistralAI-User',
+        'MistralAI-Index',
+        'Meta-WebIndexer',
+        'Meta-ExternalFetcher',
+    ];
+}
+
+function w2agent_robots_groups( $output ) {
+    $groups     = [];
+    $current    = -1;
+    $last_agent = false;
+    $lines      = explode( "\n", str_replace( [ "\r\n", "\r" ], "\n", (string) $output ) );
+    foreach ( $lines as $raw ) {
+        $hash  = strpos( $raw, '#' );
+        $text  = $hash === false ? $raw : substr( $raw, 0, $hash );
+        $colon = strpos( $text, ':' );
+        if ( $colon === false ) continue;
+        $key   = strtolower( trim( substr( $text, 0, $colon ) ) );
+        $value = trim( substr( $text, $colon + 1 ) );
+        if ( $key === '' ) continue;
+        if ( $key === 'user-agent' ) {
+            if ( ! $last_agent || $current < 0 ) {
+                $groups[] = [ 'agents' => [], 'rules' => [], 'delay' => null ];
+                $current  = count( $groups ) - 1;
+            }
+            if ( $value !== '' ) {
+                $agent = strtolower( $value );
+                $slash = strpos( $agent, '/' );
+                if ( $slash !== false ) $agent = substr( $agent, 0, $slash );
+                $groups[ $current ]['agents'][] = trim( $agent );
+            }
+            $last_agent = true;
+            continue;
+        }
+        $last_agent = false;
+        if ( $current < 0 ) continue;
+        if ( $key === 'allow' || $key === 'disallow' ) {
+            $groups[ $current ]['rules'][] = [ 'allow' => $key === 'allow', 'value' => $value ];
+        } elseif ( $key === 'crawl-delay' ) {
+            $groups[ $current ]['delay'] = $value;
+        }
+    }
+    return $groups;
+}
+
+// Robots pattern match: `*` matches any run, a trailing `$` anchors the end.
+function w2agent_robots_match( $pattern, $path ) {
+    $plen    = strlen( $pattern );
+    $len     = strlen( $path );
+    $lengths = [ 0 ];
+    for ( $p = 0; $p < $plen; $p++ ) {
+        $c = $pattern[ $p ];
+        if ( $c === '$' && $p + 1 === $plen ) return $lengths[ count( $lengths ) - 1 ] === $len;
+        if ( $c === '*' ) {
+            $next = [];
+            for ( $i = $lengths[0]; $i <= $len; $i++ ) $next[] = $i;
+            $lengths = $next;
+            continue;
+        }
+        $next = [];
+        foreach ( $lengths as $l ) {
+            if ( $l < $len && $path[ $l ] === $c ) $next[] = $l + 1;
+        }
+        if ( ! $next ) return false;
+        $lengths = $next;
+    }
+    return true;
+}
+
+// True when the rules block "/": longest matching pattern wins, Allow wins a tie, empty values are ignored.
+function w2agent_robots_blocks_root( $rules ) {
+    $best = null;
+    foreach ( $rules as $rule ) {
+        if ( $rule['value'] === '' || ! w2agent_robots_match( $rule['value'], '/' ) ) continue;
+        $longer = $best === null || strlen( $rule['value'] ) > strlen( $best['value'] );
+        $tie    = $best !== null && strlen( $rule['value'] ) === strlen( $best['value'] ) && $rule['allow'] && ! $best['allow'];
+        if ( $longer || $tie ) $best = $rule;
+    }
+    return $best !== null && ! $best['allow'];
+}
+
+// The text to append to the live robots.txt: one group that lets the AI agents through when the
+// `*` rules block "/". An agent named anywhere in the output is never touched. '' when nothing is needed.
+function w2agent_robots_additions( $output ) {
+    $named = [];
+    $star  = [];
+    $delay = null;
+    foreach ( w2agent_robots_groups( $output ) as $group ) {
+        foreach ( $group['agents'] as $agent ) $named[ $agent ] = true;
+        if ( in_array( '*', $group['agents'], true ) ) {
+            $star = array_merge( $star, $group['rules'] );
+            if ( $group['delay'] !== null && $group['delay'] !== '' ) $delay = $group['delay'];
+        }
+    }
+    if ( ! w2agent_robots_blocks_root( $star ) ) return '';
+
+    $lines = [];
+    foreach ( w2agent_robots_bot_tokens() as $token ) {
+        if ( ! isset( $named[ strtolower( $token ) ] ) ) $lines[] = 'User-agent: ' . $token;
+    }
+    if ( ! $lines ) return '';
+    foreach ( $star as $rule ) {
+        if ( $rule['value'] === '' || $rule['value'] === '/' ) continue;
+        if ( ! $rule['allow'] && w2agent_robots_match( $rule['value'], '/' ) ) continue;
+        $lines[] = ( $rule['allow'] ? 'Allow: ' : 'Disallow: ' ) . $rule['value'];
+    }
+    if ( $delay !== null ) $lines[] = 'Crawl-delay: ' . $delay;
+    $lines[] = 'Allow: /';
+    return implode( "\n", $lines ) . "\n";
+}
+
 add_filter( 'robots_txt', function ( $output, $public ) {
     if ( w2agent_front_end_yielded() ) return $output;
-    $rules = "User-agent: *\nAllow: " . w2agent_route_path( '/llms.txt' ) . "\n";
-    return $output . "\n" . $rules;
-}, 10, 2 );
+    if ( ! $public ) return $output;
+    $output    = (string) $output;
+    $additions = w2agent_robots_additions( $output );
+    $comment   = stripos( $output, 'llms.txt' ) === false ? '# llms.txt: ' . home_url( '/llms.txt' ) . "\n" : '';
+    if ( $additions === '' && $comment === '' ) return $output;
+    if ( $output !== '' && substr( $output, -1 ) !== "\n" ) $output .= "\n";
+    return $output . "\n" . $additions . $comment;
+}, 99, 2 );
 
 // ─── Cache invalidation ──────────────────────────────────────────
 
@@ -292,7 +421,7 @@ function w2agent_settings_page() {
             <tr>
                 <td><strong>robots.txt</strong></td>
                 <td><a href="<?php echo esc_url( home_url( '/robots.txt' ) ); ?>" target="_blank">View</a></td>
-                <td>AI bot rules merged</td>
+                <td>Allows AI agents when the site-wide rules block everything (needs a virtual robots.txt)</td>
             </tr>
         </table>
 

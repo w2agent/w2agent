@@ -64,19 +64,15 @@ describe("robots.txt manual action", () => {
     );
   });
 
-  it("wordpress: planned robots-rules suppresses the manual action", () => {
+  it("wordpress: the plugin filters robots.txt itself, so no manual action without a physical file", () => {
     mkdirSync(join(dir, "wp-content"), { recursive: true });
     writeFileSync(join(dir, "wp-config.php"), "<?php\n");
     const plan = planInstall(
       wordpressAdapter,
-      [
-        robots,
-        makeFile("wordpress/w2agent/data/robots-rules.txt", "x"),
-        makeFile("wordpress/w2agent/w2agent.php", "<?php"),
-      ],
+      [robots, makeFile("wordpress/w2agent/w2agent.php", "<?php")],
       dir,
     );
-    expect(plan.actions.some((a) => a.dest.endsWith("robots-rules.txt"))).toBe(true);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(true);
     expect(robotsManual(plan)).toHaveLength(0);
   });
 

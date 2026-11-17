@@ -19,7 +19,7 @@ w2agent makes your WordPress site AI-ready by automatically generating the files
 * Serves `/llms.txt` — dynamically generated from your published, public posts, pages, and searchable custom post types (password-protected items are left out)
 * Serves `/.well-known/agent-card.json` only if you add `data/agent-card.json` — publish one only if your site runs an A2A agent (`w2agent generate <url> --format agent-card --a2a-endpoint <url>`)
 * Adds an AI discovery `<link>` tag to all pages
-* Merges AI-friendly rules into your robots.txt
+* Adds one robots.txt group that allows AI user and search agents (for example ChatGPT-User, Claude-User, OAI-SearchBot) when your robots.txt blocks all crawlers. It never changes existing lines and skips any agent you name. It does nothing when "Discourage search engines" is on or when a physical robots.txt file exists
 * Automatically notifies the w2agent platform when you publish or update content
 
 **Dynamic content generation:**
@@ -72,5 +72,5 @@ This plugin can notify the w2agent platform when your content changes.
 * Initial release
 * Dynamic llms.txt generation from posts, pages, and custom post types
 * agent-card.json endpoint (serves a provided data/agent-card.json)
-* robots.txt AI rules integration
+* robots.txt filter that allows AI user and search agents when the site-wide rules block everyone
 * Settings page with API key + webhook configuration

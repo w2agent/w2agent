@@ -1,14 +1,20 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { generateWpPlugin } from "../src/adapters/wordpress/templates.js";
+import {
+  generateWpPlugin,
+  phpString,
+  wpRobotsTokens,
+} from "../src/adapters/wordpress/templates.js";
+import { BOT_TOKENS } from "../src/audit/shared/bot-tokens.js";
 
 const SAMPLE_LLMS = "# Test Site\n\n## Pages\n\n- [Home](https://example.com/): Welcome";
 const SAMPLE_FULL = "# Test Site\n\n## Home\nhttps://example.com/\n\nWelcome";
 const SAMPLE_CARD = JSON.stringify({ name: "Test Site", url: "https://example.com" });
-const SAMPLE_ROBOTS = "User-agent: GPTBot\nAllow: /\n";
 const SITE_URL = "https://example.com";
 
 function generated() {
-  return generateWpPlugin(SAMPLE_LLMS, SAMPLE_CARD, SAMPLE_ROBOTS, SITE_URL, SAMPLE_FULL);
+  return generateWpPlugin(SAMPLE_LLMS, SAMPLE_CARD, SITE_URL, SAMPLE_FULL);
 }
 
 function pluginPhp(): string {
@@ -68,7 +74,7 @@ describe("generateWpPlugin — file structure", () => {
     expect(names).toContain("wordpress/data/llms.txt");
     expect(names).toContain("wordpress/data/llms-full.txt");
     expect(names).toContain("wordpress/data/agent-card.json");
-    expect(names).toContain("wordpress/data/robots-rules.txt");
+    expect(names).not.toContain("wordpress/data/robots-rules.txt");
     expect(names).toContain("wordpress/INSTALL.md");
   });
 
@@ -93,7 +99,7 @@ describe("generateWpPlugin — file structure", () => {
   });
 
   it("ships no llms-full seed when none was generated", () => {
-    const files = generateWpPlugin(SAMPLE_LLMS, SAMPLE_CARD, SAMPLE_ROBOTS, SITE_URL);
+    const files = generateWpPlugin(SAMPLE_LLMS, SAMPLE_CARD, SITE_URL);
     expect(files.map((f) => f.filename)).not.toContain("wordpress/data/llms-full.txt");
   });
 });
@@ -131,7 +137,7 @@ describe("generateWpPlugin — PHP plugin content", () => {
   });
 
   it("without a generated agent card the plugin ships no agent-card data file", () => {
-    const files = generateWpPlugin(SAMPLE_LLMS, undefined, SAMPLE_ROBOTS, SITE_URL);
+    const files = generateWpPlugin(SAMPLE_LLMS, undefined, SITE_URL);
     expect(files.map((f) => f.filename)).not.toContain("wordpress/data/agent-card.json");
   });
 
@@ -262,8 +268,52 @@ describe("generateWpPlugin — paths, multisite (WP-6)", () => {
       "http_response_code",
     );
     expect(card).toContain("w2agent_site_serves_data_files()");
-    const robots = between(php, "add_filter('robots_txt'", "}, 10, 2);");
-    expect(robots).toMatch(/if \(!w2agent_site_serves_data_files\(\)\) return \$output;/);
+  });
+});
+
+describe("generateWpPlugin — robots.txt filter (WP-5)", () => {
+  const filter = () => between(pluginPhp(), "add_filter('robots_txt'", "}, 99, 2);");
+
+  it("runs late, bails on a discouraged site, and never reads a data file", () => {
+    const php = pluginPhp();
+    expect(php).toContain("}, 99, 2);");
+    expect(filter()).toMatch(/if \(!\$public\) return \$output;/);
+    expect(php).not.toContain("robots-rules");
+    expect(php).not.toContain("w2agent_site_serves_data_files() ? '' : ' (main site only)'");
+  });
+
+  it("emits exactly the user and search tokens from BOT_TOKENS as PHP literals", () => {
+    const list = between(pluginPhp(), "function w2agent_site_robots_bot_tokens()", "];");
+    const emitted = [...list.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    const expected = BOT_TOKENS.filter(
+      (b) => b.robotsToken && (b.purpose === "user" || b.purpose === "search"),
+    ).map((b) => b.token);
+    expect(emitted).toEqual(expected);
+    expect(emitted).toContain("ChatGPT-User");
+    expect(emitted).not.toContain("GPTBot");
+    expect(wpRobotsTokens()).toEqual(expected);
+  });
+
+  it("skips named agents, adds no Sitemap line and no User-agent: * group", () => {
+    const php = pluginPhp();
+    expect(php).toContain("if (!isset($named[strtolower($token)]))");
+    expect(php).toContain("if (!w2agent_site_robots_blocks_root($star)) return '';");
+    const add = between(php, "function w2agent_site_robots_additions", "add_filter('robots_txt'");
+    expect(add).not.toMatch(/sitemap/i);
+    expect(add).not.toContain("'User-agent: *'");
+  });
+
+  it("the standalone plugin keeps the same token list as core", () => {
+    const standalone = readFileSync(join(__dirname, "../../wordpress/w2agent-plugin.php"), "utf-8");
+    const from = standalone.indexOf("function w2agent_robots_bot_tokens()");
+    expect(from).toBeGreaterThan(-1);
+    const list = standalone.slice(from, standalone.indexOf("];", from));
+    const tokens = [...list.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    expect(tokens).toEqual(wpRobotsTokens());
+  });
+
+  it("escapes token literals so nothing crawled or odd can break out of the string", () => {
+    expect(phpString("a'b\\c")).toBe("'a\\'b\\\\c'");
   });
 });
 
