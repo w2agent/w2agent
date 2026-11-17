@@ -511,3 +511,67 @@ describe("parseOpenAPISpec — origin policy", () => {
     expect(result?.serverUrl).toBe("/v1/api");
   });
 });
+
+describe("parseOpenAPISpec array serialization", () => {
+  const arr = { type: "array", items: { type: "string" } };
+  const parse = (spec: Record<string, unknown>) =>
+    parseOpenAPISpec(spec, "https://example.com/openapi.json")?.endpoints[0].parameters;
+  const swagger = (params: unknown[]) => ({
+    swagger: "2.0",
+    host: "api.example.com",
+    paths: { "/x": { get: { operationId: "x", parameters: params } } },
+  });
+  const oas3 = (params: unknown[]) => ({
+    openapi: "3.0.3",
+    servers: [{ url: "https://api.example.com" }],
+    paths: { "/x": { get: { operationId: "x", parameters: params } } },
+  });
+
+  it("Swagger 2 defaults to csv and reads collectionFormat", () => {
+    const ps = parse(
+      swagger([
+        { name: "a", in: "query", ...arr },
+        { name: "b", in: "query", ...arr, collectionFormat: "multi" },
+        { name: "c", in: "query", ...arr, collectionFormat: "pipes" },
+        { name: "d", in: "query", ...arr, collectionFormat: "ssv" },
+        { name: "e", in: "query", ...arr, collectionFormat: "tsv" },
+        { name: "f", in: "path", required: true, ...arr, collectionFormat: "multi" },
+        { name: "g", in: "query", type: "string" },
+      ]),
+    );
+    expect(ps?.map((p) => p.collection)).toEqual([
+      "csv",
+      "multi",
+      "pipes",
+      "ssv",
+      "tsv",
+      "csv",
+      undefined,
+    ]);
+  });
+
+  it("OpenAPI 3 reads style and explode", () => {
+    const ps = parse(
+      oas3([
+        { name: "a", in: "query", schema: arr },
+        { name: "b", in: "query", explode: false, schema: arr },
+        { name: "c", in: "query", style: "spaceDelimited", schema: arr },
+        { name: "d", in: "query", style: "pipeDelimited", schema: arr },
+        { name: "e", in: "query", style: "pipeDelimited", explode: true, schema: arr },
+        { name: "f", in: "path", required: true, schema: arr },
+        { name: "g", in: "query", schema: { type: ["array", "null"] } },
+        { name: "h", in: "query", explode: false, schema: { type: "string" } },
+      ]),
+    );
+    expect(ps?.map((p) => p.collection)).toEqual([
+      "multi",
+      "csv",
+      "ssv",
+      "pipes",
+      "multi",
+      "csv",
+      "multi",
+      undefined,
+    ]);
+  });
+});

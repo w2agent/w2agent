@@ -255,15 +255,46 @@ function extractParameters(
   return rawParams
     .map((p) => maybeResolve(p, root))
     .filter((p) => p.in && p.in !== "body")
-    .map((p) => ({
-      name: p.name as string,
-      in: p.in as OpenAPIParameter["in"],
-      type: (p.type || (p.schema as Record<string, unknown> | undefined)?.type) as
+    .map((p) => {
+      const type = (p.type || (p.schema as Record<string, unknown> | undefined)?.type) as
         | string
-        | undefined,
-      required: !!p.required,
-      description: p.description as string | undefined,
-    }));
+        | undefined;
+      const collection = isArrayType(type) ? arrayCollection(p, _isV2) : undefined;
+      return {
+        name: p.name as string,
+        in: p.in as OpenAPIParameter["in"],
+        type,
+        required: !!p.required,
+        description: p.description as string | undefined,
+        ...(collection ? { collection } : {}),
+      };
+    });
+}
+
+function isArrayType(type: unknown): boolean {
+  return Array.isArray(type) ? type.includes("array") : type === "array";
+}
+
+// How a query or path array is written on the wire, from the spec's own declaration.
+function arrayCollection(
+  p: Record<string, unknown>,
+  isV2: boolean,
+): OpenAPIParameter["collection"] | undefined {
+  if (p.in !== "query" && p.in !== "path") return undefined;
+  const inPath = p.in === "path";
+  if (isV2) {
+    const cf = p.collectionFormat;
+    if (cf === "multi") return inPath ? "csv" : "multi";
+    return cf === "ssv" || cf === "tsv" || cf === "pipes" ? cf : "csv";
+  }
+  const style = p.style ?? (inPath ? "simple" : "form");
+  if (inPath) return "csv";
+  if (style === "spaceDelimited" || style === "pipeDelimited") {
+    if (p.explode === true) return "multi";
+    return style === "spaceDelimited" ? "ssv" : "pipes";
+  }
+  if (style === "form") return (p.explode ?? true) === false ? "csv" : "multi";
+  return "multi";
 }
 
 function extractRequestBody(

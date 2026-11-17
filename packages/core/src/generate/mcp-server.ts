@@ -510,6 +510,10 @@ function openapiZodType(type: unknown): string {
   return "z.string()";
 }
 
+function collectionArg(p: OpenAPIParameter): string {
+  return p.collection ? `, ${JSON.stringify(p.collection)}` : "";
+}
+
 function generateOpenapiToolHandlers(
   endpoints: OpenAPIEndpoint[],
   serverUrl: string,
@@ -552,7 +556,7 @@ function generateOpenapiToolHandlers(
 
     let pathExpr = JSON.stringify(ep.path);
     for (const { p, key } of pathParams) {
-      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodePathParam(params[${JSON.stringify(key)}]))`;
+      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodePathParam(params[${JSON.stringify(key)}]${collectionArg(p)}))`;
     }
     lines.push(`  try {`);
     lines.push(`  const _path = ${pathExpr};`);
@@ -563,13 +567,8 @@ function generateOpenapiToolHandlers(
       lines.push(`  const _query = new URLSearchParams();`);
       for (const { p, key } of queryParams) {
         const access = `params[${JSON.stringify(key)}]`;
-        if (p.required) {
-          lines.push(`  appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access});`);
-        } else {
-          lines.push(
-            `  if (${access} !== undefined) appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access});`,
-          );
-        }
+        const call = `appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access}${collectionArg(p)})`;
+        lines.push(p.required ? `  ${call};` : `  if (${access} !== undefined) ${call};`);
       }
       lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
     }
@@ -620,9 +619,13 @@ function scalarText(v: unknown): string {
   return typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
 }
 
-function appendQueryParam(query: URLSearchParams, name: string, value: unknown): void {
+const COLLECTION_DELIMITERS: Record<string, string> = { csv: ",", ssv: " ", tsv: "\t", pipes: "|" };
+
+function appendQueryParam(query: URLSearchParams, name: string, value: unknown, collection?: string): void {
   if (Array.isArray(value)) {
-    for (const v of value) query.append(name, scalarText(v));
+    const delimiter = collection ? COLLECTION_DELIMITERS[collection] : undefined;
+    if (delimiter === undefined) for (const v of value) query.append(name, scalarText(v));
+    else query.append(name, value.map(scalarText).join(delimiter));
   } else if (typeof value === "object" && value !== null) {
     for (const [k, v] of Object.entries(value)) query.append(k, scalarText(v));
   } else {
@@ -630,9 +633,12 @@ function appendQueryParam(query: URLSearchParams, name: string, value: unknown):
   }
 }
 
-function encodePathParam(value: unknown): string {
+function encodePathParam(value: unknown, collection?: string): string {
   const enc = (v: unknown) => encodeURIComponent(scalarText(v));
-  if (Array.isArray(value)) return value.map(enc).join(",");
+  if (Array.isArray(value)) {
+    const delimiter = collection ? COLLECTION_DELIMITERS[collection] : undefined;
+    return value.map(enc).join(delimiter === undefined || delimiter === "," ? "," : encodeURIComponent(delimiter));
+  }
   if (typeof value === "object" && value !== null) {
     return Object.entries(value).flatMap(([k, v]) => [enc(k), enc(v)]).join(",");
   }

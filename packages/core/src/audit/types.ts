@@ -234,12 +234,15 @@ export const CATEGORY_CONFIG: Record<CategoryId, { name: string; weight: number 
   "agent-auth": { name: "Auth & Access", weight: 0.2 },
 };
 
+export type OpenAPICollectionFormat = "multi" | "csv" | "ssv" | "tsv" | "pipes";
+
 export interface OpenAPIParameter {
   name: string;
   in: "query" | "path" | "header" | "cookie";
   type?: string;
   required: boolean;
   description?: string;
+  collection?: OpenAPICollectionFormat;
 }
 
 export interface OpenAPIRequestBody {
