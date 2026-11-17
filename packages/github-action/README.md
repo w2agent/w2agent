@@ -16,7 +16,7 @@ assets (llms.txt, robots.txt, schema.org, agent-card) on every push to main.
 | `max-pages` | no | `20` | Maximum pages to scan during audit and generate |
 | `generate` | no | `true` | Set to `false` to run audit only (no file generation or commit) |
 
-`url`, `threshold`, `max-pages`, `formats`, `output-dir` and `node-version` must not contain line breaks. The first step fails if one does, because a line break in a value could inject GitHub workflow commands into the step log.
+`url`, `threshold`, `max-pages`, `formats`, `output-dir` and `node-version` must not contain line breaks. The first step fails if one does, because a line break in a value could inject GitHub workflow commands into the step log. The same step also rejects a value that contains `##[` (two hash signs followed by an opening square bracket) in any of the six inputs, because the runner also reads that legacy form as a workflow command anywhere in a log line. A single `#` or `[` is fine.
 
 ## Outputs
 

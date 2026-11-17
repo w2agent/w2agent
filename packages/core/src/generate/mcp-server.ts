@@ -565,9 +565,13 @@ function generateOpenapiToolHandlers(
 
     if (queryParams.length > 0) {
       lines.push(`  const _query: string[] = [];`);
+      lines.push(
+        `  const _declared: string[] = ${JSON.stringify(queryParams.map(({ p }) => p.name))};`,
+      );
+      lines.push(`  const _objectKeys = new Set<string>();`);
       for (const { p, key } of queryParams) {
         const access = `params[${JSON.stringify(key)}]`;
-        const call = `appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access}${collectionArg(p)})`;
+        const call = `appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access}, ${p.collection ? JSON.stringify(p.collection) : "undefined"}, _declared, _objectKeys)`;
         lines.push(p.required ? `  ${call};` : `  if (${access} !== undefined) ${call};`);
       }
       lines.push(`  const _qs = _query.join("&"); if (_qs) _url += "?" + _qs;`);
@@ -625,7 +629,7 @@ function pairText(name: string, value: string): string {
   return new URLSearchParams([[name, value]]).toString();
 }
 
-function appendQueryParam(query: string[], name: string, value: unknown, collection?: string): void {
+function appendQueryParam(query: string[], name: string, value: unknown, collection: string | undefined, declared: string[], objectKeys: Set<string>): void {
   if (Array.isArray(value)) {
     const delimiter = collection ? COLLECTION_DELIMITERS[collection] : undefined;
     if (delimiter === undefined) {
@@ -636,7 +640,12 @@ function appendQueryParam(query: string[], name: string, value: unknown, collect
       query.push(pairText(name, "") + parts.join(literal));
     }
   } else if (typeof value === "object" && value !== null) {
-    for (const [k, v] of Object.entries(value)) query.push(pairText(k, scalarText(v)));
+    for (const [k, v] of Object.entries(value)) {
+      if (k !== name && declared.includes(k)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that collides with the query parameter " + JSON.stringify(k));
+      if (objectKeys.has(k)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that another object query parameter also sets");
+      objectKeys.add(k);
+      query.push(pairText(k, scalarText(v)));
+    }
   } else {
     query.push(pairText(name, scalarText(value)));
   }

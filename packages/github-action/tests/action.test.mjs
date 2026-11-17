@@ -235,7 +235,10 @@ function parseRunner(out) {
       else if (line.startsWith("::")) stopped.push(line);
       continue;
     }
-    if (!line.startsWith("::")) continue;
+    if (!line.startsWith("::")) {
+      if (line.includes("##[")) commands.push(line);
+      continue;
+    }
     const m = /^::stop-commands::(.*)$/.exec(line);
     if (m) {
       token = m[1];
@@ -249,7 +252,7 @@ function parseRunner(out) {
 
 function parseStreams(stdout, stderr) {
   const r = parseRunner(stdout);
-  const late = stderr.split(/\r?\n/).filter((l) => l.startsWith("::"));
+  const late = stderr.split(/\r?\n/).filter((l) => l.startsWith("::") || l.includes("##["));
   return { ...r, commands: [...r.commands, ...late], stderrCommands: late, out: stdout + stderr };
 }
 
@@ -297,6 +300,18 @@ describe("Workflow-command injection", () => {
     const r = parseRunner("::warning::a\n::stop-commands::T\n::warning::b\n::T::\n::error::c\n");
     assert.deepEqual(r.commands, ["::warning::a", "stop-commands", "::error::c"]);
     assert.deepEqual(r.stopped, ["::warning::b"]);
+  });
+
+  it("harness: a legacy ## [ command is live outside the window on a non-:: line, inert inside", () => {
+    const legacy = "##[warning]X";
+    const r = parseRunner(
+      `Attempting to download 20${legacy}\n::stop-commands::T\nv${legacy}\n::T::\nplain\n`,
+    );
+    assert.deepEqual(r.commands, [`Attempting to download 20${legacy}`, "stop-commands"]);
+    assert.deepEqual(parseRunner("a#b x[1] #[x]\n").commands, []);
+    const s = parseStreams("ok\n", `err ${legacy}\n`);
+    assert.deepEqual(s.stderrCommands, [`err ${legacy}`]);
+    assert.deepEqual(s.commands, [`err ${legacy}`]);
   });
 
   for (const h of HOSTILE) {
@@ -439,6 +454,76 @@ describe("Workflow-command injection", () => {
         });
       }
     }
+  });
+
+  describe("Validate inputs rejects the legacy ## [ workflow command in every input", () => {
+    const base = {
+      URL: "https://example.com/",
+      THRESHOLD: "80",
+      MAX_PAGES: "20",
+      FORMATS: "all",
+      OUTPUT_DIR: ".w2agent/",
+      NODE_VERSION: "20",
+    };
+    const names = {
+      URL: "url",
+      THRESHOLD: "threshold",
+      MAX_PAGES: "max-pages",
+      FORMATS: "formats",
+      OUTPUT_DIR: "output-dir",
+      NODE_VERSION: "node-version",
+    };
+    const LEGACY = "##[warning]INJECTED";
+    const runSteps = (env) => {
+      const ran = [];
+      for (const s of steps) {
+        ran.push(s.name);
+        if (typeof s.run !== "string") continue;
+        const r = runLive(s, env);
+        if (r.code !== 0) return { ran, r };
+        break;
+      }
+      return { ran, r: undefined };
+    };
+    for (const [k, name] of Object.entries(names)) {
+      it(`rejects ${name} with a constant error and runs nothing after`, () => {
+        for (const v of [`20${LEGACY}`, LEGACY, `${LEGACY}\n`.slice(0, -1), "x##[", "##[##["]) {
+          const { ran, r } = runSteps({ ...base, [k]: v });
+          assert.deepEqual(ran, ["Validate inputs"]);
+          assert.equal(r.code, 1, r.out);
+          assert.equal(r.commands.length, 1, r.out);
+          assert.match(r.commands[0], new RegExp(`^::error::Input '${name}' must not contain`));
+          assert.ok(!r.out.includes("##["), `no ## [ in the step log: ${r.out}`);
+          assert.doesNotMatch(r.out, /INJECTED/);
+          assert.equal(r.live, true);
+        }
+      });
+      it(`accepts ${name} with a lone # or [`, () => {
+        for (const v of ["a#b", "x[1]", "#[x]", "a##b", "[##]", "#"]) {
+          if (k === "THRESHOLD") continue;
+          const r = runLive(step("Validate inputs"), { ...base, [k]: v });
+          assert.equal(r.code, 0, `${name} ${v}: ${r.out}`);
+        }
+      });
+    }
+    it("a line break value that also holds ## [ gets the same constant error", () => {
+      const r = runLive(step("Validate inputs"), { ...base, NODE_VERSION: `20\n${LEGACY}` });
+      assert.equal(r.code, 1);
+      assert.equal(r.commands.length, 1, r.out);
+      assert.ok(!r.out.includes("##["));
+    });
+    it("no earlier Validate line echoes a raw value", () => {
+      const lines = step("Validate inputs").run.split("\n");
+      const first = lines.findIndex((l) => l.includes("nohash url"));
+      assert.ok(first > 0);
+      for (const l of lines.slice(0, first)) {
+        assert.doesNotMatch(
+          l,
+          /\$\{?(THRESHOLD|URL|MAX_PAGES|FORMATS|OUTPUT_DIR|NODE_VERSION)\b/,
+          l,
+        );
+      }
+    });
   });
 
   it("the stop token is random per run and long", () => {
