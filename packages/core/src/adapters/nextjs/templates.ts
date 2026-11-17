@@ -269,7 +269,8 @@ try {
       return "";
     }
   };
-  const startPath = pathOf(SITE_URL);
+  // generate adds https:// to a scheme-less URL; match the start page the same way.
+  const startPath = pathOf(SITE_URL.startsWith("http://") || SITE_URL.startsWith("https://") ? SITE_URL : "https://" + SITE_URL);
   const files = fs.existsSync(pagesDir) ? fs.readdirSync(pagesDir) : [];
   for (const name of files) {
     const raw = fs.readFileSync(pagesDir + "/" + name, "utf-8");

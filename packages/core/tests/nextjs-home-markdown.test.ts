@@ -233,6 +233,17 @@ describe("Next.js build script start page selection", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "matches the home page when SITE_URL has no scheme, as generate does",
+    () => {
+      build("acme.example", {
+        "index.md": `${front("https://acme.example/", "Acme")}Home body\n`,
+        "about.md": `${front("https://acme.example/about", "About")}About body\n`,
+      });
+      expect(readFileSync(indexPath(), "utf-8")).toBe("# Acme\n\nHome body\n");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "writes nothing when the start page has no body, leaving an existing seed",
     () => {
       writeFileSync(indexPath(), "seed");
