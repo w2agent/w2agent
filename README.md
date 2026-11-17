@@ -13,17 +13,18 @@ Ask your coding agent:
 It follows [docs/AGENT-PLAYBOOK.md](docs/AGENT-PLAYBOOK.md) (also packaged as the [w2agent skill](skills/w2agent/SKILL.md)). The flow it runs, pinned to `w2agent@0.1.0`:
 
 ```bash
-npx w2agent@0.1.0 audit <url> --json                       # baseline score
+npx w2agent@0.1.0 audit <local url> --json                 # baseline score (<local url> = your local server)
 npx w2agent@0.1.0 integrate <local url> --dry-run --json \
   --project-dir . --site-url <production origin>            # plan, writes nothing
 npx w2agent@0.1.0 integrate <local url> --install --json \
   --project-dir . --site-url <production origin>            # apply
+# then: do the postInstallSteps, rebuild and restart the local server
 npx w2agent@0.1.0 audit <local url> --json                 # re-audit
 ```
 
 The agent shows the plan to the user before applying. Flags, JSON documents and exit codes: [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md).
 
-If npm answers 404 for `w2agent@0.1.0`: inside a w2agent checkout, build from source (`pnpm install && pnpm --filter w2agent... build`) and run `node packages/cli/dist/index.js`. Otherwise stop and tell the owner. Never try other package names.
+If npm answers 404 for `w2agent@0.1.0`: if a w2agent checkout is available locally (for example cloned next to the site), build it from source (`pnpm install && pnpm --filter w2agent... build`) and run `node <checkout>/packages/cli/dist/index.js`. Otherwise stop and tell the owner. Never try other package names.
 
 Install the playbook for your agent:
 

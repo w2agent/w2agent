@@ -147,9 +147,10 @@ for (const rel of DOCS) {
   test(`${rel} pins the CLI version ${version}`, () => {
     const text = read(rel);
     assert.ok(text.includes(`w2agent@${version}`), `no w2agent@${version}`);
-    const unpinned = text.match(/npx\s+(-y\s+)?w2agent(?=[\s"'`]|$)/m);
+    const unpinned = text.match(/npx\s+(?:(?:-y|--yes)\s+)*w2agent(?=[\s"'`]|$)/m);
     assert.equal(unpinned, null, `unpinned npx invocation: ${unpinned?.[0]}`);
-    for (const m of text.matchAll(/w2agent@(\d+\.\d+\.\d+[\w.+-]*)/g)) {
+    for (const m of text.matchAll(/(?<![\w@/.-])w2agent@([^\s"'`),;\]]*)/g)) {
+      if (m[1] === "w2agent") continue;
       assert.equal(m[1], version, `w2agent@${m[1]} differs from ${version}`);
     }
   });
@@ -244,8 +245,8 @@ function checkInvocation(schema, args) {
     if (sub) {
       cmd = sub;
       trail.push(raw);
-    } else if ((cmd.commands ?? []).length > 0 && cmd === schema) {
-      return `unknown command "${raw}"`;
+    } else if ((cmd.commands ?? []).length > 0) {
+      return `unknown command "${[...trail, raw].join(" ")}"`;
     }
   }
   const known = flagsOf(cmd);
@@ -273,4 +274,75 @@ test("documented w2agent commands and flags exist in `w2agent schema`", () => {
   }
   assert.ok(checked > 0, "no w2agent invocations found in docs");
   assert.deepEqual(problems, []);
+});
+
+function allFlags(cmd, set = new Set()) {
+  for (const f of flagsOf(cmd)) set.add(f);
+  for (const c of cmd.commands ?? []) allFlags(c, set);
+  return set;
+}
+
+function proseSpans(text) {
+  const out = [];
+  let inFence = false;
+  for (const raw of text.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(raw)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    for (const m of raw.matchAll(/`([^`]+)`/g)) out.push(m[1]);
+  }
+  return out;
+}
+
+test("flags named in prose of the playbook and skill exist in `w2agent schema`", () => {
+  const known = allFlags(loadSchema());
+  const problems = [];
+  for (const rel of ["docs/AGENT-PLAYBOOK.md", "skills/w2agent/SKILL.md"]) {
+    for (const span of proseSpans(read(rel))) {
+      for (const raw of span.split(/\s+/)) {
+        const tok = stripToken(raw).split("=")[0];
+        if (!/^--?[A-Za-z][\w-]*$/.test(tok) || isPlaceholder(tok)) continue;
+        if (!known.has(tok)) problems.push(`${rel}: unknown flag ${tok} in \`${span}\``);
+      }
+    }
+  }
+  assert.deepEqual(problems, []);
+});
+
+const isStr = (v) => typeof v === "string" && v.length > 0;
+const isStrArray = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+test("root plugin.json field types follow Agent Plugins 1.0", () => {
+  const p = readJson("plugin.json");
+  for (const k of ["name", "version", "description"])
+    assert.ok(isStr(p[k]), `${k} must be a string`);
+  for (const k of ["homepage", "repository", "license"]) {
+    assert.ok(p[k] === undefined || isStr(p[k]), `${k} must be a string`);
+  }
+  if (p.author !== undefined) {
+    assert.ok(isObj(p.author), "author must be an object");
+    for (const [k, v] of Object.entries(p.author)) assert.equal(typeof v, "string", `author.${k}`);
+  }
+  if (p.keywords !== undefined) assert.ok(isStrArray(p.keywords), "keywords must be strings");
+  if (p.extensions !== undefined) {
+    assert.ok(isObj(p.extensions), "extensions must be an object");
+    for (const [k, v] of Object.entries(p.extensions)) assert.ok(isObj(v), `extensions.${k}`);
+  }
+});
+
+test(".claude-plugin manifests have the expected field types", () => {
+  const plugin = readJson(".claude-plugin/plugin.json");
+  for (const k of ["name", "version", "description"]) assert.ok(isStr(plugin[k]), `plugin ${k}`);
+  assert.ok(plugin.keywords === undefined || isStrArray(plugin.keywords), "plugin keywords");
+  const market = readJson(".claude-plugin/marketplace.json");
+  assert.ok(isStr(market.name), "marketplace name");
+  assert.ok(isObj(market.owner) && isStr(market.owner.name), "marketplace owner.name");
+  assert.ok(Array.isArray(market.plugins), "marketplace plugins must be an array");
+  for (const entry of market.plugins) {
+    assert.ok(isStr(entry.name), "marketplace entry name");
+    assert.ok(isStr(entry.source), "marketplace entry source");
+  }
 });

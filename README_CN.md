@@ -13,17 +13,18 @@
 它会按照 [docs/AGENT-PLAYBOOK.md](docs/AGENT-PLAYBOOK.md) 执行（也打包成了 [w2agent skill](skills/w2agent/SKILL.md)）。流程固定在 `w2agent@0.1.0`：
 
 ```bash
-npx w2agent@0.1.0 audit <url> --json                       # 基线评分
+npx w2agent@0.1.0 audit <local url> --json                 # 基线评分（<local url> = 你的本地服务）
 npx w2agent@0.1.0 integrate <local url> --dry-run --json \
   --project-dir . --site-url <production origin>            # 生成方案，不写入任何文件
 npx w2agent@0.1.0 integrate <local url> --install --json \
   --project-dir . --site-url <production origin>            # 应用
+# 然后：执行 postInstallSteps，重新构建并重启本地服务
 npx w2agent@0.1.0 audit <local url> --json                 # 复审
 ```
 
 应用之前，Agent 会先把方案展示给用户。参数、JSON 文档和退出码见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
 
-如果 npm 对 `w2agent@0.1.0` 返回 404：在 w2agent 仓库内，从源码构建（`pnpm install && pnpm --filter w2agent... build`），再运行 `node packages/cli/dist/index.js`；否则停止并告知所有者。不要尝试其他包名。
+如果 npm 对 `w2agent@0.1.0` 返回 404：如果本地有 w2agent 仓库（例如克隆在站点旁边），从源码构建（`pnpm install && pnpm --filter w2agent... build`），再运行 `node <checkout>/packages/cli/dist/index.js`；否则停止并告知所有者。不要尝试其他包名。
 
 为你的 Agent 安装该 playbook：
 

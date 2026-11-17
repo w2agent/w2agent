@@ -13,7 +13,7 @@ Do not read the w2agent source code to learn the CLI. Run `w2agent schema` inste
 
 1. Site deployed at a public URL, and you cannot run code (or the owner prefers it): use the [hosted path](#hosted-path).
 2. Otherwise you have the project on disk and can run code: use the [local flow](#local-flow).
-3. Detect the framework from the project: `nextjs`, `nuxt`, `astro`, `docusaurus`, `wordpress`, `shopify`. `integrate` detects it from the crawl. Pass `--platform <name>` only when it cannot (`no_platform_detected`). `w2agent schema` lists the accepted values.
+3. Detect the framework from the project: `nextjs`, `nuxt`, `astro`, `docusaurus`, `wordpress`, `shopify`. `integrate` detects it from the crawl. Pass `--platform <name>` only when it cannot (`no_platform_detected`, see the failure rule under Rules). `w2agent schema` lists the accepted values.
 
 ## 2. Run the CLI
 
@@ -40,7 +40,7 @@ Add `--json` to `audit`, `integrate` and `login`. Stdout is then one JSON docume
 
 - Exit code `0`: success. `1`: operational error (the site, the project or the login blocked it). `2`: usage error (bad URL, flag or value).
 - On failure stdout holds `{"ok": false, "error": {"reason", "message", "userActionRequired", "retryable", "next"}}`. Branch on `error.reason`, not on `message`.
-- `userActionRequired: true` means a person must act (allow-list the crawler, log in, choose a platform). Stop and tell the owner. Do not retry it.
+- `userActionRequired: true` means a person must act (allow-list the crawler, log in, choose a platform). Stop and tell the owner. Do not retry it. The one exception is `no_platform_detected` (see Rules).
 - `retryable: true` means the same command may work later (`unreachable`, `rate_limited`, `timeout`).
 - `error.next` and the success `next` are lists of argv arrays. Each starts with `"w2agent"`. Run one by substituting your runner for that first element. Never put a real secret in one: a `<api-key>` placeholder must be replaced by the owner's key.
 - Common reasons: `unreachable`, `blocked`, `auth_gated`, `rate_limited`, `timeout`, `invalid_url`, `invalid_argument`, `no_platform_detected`, `not_a_project`, `below_threshold`.
@@ -57,7 +57,10 @@ Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE
 4. Plan: `w2agent integrate <local url> --dry-run --json --project-dir <site dir> --site-url <production origin>`. Always pass `--project-dir`. This writes nothing.
 5. Print the plan for the user: `changes`, `warnings`, `postInstallSteps`. Then get [approval](#approval).
 6. Apply: run the argv in `next[0]` (it is the same command with `--install`).
-7. Do the `postInstallSteps` exactly as written. Then rebuild and restart the local server. A generated `postbuild` hook may try to refresh the content from the production URL with `npx`. That step is non-fatal. If it fails (the production site is not live yet, or npm cannot find the package), the build still succeeds and the site serves the files `integrate` already wrote. Do not edit the hook. Mention the failure in your report.
+7. Before you add the `postbuild` step, read the generated build script (for Next.js, `w2agent-build.mjs`). It runs `w2agent` through npx. Run `npm view w2agent@0.1.0 version`.
+   - If it succeeds: edit that generated script (a file w2agent just created, not a user file) so the call is pinned, for example `["-y", "w2agent@0.1.0", "generate", ...]`. Then do the `postInstallSteps`, rebuild and restart the local server.
+   - If npm answers 404: do not add the `postbuild` step. The files `integrate` wrote already serve. Report it as a skipped postInstallStep and say why.
+   - Never point a committed hook at a local checkout path. This applies to every platform: a generated call to `w2agent` through npx is pinned or not wired in.
 8. Verify: run the `next` argv from the installed document (`audit <local url> --json`). Compare with the baseline.
 9. Close remaining gaps (see [Closing gaps](#closing-gaps)). Re-audit after each batch.
 10. Report (see [Final report](#final-report)).
@@ -66,6 +69,7 @@ Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE
 
 - If you can pause and ask, show the plan and wait for a yes.
 - If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready counts as approval for the plan exactly as shown, with its `changes` and `postInstallSteps`. Still print the plan first. Anything outside the plan needs explicit approval. Put it in the final report instead of doing it.
+- Exception: a `modify` replaces the whole file. If any `modify` targets a file that a previous w2agent run did not create, the request is not approval. Ask the owner before you apply. In a non-interactive run, do not apply: stop after the dry run and report those paths.
 
 ### Production origin
 
@@ -87,10 +91,10 @@ Use what you find and say where it came from. If you find none, ask the owner. I
 ### Rules
 
 - Do not hand-write what `integrate` generates: `llms.txt`, markdown routes, middleware, and the robots or sitemap rules it emits. Run it.
-- Never rewrite, move or restructure existing user files (for example, do not move page copy into new modules). Edits to existing files are minimal and additive. If a `modify` in the plan would replace most of a file, stop and ask.
+- Never rewrite, move or restructure existing user files (for example, do not move page copy into new modules). Edits you make by hand are minimal and additive. A `modify` in the plan replaces the whole file (the plan shows no diff). If a `modify` targets a file that a previous w2agent run did not create, follow the [approval](#approval) exception.
 - Change `package.json` scripts or dependencies only as `postInstallSteps` say. Anything else needs approval.
 - Stay inside the user's project and the w2agent checkout. Do not edit the w2agent repository itself.
-- On a failure, branch on `error.reason`. If `userActionRequired` is true, stop and tell the owner. Do not retry it.
+- On a failure, branch on `error.reason`. If `userActionRequired` is true, stop and tell the owner. Do not retry it. One exception: on `no_platform_detected`, if the project files show the framework (for example `next` in `package.json` dependencies means `nextjs`), retry once with `--platform <name>`, using a value that `w2agent schema` lists for `--platform`. If they do not show it, stop and ask.
 
 ### Closing gaps
 
@@ -118,9 +122,10 @@ Give the owner:
 
 For a deployed public site when you will not run code. Before the first call, tell the owner that the URL is sent to w2agent.dev and that w2agent.dev fetches the site. Only public URLs work: localhost and private hosts are rejected.
 
-- `POST https://w2agent.dev/api/audit` with `{"url": "<url>"}` returns the same report as `audit --json`, plus `auditId`. Limit: 5 requests per minute per IP.
+- `POST https://w2agent.dev/api/audit` with `{"url": "<url>"}` returns the same report as `audit --json`, plus `auditId` and possibly a `summary` text. `/api/audit` and `/api/generate` share one limit: 5 requests per minute per IP.
+- An invalid, private or loopback URL returns HTTP 400 `{"error": "<reason>"}`.
 - A site that cannot be measured returns 422 `{"error": "audit_failed", "kind": "...", "message": "..."}`. The `kind` values match the `reason` values above.
-- `POST https://w2agent.dev/api/generate` with `{"url": "<url>"}` returns generated files. It is rate limited too.
+- `POST https://w2agent.dev/api/generate` with `{"url": "<url>"}` returns generated files. It counts against the same limit.
 
 You write the fixes yourself from the report's fix hints. The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
 
