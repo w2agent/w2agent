@@ -293,7 +293,7 @@ describe("generateWpPlugin — cache, seed, llms-full (WP-7)", () => {
     expect(php).not.toContain("wp_cache_delete");
   });
 
-  it("serves the seed file only when dynamic generation yields zero sections", () => {
+  it("serves the seed file only when there are zero sections and no posts of a listed type", () => {
     const php = pluginPhp();
     const block = between(
       php,
@@ -301,7 +301,7 @@ describe("generateWpPlugin — cache, seed, llms-full (WP-7)", () => {
       "// ─── Serve endpoints",
     );
     expect(block).toMatch(
-      /if \(empty\(\$sections\)\) \{\s+\$output = w2agent_site_seed\('llms.txt'\);/,
+      /if \(empty\(\$sections\) && !w2agent_site_has_listed_type_posts\(\)\) \{\s+\$output = w2agent_site_seed\('llms.txt'\);/,
     );
     expect(block).toContain("if ($output === '')");
   });

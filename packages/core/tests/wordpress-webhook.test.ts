@@ -60,12 +60,29 @@ describe("WordPress WebMCP loading (WP-2)", () => {
 describe("WordPress webhook (WP-9)", () => {
   it("sends nothing while the placeholders remain", () => {
     expect(hook).toContain("webhook/YOUR_SLUG");
-    expect(hook).toContain(
-      "if (strpos(W2AGENT_WEBHOOK_URL, 'YOUR' . '_SLUG') !== false || W2AGENT_WEBHOOK_TOKEN === 'YOUR' . '_WEBHOOK_TOKEN') return;",
+    expect(hook).toContain("strpos($w2agent_mcp_url, 'YOUR' . '_SLUG') === false");
+    expect(hook).toContain("$w2agent_mcp_token !== 'YOUR' . '_WEBHOOK_TOKEN'");
+    const gate = hook.indexOf("$w2agent_mcp_token !== 'YOUR' . '_WEBHOOK_TOKEN'");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(hook.indexOf("wp_remote_post"));
+  });
+
+  it("a copy that still holds the placeholders defines nothing and adds no hooks (R1)", () => {
+    const configured = hook.indexOf("if (\n    strpos($w2agent_mcp_url");
+    expect(configured).toBeGreaterThan(-1);
+    const before = hook.slice(0, configured);
+    expect(before).not.toMatch(/define\(|add_action\(|add_filter\(/);
+    expect(before).toContain(
+      "$w2agent_mcp_url = 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG';",
     );
-    const bail = hook.indexOf("'YOUR' . '_WEBHOOK_TOKEN') return;");
-    expect(bail).toBeGreaterThan(-1);
-    expect(bail).toBeLessThan(hook.indexOf("wp_remote_post"));
+    const after = hook.slice(configured);
+    for (const needle of [
+      "define('W2AGENT_MCP_WEBHOOK_HOOKED'",
+      "define('W2AGENT_WEBHOOK_URL'",
+      "add_action(",
+    ]) {
+      expect(after).toContain(needle);
+    }
   });
 
   it("a global replace of the two placeholder values leaves the bail check working", () => {
@@ -74,7 +91,7 @@ describe("WordPress webhook (WP-9)", () => {
       .replaceAll("YOUR_WEBHOOK_TOKEN", "my-token");
     expect(edited).toContain("webhook/my-site'");
     expect(edited).toContain("'YOUR' . '_SLUG'");
-    expect(edited).toContain("=== 'YOUR' . '_WEBHOOK_TOKEN'");
+    expect(edited).toContain("!== 'YOUR' . '_WEBHOOK_TOKEN'");
   });
 
   it("notifies on transition when the old or new status is publish, not on save_post", () => {
@@ -101,12 +118,30 @@ describe("WordPress webhook (WP-9)", () => {
     expect(hook).not.toMatch(/^function /m);
     expect(hook).toContain("if (!defined('W2AGENT_WEBHOOK_URL')) define(");
     expect(hook).toContain("if (!defined('W2AGENT_WEBHOOK_TOKEN')) define(");
-    expect(hook).toContain("if (!defined('W2AGENT_MCP_WEBHOOK_HOOKED')) {");
+    expect(hook).toContain("&& !defined('W2AGENT_MCP_WEBHOOK_HOOKED')");
     expect(hook).toContain("if (!defined('ABSPATH')) exit;");
   });
 
   it("header says the plugin loads the file", () => {
     expect(hook).toContain("w2agent-plugin.php) loads this file");
+  });
+});
+
+describe("WordPress llms.txt seed gate (C1)", () => {
+  const gen = between(plugin, "function w2agent_site_generate_llms_txt()", "// ─── Serve");
+
+  it("serves the seed only when no post of a listed type exists in any status but auto-draft", () => {
+    const helper = between(
+      plugin,
+      "function w2agent_site_has_listed_type_posts()",
+      "// Sections of",
+    );
+    expect(helper).toContain("w2agent_site_post_types()");
+    expect(helper).toContain("wp_count_posts($type)");
+    expect(helper).toContain("$status !== 'auto-draft' && (int) $count > 0");
+    expect(gen).toContain(
+      "if (empty($sections) && !w2agent_site_has_listed_type_posts()) {\n            $output = w2agent_site_seed('llms.txt');",
+    );
   });
 });
 

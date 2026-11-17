@@ -11,7 +11,7 @@ CLI=$REPO/packages/cli/dist/index.js
 CORE=$REPO/packages/core/dist/index.js
 STANDALONE=$REPO/packages/wordpress/w2agent-plugin.php
 
-RUN_ID=$$
+RUN_ID=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/w2agent-e2e.XXXXXX") || exit 1
 WORK=$(cd "$WORK" && pwd -P)
 
@@ -101,6 +101,7 @@ wpc "$R" option update w2agent_webhook_slug sa >/dev/null
 node "$E2E_DIR/gen-webhook.mjs" "$CORE" "$WORK/webhook-generated.php" >/dev/null
 sed -e 's#YOUR_SLUG#gen#g' -e 's#YOUR_WEBHOOK_TOKEN#tok#g' "$WORK/webhook-generated.php" >"$GEN_DIR/w2agent-mcp-webhook.php"
 pre "configured webhook file installed in w2agent-site/" '[ -s "$GEN_DIR/w2agent-mcp-webhook.php" ] && grep -q "webhook/gen" "$GEN_DIR/w2agent-mcp-webhook.php"'
+cp "$GEN_DIR/w2agent-mcp-webhook.php" "$WORK/webhook-configured.php"
 . "$E2E_DIR/checks-hooks.sh"
 
 echo "--- a copy pasted into functions.php (mu-plugin here) next to the loaded file"
@@ -119,6 +120,18 @@ chk "WP-9 placeholder copy sends nothing to YOUR_SLUG" '[ "$(count YOUR_SLUG)" =
 chk "WP-9 placeholder copy sends no generated-plugin request" '[ "$(count "webhook/gen ")" = 0 ]'
 chk "WP-9 the standalone still notifies while the generated copy is unconfigured" '[ "$(count "webhook/sa ")" = 1 ]'
 
+echo "--- placeholder file in w2agent-site/ plus a configured copy in the active theme's functions.php"
+THEME=$(wpc "$R" theme list --status=active --field=name 2>/dev/null | head -1)
+FN=$SITE/wp-content/themes/$THEME/functions.php
+pre "active theme has a functions.php that never leaves PHP mode" '[ -f "$FN" ] && ! grep -q "?>" "$FN"'
+cp "$FN" "$WORK/functions.bak"
+tail -n +2 "$WORK/webhook-configured.php" >>"$FN"
+reset_log
+wpc "$R" post create --post_status=publish --post_title=ThemeCopyProbe >/dev/null 2>&1
+chk "R1 configured copy in functions.php wins over the placeholder file (got $(count "webhook/gen ") request(s))" '[ "$(count "webhook/gen ")" = 1 ]'
+chk "R1 nothing goes to YOUR_SLUG" '[ "$(count YOUR_SLUG)" = 0 ]'
+cp "$WORK/functions.bak" "$FN"
+
 echo "=== subdirectory and multisite"
 SUB=sub
 MS=ms
@@ -135,7 +148,7 @@ for V in 7.4 8.3; do
   for F in "$GEN_DIR"/*.php "$WORK/webhook-generated.php" "$STANDALONE"; do
     D=$(dirname "$F")
     BASE=$(basename "$F")
-    RES=$(docker run --rm -v "$D:/w:ro" "php:$V-cli-alpine" php -l "/w/$BASE" 2>&1 | head -1)
+    RES=$(docker run --rm --name "$PREFIX-phplint-$(rand_id)" -v "$D:/w:ro" "php:$V-cli-alpine" php -l "/w/$BASE" 2>&1 | head -1)
     chk "php -l $V $BASE: $RES" 'grep -q "^No syntax errors" <<<"$RES"'
   done
 done

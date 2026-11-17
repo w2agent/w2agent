@@ -2,8 +2,11 @@
 # Shared helpers for run.sh and the checks-*.sh files (sourced, not executed).
 # Needs RUN_ID, WORK and E2E_DIR from run.sh.
 
+rand_id() { od -An -N4 -tx1 /dev/urandom | tr -d ' \n'; }
+
 PREFIX="w2agent-e2e-$RUN_ID"
 NET="$PREFIX-net"
+NET_OWNED=0
 CONTAINERS=()
 FAILS=0
 PASSES=0
@@ -37,7 +40,7 @@ wp_host_dir() {
 wpc() { # scenario, wp-cli args...
   local name=$1
   shift
-  docker run --rm -i --network "$NET" --volumes-from "$PREFIX-wp-$name" --user 33:33 \
+  docker run --rm -i --name "$PREFIX-wpcli-$(rand_id)" --network "$NET" --volumes-from "$PREFIX-wp-$name" --user 33:33 \
     -e HOME=/tmp \
     -e WORDPRESS_DB_HOST="$PREFIX-db-$name" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
     wordpress:cli-php8.3 wp --path="$(wp_path "$name")" "$@"
@@ -51,17 +54,20 @@ up() {
   local db="$PREFIX-db-$name" wp="$PREFIX-wp-$name" site
   site=$(site_dir "$name")
   mkdir -p "$site"
-  docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
-  CONTAINERS+=("$db")
+  if ! docker network inspect "$NET" >/dev/null 2>&1; then
+    docker network create "$NET" >/dev/null || { echo "FAIL could not create network $NET"; return 1; }
+    NET_OWNED=1
+  fi
   docker run -d --name "$db" --network "$NET" \
     -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=wp -e MARIADB_USER=wp -e MARIADB_PASSWORD=wp \
-    mariadb:11 >/dev/null
-  CONTAINERS+=("$wp")
+    mariadb:11 >/dev/null || { echo "FAIL could not start $db"; return 1; }
+  CONTAINERS+=("$db")
   docker run -d --name "$wp" --network "$NET" -p "127.0.0.1:$port:80" -w "$(wp_path "$name")" \
     -v "$site:/var/www/html" \
     -e WORDPRESS_DB_HOST="$db" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
     -e WORDPRESS_DEBUG=1 -e "WORDPRESS_CONFIG_EXTRA=define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);" \
-    wordpress:php8.3-apache >/dev/null
+    wordpress:php8.3-apache >/dev/null || { echo "FAIL could not start $wp"; return 1; }
+  CONTAINERS+=("$wp")
   local wpdir ready=0 i
   wpdir=$(wp_host_dir "$name")
   for i in $(seq 1 90); do
@@ -91,13 +97,15 @@ up() {
 cleanup() {
   local c rc=$?
   trap - EXIT
-  for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"}; do
+  # containers this run started, then any helper (wp-cli, php -l, cleanup) left by an interrupt:
+  # all carry this run's random prefix, and each is removed by its exact name
+  for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"} $(docker ps -a --filter "name=^$PREFIX-" --format '{{.Names}}' 2>/dev/null); do
     docker rm -f -v "$c" >/dev/null 2>&1
   done
-  docker network rm "$NET" >/dev/null 2>&1
+  [ "$NET_OWNED" = 1 ] && docker network rm "$NET" >/dev/null 2>&1
   if [ -d "$WORK" ]; then
     # site files are owned by the container user: clear them from inside, then drop the empty dir
-    docker run --rm --entrypoint sh -v "$WORK:/w" wordpress:php8.3-apache -c 'rm -rf /w/* /w/.[!.]*' >/dev/null 2>&1
+    docker run --rm --name "$PREFIX-clean" --entrypoint sh -v "$WORK:/w" wordpress:php8.3-apache -c 'find /w -mindepth 1 -delete' >/dev/null 2>&1
     rmdir "$WORK" 2>/dev/null
   fi
   exit "$rc"

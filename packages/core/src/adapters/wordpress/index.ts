@@ -71,21 +71,29 @@ export const wordpressAdapter: PlatformAdapter = {
  * Triggers a re-crawl of your MCP server when published content changes.
  * Replace YOUR_SLUG and YOUR_WEBHOOK_TOKEN below. Until you do, nothing is sent.
  * The w2agent plugin in this folder (w2agent-plugin.php) loads this file for you.
- * You can also paste it into your theme's functions.php instead; copies never conflict.
+ * You can also paste it into your theme's functions.php instead. A copy that still holds the
+ * placeholders does nothing, so a configured copy works wherever it is loaded.
  */
 if (!defined('ABSPATH')) exit;
 
-if (!defined('W2AGENT_WEBHOOK_URL')) define('W2AGENT_WEBHOOK_URL', 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG');
-if (!defined('W2AGENT_WEBHOOK_TOKEN')) define('W2AGENT_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN');
+$w2agent_mcp_url = 'https://w2agent.dev/api/agent/webhook/YOUR_SLUG';
+$w2agent_mcp_token = 'YOUR_WEBHOOK_TOKEN';
 
-if (!defined('W2AGENT_MCP_WEBHOOK_HOOKED')) {
+// A copy that still holds the placeholders defines nothing and adds no hooks, so a configured copy
+// elsewhere (for example in functions.php) works whatever the load order. The placeholder words are
+// split so a find-and-replace of the two values above cannot rewrite this check.
+if (
+    strpos($w2agent_mcp_url, 'YOUR' . '_SLUG') === false
+    && $w2agent_mcp_token !== 'YOUR' . '_WEBHOOK_TOKEN'
+    && !defined('W2AGENT_MCP_WEBHOOK_HOOKED')
+) {
     define('W2AGENT_MCP_WEBHOOK_HOOKED', true);
+    if (!defined('W2AGENT_WEBHOOK_URL')) define('W2AGENT_WEBHOOK_URL', $w2agent_mcp_url);
+    if (!defined('W2AGENT_WEBHOOK_TOKEN')) define('W2AGENT_WEBHOOK_TOKEN', $w2agent_mcp_token);
 
     // Only types that llms.txt lists: the generated plugin's type list when it is loaded,
     // otherwise any publicly viewable type (menu items, revisions and the like never are).
     $w2agent_mcp_notify = function ($post) {
-        // The placeholder words are split so a find-and-replace of the two values above cannot rewrite this check.
-        if (strpos(W2AGENT_WEBHOOK_URL, 'YOUR' . '_SLUG') !== false || W2AGENT_WEBHOOK_TOKEN === 'YOUR' . '_WEBHOOK_TOKEN') return;
         $post = get_post($post);
         if (!$post || wp_is_post_revision($post) || wp_is_post_autosave($post)) return;
         if (function_exists('w2agent_site_post_types')) {
