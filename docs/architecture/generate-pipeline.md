@@ -77,8 +77,8 @@ URL
 | `robots-txt` | `robots.txt` — AI-friendly crawl rules | `robots-txt.ts` |
 | `markdown` | `markdown/*.md` — per-page markdown exports | (inline in engine) |
 | `mcp-server` | `mcp-server/` — standalone MCP server project with tool annotations | `mcp-server.ts` |
-| `skill-md` | `skill.md` — skill description for AI agents | `skill-md.ts` |
-| `openclaw` | `openclaw/SKILL.md` — OpenClaw format skill | `skill-md-openclaw.ts` |
+| `skill-md` | `skills/<name>/SKILL.md` — Agent Skills file (`<name>` from `skillName()`) | `skill-md.ts` |
+| `openclaw` | `openclaw/skills/<name>/SKILL.md` — OpenClaw format skill | `skill-md-openclaw.ts` |
 | `webmcp` | `webmcp.html` — WebMCP declarations (W3C draft) | `webmcp.ts` |
 
 7. **Platform integration**: If a platform was detected, `adapter.generateIntegration(ctx, coreFiles)` produces platform-specific files (route handlers, plugins, etc.).
@@ -167,6 +167,6 @@ The generated `mcp-server/` is a complete Node.js project with `package.json`, r
 ## Known Limitations
 
 - **`--format all` includes everything** — WebMCP is included in `all`. If a format should be excluded from `all`, add it to the exclusion list in `parseFormats()`.
-- **OpenClaw SKILL.md version is static** — `version: 1.0.0` doesn't auto-increment on regeneration.
+- **OpenClaw SKILL.md has no `version`** — OpenClaw does not document that key, so it is not emitted. The generated skills carry no version at all.
 - **WebMCP spec is draft** — follows the CG draft of 2026-09-10 (`document.modelContext`, `navigator.modelContext` fallback; attributes `toolname`/`tooldescription`/`toolautosubmit`/`toolparamdescription`). May need updating if the spec renames attributes or moves the API again.
 - **No incremental generation** — full crawl + full generation every time. No diffing against previous output.

@@ -1,7 +1,9 @@
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { LocalBusinessArtifacts } from "./local-business.js";
+import { mdDescription, mdLine } from "./markdown-text.js";
 import { detectTools } from "./mcp-server.js";
+import { capDescription, keyContentLine, skillName, skillYamlScalar } from "./skill-md.js";
 import type { GenerateContext } from "./types.js";
 
 export interface OpenClawSkillMdOptions {
@@ -16,25 +18,25 @@ export function generateOpenClawSkillMd(
 ): string {
   const { siteName, siteDescription } = extractSiteInfo(ctx.pages, ctx.baseUrl);
   const detected = detectTools(ctx, options?.artifacts, options?.localBusinessArtifacts);
-  const slug = hostnameToSlug(ctx.baseUrl);
   const endpoint = options?.mcpEndpoint || "http://localhost:3100/mcp";
   const hasExplicitEndpoint = !!options?.mcpEndpoint;
+  const displayName = mdDescription(siteName);
 
   const lines: string[] = [];
 
-  // YAML frontmatter — OpenClaw required + optional fields
-  const escapedDesc = buildTriggerDescription(siteName, siteDescription, detected.tools.length);
+  // YAML frontmatter: name, description, homepage and user-invocable
   lines.push("---");
-  lines.push(`name: ${slug}-agent`);
-  lines.push(`description: "${escapedDesc}"`);
-  lines.push(`version: 1.0.0`);
-  lines.push(`user-invocable: true`);
-  lines.push(`homepage: ${ctx.baseUrl}`);
+  lines.push(`name: ${skillName(ctx.baseUrl)}`);
+  lines.push(
+    `description: ${skillYamlScalar(capDescription(buildTriggerDescription(siteName, siteDescription, detected.tools.length)))}`,
+  );
+  lines.push(`homepage: ${skillYamlScalar(ctx.baseUrl)}`);
+  lines.push("user-invocable: true");
   lines.push("---");
   lines.push("");
 
   // Title
-  lines.push(`# ${siteName} Agent`);
+  lines.push(`# ${displayName} Agent`);
   lines.push("");
 
   // Site overview
@@ -42,7 +44,7 @@ export function generateOpenClawSkillMd(
   lines.push(`- Site: ${ctx.baseUrl}`);
   lines.push(`- Pages indexed: ${ctx.pages.length}`);
   if (siteDescription) {
-    lines.push(`- Description: ${siteDescription}`);
+    lines.push(`- Description: ${mdDescription(siteDescription)}`);
   }
   lines.push("");
 
@@ -62,7 +64,7 @@ export function generateOpenClawSkillMd(
   lines.push("");
   for (const tool of detected.tools) {
     lines.push(`### \`${tool.name}\``);
-    lines.push(tool.description);
+    lines.push(mdLine(tool.description));
     lines.push("");
   }
 
@@ -72,9 +74,7 @@ export function generateOpenClawSkillMd(
     lines.push("## Key Content Areas");
     lines.push("");
     for (const page of keyPages) {
-      const desc = page.description ? `: ${page.description}` : "";
-      const title = page.title || page.url;
-      lines.push(`- [${title}](${page.url})${desc}`);
+      lines.push(keyContentLine(page));
     }
     lines.push("");
   }
@@ -83,7 +83,7 @@ export function generateOpenClawSkillMd(
   lines.push("## Usage Instructions");
   lines.push("");
   lines.push(
-    `Use this skill when the user asks about ${siteName} or needs information from ${ctx.baseUrl}.`,
+    `Use this skill when the user asks about ${displayName} or needs information from ${ctx.baseUrl}.`,
   );
   lines.push("");
   lines.push("Workflow:");
@@ -99,15 +99,6 @@ export function generateOpenClawSkillMd(
   return lines.join("\n");
 }
 
-function hostnameToSlug(baseUrl: string): string {
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return hostname.replace(/\./g, "-");
-  } catch {
-    return "site";
-  }
-}
-
 function buildTriggerDescription(
   siteName: string,
   siteDescription: string,
@@ -115,6 +106,5 @@ function buildTriggerDescription(
 ): string {
   const base = `Use when user needs information from ${siteName}. Provides ${toolCount} tools for browsing, searching, and querying ${siteName} content.`;
   const desc = siteDescription ? ` ${siteDescription}` : "";
-  const full = base + desc;
-  return full.replace(/"/g, '\\"');
+  return base + desc;
 }

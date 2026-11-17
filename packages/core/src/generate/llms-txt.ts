@@ -170,7 +170,7 @@ function truncate(str: string, max: number): string {
   return `${str.slice(0, max - 3).trimEnd()}...`;
 }
 
-function urlToTitle(url: string): string {
+export function urlToTitle(url: string): string {
   try {
     const path = new URL(url).pathname;
     if (path === "/" || path === "") return "Home";

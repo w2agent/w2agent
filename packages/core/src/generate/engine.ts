@@ -17,7 +17,7 @@ import { matchesSections, yamlFrontmatter } from "./markdown-text.js";
 import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
 import { generateSchemaOrg } from "./schema-org.js";
-import { generateSkillMd } from "./skill-md.js";
+import { generateSkillMd, skillName } from "./skill-md.js";
 import { generateOpenClawSkillMd } from "./skill-md-openclaw.js";
 import type {
   GenerateContext,
@@ -244,13 +244,13 @@ export async function runGenerate(
 
   // Generate SKILL.md
   if (options.formats.includes("skill-md")) {
-    onProgress?.("Generating skill.md...");
+    onProgress?.("Generating SKILL.md...");
     const skillMd = generateSkillMd(ctx, {
       mcpEndpoint: options.mcpEndpoint,
       artifacts: ecommerceArtifacts,
       localBusinessArtifacts,
     });
-    files.push(makeFile("skill.md", skillMd));
+    files.push(makeFile(`skills/${skillName(ctx.baseUrl)}/SKILL.md`, skillMd));
   }
 
   // Generate OpenClaw SKILL.md
@@ -261,7 +261,7 @@ export async function runGenerate(
       artifacts: ecommerceArtifacts,
       localBusinessArtifacts,
     });
-    files.push(makeFile("openclaw/SKILL.md", openClawSkillMd));
+    files.push(makeFile(`openclaw/skills/${skillName(ctx.baseUrl)}/SKILL.md`, openClawSkillMd));
   }
 
   // Generate WebMCP declarations

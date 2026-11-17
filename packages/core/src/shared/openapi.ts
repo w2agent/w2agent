@@ -199,9 +199,9 @@ export function parseOpenAPISpec(
       endpoints.push({
         path,
         method: method.toUpperCase(),
-        operationId: (operation as Record<string, unknown>).operationId as string | undefined,
-        summary: (operation as Record<string, unknown>).summary as string | undefined,
-        description: (operation as Record<string, unknown>).description as string | undefined,
+        operationId: stringOrUndefined((operation as Record<string, unknown>).operationId),
+        summary: stringOrUndefined((operation as Record<string, unknown>).summary),
+        description: stringOrUndefined((operation as Record<string, unknown>).description),
         parameters: extractParameters(operation as Record<string, unknown>, isV2, obj),
         requestBody: extractRequestBody(operation as Record<string, unknown>, isV2, obj),
       });
@@ -315,4 +315,8 @@ function extractSchemaProperties(
     };
   }
   return props;
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

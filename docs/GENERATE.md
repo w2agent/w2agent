@@ -105,7 +105,9 @@ Auto-detected tools:
 
 #### SKILL.md (`skill-md`)
 
-Anthropic-spec agent skill file describing the site's capabilities, MCP server config, tool listing, and site overview. Designed for coding agent discovery.
+Agent Skills file describing the site's capabilities, MCP server config, tool listing, and site overview. Written to `skills/<name>/SKILL.md`, so the directory can be copied into an agent's skills folder as is.
+
+The frontmatter has exactly two fields, `name` and `description`. `<name>` is `<host>-agent`: the host in lowercase, every run of characters outside `a-z0-9` (dots, underscores, colons, brackets) turned into one hyphen, cut so the whole name stays at most 64 characters (a bare IP address becomes, for example, `192-0-2-1-agent`; an unparseable URL gives `site-agent`). It always matches `^[a-z0-9]+(-[a-z0-9]+)*$`, as the [Agent Skills specification](https://agentskills.io/specification) requires, and equals the directory name. `description` is one line of at most 1024 characters built from the site name and the homepage description; the cut never splits a character. Page titles and descriptions are escaped in the frontmatter and in the Markdown body, so a hostile title cannot add fields or headings. A run of three or more hyphens in a value is written as `\u002d` escapes, so tools that split the frontmatter on `---` still find it.
 
 #### WebMCP Declarations (`webmcp`)
 
@@ -117,7 +119,7 @@ One tool per distinct form (a header search form repeated on every page is one t
 
 #### OpenClaw SKILL.md (`openclaw`)
 
-OpenClaw-compatible skill file format for broader agent ecosystem compatibility.
+OpenClaw-compatible skill file. Written to `openclaw/skills/<name>/SKILL.md`, so it does not collide with the `skill-md` output when both formats are requested. `<name>` is derived as for `skill-md`. The frontmatter has exactly `name`, `description`, `homepage` (the site URL) and `user-invocable: true`. The same escaping and length limits apply. There is no `version` field, because OpenClaw does not define one.
 
 Also available via `w2agent agent deploy`:
 

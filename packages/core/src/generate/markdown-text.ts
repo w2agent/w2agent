@@ -13,6 +13,16 @@ export function mdDescription(value: string): string {
   return oneLine(value).replace(/[\\[\]<>]/g, "\\$&");
 }
 
+/**
+ * One-line text that starts a Markdown line: `mdDescription` plus a backslash before a leading
+ * block marker (heading, quote, list, rule, fence, table, setext underline), so it stays text.
+ */
+export function mdLine(value: string): string {
+  return mdDescription(value)
+    .replace(/^[#>+*=_`~|-]/, "\\$&")
+    .replace(/^(\d{1,9})([.)])/, "$1\\$2");
+}
+
 /** Link destination that survives whitespace, parentheses and angle brackets. */
 export function mdUrl(value: string): string {
   return value.replace(/[\s()<>]/g, (c) =>

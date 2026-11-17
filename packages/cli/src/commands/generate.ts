@@ -218,10 +218,8 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} faq.json           (${size})`);
           } else if (file.filename === "agents.md") {
             console.log(`  ${chalk.green("✓")} agents.md          (${size})`);
-          } else if (file.filename === "skill.md") {
-            console.log(`  ${chalk.green("✓")} skill.md           (${size})`);
-          } else if (file.filename === "openclaw/SKILL.md") {
-            console.log(`  ${chalk.green("✓")} openclaw/SKILL.md  (${size})`);
+          } else if (/^(openclaw\/)?skills\/[^/]+\/SKILL\.md$/.test(file.filename)) {
+            console.log(`  ${chalk.green("✓")} ${file.filename} (${size})`);
           } else if (file.filename.startsWith("markdown/")) {
             // Count markdown files — only print summary once
           } else if (file.filename.startsWith("webmcp/")) {

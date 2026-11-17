@@ -1302,15 +1302,15 @@ describe("generateOpenClawSkillMd", () => {
     };
   }
 
-  it("has YAML frontmatter with name, version, user-invocable, and homepage", () => {
+  it("has YAML frontmatter with name, description, homepage, and user-invocable only", () => {
     const ctx = makeOpenClawCtx();
     const result = generateOpenClawSkillMd(ctx);
 
     expect(result).toMatch(/^---\n/);
     expect(result).toMatch(/\nname: example-com-agent\n/);
-    expect(result).toMatch(/\nversion: 1\.0\.0\n/);
+    expect(result).not.toMatch(/\nversion:/);
     expect(result).toMatch(/\nuser-invocable: true\n/);
-    expect(result).toMatch(/\nhomepage: https:\/\/example\.com\n/);
+    expect(result).toMatch(/\nhomepage: "https:\/\/example\.com"\n/);
     expect(result).toContain("---\n\n#");
   });
 
