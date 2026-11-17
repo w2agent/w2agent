@@ -113,7 +113,7 @@ The frontmatter has exactly two fields, `name` and `description`. `<name>` is `<
 
 A public Markdown summary of the site for AI agents that visit it. Serve it at the site root as `/agents.md`, the same path Shopify storefronts use. It is not a repository `AGENTS.md` for coding agents. Opt-in: `--format agents-md`.
 
-It contains an overview (URL, page count), capabilities (llms.txt, OpenAPI, MCP, sitemap), authentication hints, AI bot permissions and key pages. The permissions come from the site's `robots.txt`, read with the same parser the audit uses, so the two cannot disagree. There is one row per known AI agent that a `User-agent` line names, plus one row for `*` only when `robots.txt` has a `User-agent: *` line. An agent whose own group has no `Allow`, `Disallow` or `Crawl-delay` line follows the `*` group, as in the parser. Each row says:
+It contains an overview (URL, page count), capabilities (llms.txt, OpenAPI, MCP, sitemap), authentication hints, AI bot permissions and key pages. The permissions come from the site's `robots.txt`. `Blocked` uses the same parser and root check as the audit, so the two agree on it. There is one row per known AI agent that a `User-agent` line names, plus one row for `*` only when `robots.txt` has a `User-agent: *` line. An agent whose own group has no `Allow`, `Disallow` or `Crawl-delay` line follows the `*` group, as in the parser. Each row says:
 
 - `Blocked`: the agent may not crawl the site root `/`.
 - `Partly restricted`: the root is open, but a `Disallow` rule applies to the agent and no `Allow` rule for the same path cancels it. An `Allow` for a different path does not cancel it, so a wildcard `Allow` that covers another `Disallow` can still show this value.
