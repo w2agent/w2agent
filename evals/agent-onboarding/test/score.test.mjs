@@ -196,12 +196,49 @@ test("compareToBaseline reports deleted and wholesale-replaced files", async () 
   writeFileSync(path.join(base, "app/page.tsx"), "one\ntwo\nthree\n");
   writeFileSync(path.join(site, "app/layout.tsx"), "// new\nexport default 1\n");
   writeFileSync(path.join(site, "app/page.tsx"), "one\ntwo\nthree\nfour\n");
-  const r = compareToBaseline(base, site);
+  const r = compareToBaseline(base, site, ["app/layout.tsx", "public/robots.txt", "app/page.tsx"]);
   assert.deepEqual(r.deleted, ["public/robots.txt"]);
   assert.deepEqual(
     r.replaced.map((x) => x.file),
     ["app/layout.tsx"],
   );
+});
+
+test("compareToBaseline compares only git-tracked files, not untracked build leftovers", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const root = mkdtempSync(path.join(tmpdir(), "score-git-"));
+  const base = path.join(root, "baseline");
+  const site = path.join(root, "site");
+  for (const d of [base, site]) mkdirSync(path.join(d, "app"), { recursive: true });
+  writeFileSync(path.join(base, "app/page.tsx"), "one\ntwo\nthree\n");
+  writeFileSync(path.join(base, "robots.txt"), "User-agent: *\n");
+  execFileSync("git", ["init", "-q"], { cwd: base });
+  execFileSync("git", ["add", "."], { cwd: base });
+  writeFileSync(path.join(base, "next-env.d.ts"), "// generated\n");
+  writeFileSync(path.join(base, "x.tsbuildinfo"), "{}\n");
+  writeFileSync(path.join(site, "app/page.tsx"), "one\ntwo\nthree\n");
+  writeFileSync(path.join(site, "robots.txt"), "User-agent: *\n");
+  assert.deepEqual(compareToBaseline(base, site).deleted, []);
+  const { rmSync } = await import("node:fs");
+  rmSync(path.join(site, "robots.txt"));
+  assert.deepEqual(compareToBaseline(base, site).deleted, ["robots.txt"]);
+});
+
+test("compareToBaseline throws when the baseline dir has no git-tracked files", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const plain = mkdtempSync(path.join(tmpdir(), "score-nogit-"));
+  writeFileSync(path.join(plain, "a.txt"), "a\n");
+  assert.throws(() => compareToBaseline(plain, plain), /git|tracked/);
+  const empty = mkdtempSync(path.join(tmpdir(), "score-empty-"));
+  execFileSync("git", ["init", "-q"], { cwd: empty });
+  writeFileSync(path.join(empty, "a.txt"), "a\n");
+  assert.throws(() => compareToBaseline(empty, empty), /no git-tracked files/);
 });
 
 test("containment (claude): relative and workspace-absolute paths are fine, incl. /private alias", () => {

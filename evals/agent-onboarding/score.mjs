@@ -1,14 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -503,20 +495,22 @@ export function replacedRatio(original, current) {
   return kept / orig.length;
 }
 
-function walk(dir, base = dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (name === "node_modules" || name === ".next") continue;
-    const p = path.join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, base, out);
-    else out.push(path.relative(base, p));
+export function trackedFiles(dir) {
+  const r = spawnSync("git", ["ls-files", "-z"], { cwd: dir, encoding: "utf8" });
+  if (r.error || r.status !== 0) {
+    throw new Error(
+      `git ls-files failed in ${dir}: ${r.error?.message ?? ((r.stderr || "").trim() || `exit ${r.status}`)}`,
+    );
   }
-  return out;
+  const files = r.stdout.split("\0").filter(Boolean);
+  if (files.length === 0) throw new Error(`no git-tracked files in ${dir}`);
+  return files;
 }
 
-export function compareToBaseline(baselineDir, siteDir) {
+export function compareToBaseline(baselineDir, siteDir, files = trackedFiles(baselineDir)) {
   const deleted = [];
   const replaced = [];
-  for (const rel of walk(baselineDir)) {
+  for (const rel of files) {
     const now = path.join(siteDir, rel);
     if (!existsSync(now)) {
       deleted.push(rel);
