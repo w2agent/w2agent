@@ -1,13 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { defineEventHandler, setResponseHeader } from "h3";
+import { createError, defineEventHandler, setResponseHeader } from "h3";
+import { readAsset } from "../utils/read-asset";
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
+  const body = await readAsset("llms.txt");
+  if (body === null) throw createError({ statusCode: 404, statusMessage: "Not Found" });
   setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
   setResponseHeader(event, "Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-  const filePath = join(process.cwd(), "public", "llms.txt");
-  if (existsSync(filePath)) {
-    return readFileSync(filePath, "utf-8");
-  }
-  return "# AI Content Index\n\n> Run: npx w2agent generate <your-site-url> --format llms-txt,full --no-platform --output ./public/\n";
+  return body;
 });

@@ -1,7 +1,30 @@
+import { isAbsolute, resolve } from "node:path";
 import { addServerHandler, createResolver, defineNuxtModule } from "@nuxt/kit";
 
+export const ASSET_BASE_NAME = "w2agent";
+export const ASSET_PATTERN = "{llms.txt,llms-full.txt,agent-card.json,.well-known/agent-card.json}";
+
+interface NitroConfigLike {
+  serverAssets?: { baseName: string; dir: string; pattern?: string }[];
+}
+
+interface NuxtLike {
+  options: { dir: { public: string }; srcDir: string };
+  hook: (name: never, fn: never) => unknown;
+}
+
+export function registerServerAssets(nuxt: NuxtLike) {
+  const onNitroConfig = (nitroConfig: NitroConfigLike) => {
+    const configured = nuxt.options.dir.public;
+    const dir = isAbsolute(configured) ? configured : resolve(nuxt.options.srcDir, configured);
+    nitroConfig.serverAssets ||= [];
+    nitroConfig.serverAssets.push({ baseName: ASSET_BASE_NAME, dir, pattern: ASSET_PATTERN });
+  };
+  nuxt.hook("nitro:config" as never, onNitroConfig as never);
+}
+
 export interface ModuleOptions {
-  /** Base URL of your site — used in fallback content when static files are missing */
+  /** Unused. Kept so existing configs still type-check; the routes no longer build fallback content. */
   siteUrl?: string;
   /** Enable the /api/w2agent-webhook POST route (default: true) */
   webhookEnabled?: boolean;
@@ -11,13 +34,17 @@ export default defineNuxtModule<ModuleOptions>({
   meta: {
     name: "@w2agent/nuxt",
     configKey: "w2agent",
-    compatibility: { nuxt: "^3.0.0" },
+    compatibility: { nuxt: "^3.0.0 || ^4.0.0" },
   },
   defaults: {
     webhookEnabled: true,
   },
-  setup(options, _nuxt) {
+  setup(options, nuxt) {
     const resolver = createResolver(import.meta.url);
+
+    // Inline only the w2agent files from public/ into the server bundle (never the whole dir),
+    // so the routes serve the build-time content regardless of the runtime working directory.
+    registerServerAssets(nuxt);
 
     // llms.txt — AI content index
     addServerHandler({

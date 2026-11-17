@@ -2,6 +2,8 @@
 
 Nuxt module for [w2agent](https://w2agent.dev) — auto-registers Nitro routes for `llms.txt`, agent card, and webhooks.
 
+Works with Nuxt 3 and Nuxt 4.
+
 ## Install
 
 ```bash
@@ -17,7 +19,7 @@ npm install @w2agent/nuxt
 export default defineNuxtConfig({
   modules: ['@w2agent/nuxt'],
   w2agent: {
-    siteUrl: 'https://your-site.com',   // optional: used in fallback content
+    siteUrl: 'https://your-site.com',   // unused; accepted for compatibility
     webhookEnabled: true,               // default: true
   }
 })
@@ -41,11 +43,13 @@ npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint ht
 
 | Route | Description |
 |-------|-------------|
-| `GET /llms.txt` | AI content index |
-| `GET /llms-full.txt` | Full content dump |
-| `GET /index.md` | `llms.txt` content served as `text/markdown` |
-| `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json`; 404 when absent |
+| `GET /llms.txt` | `public/llms.txt` as of build time; 404 when absent |
+| `GET /llms-full.txt` | `public/llms-full.txt` as of build time; 404 when absent |
+| `GET /index.md` | `public/llms.txt` served as `text/markdown`; 404 when absent |
+| `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json` (or `public/agent-card.json`) as of build time; 404 when absent |
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
+
+The routes serve those files as they were when `nuxi build` ran. The module bundles only these four files from `public/` into the server build, so the server needs no `public/` directory at runtime and works from any working directory. Run the generate step before `nuxi build` (for example as a `prebuild` script); a file generated after the build is not served until you rebuild.
 
 Content-negotiation middleware is also added: `/` (with `Vary: Accept`) redirects to `/index.md` when the request lists `text/markdown` at equal or higher q than `text/html`, and to `/llms.txt` when it lists `text/plain` at strictly higher q; browsers, `*/*` and `application/json, text/plain, */*` keep the HTML page.
 

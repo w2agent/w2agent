@@ -45,13 +45,14 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@nuxt/kit": "^3.0.0"
+    "@nuxt/kit": "^3.0.0 || ^4.0.0"
   },
   "peerDependencies": {
-    "nuxt": "^3.0.0"
+    "nuxt": "^3.0.0 || ^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "globby": "^13.2.2",
     "h3": "^1.0.0",
     "nuxt": "^3.0.0",
     "typescript": "^5.7.0",

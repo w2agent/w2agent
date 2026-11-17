@@ -1,14 +1,10 @@
 import { createApp, defineEventHandler, toWebHandler } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-vi.mock("node:fs");
-
-import * as fs from "node:fs";
 import { ACCEPT_CASES } from "../../core/tests/helpers/accept-cases";
 import contentNegotiation from "../src/runtime/server/middleware/content-negotiation";
 import indexMd from "../src/runtime/server/routes/index-md";
-
-const mockFs = vi.mocked(fs);
+import { setAssets } from "./stubs/imports";
 
 // The w2agent audit's content-negotiation check needs Accept: text/markdown at / to end in
 // a 2xx text/markdown body, with Vary: Accept on the redirect so caches keep browsers on HTML.
@@ -32,9 +28,7 @@ const TARGETS = { markdown: "index.md", plain: "llms.txt" } as const;
 
 describe("content negotiation middleware + /index.md route", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
-    mockFs.existsSync.mockReturnValue(true);
-    mockFs.readFileSync.mockReturnValue("# Example\n\n> Index\n" as never);
+    setAssets({ "llms.txt": "# Example\n\n> Index\n" });
   });
 
   it("serves /index.md as text/markdown with the llms.txt content", async () => {

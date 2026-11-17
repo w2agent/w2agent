@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("node:fs");
-
-import * as fs from "node:fs";
 import handler from "../src/runtime/server/routes/agent-card";
-
-const mockFs = vi.mocked(fs);
+import { setAssets } from "./stubs/imports";
 
 function makeEvent() {
   const setHeader = vi.fn();
@@ -13,11 +8,10 @@ function makeEvent() {
 }
 
 describe("Nitro /.well-known/agent-card.json handler", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => setAssets({}));
 
   it("responds 404 when no card file exists, instead of a 200 JSON error body", async () => {
     // A 200 JSON error body is audited as a malformed agent card; a missing card must be absent.
-    mockFs.existsSync.mockReturnValue(false);
     const { event, setHeader } = makeEvent();
     let thrown: unknown;
     try {
@@ -27,15 +21,23 @@ describe("Nitro /.well-known/agent-card.json handler", () => {
     }
     expect(thrown).toMatchObject({ statusCode: 404 });
     expect(setHeader).not.toHaveBeenCalledWith("Content-Type", "application/json");
+    expect(setHeader).not.toHaveBeenCalledWith("Cache-Control", expect.anything());
   });
 
-  it("serves the provided card as JSON", async () => {
-    mockFs.existsSync.mockImplementation((p) =>
-      String(p).endsWith("public/.well-known/agent-card.json"),
-    );
-    mockFs.readFileSync.mockReturnValue('{"name":"Agent"}' as never);
+  it("serves the provided card as JSON with the cache header", async () => {
+    setAssets({ ".well-known/agent-card.json": '{"name":"Agent"}' });
     const { event, setHeader } = makeEvent();
     expect(await handler(event)).toEqual({ name: "Agent" });
     expect(setHeader).toHaveBeenCalledWith("Content-Type", "application/json");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cache-Control",
+      expect.stringContaining("max-age=3600"),
+    );
+  });
+
+  it("falls back to a root agent-card.json", async () => {
+    setAssets({ "agent-card.json": '{"name":"Root"}' });
+    const { event } = makeEvent();
+    expect(await handler(event)).toEqual({ name: "Root" });
   });
 });
