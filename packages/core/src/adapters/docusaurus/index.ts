@@ -1,5 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { generatorVersion, hasClassToken, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { docusaurusChecks } from "./checks.js";
 import { resolveDocusaurusInstall } from "./install.js";
@@ -16,24 +17,28 @@ export const docusaurusAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // Generator meta tag (highest confidence)
-      const genMatch = page.html.match(
-        /<meta\s+name=["']generator["']\s+content=["']Docusaurus\s*v?([\d.]*)/i,
-      );
-      if (genMatch) {
+      const markers = pageMarkers(page);
+      const { $ } = markers;
+
+      const generator = generatorVersion(markers, /^Docusaurus\s*v?([\d.]*)/i);
+      if (generator) {
         confidence = Math.max(confidence, 1.0);
-        version = genMatch[1] || undefined;
+        version = generator.version;
         details.signal = "generator meta tag";
       }
 
-      // docusaurus class on <html>
-      if (page.html.match(/<html[^>]+class=["'][^"']*docusaurus/i)) {
+      if (hasClassToken($("html").attr("class"), "docusaurus")) {
         confidence = Math.max(confidence, 0.95);
         details.htmlClass = "docusaurus class on <html>";
       }
 
-      // Docusaurus-specific DOM elements
-      if (page.html.includes("docusaurus-") || page.html.includes("theme-doc-")) {
+      const themed = $("[class]")
+        .toArray()
+        .some((el) => {
+          const cls = $(el).attr("class");
+          return hasClassToken(cls, "theme-doc-") || hasClassToken(cls, "docusaurus");
+        });
+      if ($("#__docusaurus").length > 0 || themed) {
         confidence = Math.max(confidence, 0.9);
         details.dom = "Docusaurus theme elements detected";
       }

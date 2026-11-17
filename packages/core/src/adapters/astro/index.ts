@@ -1,5 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { generatorVersion, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { astroChecks } from "./checks.js";
 import { resolveAstroInstall } from "./install.js";
@@ -16,30 +17,34 @@ export const astroAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // Generator meta tag (highest confidence) — Astro uses "Astro vX.X"
-      const genMatch = page.html.match(
-        /<meta\s+name=["']generator["']\s+content=["']Astro\s*v?([\d.]*)/i,
-      );
-      if (genMatch) {
+      const markers = pageMarkers(page);
+      const { $ } = markers;
+
+      const generator = generatorVersion(markers, /^Astro\s*v?([\d.]*)/i);
+      if (generator) {
         confidence = Math.max(confidence, 1.0);
-        version = genMatch[1] || undefined;
+        version = generator.version;
         details.signal = "generator meta tag";
       }
 
-      // astro-island custom elements
-      if (page.html.includes("astro-island")) {
+      if ($("astro-island").length > 0) {
         confidence = Math.max(confidence, 0.95);
         details.island = "astro-island custom element detected";
       }
 
-      // data-astro-cid-* attributes
-      if (/data-astro-cid-/i.test(page.html)) {
+      const hasCid = $("*")
+        .toArray()
+        .some((el) =>
+          Object.keys((el as { attribs?: Record<string, string> }).attribs ?? {}).some((a) =>
+            a.startsWith("data-astro-cid-"),
+          ),
+        );
+      if (hasCid) {
         confidence = Math.max(confidence, 0.9);
         details.cid = "data-astro-cid attributes detected";
       }
 
-      // /_astro/ asset paths
-      if (page.html.includes("/_astro/")) {
+      if (markers.assetUrls.some((u) => u.includes("/_astro/"))) {
         confidence = Math.max(confidence, 0.85);
         details.assets = "/_astro/ assets detected";
       }

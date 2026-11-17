@@ -144,18 +144,28 @@ When a platform is detected, additional integration files are generated (omitted
 
 ## Platform Detection
 
-Detection runs against already-crawled pages (zero extra HTTP requests):
+Detection runs against already-crawled pages (zero extra HTTP requests). It reads the homepage first and all pages only when the homepage matches nothing. Signals are markup only (meta tags, element ids and classes, `script[src]`/`link[href]` URLs, headers, code scripts); prose, code blocks and data payloads do not count. On equal confidence the winner is Next.js, Nuxt, Astro, Docusaurus, Shopify, then WordPress.
 
 | Platform | Signal | Confidence |
 |----------|--------|-----------|
 | WordPress | `<meta name="generator" content="WordPress">` | 100% |
-| WordPress | `/wp-content/` or `/wp-includes/` in HTML | 95% |
+| WordPress | `/wp-content/` or `/wp-includes/` in `script[src]`/`link[href]`, same host or relative | 95% |
+| WordPress | `https://api.w.org/` link (HTML or `Link` header) | 85% |
+| WordPress | `/wp-content/` or `/wp-includes/` asset on another host (headless backend hint) | 50% |
 | Next.js | `__NEXT_DATA__` script tag | 100% |
-| Next.js | `/_next/static/` in asset paths | 95% |
-| Nuxt | `__NUXT` in HTML or Nuxt meta tags | 95% |
+| Next.js | `/_next/static/` in `script[src]`/`link[href]`, `/_next/image` in same-host `img`, `x-powered-by: Next.js` | 95% |
+| Nuxt | `<meta name="generator" content="Nuxt">` | 100% |
+| Nuxt | `script#__NUXT_DATA__`, `__NUXT__` in a code script, `x-powered-by: Nuxt` | 95% |
+| Nuxt | `/_nuxt/` in `script[src]`/`link[href]` | 85% |
 | Astro | `<meta name="generator" content="Astro">` | 100% |
-| Shopify | `cdn.shopify.com` in assets | 95% |
+| Astro | `astro-island` element | 95% |
+| Astro | `data-astro-cid-*` attribute | 90% |
+| Astro | `/_astro/` in `script[src]`/`link[href]` | 85% |
+| Shopify | `cdn.shopify.com` in `script[src]`/`link[href]`, Shopify headers | 95% |
+| Shopify | `*.myshopify.com` page host, `Shopify.theme` in a code script, `script#shopify-features` | 90% |
 | Docusaurus | `<meta name="generator" content="Docusaurus">` | 100% |
+| Docusaurus | `docusaurus*` class on `<html>` | 95% |
+| Docusaurus | `#__docusaurus`, `theme-doc-*` or `docusaurus*` class | 90% |
 
 ## `integrate` Command
 

@@ -1,5 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { generatorVersion, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nuxtChecks } from "./checks.js";
 import { resolveNuxtInstall } from "./install.js";
@@ -16,32 +17,28 @@ export const nuxtAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // Generator meta tag (highest confidence)
-      const genMatch = page.html.match(
-        /<meta\s+name=["']generator["']\s+content=["']Nuxt\s*([\d.]*)/i,
-      );
-      if (genMatch) {
+      const markers = pageMarkers(page);
+
+      const generator = generatorVersion(markers, /^Nuxt\s*([\d.]*)/i);
+      if (generator) {
         confidence = Math.max(confidence, 1.0);
-        version = genMatch[1] || undefined;
+        version = generator.version;
         details.signal = "generator meta tag";
       }
 
-      // __NUXT__ or __NUXT_DATA__ global
-      if (page.html.includes("__NUXT_DATA__")) {
+      if (markers.$("script#__NUXT_DATA__").length > 0) {
         confidence = Math.max(confidence, 0.95);
         details.nuxtData = "__NUXT_DATA__ detected";
-      } else if (page.html.includes("__NUXT__")) {
+      } else if (markers.codeScripts.some((c) => c.includes("__NUXT__"))) {
         confidence = Math.max(confidence, 0.95);
         details.nuxtData = "__NUXT__ global detected";
       }
 
-      // /_nuxt/ asset paths
-      if (page.html.includes("/_nuxt/")) {
+      if (markers.assetUrls.some((u) => u.includes("/_nuxt/"))) {
         confidence = Math.max(confidence, 0.85);
         details.assets = "/_nuxt/ assets detected";
       }
 
-      // x-powered-by: Nuxt header
       if (page.headers["x-powered-by"]?.toLowerCase().includes("nuxt")) {
         confidence = Math.max(confidence, 0.95);
         details.header = "x-powered-by: Nuxt";

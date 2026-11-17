@@ -147,7 +147,7 @@ describe("Next.js detection", () => {
 describe("Shopify detection", () => {
   it("detects via cdn.shopify.com (confidence 0.95)", () => {
     const page = makePage(
-      '<html><body><img src="https://cdn.shopify.com/s/files/1/image.jpg"></body></html>',
+      '<html><head><script src="https://cdn.shopify.com/shopifycloud/storefront/assets/storefront-features.js"></script></head><body></body></html>',
     );
     const result = shopifyAdapter.detect([page], baseMeta);
     expect(result).not.toBeNull();
@@ -330,8 +330,7 @@ describe("detectPlatform", () => {
     );
     const result = detectPlatform([page], baseMeta);
     expect(result).not.toBeNull();
-    // Both WordPress and Next.js are 1.0 confidence — either is acceptable
-    expect(["wordpress", "nextjs"]).toContain(result?.platform);
+    expect(result?.platform).toBe("nextjs");
     expect(result?.confidence).toBe(1.0);
   });
 

@@ -39,7 +39,7 @@ Adapters are imported at module load, not discovered via filesystem scanning or 
 
 ### Detection by highest confidence wins
 
-Each adapter's `detect()` returns a confidence score (0–1). Registry picks the highest. This handles ambiguous signals (e.g., a site using both Next.js and WordPress in different paths). Tie-breaking: first registered adapter.
+Each adapter's `detect()` returns a confidence score (0–1). Registry picks the highest. Markers are bound to markup (not prose or data payloads), and the homepage is read first; other pages count only when the homepage matches nothing. Tie-breaking is explicit, not registration order: Next.js, Nuxt, Astro, Docusaurus, Shopify, WordPress. A rendering framework's markers mean the page is rendered by it, so CMS or commerce markers on the same page are treated as a headless backend. A WordPress asset on another host scores 0.5, so it never ties a framework marker.
 
 ### Generated files, not config fragments
 

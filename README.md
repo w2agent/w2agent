@@ -248,7 +248,7 @@ w2agent auto-detects your platform and generates native integration code:
 
 | Platform | Detection | Integration Generated | Tested |
 |----------|-----------|----------------------|--------|
-| **WordPress** | Generator meta, wp-content, wp-json | PHP plugin with dynamic llms.txt from WP database, admin page, robots.txt filter | Syntax + structure |
+| **WordPress** | Generator meta, same-host wp-content assets, REST API link | PHP plugin with dynamic llms.txt from WP database, admin page, robots.txt filter | Syntax + structure |
 | **Next.js** | `__NEXT_DATA__`, `_next/static` | Route handlers with ISR, middleware for content negotiation, build script | Build + live audit |
 | **Nuxt** | `__NUXT`, Nuxt meta tags | Nitro server routes, auto-imported middleware | Build + live audit |
 | **Astro** | Generator meta, astro assets | Static files + middleware for content negotiation | Build + live audit |

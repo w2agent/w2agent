@@ -1,12 +1,23 @@
 import type { FetchedPage } from "../../audit/types.js";
 import { robotsAllowGroups } from "../../generate/robots-txt.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { shopifyChecks } from "./checks.js";
 import { resolveShopifyInstall } from "./install.js";
 import { detectProductSchema } from "./product-schema.js";
 import { generateShopifyIntegration } from "./templates.js";
 import { buildShopifyWebhookNotes } from "./webhook-notes.js";
+
+const SHOPIFY_CDN = /^(?:[a-z][a-z0-9+.-]*:)?\/\/cdn\.shopify\.com(?:[/:?#]|$)/i;
+
+function hostEndsWithMyshopify(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().endsWith(".myshopify.com");
+  } catch {
+    return false;
+  }
+}
 
 export const shopifyAdapter: PlatformAdapter = {
   id: "shopify",
@@ -18,26 +29,27 @@ export const shopifyAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // cdn.shopify.com assets (high confidence)
-      if (page.html.includes("cdn.shopify.com")) {
+      const markers = pageMarkers(page);
+
+      if (markers.assetUrls.some((u) => SHOPIFY_CDN.test(u))) {
         confidence = Math.max(confidence, 0.95);
         details.cdn = "cdn.shopify.com assets detected";
       }
 
-      // Shopify server header
       if (page.headers["x-shopify-stage"] || page.headers["x-sorting-hat-shopid"]) {
         confidence = Math.max(confidence, 0.95);
         details.header = "Shopify server headers detected";
       }
 
-      // myshopify.com in URL
-      if (page.url.includes("myshopify.com")) {
+      if (hostEndsWithMyshopify(page.url)) {
         confidence = Math.max(confidence, 0.9);
         details.domain = "myshopify.com domain";
       }
 
-      // Shopify-specific meta tags
-      if (page.html.includes("Shopify.theme") || page.html.includes("shopify-features")) {
+      if (
+        markers.codeScripts.some((c) => /\bShopify\.theme\b/.test(c)) ||
+        markers.$("script#shopify-features").length > 0
+      ) {
         confidence = Math.max(confidence, 0.9);
         details.theme = "Shopify theme JS detected";
       }

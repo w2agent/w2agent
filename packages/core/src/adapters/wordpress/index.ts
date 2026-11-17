@@ -1,5 +1,6 @@
 import type { FetchedPage, SiteMetadata } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { generatorVersion, isRelativeOrSameHost, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { wordpressChecks } from "./checks.js";
 import { resolveWordPressInstall } from "./install.js";
@@ -16,24 +17,32 @@ export const wordpressAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // Generator meta tag (highest confidence)
-      const genMatch = page.html.match(
-        /<meta\s+name=["']generator["']\s+content=["']WordPress\s*([\d.]*)/i,
-      );
-      if (genMatch) {
+      const markers = pageMarkers(page);
+
+      const generator = generatorVersion(markers, /^WordPress\s*([\d.]*)/i);
+      if (generator) {
         confidence = Math.max(confidence, 1.0);
-        version = genMatch[1] || undefined;
+        version = generator.version;
         details.signal = "generator meta tag";
       }
 
-      // wp-content / wp-includes paths
-      if (page.html.includes("/wp-content/") || page.html.includes("/wp-includes/")) {
-        confidence = Math.max(confidence, 0.95);
-        details.assets = "wp-content/wp-includes detected";
+      const wpAssets = markers.assetUrls.filter(
+        (u) => u.includes("/wp-content/") || u.includes("/wp-includes/"),
+      );
+      if (wpAssets.length > 0) {
+        const sameHost = wpAssets.some((u) => isRelativeOrSameHost(u, page.url));
+        confidence = Math.max(confidence, sameHost ? 0.95 : 0.5);
+        details.assets = sameHost
+          ? "wp-content/wp-includes detected"
+          : "wp-content/wp-includes on another host";
       }
 
-      // wp-json link header
-      if (page.headers.link?.includes("wp-json") || page.html.includes("wp-json")) {
+      const linkHeader = page.headers.link ?? "";
+      if (
+        markers.$('link[rel~="https://api.w.org/"]').length > 0 ||
+        linkHeader.includes('rel="https://api.w.org/"') ||
+        linkHeader.includes("wp-json")
+      ) {
         confidence = Math.max(confidence, 0.85);
         details.api = "wp-json link detected";
       }

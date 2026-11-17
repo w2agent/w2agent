@@ -1,5 +1,6 @@
 import type { FetchedPage } from "../../audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
+import { isRelativeOrSameHost, pageMarkers } from "../shared/page-markers.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nextjsChecks } from "./checks.js";
 import { resolveNextjsInstall } from "./install.js";
@@ -21,23 +22,28 @@ export const nextjsAdapter: PlatformAdapter = {
     const details: Record<string, string> = {};
 
     for (const page of pages) {
-      // __NEXT_DATA__ script tag (highest confidence)
-      if (page.html.includes("__NEXT_DATA__")) {
+      const markers = pageMarkers(page);
+      const { $ } = markers;
+
+      const nextData = $("script#__NEXT_DATA__");
+      if (nextData.length > 0) {
         confidence = Math.max(confidence, 1.0);
         details.signal = "__NEXT_DATA__ script tag";
 
-        // Try to extract version from build manifest
-        const versionMatch = page.html.match(/"nextVersion":"([^"]+)"/);
+        const versionMatch = (nextData.first().html() ?? "").match(/"nextVersion":"([^"]+)"/);
         if (versionMatch) version = versionMatch[1];
       }
 
-      // _next/static in asset paths
-      if (page.html.includes("/_next/static/") || page.html.includes("/_next/image")) {
+      if (
+        markers.assetUrls.some((u) => u.includes("/_next/static/")) ||
+        markers.imageUrls.some(
+          (u) => u.includes("/_next/image") && isRelativeOrSameHost(u, page.url),
+        )
+      ) {
         confidence = Math.max(confidence, 0.95);
         details.assets = "_next/static assets detected";
       }
 
-      // x-powered-by: Next.js header
       if (page.headers["x-powered-by"]?.toLowerCase().includes("next.js")) {
         confidence = Math.max(confidence, 0.95);
         details.header = "x-powered-by: Next.js";
