@@ -4,6 +4,7 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
 import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "w2agent-core";
+import { getApiUrl } from "../auth.js";
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program
@@ -144,32 +145,57 @@ export function registerMcpCommand(program: Command): void {
     .action(async (slug?: string) => {
       if (!slug) {
         console.log(chalk.yellow("Usage: w2agent agent status <slug>"));
-        console.log(
-          chalk.gray("  Check health of a hosted agent deployment at <slug>.agent.w2agent.dev"),
-        );
+        console.log(chalk.gray("  Check health of a hosted agent deployment"));
         return;
       }
+      if (!isValidSlug(slug)) badSlug(slug);
 
-      const spinner = ora(`Checking status of ${slug}.agent.w2agent.dev...`).start();
-
+      const spinner = ora(`Checking status of ${slug}...`).start();
+      let res: Response;
       try {
-        const res = await fetch(`https://${slug}.agent.w2agent.dev/.well-known/mcp`, {
+        res = await fetch(`${getApiUrl()}/api/agent/${encodeURIComponent(slug)}`, {
           method: "GET",
           headers: { Accept: "application/json" },
+          redirect: "manual",
+          signal: AbortSignal.timeout(HOSTED_TIMEOUT_MS),
         });
-
-        spinner.stop();
-
-        if (res.ok) {
-          console.log(`  ${chalk.green("✓")} ${slug}.agent.w2agent.dev is ${chalk.green("live")}`);
-        } else {
-          console.log(`  ${chalk.red("✗")} ${slug}.agent.w2agent.dev returned ${res.status}`);
-        }
       } catch (err) {
         spinner.stop();
-        console.log(`  ${chalk.red("✗")} Could not reach ${slug}.agent.w2agent.dev`);
-        console.log(chalk.gray(`    ${(err as Error).message}`));
+        failNetwork(`check ${slug}`, err);
       }
+      spinner.stop();
+
+      failRedirect(res);
+      if (res.status === 404) {
+        console.error(`  ${chalk.red("✗")} No hosted deployment named ${slug}`);
+        process.exit(1);
+      }
+      if (!res.ok) {
+        console.error(`  ${chalk.red("✗")} Status check failed: ${res.status} ${res.statusText}`);
+        process.exit(1);
+      }
+
+      let info: HostedAgentInfo;
+      try {
+        const parsed: unknown = await res.json();
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new SyntaxError("not an object");
+        }
+        info = parsed as HostedAgentInfo;
+      } catch (err) {
+        const name = (err as Error).name;
+        if (name === "TimeoutError" || name === "AbortError") failNetwork(`read ${slug}`, err);
+        console.error(`  ${chalk.red("✗")} Unexpected response from ${getApiUrl()}`);
+        process.exit(1);
+      }
+      console.log(`  ${chalk.green("✓")} ${slug} is ${chalk.green("live")}`);
+      if (info.agentEndpoint) console.log(`    Endpoint:       ${info.agentEndpoint}`);
+      if (info.pagesIndexed !== undefined) console.log(`    Pages indexed:  ${info.pagesIndexed}`);
+      if (Array.isArray(info.tools)) {
+        const names = info.tools.map((t) => (typeof t === "string" ? t : t?.name)).filter(Boolean);
+        console.log(`    Tools:          ${names.join(", ")}`);
+      }
+      if (info.updatedAt) console.log(`    Last update:    ${info.updatedAt}`);
     });
 
   // --- mcp update ---
@@ -177,29 +203,98 @@ export function registerMcpCommand(program: Command): void {
     .command("update")
     .description("Re-crawl and update a hosted agent deployment")
     .argument("<slug>", "Deployment slug to update")
-    .action(async (slug: string) => {
+    .option(
+      "--token <token>",
+      "Webhook token printed by `w2agent deploy` (prefer the W2AGENT_WEBHOOK_TOKEN env var; a flag lands in shell history)",
+    )
+    .action(async (slug: string, opts: { token?: string }) => {
+      if (!isValidSlug(slug)) badSlug(slug);
+
+      const token = (opts.token?.trim() || process.env.W2AGENT_WEBHOOK_TOKEN?.trim()) ?? "";
+      if (!token) {
+        console.error(`  ${chalk.red("✗")} No webhook token.`);
+        console.error(
+          chalk.gray(
+            "    `w2agent deploy` prints it (`--show-token` shows it in full). Pass --token or set W2AGENT_WEBHOOK_TOKEN.",
+          ),
+        );
+        process.exit(1);
+      }
+
+      if (!/^[\x21-\x7e]+$/.test(token)) {
+        console.error(
+          `  ${chalk.red("✗")} Webhook token contains characters that are not allowed in a header (visible ASCII only).`,
+        );
+        process.exit(1);
+      }
+
       const spinner = ora(`Triggering re-crawl for ${slug}...`).start();
-
+      let res: Response;
       try {
-        const res = await fetch(`https://w2agent.dev/api/agent/webhook/${slug}`, {
+        res = await fetch(`${getApiUrl()}/api/agent/webhook/${encodeURIComponent(slug)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          redirect: "manual",
+          signal: AbortSignal.timeout(HOSTED_TIMEOUT_MS),
         });
-
-        spinner.stop();
-
-        if (res.ok || res.status === 202) {
-          console.log(`  ${chalk.green("✓")} Re-crawl triggered for ${slug}`);
-          console.log(chalk.gray("    Updates will be reflected within a few minutes."));
-        } else {
-          console.log(`  ${chalk.red("✗")} Update failed: ${res.status} ${res.statusText}`);
-        }
       } catch (err) {
         spinner.stop();
-        console.log(`  ${chalk.red("✗")} Could not trigger update for ${slug}`);
-        console.log(chalk.gray(`    ${(err as Error).message}`));
+        failNetwork(`trigger update for ${slug}`, err);
       }
+      spinner.stop();
+
+      failRedirect(res);
+      if (res.ok) {
+        console.log(`  ${chalk.green("✓")} Re-crawl triggered for ${slug}`);
+        console.log(chalk.gray("    Updates will be reflected within a few minutes."));
+        return;
+      }
+      if (res.status === 401 || res.status === 403) {
+        console.error(`  ${chalk.red("✗")} Webhook token rejected for ${slug}`);
+      } else if (res.status === 404) {
+        console.error(`  ${chalk.red("✗")} No hosted deployment named ${slug}`);
+      } else {
+        console.error(`  ${chalk.red("✗")} Update failed: ${res.status} ${res.statusText}`);
+      }
+      process.exit(1);
     });
+}
+
+const HOSTED_TIMEOUT_MS = 30_000;
+
+interface HostedAgentInfo {
+  agentEndpoint?: string;
+  pagesIndexed?: number;
+  tools?: Array<string | { name?: string }>;
+  updatedAt?: string;
+}
+
+function isValidSlug(slug: string): boolean {
+  return /^[a-z0-9-]+$/.test(slug);
+}
+
+function badSlug(slug: string): never {
+  console.error(
+    `  ${chalk.red("✗")} Invalid slug ${JSON.stringify(slug)}: use lowercase letters, digits and hyphens only.`,
+  );
+  process.exit(2);
+}
+
+function failRedirect(res: Response): void {
+  if (res.status >= 300 && res.status < 400) {
+    const to = res.headers.get("location");
+    console.error(`  ${chalk.red("✗")} Unexpected redirect: ${res.status}${to ? ` to ${to}` : ""}`);
+    process.exit(1);
+  }
+}
+
+function failNetwork(action: string, err: unknown): never {
+  const e = err as Error;
+  const timedOut = e.name === "TimeoutError" || e.name === "AbortError";
+  console.error(
+    `  ${chalk.red("✗")} Could not ${action}: ${timedOut ? `no response within ${HOSTED_TIMEOUT_MS / 1000}s` : e.message}`,
+  );
+  process.exit(1);
 }
 
 function formatSize(bytes: number): string {

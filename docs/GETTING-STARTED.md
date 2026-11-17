@@ -116,11 +116,12 @@ w2agent agent deploy <url> --self-host vercel
 # Generate a Cloudflare Worker agent server
 w2agent agent deploy <url> --self-host cf
 
-# Check hosted deployment status
+# Check hosted deployment status (honours W2AGENT_API_URL)
 w2agent agent status <slug>
 
-# Re-crawl and update hosted deployment
-w2agent agent update <slug>
+# Re-crawl and update hosted deployment (webhook token from `w2agent deploy`:
+# set W2AGENT_WEBHOOK_TOKEN, or pass --token; honours W2AGENT_API_URL)
+W2AGENT_WEBHOOK_TOKEN=<token> w2agent agent update <slug>
 
 Options:
   --self-host <platform>   Self-host platform: vercel, cf
