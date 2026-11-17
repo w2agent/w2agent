@@ -99,6 +99,11 @@ describe("emitted astro/src/pages/llms.txt.ts endpoint", () => {
     expect(src).not.toContain("AI-ready content index");
   });
 
+  it("is not prerendered, so a static build does not bake a 404 body into dist", () => {
+    const src = emitted("astro/src/pages/llms.txt.ts").content;
+    expect(src).toContain("export const prerender = false;");
+  });
+
   it("answers 404 with no cache header when public/llms.txt is absent", async () => {
     const site = join(dir, "site");
     mkdirSync(site, { recursive: true });

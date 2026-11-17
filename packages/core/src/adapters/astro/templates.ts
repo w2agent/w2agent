@@ -13,6 +13,8 @@ export function generateAstroIntegration(
 import fs from "node:fs";
 import path from "node:path";
 
+export const prerender = false;
+
 export const GET: APIRoute = async () => {
   // Read from generated static file
   const filePath = path.join(process.cwd(), "public", "llms.txt");

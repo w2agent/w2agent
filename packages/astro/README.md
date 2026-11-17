@@ -33,7 +33,7 @@ export default defineConfig({
 - Fires an optional webhook on build complete
 
 **Server output** (`output: 'server'`; Astro 5 has no `hybrid` mode):
-- Astro reports no pages for a server build, so no `llms.txt` is generated; the other build steps above still run.
+- Astro passes only prerendered pages (`export const prerender = true`) to the build hook, so only those are listed in `llms.txt`. With none, nothing is written. The other build steps above still run.
 - Injects `/llms.txt`, `/llms-full.txt`, `/.well-known/agent-card.json`, and `/api/w2agent-webhook` as server routes. Each file route reads from `public/` in the working directory and answers 404 when the file does not exist.
 
 **`llms-full.txt`** is not produced by this integration in any mode. Generate it with `w2agent generate` into `public/` (see below).

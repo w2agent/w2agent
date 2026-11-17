@@ -231,7 +231,67 @@ describe("astro:build:done — llms.txt from built pages", () => {
     });
     expect(llms).toContain("(https://example.com/docs/blog)");
     expect(llms).not.toContain("(https://example.com/docs/blog/)");
-    expect(llms).toContain("(https://example.com/docs/)");
+    expect(llms).toContain("(https://example.com/docs)");
+    expect(llms).not.toContain("(https://example.com/docs/)");
+  });
+
+  it("keeps the root slash for trailingSlash never when base is /", async () => {
+    put("index.html", html({ title: "Home" }));
+    const { llms } = await build([""], { site: "https://example.com", trailingSlash: "never" });
+    expect(llms).toContain("(https://example.com/)");
+  });
+
+  it("uses only the site origin with the base", async () => {
+    put("about/index.html", html({ title: "About" }));
+    const { llms } = await build(["about/"], {
+      site: "https://example.com/docs",
+      base: "/docs",
+    });
+    expect(llms).toContain("(https://example.com/docs/about/)");
+    expect(llms).not.toContain("/docs/docs/");
+  });
+
+  it("lists prerendered pages of a server build", async () => {
+    put("about/index.html", html({ title: "About" }));
+    const { llms } = await build(["about/"], { site: "https://example.com", output: "server" });
+    expect(llms).toContain("[About](https://example.com/about/)");
+  });
+
+  it("finds noindex after a quoted attribute containing >", async () => {
+    put(
+      "a/index.html",
+      html({ title: "X", head: '<meta name=robots data-x="a>b" content=noindex>' }),
+    );
+    const { llms } = await build(["a/"], { site: "https://example.com" });
+    expect(llms).toBeNull();
+  });
+
+  it("keeps a > inside a description", async () => {
+    put("a/index.html", html({ title: "X", description: "a > b and c" }));
+    const { llms } = await build(["a/"], { site: "https://example.com" });
+    expect(llms).toContain("): a > b and c");
+  });
+
+  it("ignores title and meta tags after the head closes", async () => {
+    put(
+      "a/index.html",
+      "<html><head><title>Head</title></head><body><title>Body</title><meta name='robots' content='noindex'></body></html>",
+    );
+    const { llms } = await build(["a/"], { site: "https://example.com" });
+    expect(llms).toContain("[Head]");
+    expect(llms).not.toContain("Body");
+  });
+
+  it("ignores a title outside the document head", async () => {
+    put("a/index.html", "<html><head></head><body><svg><title>Logo</title></svg></body></html>");
+    put(
+      "b/index.html",
+      "<html><head><script>var s='<title>Fake</title>'</script><title>Real</title></head><body></body></html>",
+    );
+    const { llms } = await build(["a/", "b/"], { site: "https://example.com" });
+    expect(llms).not.toContain("Logo");
+    expect(llms).toContain("[Real]");
+    expect(llms).not.toContain("Fake");
   });
 
   it("keeps the pathname as reported for trailingSlash ignore", async () => {

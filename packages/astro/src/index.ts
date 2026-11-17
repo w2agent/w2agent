@@ -42,7 +42,7 @@ export default function w2agentAstro(options: W2agentAstroOptions = {}): AstroIn
         siteRoot = fileURLToPath(config.root);
         publicDir = config.publicDir ? toPath(config.publicDir) : join(siteRoot, "public");
         urlConfig = {
-          site: config.site ? normalizeSite(config.site) : "",
+          site: config.site ? siteOrigin(config.site) : "",
           base: normalizeBase(config.base),
           trailingSlash: config.trailingSlash ?? "ignore",
         };
@@ -105,8 +105,12 @@ function toPath(dir: URL | string): string {
   return typeof dir === "string" ? dir : fileURLToPath(dir);
 }
 
-function normalizeSite(site: string): string {
-  return site.replace(/\/+$/, "");
+function siteOrigin(site: string): string {
+  try {
+    return new URL(site).origin;
+  } catch {
+    return site.replace(/\/+$/, "");
+  }
 }
 
 function normalizeBase(base: string | undefined): string {
@@ -114,9 +118,9 @@ function normalizeBase(base: string | undefined): string {
   return trimmed ? `/${trimmed}` : "";
 }
 
-function applyTrailingSlash(path: string, rule: TrailingSlash, isRoot: boolean): string {
+function applyTrailingSlash(path: string, rule: TrailingSlash): string {
   if (rule === "always") return path.endsWith("/") ? path : `${path}/`;
-  if (rule === "never" && !isRoot) return path.replace(/\/+$/, "");
+  if (rule === "never") return path.replace(/\/+$/, "") || "/";
   return path;
 }
 
@@ -154,7 +158,7 @@ function clean(text: string): string {
 
 function metaTags(html: string): Array<Record<string, string>> {
   const tags: Array<Record<string, string>> = [];
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+  for (const tag of html.match(/<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi) ?? []) {
     const attrs: Record<string, string> = {};
     for (const m of tag.matchAll(/([a-zA-Z_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g)) {
       attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? "";
@@ -164,7 +168,14 @@ function metaTags(html: string): Array<Record<string, string>> {
   return tags;
 }
 
-function readPage(html: string): { title: string; description?: string; noindex: boolean } | null {
+function headOf(html: string): string {
+  const end = html.search(/<\/head\s*>/i);
+  const head = end === -1 ? html : html.slice(0, end);
+  return head.replace(/<(script|style|template|svg)\b[\s\S]*?<\/\1\s*>/gi, "");
+}
+
+function readPage(doc: string): { title: string; description?: string; noindex: boolean } | null {
+  const html = headOf(doc);
   const titleMatch = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? clean(titleMatch[1]) : "";
   const tags = metaTags(html);
@@ -203,7 +214,7 @@ function generateFromPages(
     const info = readPage(html);
     if (!info || info.noindex) continue;
 
-    const path = applyTrailingSlash(`${cfg.base}/${pathname}`, cfg.trailingSlash, bare === "");
+    const path = applyTrailingSlash(`${cfg.base}/${pathname}`, cfg.trailingSlash);
     const segments = bare.split("/");
     const sectionRaw = segments.length > 1 ? segments[0] : "";
     const section = sectionRaw
