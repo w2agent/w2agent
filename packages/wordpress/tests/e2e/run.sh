@@ -11,7 +11,7 @@ CLI=$REPO/packages/cli/dist/index.js
 CORE=$REPO/packages/core/dist/index.js
 STANDALONE=$REPO/packages/wordpress/w2agent-plugin.php
 
-RUN_ID=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+RUN_ID=${W2AGENT_E2E_RUN_ID:-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')} # the override exists for the collision repro
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/w2agent-e2e.XXXXXX") || exit 1
 WORK=$(cd "$WORK" && pwd -P)
 
@@ -148,7 +148,7 @@ for V in 7.4 8.3; do
   for F in "$GEN_DIR"/*.php "$WORK/webhook-generated.php" "$STANDALONE"; do
     D=$(dirname "$F")
     BASE=$(basename "$F")
-    RES=$(docker run --rm --name "$PREFIX-phplint-$(rand_id)" -v "$D:/w:ro" "php:$V-cli-alpine" php -l "/w/$BASE" 2>&1 | head -1)
+    RES=$(docker run --rm --cidfile "$CIDDIR/phplint-$(rand_id)" -v "$D:/w:ro" "php:$V-cli-alpine" php -l "/w/$BASE" 2>&1 | head -1)
     chk "php -l $V $BASE: $RES" 'grep -q "^No syntax errors" <<<"$RES"'
   done
 done

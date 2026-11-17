@@ -7,7 +7,11 @@ rand_id() { od -An -N4 -tx1 /dev/urandom | tr -d ' \n'; }
 PREFIX="w2agent-e2e-$RUN_ID"
 NET="$PREFIX-net"
 NET_OWNED=0
+# IDs (never names) of the -d containers this run started; foreground helpers write their ID to a
+# cidfile in CIDDIR as soon as Docker creates them. Cleanup removes only these exact IDs.
 CONTAINERS=()
+CIDDIR="$WORK/cid"
+mkdir -p "$CIDDIR"
 FAILS=0
 PASSES=0
 
@@ -40,7 +44,7 @@ wp_host_dir() {
 wpc() { # scenario, wp-cli args...
   local name=$1
   shift
-  docker run --rm -i --name "$PREFIX-wpcli-$(rand_id)" --network "$NET" --volumes-from "$PREFIX-wp-$name" --user 33:33 \
+  docker run --rm -i --cidfile "$CIDDIR/wpcli-$(rand_id)" --network "$NET" --volumes-from "$PREFIX-wp-$name" --user 33:33 \
     -e HOME=/tmp \
     -e WORDPRESS_DB_HOST="$PREFIX-db-$name" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
     wordpress:cli-php8.3 wp --path="$(wp_path "$name")" "$@"
@@ -54,20 +58,21 @@ up() {
   local db="$PREFIX-db-$name" wp="$PREFIX-wp-$name" site
   site=$(site_dir "$name")
   mkdir -p "$site"
-  if ! docker network inspect "$NET" >/dev/null 2>&1; then
-    docker network create "$NET" >/dev/null || { echo "FAIL could not create network $NET"; return 1; }
+  local cid
+  if [ "$NET_OWNED" = 0 ]; then
+    docker network create "$NET" >/dev/null 2>&1 || { echo "FAIL could not create network $NET (never reusing an existing one)"; return 1; }
     NET_OWNED=1
   fi
-  docker run -d --name "$db" --network "$NET" \
+  cid=$(docker run -d --name "$db" --network "$NET" \
     -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=wp -e MARIADB_USER=wp -e MARIADB_PASSWORD=wp \
-    mariadb:11 >/dev/null || { echo "FAIL could not start $db"; return 1; }
-  CONTAINERS+=("$db")
-  docker run -d --name "$wp" --network "$NET" -p "127.0.0.1:$port:80" -w "$(wp_path "$name")" \
+    mariadb:11) || { echo "FAIL could not start $db"; return 1; }
+  CONTAINERS+=("$cid")
+  cid=$(docker run -d --name "$wp" --network "$NET" -p "127.0.0.1:$port:80" -w "$(wp_path "$name")" \
     -v "$site:/var/www/html" \
     -e WORDPRESS_DB_HOST="$db" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
     -e WORDPRESS_DEBUG=1 -e "WORDPRESS_CONFIG_EXTRA=define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);" \
-    wordpress:php8.3-apache >/dev/null || { echo "FAIL could not start $wp"; return 1; }
-  CONTAINERS+=("$wp")
+    wordpress:php8.3-apache) || { echo "FAIL could not start $wp"; return 1; }
+  CONTAINERS+=("$cid")
   local wpdir ready=0 i
   wpdir=$(wp_host_dir "$name")
   for i in $(seq 1 90); do
@@ -97,15 +102,19 @@ up() {
 cleanup() {
   local c rc=$?
   trap - EXIT
-  # containers this run started, then any helper (wp-cli, php -l, cleanup) left by an interrupt:
-  # all carry this run's random prefix, and each is removed by its exact name
-  for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"} $(docker ps -a --filter "name=^$PREFIX-" --format '{{.Names}}' 2>/dev/null); do
+  # Only what this run created: the -d containers by ID, and foreground helpers left by an
+  # interrupt by the IDs Docker wrote to their cidfiles. Nothing is matched by name.
+  local f
+  for f in "$CIDDIR"/*; do
+    [ -s "$f" ] && CONTAINERS+=("$(cat "$f")")
+  done
+  for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"}; do
     docker rm -f -v "$c" >/dev/null 2>&1
   done
   [ "$NET_OWNED" = 1 ] && docker network rm "$NET" >/dev/null 2>&1
   if [ -d "$WORK" ]; then
     # site files are owned by the container user: clear them from inside, then drop the empty dir
-    docker run --rm --name "$PREFIX-clean" --entrypoint sh -v "$WORK:/w" wordpress:php8.3-apache -c 'find /w -mindepth 1 -delete' >/dev/null 2>&1
+    docker run --rm --entrypoint sh -v "$WORK:/w" wordpress:php8.3-apache -c 'find /w -mindepth 1 -delete' >/dev/null 2>&1
     rmdir "$WORK" 2>/dev/null
   fi
   exit "$rc"
