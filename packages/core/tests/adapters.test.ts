@@ -661,14 +661,6 @@ describe("Next.js integration generation", () => {
     expect(route).not.toContain("WebSite");
   });
 
-  it("generates middleware with content negotiation", () => {
-    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    const mw = files.find((f) => f.filename === "nextjs/middleware.ts");
-    expect(mw).toBeDefined();
-    expect(mw?.content).toContain("text/markdown");
-    expect(mw?.content).toContain("NextResponse.rewrite");
-  });
-
   it("generates build script for CI/CD", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const build = files.find((f) => f.filename === "nextjs/w2agent-build.mjs");

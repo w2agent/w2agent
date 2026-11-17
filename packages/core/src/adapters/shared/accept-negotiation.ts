@@ -1,0 +1,44 @@
+// Source of the homepage Accept negotiation, emitted verbatim into generated
+// middleware. Self-contained and strict-TS valid: no imports, no backticks.
+export const HOME_VARIANT_SOURCE = `type HomeVariant = "markdown" | "plain" | "html";
+
+// Most specific matching Accept range decides q. Markdown wins equal-q ties
+// when explicitly listed; text/plain must beat text/html strictly (generic
+// clients list text/plain next to */*).
+function homeVariant(accept: string | null): HomeVariant {
+  if (!accept || !accept.trim()) return "html";
+  const ranges: { type: string; q: number }[] = [];
+  for (const part of accept.split(",")) {
+    const [rawType, ...params] = part.split(";");
+    const type = rawType.trim().toLowerCase();
+    if (!type) continue;
+    let q = 1;
+    for (const param of params) {
+      const match = /^\\s*q\\s*=\\s*(\\S+)\\s*$/i.exec(param);
+      if (!match) continue;
+      const n = Number(match[1]);
+      q = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+    }
+    ranges.push({ type, q });
+  }
+  const quality = (type: string): number => {
+    const wildcard = type.slice(0, type.indexOf("/")) + "/*";
+    let best = 0;
+    let bestQ = 0;
+    for (const range of ranges) {
+      const rank = range.type === type ? 3 : range.type === wildcard ? 2 : range.type === "*/*" ? 1 : 0;
+      if (rank > best || (rank > 0 && rank === best && range.q > bestQ)) {
+        best = rank;
+        bestQ = range.q;
+      }
+    }
+    return bestQ;
+  };
+  const listed = (type: string) => ranges.some((range) => range.type === type);
+  const html = quality("text/html");
+  const markdown = quality("text/markdown");
+  const plain = quality("text/plain");
+  if (listed("text/markdown") && markdown > 0 && markdown >= html) return "markdown";
+  if (listed("text/plain") && plain > 0 && plain > html) return "plain";
+  return "html";
+}`;

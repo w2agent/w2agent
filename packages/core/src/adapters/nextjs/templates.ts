@@ -1,4 +1,5 @@
 import type { GeneratedFile } from "../../generate/types.js";
+import { HOME_VARIANT_SOURCE } from "../shared/accept-negotiation.js";
 
 export function generateNextjsIntegration(
   llmsTxtContent: string,
@@ -11,22 +12,23 @@ export function generateNextjsIntegration(
   const middlewareTs = `/* eslint-disable */
 import { NextRequest, NextResponse } from "next/server";
 
+${HOME_VARIANT_SOURCE}
+
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  if (request.nextUrl.pathname !== "/") return NextResponse.next();
 
-  // Content negotiation: AI agents requesting markdown get /index.md, plain text gets /llms.txt
-  const accept = request.headers.get("accept") || "";
-  if (pathname === "/" && accept.includes("text/markdown")) {
-    const response = NextResponse.rewrite(new URL("/index.md", request.url));
-    // "/" now depends on Accept — caches must not serve this markdown to browsers
-    response.headers.set("Vary", "Accept");
-    return response;
+  // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
+  const variant = homeVariant(request.headers.get("accept"));
+  let response = NextResponse.next();
+  if (variant !== "html") {
+    // clone() keeps basePath and the query string
+    const target = request.nextUrl.clone();
+    target.pathname = variant === "markdown" ? "/index.md" : "/llms.txt";
+    response = NextResponse.rewrite(target);
   }
-  if (pathname === "/" && accept.includes("text/plain")) {
-    return NextResponse.rewrite(new URL("/llms.txt", request.url));
-  }
-
-  return NextResponse.next();
+  // "/" depends on Accept in every branch: caches must not mix the variants
+  response.headers.append("Vary", "Accept");
+  return response;
 }
 
 export const config = {
@@ -266,7 +268,7 @@ your-nextjs-app/
 
 1. **Route handlers** serve content with ISR (revalidates every hour)
 2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx --no -- w2agent generate\` (the CLI must be installed in your project)
-3. **Middleware** rewrites \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (text/markdown, \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
+3. **Middleware** rewrites \`/\` (also under \`basePath\`, with \`Vary: Accept\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
 
 ## Customization

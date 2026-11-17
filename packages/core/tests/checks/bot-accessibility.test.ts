@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp, createRouter, defineEventHandler, type EventHandler, toWebHandler } from "h3";
+import { NextRequest } from "next/server";
 import robotsParser from "robots-parser";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { generateNextjsIntegration } from "../../src/adapters/nextjs/templates.js";
@@ -17,7 +19,6 @@ import {
   statusCodes,
 } from "../../src/audit/checks/bot-accessibility.js";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
-import { NextRequest } from "../fixtures/generated/next-server.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -1005,7 +1006,7 @@ describe("content-negotiation", () => {
         )
         .replace(
           /from "next\/server"/g,
-          `from ${JSON.stringify(join(fixtures, "next-server.ts"))}`,
+          `from ${JSON.stringify(createRequire(import.meta.url).resolve("next/server"))}`,
         );
       const path = join(tmp, `${randomUUID()}.ts`);
       writeFileSync(path, source);
