@@ -564,13 +564,13 @@ function generateOpenapiToolHandlers(
     lines.push(`  let _url = ${JSON.stringify(serverUrl)} + _path;`);
 
     if (queryParams.length > 0) {
-      lines.push(`  const _query = new URLSearchParams();`);
+      lines.push(`  const _query: string[] = [];`);
       for (const { p, key } of queryParams) {
         const access = `params[${JSON.stringify(key)}]`;
         const call = `appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access}${collectionArg(p)})`;
         lines.push(p.required ? `  ${call};` : `  if (${access} !== undefined) ${call};`);
       }
-      lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
+      lines.push(`  const _qs = _query.join("&"); if (_qs) _url += "?" + _qs;`);
     }
 
     let initExpr: string;
@@ -621,15 +621,24 @@ function scalarText(v: unknown): string {
 
 const COLLECTION_DELIMITERS: Record<string, string> = { csv: ",", ssv: " ", tsv: "\t", pipes: "|" };
 
-function appendQueryParam(query: URLSearchParams, name: string, value: unknown, collection?: string): void {
+function pairText(name: string, value: string): string {
+  return new URLSearchParams([[name, value]]).toString();
+}
+
+function appendQueryParam(query: string[], name: string, value: unknown, collection?: string): void {
   if (Array.isArray(value)) {
     const delimiter = collection ? COLLECTION_DELIMITERS[collection] : undefined;
-    if (delimiter === undefined) for (const v of value) query.append(name, scalarText(v));
-    else query.append(name, value.map(scalarText).join(delimiter));
+    if (delimiter === undefined) {
+      for (const v of value) query.push(pairText(name, scalarText(v)));
+    } else {
+      const literal = delimiter === "," || delimiter === "|" ? delimiter : encodeURIComponent(delimiter);
+      const parts = value.map((v) => pairText("", scalarText(v)).slice(1).replace(/\+/g, "%20"));
+      query.push(pairText(name, "") + parts.join(literal));
+    }
   } else if (typeof value === "object" && value !== null) {
-    for (const [k, v] of Object.entries(value)) query.append(k, scalarText(v));
+    for (const [k, v] of Object.entries(value)) query.push(pairText(k, scalarText(v)));
   } else {
-    query.set(name, scalarText(value));
+    query.push(pairText(name, scalarText(value)));
   }
 }
 

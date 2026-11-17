@@ -121,18 +121,18 @@ describe.each(VARIANTS)("generated array serialization: %s", (variant: Variant) 
   it("Swagger 2 honours collectionFormat (default csv, multi, ssv, tsv, pipes)", async () => {
     urls = [];
     const r = await callTool(booted.s2.rpc, "read-swagger", {
-      plist: ["a b", "c"],
-      dflt: [1, 2],
+      plist: ["a,b", "c d"],
+      dflt: ["a,b", "c"],
       multi: ["x", "y"],
-      ssv: [1, 2],
+      ssv: ["a b", "c"],
       tsv: [1, 2],
-      pipes: [1, 2],
+      pipes: ["a|b", "c"],
     });
     expect(r.isError, r.text).toBe(false);
     expect(urls, r.text).toHaveLength(1);
     const [path, query] = urls[0].split("?");
-    expect(path).toBe("/s2/a%20b%7Cc");
-    expect(query).toBe("dflt=1%2C2&multi=x&multi=y&ssv=1+2&tsv=1%092&pipes=1%7C2");
+    expect(path).toBe("/s2/a%2Cb%7Cc%20d");
+    expect(query).toBe("dflt=a%2Cb,c&multi=x&multi=y&ssv=a%20b%20c&tsv=1%092&pipes=a%7Cb|c");
   });
 
   it("OpenAPI 3 honours style and explode", async () => {
@@ -145,6 +145,6 @@ describe.each(VARIANTS)("generated array serialization: %s", (variant: Variant) 
     });
     expect(r.isError, r.text).toBe(false);
     expect(urls, r.text).toHaveLength(1);
-    expect(urls[0]).toBe("/o3?plain=1&plain=2&flat=1%2C2&space=1+2&pipe=1%7C2");
+    expect(urls[0]).toBe("/o3?plain=1&plain=2&flat=1,2&space=1%202&pipe=1|2");
   });
 });
