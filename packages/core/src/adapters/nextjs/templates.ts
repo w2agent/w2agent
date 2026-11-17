@@ -275,7 +275,7 @@ Content freshness depends on the build script (step 3), not on the routes alone.
 \`\`\`
 Request for /llms.txt
   -> Route handler reads .w2agent/llms.txt (seed, or refreshed by the build script)
-  -> Returns with Cache-Control (routes revalidate hourly with ISR)
+  -> Returns with Cache-Control (routes revalidate hourly with ISR, which re-reads the same deployed file: new content arrives with the next build)
   -> If file missing, generates minimal fallback from page data
 \`\`\`
 
@@ -292,9 +292,9 @@ cp nextjs/middleware.ts your-app/
 
 - **\`src/app\` projects**: put the routes in \`src/app/\`, the middleware in \`src/\` and the component in \`src/components/\`.
 - **Next.js 16**: the file is \`proxy.ts\` and the function is \`export function proxy\`. Rename \`middleware.ts\` and its function when copying by hand. Next.js 15 and earlier keep \`middleware.ts\`.
-- **JavaScript projects (no \`tsconfig.json\`)**: \`--install\` writes \`.js\` and \`.jsx\` files. By hand, rename each \`route.ts\` to \`route.js\` and the component to \`.jsx\`, and use the \`.js\` middleware that \`--install\` writes: the \`middleware.ts\` here has type annotations.
+- **JavaScript projects (no \`tsconfig.json\`)**: \`--install\` writes \`.js\` and \`.jsx\` files. By hand, rename each \`route.ts\` to \`route.js\` and the component to \`.jsx\`, except \`app/api/w2agent-mcp-webhook/route.ts\` (only present when an MCP server was generated) and \`middleware.ts\`: both have type annotations, so use the \`.js\` files that \`--install\` writes.
 - **\`cacheComponents: true\`**: remove \`export const revalidate\` from the routes (Next.js rejects it there). \`--install\` does this. The routes then have no segment config and are prerendered at build.
-- **\`output: "export"\`**: middleware does not run in a static export, so skip it. \`/llms.txt\`, \`/llms-full.txt\` and \`/index.md\` are exported as static files. There is no Accept negotiation on \`/\`.
+- **\`output: "export"\`**: middleware does not run in a static export, so skip it. \`/llms.txt\`, \`/llms-full.txt\` and \`/index.md\` are exported as static files. There is no Accept negotiation on \`/\`. Keep \`export const revalidate\` on the routes: a static export requires it. If \`cacheComponents\` is also on, Next.js rejects it, so the routes need a manual change in that combination.
 
 ### 2. Copy seed files (immediate content)
 \`\`\`bash
@@ -346,7 +346,7 @@ your-nextjs-app/
 
 ## How It Works
 
-1. **Route handlers** serve content with ISR (revalidates every hour; no revalidation under \`cacheComponents\`)
+1. **Route handlers** serve content with ISR (revalidates every hour, but re-reads the same deployed file, so new content arrives with the next build; no revalidation under \`cacheComponents\`)
 2. **Build script** refreshes \`.w2agent/llms.txt\` before each build via \`npx --no -- w2agent generate\` from the live site (the CLI must be installed in your project)
 3. **Middleware** (or \`proxy\` on Next.js 16) rewrites \`/\` (also under \`basePath\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page. The rewritten \`/index.md\` and \`/llms.txt\` responses carry \`Vary: Accept\`, but Next.js overwrites \`Vary\` on the HTML page (neither middleware nor \`next.config\` \`headers()\` can add it), so a cache in front of Next must key \`/\` on \`Accept\` itself
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content

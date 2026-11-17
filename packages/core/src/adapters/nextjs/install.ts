@@ -25,6 +25,7 @@ interface NextjsLayout {
   hasExistingW2agentLlms: boolean;
   hasExistingBuildScript: boolean;
   hasW2agentRefs: boolean;
+  refsFile: string | null;
 }
 
 export function detectNextjsLayout(projectDir: string): NextjsLayout {
@@ -34,25 +35,28 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   const hasPagesDir =
     existsSync(join(projectDir, "pages")) || existsSync(join(projectDir, "src", "pages"));
 
+  const srcApp = hasSrcDir && existsSync(join(projectDir, "src", "app"));
+  // The directory Next reads comes first, so it wins when a root and a src/ file both exist
+  const edgeDirs = srcApp ? ["src/", ""] : ["", "src/"];
   const edgePaths = (name: string) =>
-    ["", "src/"].flatMap((dir) => ["ts", "js"].map((ext) => `${dir}${name}.${ext}`));
+    edgeDirs.flatMap((dir) => ["ts", "js", "tsx", "jsx"].map((ext) => `${dir}${name}.${ext}`));
   const existing = (paths: string[]) => paths.find((p) => existsSync(join(projectDir, p))) ?? null;
   const existingMiddleware = existing(edgePaths("middleware"));
   const existingProxy = existing(edgePaths("proxy"));
   const hasMiddleware = existingMiddleware !== null;
   const existingEdgeFile = existingMiddleware ?? existingProxy;
 
-  const appRoot = hasSrcDir && existsSync(join(projectDir, "src", "app")) ? "src/app" : "app";
+  const appRoot = srcApp ? "src/app" : "app";
   const hasExistingLlmsRoute = existsSync(join(projectDir, appRoot, "llms.txt", "route.ts"));
   const hasExistingW2agentLlms = existsSync(join(projectDir, ".w2agent", "llms.txt"));
   const hasExistingBuildScript = existsSync(join(projectDir, "w2agent-build.mjs"));
 
-  let hasW2agentRefs = false;
+  let refsFile: string | null = null;
   for (const p of [...edgePaths("middleware"), ...edgePaths("proxy")]) {
     if (!existsSync(join(projectDir, p))) continue;
     const content = readFileSync(join(projectDir, p), "utf-8");
     if (content.includes("w2agent") || content.includes("llms.txt")) {
-      hasW2agentRefs = true;
+      refsFile = p;
       break;
     }
   }
@@ -67,7 +71,8 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
     hasExistingLlmsRoute,
     hasExistingW2agentLlms,
     hasExistingBuildScript,
-    hasW2agentRefs,
+    hasW2agentRefs: refsFile !== null,
+    refsFile,
   };
 }
 
@@ -85,6 +90,8 @@ function isNextjsProject(projectDir: string): boolean {
 
 function majorOf(version: unknown): number | null {
   if (typeof version !== "string") return null;
+  // An upper bound alone (`<17`, `<=16`) names no version that is installed
+  if (/^\s*</.test(version)) return null;
   const match = /^\s*(?:[\^~]|[<>]=?|=)?\s*v?(\d+)/.exec(version);
   return match?.[1] ? Number(match[1]) : null;
 }
@@ -108,7 +115,7 @@ export function detectNextMajor(projectDir: string): number | null {
 }
 
 // Text only: the config is never imported or executed. Any mention of the flag counts
-// except a literal `: false`.
+// except a `: false` that is the whole value (`false || true` still counts).
 export function usesCacheComponents(projectDir: string): boolean {
   for (const name of NEXT_CONFIG_NAMES) {
     let text: string;
@@ -119,7 +126,7 @@ export function usesCacheComponents(projectDir: string): boolean {
     }
     for (const match of text.matchAll(/\b(?:cacheComponents|dynamicIO)\b/g)) {
       const rest = text.slice(match.index + match[0].length);
-      if (!/^["']?\s*:\s*false\b/.test(rest)) return true;
+      if (!/^["']?\s*:\s*false\s*(?:[,}\n]|\/\/|\/\*|$)/.test(rest)) return true;
     }
   }
   return false;
@@ -135,6 +142,24 @@ export function usesStaticExport(projectDir: string): boolean {
       continue;
     }
     if (/\boutput["']?\s*:\s*(["'`])export\1/.test(text)) return true;
+  }
+  return false;
+}
+
+// `output` set by an expression that holds the "export" literal (`env ? "export" : undefined`).
+// Same-line text only; the plain literal is usesStaticExport's.
+export function usesConditionalExport(projectDir: string): boolean {
+  for (const name of NEXT_CONFIG_NAMES) {
+    let text: string;
+    try {
+      text = readFileSync(join(projectDir, name), "utf-8");
+    } catch {
+      continue;
+    }
+    for (const match of text.matchAll(/\boutput["']?\s*:([^\n]*)/g)) {
+      const value = match[1] ?? "";
+      if (/(["'`])export\1/.test(value) && !/^\s*(["'`])export\1/.test(value)) return true;
+    }
   }
   return false;
 }
@@ -192,11 +217,22 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       : "middleware";
   // Next looks for middleware/proxy next to app/, so inside src/ for a src/app project
   const edgeDir = layout.hasSrcDir ? "src/" : "";
-  const dropRevalidate = usesCacheComponents(projectDir);
+  const cacheComponents = usesCacheComponents(projectDir);
   const staticExport = usesStaticExport(projectDir);
+  // A static export requires `revalidate` on the routes, so only a non-export build drops it
+  const dropRevalidate = cacheComponents && !staticExport;
   if (staticExport) {
     warnings.push(
       'next.config sets `output: "export"`. Next.js disables middleware in a static export, so Accept negotiation on `/` is not installed, and `/llms.txt`, `/llms-full.txt` and `/index.md` are exported as static files at build time.',
+    );
+    if (cacheComponents) {
+      warnings.push(
+        "next.config also mentions cacheComponents. A static export requires `export const revalidate` on the installed routes and Next.js rejects it when cacheComponents is on, so the routes need a manual change in that combination.",
+      );
+    }
+  } else if (usesConditionalExport(projectDir)) {
+    warnings.push(
+      'next.config sets `output` from an expression that can be `"export"`. The middleware is installed, but it does not run in builds where `output` is `"export"`.',
     );
   }
 
@@ -271,17 +307,26 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     if (baseName === "middleware.ts" || baseName === "middleware.js") {
       if (staticExport) continue;
       const dest = `${edgeDir}${edgeFn}.${ext}`;
-      if (layout.hasW2agentRefs) {
+      const rootWarning = (file: string) => {
+        if (layout.hasSrcDir && !file.includes("/")) {
+          warnings.push(
+            `Next.js 15 and earlier ignore a root ${file} in a src/app project; move it to src/${file}.`,
+          );
+        }
+      };
+      if (layout.refsFile) {
         actions.push({
           type: "skip",
-          dest,
+          dest: layout.refsFile,
           reason: "already has w2agent integration",
         });
+        rootWarning(layout.refsFile);
         continue;
       }
 
       const content = nextjsMiddlewareSource({ lang, fn: edgeFn });
       if (layout.existingEdgeFile) {
+        rootWarning(layout.existingEdgeFile);
         const existingDir = layout.existingEdgeFile.includes("/") ? "src/" : "";
         const mergedName = `${existingDir}${edgeFn}.w2agent.${ext}`;
         actions.push({ type: "write", dest: mergedName, content });
@@ -350,13 +395,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       : `the generated AI-crawler rules (${STAGED_ROBOTS} was not written, see warnings; \`w2agent integrate <url> --output <dir>\` writes the file)`;
     const publicRobots = "public/robots.txt";
     const metadataRoute = [appPrefix, "app", "src/app"]
-      .flatMap((dir) => ["ts", "js", "tsx", "jsx"].map((e) => `${dir}/robots.${e}`))
+      .flatMap((dir) => ["ts", "js", "tsx", "jsx", "txt"].map((e) => `${dir}/robots.${e}`))
       .find((p) => existsSync(join(projectDir, p)));
     if (!existsSync(join(projectDir, publicRobots)) && metadataRoute) {
       guarded.actions.push({
         type: "manual",
         dest: metadataRoute,
-        reason: `Add the rules from ${staged} to what the metadata route ${metadataRoute} returns.`,
+        reason: metadataRoute.endsWith(".txt")
+          ? `Merge the rules from ${staged} into your existing ${metadataRoute}.`
+          : `Add the rules from ${staged} to what the metadata route ${metadataRoute} returns.`,
       });
     } else if (existsSync(join(projectDir, publicRobots))) {
       guarded.actions.push({

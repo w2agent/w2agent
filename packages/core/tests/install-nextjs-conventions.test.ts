@@ -169,7 +169,7 @@ describe("Next.js install conventions (NX-3, NX-12, NX-4)", () => {
     it("existing proxy mentioning llms.txt counts as a ref", () => {
       setNext("^16.0.0");
       writeFileSync(join(dir, "proxy.js"), "// rewrites to /llms.txt");
-      expect(find(resolveNextjsInstall(files, dir), "proxy.ts")?.type).toBe("skip");
+      expect(find(resolveNextjsInstall(files, dir), "proxy.js")?.type).toBe("skip");
     });
 
     it("existing middleware.ts on Next 16 keeps middleware.w2agent.ts with function middleware", () => {
