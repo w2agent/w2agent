@@ -65,7 +65,7 @@ AI-friendly robots.txt for known AI crawlers. It adds Allow groups only for AI u
 
 #### schema-org.json
 
-Auto-detected Schema.org JSON-LD for the site.
+Auto-detected Schema.org JSON-LD for the site. Pages that already carry JSON-LD are skipped. A page's type needs evidence on that page: `Article` only with an `article:published_time` meta tag (an author link alone gives `WebPage`), `FAQPage` only when question/answer entries were extracted from that page (they become its `mainEntity`; otherwise `WebPage`). Empty `name` and `description` are omitted. The `LocalBusiness` entry has no `speakable`, and `hasMenu` only when the business type is a food establishment (`Restaurant`, `CafeOrCoffeeShop`, `Bakery`, `BarOrPub`, `FastFoodRestaurant`, `IceCreamShop`, `Brewery`, `Distillery`, `Winery`, `FoodEstablishment`).
 
 #### agent-card.json
 
@@ -110,6 +110,10 @@ Anthropic-spec agent skill file describing the site's capabilities, MCP server c
 #### WebMCP Declarations (`webmcp`)
 
 WebMCP-compatible HTML forms with `toolname` attributes for declarative agent interaction, plus `webmcp.js`, which registers the same forms via `document.modelContext` (falling back to the deprecated `navigator.modelContext`). Generated for each platform adapter.
+
+One tool per distinct form (a header search form repeated on every page is one tool). Forms with a password field, a required file input or `method="dialog"` get no tool; optional file inputs are not parameters. Radio groups and selects become an `enum`, a checkbox a `boolean`, a same-name checkbox group an array of `enum`. Annotations: `readOnlyHint: true` for GET forms; other methods `readOnlyHint: false, consequentialHint: true` (`destructiveHint` is not part of the WebMCP draft). `declarative.html` adds `toolautosubmit` only to GET forms.
+
+`execute` finds the live form on the page by its resolved action and method (an input named `action`, `method` or `submit` does not confuse it), sets only the parameters the agent passed (omitted ones keep the page's own values), fires bubbling `input` and `change` events, and refuses to submit when a file is already selected or the form is invalid, returning an `isError` result that names the invalid fields. Otherwise it calls `requestSubmit()` (the form's own submit handlers run). The result says submission was requested, not that it succeeded.
 
 #### OpenClaw SKILL.md (`openclaw`)
 

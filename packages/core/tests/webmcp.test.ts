@@ -230,7 +230,7 @@ describe("generateWebMcp", () => {
     });
     const files = generateWebMcp(ctx);
     const js = files.find((f) => f.filename === "webmcp/webmcp.js")!;
-    expect((js.content.match(/registerTool/g) || []).length).toBe(2);
+    expect((js.content.match(/registerForm\(\{/g) || []).length).toBe(2);
   });
 
   it("imperative JS includes correct annotations", () => {
@@ -266,10 +266,10 @@ describe("generateWebMcp", () => {
     });
     const files = generateWebMcp(ctx);
     const js = files.find((f) => f.filename === "webmcp/webmcp.js")!;
-    expect(js.content).toContain("readOnlyHint: true");
-    expect(js.content).toContain("readOnlyHint: false");
-    expect(js.content).toContain("destructiveHint: true");
-    expect(js.content).toContain("destructiveHint: false");
+    expect(js.content).toContain('"readOnlyHint": true');
+    expect(js.content).toContain('"readOnlyHint": false');
+    expect(js.content).toContain('"consequentialHint": true');
+    expect(js.content).not.toContain("destructiveHint");
   });
 
   it("imperative JS generates correct inputSchema types", () => {
@@ -358,7 +358,7 @@ describe("tool name inference", () => {
             {
               action: "/search",
               method: "GET",
-              fields: [{ name: "q", type: "text", required: false }],
+              fields: [{ name: "term", type: "text", required: false }],
             },
           ],
         },
@@ -505,8 +505,8 @@ describe("generateWebMcp — injection defenses (security)", () => {
     // Bare-identifier patterns that would let an attacker break out
     expect(js.content).not.toContain(`const ${HOSTILE_NAME}Field`);
     expect(js.content).not.toContain(`params.${HOSTILE_NAME}`);
-    // Safe access must use bracket notation with the quoted name
-    expect(js.content).toContain(`params[${JSON.stringify(HOSTILE_NAME)}]`);
+    // The name only appears as a complete JSON string
+    expect(js.content).toContain(JSON.stringify(HOSTILE_NAME));
   });
 
   it("declarative.html escapes hostile form action in attribute position", () => {

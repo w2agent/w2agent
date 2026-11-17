@@ -1,7 +1,21 @@
 import { parseHTML } from "../shared/html-parser.js";
 import type { ExtractedProduct } from "./ecommerce.js";
+import { extractPageFaqEntries, faqMainEntity } from "./faq.js";
 import type { ExtractedLocalBusiness } from "./local-business.js";
 import type { GenerateContext } from "./types.js";
+
+const FOOD_ESTABLISHMENT_TYPES = new Set([
+  "Restaurant",
+  "CafeOrCoffeeShop",
+  "Bakery",
+  "BarOrPub",
+  "FastFoodRestaurant",
+  "IceCreamShop",
+  "Brewery",
+  "Distillery",
+  "Winery",
+  "FoodEstablishment",
+]);
 
 interface SchemaOrgEntry {
   url: string;
@@ -78,16 +92,19 @@ export function generateSchemaOrg(
     // Skip pages that already have any JSON-LD (for non-product schema generation)
     if (hasExistingJsonLd) continue;
 
-    const schemaType = detectType(parsed);
+    const faqEntries = extractPageFaqEntries(parsed);
+    const schemaType = detectType(parsed, faqEntries.length > 0);
     const mdPage = ctx.pages.find((p) => normalizeUrl(p.url) === normalizeUrl(page.url));
 
     const jsonLd: Record<string, unknown> = {
       "@context": "https://schema.org",
       "@type": schemaType,
-      name: parsed.title || mdPage?.title || "",
-      description: parsed.metaDescription || mdPage?.description || "",
-      url: page.url,
     };
+    const name = parsed.title || mdPage?.title;
+    if (name) jsonLd.name = name;
+    const description = parsed.metaDescription || mdPage?.description;
+    if (description) jsonLd.description = description;
+    jsonLd.url = page.url;
 
     if (parsed.ogTags["og:image"]) {
       jsonLd.image = parsed.ogTags["og:image"];
@@ -103,8 +120,7 @@ export function generateSchemaOrg(
     }
 
     if (schemaType === "FAQPage") {
-      // FAQ content will be handled by the dedicated faq generator
-      // Here we just mark the type
+      jsonLd.mainEntity = faqMainEntity(faqEntries);
     }
 
     entries.push({ url: page.url, jsonLd });
@@ -160,7 +176,9 @@ export function generateSchemaOrg(
       }
       if (localBusiness.priceRange) lb.priceRange = localBusiness.priceRange;
       if (localBusiness.image) lb.image = localBusiness.image;
-      if (localBusiness.menu) lb.hasMenu = localBusiness.menu;
+      if (localBusiness.menu && FOOD_ESTABLISHMENT_TYPES.has(localBusiness.type)) {
+        lb.hasMenu = localBusiness.menu;
+      }
       if (localBusiness.hours && localBusiness.hours.length > 0) {
         lb.openingHoursSpecification = localBusiness.hours.map((h) => ({
           "@type": "OpeningHoursSpecification",
@@ -169,10 +187,6 @@ export function generateSchemaOrg(
           closes: h.closes,
         }));
       }
-      lb.speakable = {
-        "@type": "SpeakableSpecification",
-        cssSelector: ["[itemprop='name']", "[itemprop='description']", "[itemprop='address']"],
-      };
       entries.push({ url: ctx.baseUrl, jsonLd: lb });
     }
   }
@@ -180,13 +194,11 @@ export function generateSchemaOrg(
   return entries.length > 0 ? entries : null;
 }
 
-function detectType(parsed: ReturnType<typeof parseHTML>): string {
-  if (parsed.hasFaqContent) return "FAQPage";
-
-  const hasArticleTime = !!parsed.ogTags["article:published_time"];
-  const hasAuthorLink = parsed.links.some((l) => l.href.includes("/author") || l.rel === "author");
-  if (hasArticleTime || hasAuthorLink) return "Article";
-
+// Each type needs evidence on the page itself: FAQPage needs extracted question/answer
+// entries (mainEntity), Article needs a publication time. A link to an author page proves neither.
+function detectType(parsed: ReturnType<typeof parseHTML>, hasFaqEntries: boolean): string {
+  if (hasFaqEntries) return "FAQPage";
+  if (parsed.ogTags["article:published_time"]) return "Article";
   return "WebPage";
 }
 

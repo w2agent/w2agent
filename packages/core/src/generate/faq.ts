@@ -1,7 +1,7 @@
 import { parseHTML } from "../shared/html-parser.js";
 import type { GenerateContext } from "./types.js";
 
-interface FaqEntry {
+export interface FaqEntry {
   question: string;
   answer: string;
 }
@@ -29,23 +29,32 @@ export function generateFaq(ctx: GenerateContext): FaqPageSchema | null {
     allEntries.push(...entries);
   }
 
-  const filtered = filterLowQualityEntries(allEntries);
-  const deduped = deduplicateByQuestion(filtered);
+  const deduped = deduplicateByQuestion(filterLowQualityEntries(allEntries));
 
   if (deduped.length === 0) return null;
 
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: deduped.map((e) => ({
-      "@type": "Question",
-      name: e.question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: e.answer,
-      },
-    })),
+    mainEntity: faqMainEntity(deduped),
   };
+}
+
+export function faqMainEntity(entries: FaqEntry[]): FaqPageSchema["mainEntity"] {
+  return entries.map((e) => ({
+    "@type": "Question",
+    name: e.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: e.answer,
+    },
+  }));
+}
+
+// One page's question/answer entries, filtered and deduped like the site-wide FAQ.
+export function extractPageFaqEntries(parsed: ReturnType<typeof parseHTML>): FaqEntry[] {
+  if (!parsed.hasFaqContent) return [];
+  return deduplicateByQuestion(filterLowQualityEntries(extractFaqEntries(parsed)));
 }
 
 function extractFaqEntries(parsed: ReturnType<typeof parseHTML>): FaqEntry[] {

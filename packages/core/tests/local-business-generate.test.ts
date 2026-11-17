@@ -323,7 +323,7 @@ describe("schema-org LocalBusiness generation", () => {
     });
     expect(businessEntry).toBeDefined();
     expect(businessEntry?.jsonLd.name).toBe("Micro Cafe");
-    expect(businessEntry?.jsonLd.speakable).toBeDefined();
+    expect(businessEntry?.jsonLd.speakable).toBeUndefined();
   });
 
   it("skips LocalBusiness JSON-LD when homepage already has it", () => {

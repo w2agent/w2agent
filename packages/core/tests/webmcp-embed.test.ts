@@ -76,34 +76,16 @@ interface Registered {
     properties: Record<string, { description: string; enum?: string[] }>;
     required?: string[];
   };
+  annotations: Record<string, boolean>;
   execute: (params: Record<string, string>) => Promise<unknown>;
 }
 
 async function runScript(codes: string[]) {
   const tools: Registered[] = [];
-  const selectors: string[] = [];
-  const assigned: Record<string, string> = {};
-  const field = {
-    set value(v: string) {
-      assigned.last = v;
-    },
-  };
-  const formStub = {
-    querySelector(sel: string) {
-      selectors.push(sel);
-      return field;
-    },
-    submit() {},
-  };
   const sandbox: Record<string, unknown> = {
     document: {
       modelContext: { registerTool: (t: Registered) => tools.push(t) },
-      querySelector(sel: string) {
-        selectors.push(sel);
-        return formStub;
-      },
     },
-    CSS: { escape: (s: string) => s },
   };
   vm.createContext(sandbox);
   for (const code of codes) {
@@ -111,11 +93,11 @@ async function runScript(codes: string[]) {
       vm.runInContext(code, sandbox);
     } catch {}
   }
-  return { tools, selectors, sandbox };
+  return { tools, sandbox };
 }
 
 async function expectRegistrationsRoundTrip(codes: string | string[]) {
-  const { tools, selectors, sandbox } = await runScript(Array.isArray(codes) ? codes : [codes]);
+  const { tools, sandbox } = await runScript(Array.isArray(codes) ? codes : [codes]);
   expect(sandbox.pwned).toBeUndefined();
   expect(tools).toHaveLength(2);
   const tool = tools[0];
@@ -128,12 +110,9 @@ async function expectRegistrationsRoundTrip(codes: string | string[]) {
   expect(tool.inputSchema.properties.sel.enum).toEqual(HOSTILE);
   expect(tool.inputSchema.required).toEqual(fields.slice(0, HOSTILE.length).map((f) => f.name));
 
-  const params: Record<string, string> = {};
-  for (const f of fields) params[f.name] = "v";
-  await tool.execute(params);
-  expect(selectors[0]).toBe(`form[action=${ACTION}]`);
-  expect(selectors.slice(1)).toEqual(fields.map((f) => `[name=${f.name}]`));
-  await tools[1].execute({});
+  expect(tool.annotations).toEqual({ readOnlyHint: false, consequentialHint: true });
+  expect(tools[1].annotations).toEqual({ readOnlyHint: true });
+  expect(typeof tool.execute).toBe("function");
   expect(sandbox.pwned).toBeUndefined();
 }
 

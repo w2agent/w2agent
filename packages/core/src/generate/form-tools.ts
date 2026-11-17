@@ -24,7 +24,14 @@ export interface FormToolSpec {
   fields: FormFieldSpec[];
 }
 
-const NON_PARAMETER_TYPES = new Set(["file", "hidden", "submit", "button", "reset", "image"]);
+export const NON_PARAMETER_TYPES = new Set([
+  "file",
+  "hidden",
+  "submit",
+  "button",
+  "reset",
+  "image",
+]);
 
 // HTML's method attribute is an enumerated attribute: "post" is POST, "dialog" closes a
 // dialog (no request), and a missing or unknown value falls back to GET.

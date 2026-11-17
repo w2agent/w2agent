@@ -1,10 +1,19 @@
+import {
+  type FormFieldSpec,
+  type FormToolSpec,
+  formContractKey,
+  formRequestUrl,
+  formToolSpec,
+  NON_PARAMETER_TYPES,
+} from "./form-tools.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile } from "./types.js";
 
 interface FormWithPage {
   action: string;
-  method: string;
-  fields: ExtractedFormField[];
   pageUrl: string;
+  spec: FormToolSpec;
+  fields: ExtractedFormField[];
+  requestUrl: string;
 }
 
 function inferToolName(form: FormWithPage, index: number, usedNames: Set<string>): string {
@@ -32,34 +41,47 @@ function inferToolName(form: FormWithPage, index: number, usedNames: Set<string>
   return deduped;
 }
 
-function fieldToJsonSchema(field: ExtractedFormField): Record<string, unknown> | null {
-  const type = field.type?.toLowerCase() ?? "text";
+// The crawled field a parameter came from: the first one that is not a non-parameter
+// control, which is the same field formToolSpec keeps for that name.
+function sourceField(form: FormWithPage, name: string): ExtractedFormField | undefined {
+  return form.fields.find(
+    (f) => f.name === name && !NON_PARAMETER_TYPES.has((f.type ?? "text").toLowerCase()),
+  );
+}
 
-  if (type === "hidden") return null;
+function fieldToJsonSchema(
+  spec: FormFieldSpec,
+  source: ExtractedFormField | undefined,
+): Record<string, unknown> {
+  const type = source?.type?.toLowerCase() ?? "text";
+
+  if (spec.kind === "checkbox") return { type: "boolean" };
+  if (spec.kind === "checkbox-group") {
+    return { type: "array", items: { type: "string", enum: spec.options } };
+  }
+  if (spec.kind === "radio" || spec.kind === "select") {
+    return { type: "string", enum: spec.options };
+  }
+  if (spec.kind === "number") {
+    const schema: Record<string, unknown> = { type: "number" };
+    if (source?.min !== undefined && Number.isFinite(Number(source.min))) {
+      schema.minimum = Number(source.min);
+    }
+    if (source?.max !== undefined && Number.isFinite(Number(source.max))) {
+      schema.maximum = Number(source.max);
+    }
+    return schema;
+  }
 
   if (type === "email") return { type: "string", format: "email" };
   if (type === "url") return { type: "string", format: "uri" };
   if (type === "date") return { type: "string", format: "date" };
   if (type === "datetime-local") return { type: "string", format: "date-time" };
-  if (type === "checkbox") return { type: "boolean" };
-
-  if (type === "number" || type === "range") {
-    const schema: Record<string, unknown> = { type: "number" };
-    if (field.min !== undefined) schema.minimum = Number(field.min);
-    if (field.max !== undefined) schema.maximum = Number(field.max);
-    return schema;
-  }
-
-  if (type === "select" && field.options && field.options.length > 0) {
-    return { type: "string", enum: field.options };
-  }
-
-  // text, search, tel, password, textarea, and fallbacks
   return { type: "string" };
 }
 
 function toolDescription(name: string, method: string): string {
-  if (method.toUpperCase() === "GET") return `Search via ${name}`;
+  if (method === "GET") return `Search via ${name}`;
   return `Submit the ${name} form`;
 }
 
@@ -72,10 +94,6 @@ function escapeAttr(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function fieldDescription(field: ExtractedFormField): string {
-  return field.label ?? field.name;
-}
-
 function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string {
   const lines: string[] = [
     "<!-- WebMCP Declarative Annotations Reference",
@@ -86,27 +104,44 @@ function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string
   for (let i = 0; i < forms.length; i++) {
     const form = forms[i];
     const name = names[i];
-    const isGet = form.method.toUpperCase() === "GET";
-    const desc = toolDescription(name, form.method);
-    const visibleFields = form.fields.filter((f) => f.type?.toLowerCase() !== "hidden");
+    const isGet = form.spec.method === "GET";
+    const desc = toolDescription(name, form.spec.method);
 
     lines.push(`<!-- Form: ${escapeAttr(name)} (from ${escapeAttr(form.action)}) -->`);
 
     const autosubmit = isGet ? " toolautosubmit" : "";
     lines.push(
-      `<form action="${escapeAttr(form.action)}" method="${escapeAttr(form.method)}" toolname="${escapeAttr(name)}" tooldescription="${escapeAttr(desc)}"${autosubmit}>`,
+      `<form action="${escapeAttr(form.action)}" method="${form.spec.method}" toolname="${escapeAttr(name)}" tooldescription="${escapeAttr(desc)}"${autosubmit}>`,
     );
 
-    for (const field of visibleFields) {
-      const paramDesc = fieldDescription(field);
-      const tag = field.type === "textarea" ? "textarea" : "input";
-      if (tag === "textarea") {
+    for (const field of form.spec.fields) {
+      const n = escapeAttr(field.name);
+      const d = escapeAttr(field.label);
+      const source = sourceField(form, field.name);
+      if (field.kind === "select") {
+        lines.push(`  <select name="${n}" toolparamdescription="${d}">`);
+        for (const o of field.options ?? []) {
+          lines.push(`    <option value="${escapeAttr(o)}">${escapeAttr(o)}</option>`);
+        }
+        lines.push("  </select>");
+      } else if (field.kind === "radio" || field.kind === "checkbox-group") {
+        const type = field.kind === "radio" ? "radio" : "checkbox";
+        for (const o of field.options ?? []) {
+          lines.push(
+            `  <input name="${n}" type="${type}" value="${escapeAttr(o)}" toolparamdescription="${d}" />`,
+          );
+        }
+      } else if (field.kind === "checkbox") {
         lines.push(
-          `  <textarea name="${escapeAttr(field.name)}" toolparamdescription="${escapeAttr(paramDesc)}"></textarea>`,
+          `  <input name="${n}" type="checkbox" value="${escapeAttr(field.value ?? "on")}" toolparamdescription="${d}" />`,
         );
+      } else if (source?.type === "textarea") {
+        lines.push(`  <textarea name="${n}" toolparamdescription="${d}"></textarea>`);
       } else {
+        const type =
+          field.kind === "number" ? (source?.type ?? "number") : (source?.type ?? "text");
         lines.push(
-          `  <input name="${escapeAttr(field.name)}" type="${escapeAttr(field.type)}" toolparamdescription="${escapeAttr(paramDesc)}" />`,
+          `  <input name="${n}" type="${escapeAttr(type)}" toolparamdescription="${d}" />`,
         );
       }
     }
@@ -127,6 +162,186 @@ function toScriptSafeJson(value: unknown, space?: number): string {
     .replace(/\{(?=[{%])/g, "\\u007b");
 }
 
+// Static runtime, never built from crawled data. It must not contain "<", ">", "&"
+// or "{{": the script is embedded inside HTML, PHP and Liquid hosts. That rules out
+// arrow functions and "&&"; keep it that way.
+const RUNTIME_JS = `  function formGetter(prop) {
+    return Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, prop).get;
+  }
+
+  function textResult(text, isError) {
+    const result = { content: [{ type: "text", text: text }] };
+    if (isError) result.isError = true;
+    return result;
+  }
+
+  function controlsNamed(elements, name) {
+    const out = [];
+    for (const el of elements) {
+      if (el.name === name) out.push(el);
+    }
+    return out;
+  }
+
+  function ofType(list, type) {
+    return list.filter(function (el) {
+      return el.type === type;
+    });
+  }
+
+  function fire(el) {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function hasRequiredFields(elements, fields) {
+    for (const f of fields) {
+      if (f.required) {
+        if (controlsNamed(elements, f.name).length === 0) return false;
+      }
+    }
+    return true;
+  }
+
+  // An input named "action", "method" or "submit" shadows the form's own properties,
+  // so everything is read through the HTMLFormElement.prototype accessors.
+  function findForm(spec) {
+    const forms = Object.getOwnPropertyDescriptor(Document.prototype, "forms").get.call(document);
+    const getAction = formGetter("action");
+    const getMethod = formGetter("method");
+    const getElements = formGetter("elements");
+    for (const form of forms) {
+      if (getMethod.call(form) !== spec.method.toLowerCase()) continue;
+      let url;
+      try {
+        url = new URL(getAction.call(form));
+      } catch (e) {
+        continue;
+      }
+      url.hash = "";
+      if (spec.method === "GET") url.search = "";
+      if (typeof spec.href === "string") {
+        if (url.href !== spec.href) continue;
+      } else {
+        if (url.origin !== location.origin) continue;
+        if (url.pathname + url.search !== spec.path) continue;
+      }
+      if (hasRequiredFields(getElements.call(form), spec.fields)) return form;
+    }
+    return null;
+  }
+
+  function applyField(elements, f, v) {
+    const all = controlsNamed(elements, f.name);
+    if (f.kind === "radio") {
+      for (const el of ofType(all, "radio")) {
+        if (el.value === String(v)) {
+          if (!el.checked) {
+            el.checked = true;
+            fire(el);
+          }
+          return null;
+        }
+      }
+      return "No option " + JSON.stringify(String(v)) + " for " + f.name;
+    }
+    if (f.kind === "checkbox-group") {
+      const boxes = ofType(all, "checkbox");
+      const want = (Array.isArray(v) ? v : [v]).map(String);
+      for (const w of want) {
+        const found = boxes.filter(function (el) {
+          return el.value === w;
+        });
+        if (found.length === 0) return "No option " + JSON.stringify(w) + " for " + f.name;
+      }
+      for (const el of boxes) {
+        const should = want.indexOf(el.value) !== -1;
+        if (el.checked !== should) {
+          el.checked = should;
+          fire(el);
+        }
+      }
+      return null;
+    }
+    if (f.kind === "checkbox") {
+      const boxes = ofType(all, "checkbox");
+      if (boxes.length === 0) return "No checkbox for " + f.name;
+      const should = v === true;
+      if (boxes[0].checked !== should) {
+        boxes[0].checked = should;
+        fire(boxes[0]);
+      }
+      return null;
+    }
+    let target = null;
+    for (const el of all) {
+      if (["hidden", "submit", "button", "reset", "image", "file", "checkbox", "radio"].indexOf(el.type) === -1) {
+        target = el;
+        break;
+      }
+    }
+    if (target === null) return "No field for " + f.name;
+    const next = String(v);
+    if (target.value !== next) {
+      target.value = next;
+      fire(target);
+    }
+    if (f.kind === "select") {
+      if (target.value !== next) return "No option " + JSON.stringify(next) + " for " + f.name;
+    }
+    return null;
+  }
+
+  async function runForm(spec, params) {
+    const form = findForm(spec);
+    if (form === null) return textResult("Form not found on this page", true);
+    const elements = formGetter("elements").call(form);
+    for (const el of elements) {
+      if (el.type === "file") {
+        const count = el.files ? el.files.length : 0;
+        if (count !== 0) {
+          return textResult("A file is already selected in this form; submission refused", true);
+        }
+      }
+    }
+    const input = Object(params) === params ? params : {};
+    for (const f of spec.fields) {
+      if (!Object.prototype.hasOwnProperty.call(input, f.name)) continue;
+      const v = input[f.name];
+      // loose equality on purpose: an omitted parameter (or null) keeps the page's own value
+      if (v == null) continue;
+      const problem = applyField(elements, f, v);
+      if (problem !== null) return textResult(problem, true);
+    }
+    if (!HTMLFormElement.prototype.checkValidity.call(form)) {
+      const bad = [];
+      for (const el of elements) {
+        if (el.willValidate) {
+          if (!el.validity.valid) bad.push(el.name || el.id || el.type);
+        }
+      }
+      return textResult("Form not submitted, invalid fields: " + bad.join(", "), true);
+    }
+    const submit = HTMLFormElement.prototype.requestSubmit || HTMLFormElement.prototype.submit;
+    try {
+      submit.call(form);
+    } catch (e) {
+      return textResult("Form submission failed: " + String(e), true);
+    }
+    return textResult("Form submission requested via " + spec.method + "; the result is not confirmed", false);
+  }
+
+  function registerForm(def, spec) {
+    mc.registerTool(
+      Object.assign({}, def, {
+        execute: function (params) {
+          return runForm(spec, params);
+        },
+      }),
+    );
+  }
+`;
+
 function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: string): string {
   const lines: string[] = [
     "// WebMCP Imperative Registration Script",
@@ -137,62 +352,58 @@ function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: s
     "  const mc = document.modelContext ?? navigator.modelContext;",
     "  if (!mc) return;",
     "",
+    RUNTIME_JS,
   ];
+
+  let siteOrigin: string | null = null;
+  try {
+    siteOrigin = new URL(baseUrl).origin;
+  } catch {}
 
   for (let i = 0; i < forms.length; i++) {
     const form = forms[i];
     const name = names[i];
-    const isGet = form.method.toUpperCase() === "GET";
-    const desc = toolDescription(name, form.method);
-    const visibleFields = form.fields.filter((f) => f.type?.toLowerCase() !== "hidden");
+    const isGet = form.spec.method === "GET";
 
-    // Build inputSchema properties
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
-    for (const field of visibleFields) {
-      const schema = fieldToJsonSchema(field);
-      if (!schema) continue;
-      const paramDesc = fieldDescription(field);
-      properties[field.name] = { ...schema, description: paramDesc };
+    for (const field of form.spec.fields) {
+      properties[field.name] = {
+        ...fieldToJsonSchema(field, sourceField(form, field.name)),
+        description: field.label,
+      };
       if (field.required) required.push(field.name);
     }
+    const inputSchema: Record<string, unknown> = { type: "object", properties };
+    if (required.length > 0) inputSchema.required = required;
 
-    // Normalize action for selector — prefer relative path
-    let actionSelector = form.action;
-    try {
-      const parsed = new URL(form.action, baseUrl);
-      if (parsed.origin === baseUrl) {
-        actionSelector = parsed.pathname + parsed.search;
-      }
-    } catch {}
-
-    const schemaObj: Record<string, unknown> = { type: "object", properties };
-    if (required.length > 0) schemaObj.required = required;
-
-    lines.push(`  mc.registerTool({`);
-    lines.push(`    name: ${toScriptSafeJson(name)},`);
-    lines.push(`    description: ${toScriptSafeJson(desc)},`);
-    lines.push(`    inputSchema: ${toScriptSafeJson(schemaObj, 2).split("\n").join("\n    ")},`);
-    lines.push(`    annotations: { readOnlyHint: ${isGet}, destructiveHint: ${!isGet} },`);
-    lines.push(`    async execute(params) {`);
-    lines.push(
-      `      const form = document.querySelector('form[action=' + CSS.escape(${toScriptSafeJson(actionSelector)}) + ']');`,
-    );
-    lines.push(`      if (!form) return { type: "text", text: "Form not found" };`);
-
-    for (const field of visibleFields) {
-      const schema = fieldToJsonSchema(field);
-      if (!schema) continue;
-      const n = toScriptSafeJson(field.name);
-      lines.push(
-        `      { const _f = form.querySelector('[name=' + CSS.escape(${n}) + ']'); if (_f) _f.value = params[${n}]; }`,
-      );
+    // Same-origin actions are matched by path against whichever origin the page runs on;
+    // anything else is matched by its full URL.
+    const requestUrl = new URL(form.requestUrl);
+    const target: Record<string, unknown> = { method: form.spec.method };
+    if (siteOrigin !== null && requestUrl.origin === siteOrigin) {
+      target.path = requestUrl.pathname + requestUrl.search;
+    } else {
+      target.href = requestUrl.href;
     }
+    target.fields = form.spec.fields.map((f) => ({
+      name: f.name,
+      kind: f.kind,
+      required: f.required,
+    }));
 
-    lines.push(`      form.submit();`);
-    lines.push(`      return { type: "text", text: "Form submitted" };`);
-    lines.push(`    }`);
-    lines.push(`  });`);
+    const def = {
+      name,
+      description: toolDescription(name, form.spec.method),
+      inputSchema,
+      annotations: isGet
+        ? { readOnlyHint: true }
+        : { readOnlyHint: false, consequentialHint: true },
+    };
+
+    lines.push(
+      `  registerForm(${toScriptSafeJson(def, 2).split("\n").join("\n  ")}, ${toScriptSafeJson(target)});`,
+    );
     lines.push("");
   }
 
@@ -203,16 +414,31 @@ function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: s
 }
 
 export function generateWebMcp(ctx: GenerateContext): GeneratedFile[] {
-  // Collect all forms from pages
+  // One tool per distinct form: a header search form repeated on every page is one tool.
   const forms: FormWithPage[] = [];
+  const seen = new Set<string>();
   for (const page of ctx.pages) {
-    if (page.forms) {
-      for (const form of page.forms) {
-        // Skip forms with no user-facing fields
-        const visibleFields = form.fields.filter((f) => f.type?.toLowerCase() !== "hidden");
-        if (visibleFields.length === 0) continue;
-        forms.push({ ...form, pageUrl: page.url });
+    for (const form of page.forms ?? []) {
+      let resolved: URL;
+      try {
+        resolved = new URL(form.action, page.url);
+      } catch {
+        continue;
       }
+      const spec = formToolSpec(form);
+      if (!spec) continue;
+      const requestUrl = formRequestUrl(resolved, spec.method);
+      if (!requestUrl) continue;
+      const key = formContractKey(requestUrl, spec);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      forms.push({
+        action: form.action,
+        pageUrl: page.url,
+        spec,
+        fields: form.fields,
+        requestUrl,
+      });
     }
   }
 
