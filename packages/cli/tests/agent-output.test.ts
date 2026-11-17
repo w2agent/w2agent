@@ -56,6 +56,7 @@ describe("reason table", () => {
       "unknown_failure",
       "invalid_url",
       "invalid_argument",
+      "unknown_guide",
       "no_platform_detected",
       "not_a_project",
       "auth_required",
@@ -72,7 +73,7 @@ describe("reason table", () => {
       .filter(([, v]) => v.exitCode === EXIT.usage)
       .map(([k]) => k)
       .sort();
-    expect(usage).toEqual(["invalid_argument", "invalid_url"]);
+    expect(usage).toEqual(["invalid_argument", "invalid_url", "unknown_guide"]);
     expect(REASONS.auth_required).toMatchObject({
       userActionRequired: true,
       retryable: false,

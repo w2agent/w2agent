@@ -34,6 +34,7 @@ Run from the repo root.
 | `pnpm --filter w2agent-core test:integration` | Integration tests. They build real platform projects and audit them. |
 | `pnpm test:agent-surfaces` | Validates `SKILL.md`, the plugin manifests and the version pins. Needs a built CLI (`pnpm build` first). |
 | `pnpm dev` | Watch mode. |
+| `pnpm --filter w2agent-core gen:guides` | Regenerate `guides.generated.ts` after editing `skills/w2agent/references/checks/*.md`. The build fails when it is stale. |
 | `pnpm lint` | Biome check (what CI runs). |
 
 `pnpm lint:fix` and `pnpm format` run Biome with `--write` over everything Biome sees, including untracked directories. Prefer `pnpm exec biome check --write <paths>` on the files you changed.

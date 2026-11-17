@@ -4,6 +4,7 @@ import { getSiteTypeChecks } from "../site-types/checks.js";
 import { detectSiteType, type SiteType } from "../site-types/index.js";
 import { crawlPages, crawlSite } from "./crawler.js";
 import { classifyHomepage } from "./errors.js";
+import { withGuide } from "./guides.js";
 import { summarizeEdgeEvidence } from "./shared/edge-evidence.js";
 import type {
   AuditOptions,
@@ -127,6 +128,7 @@ export async function runAudit(
     }),
   );
   applyNaCascade(results, metadata, detectedSiteType?.siteType);
+  for (let i = 0; i < results.length; i++) results[i] = withGuide(results[i]);
 
   // Group by category
   const categories = computeCategories(results);
@@ -388,6 +390,7 @@ function computeTopIssues(
     message: check.message,
     pointsIfFixed: Math.round(estimateImpact(check, categories)),
     fixSnippet: check.fixSnippet,
+    ...(check.guide && check.fixBy ? { guide: check.guide, fixBy: check.fixBy } : {}),
   }));
 }
 

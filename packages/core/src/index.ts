@@ -16,6 +16,9 @@ export type {
   FetchFailure,
 } from "./audit/errors.js";
 export { AuditError, classifyHomepage } from "./audit/errors.js";
+export type { Guide } from "./audit/guides.generated.js";
+export { GUIDES } from "./audit/guides.generated.js";
+export { CHECK_GUIDES, withGuide } from "./audit/guides.js";
 export type { ChallengeVendor } from "./audit/shared/challenge.js";
 export { detectChallenge } from "./audit/shared/challenge.js";
 export { formatEdgeEvidenceLine, summarizeEdgeEvidence } from "./audit/shared/edge-evidence.js";
@@ -29,6 +32,7 @@ export type {
   CheckResult,
   CheckStatus,
   FetchedPage,
+  FixBy,
   LetterGrade,
   OpenAPIEndpoint,
   OpenAPIParameter,

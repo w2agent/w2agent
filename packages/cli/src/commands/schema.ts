@@ -14,7 +14,13 @@ interface OptionSchema {
 interface CommandSchema {
   name: string;
   description: string;
-  arguments: { name: string; required: boolean; variadic: boolean; description: string }[];
+  arguments: {
+    name: string;
+    required: boolean;
+    variadic: boolean;
+    description: string;
+    choices?: string[];
+  }[];
   options: OptionSchema[];
   commands?: CommandSchema[];
 }
@@ -42,6 +48,7 @@ function describeCommand(cmd: Command): CommandSchema {
       required: arg.required,
       variadic: arg.variadic,
       description: arg.description,
+      ...(arg.argChoices ? { choices: [...arg.argChoices] } : {}),
     })),
     options: cmd.options.map(describeOption),
     ...(cmd.commands.length > 0 ? { commands: cmd.commands.map(describeCommand) } : {}),
