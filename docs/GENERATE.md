@@ -73,7 +73,7 @@ A2A v1.0 agent card at `/.well-known/agent-card.json`: `name`, `description`, `v
 
 #### faq.json
 
-Extracted FAQ content in FAQPage schema format. Sources, first match per page wins: existing `FAQPage` JSON-LD (found on any page, including inside `@graph`, top-level arrays and `@type` arrays); then, on pages with FAQ wording, `<details>`/`<summary>`; `<dt>`/`<dd>` pairs whose term ends with `?`; and headings ending with `?` (needs at least two on the page). Answer text is entity-decoded plain text.
+Extracted FAQ content in FAQPage schema format. Sources, first match per page wins: existing `FAQPage` JSON-LD (found on any page, including inside `@graph`, top-level arrays and `@type` arrays); then, on pages with FAQ wording, `<details>`/`<summary>`; `<dt>`/`<dd>` pairs whose term ends with `?`; and headings ending with `?` (needs at least two on the page). Answers from `<details>`, `<dt>`/`<dd>` and headings are entity-decoded plain text. JSON-LD answers are passed through as the site wrote them (HTML and entities included). The JSON-LD walk is bounded (32 levels, 10000 nodes).
 
 #### Per-page Markdown
 

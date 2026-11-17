@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FetchedPage } from "../src/audit/types.js";
 import { generateFaq } from "../src/generate/faq.js";
+import { detectTools } from "../src/generate/mcp-server.js";
 import { generateSchemaOrg } from "../src/generate/schema-org.js";
 import type { GenerateContext } from "../src/generate/types.js";
 
@@ -179,5 +180,35 @@ describe("FAQ in schema-org output (GEN2-4)", () => {
     expect(JSON.parse(serialized).mainEntity[0].acceptedAnswer.text).toContain(
       "</script><script>alert(1)</script>",
     );
+  });
+});
+
+describe("FAQ JSON-LD walk is bounded (gate fix round 1)", () => {
+  const faqNode = { "@type": "FAQPage", mainEntity: [question("How do refunds work here?")] };
+  const rawLd = (json: string) => `<script type="application/ld+json">${json}</script>`;
+  const deepGraph = `${'{"@graph":'.repeat(10000)}{}${"}".repeat(10000)}`;
+
+  it("does not throw on a hostile deeply nested @graph", () => {
+    const html = page("<h1>Help</h1>", rawLd(deepGraph));
+    expect(() => generateFaq(ctxFor(html))).not.toThrow();
+    expect(faq(html)).toBeNull();
+    expect(() => detectTools(ctxFor(html))).not.toThrow();
+    expect(() => generateSchemaOrg(ctxFor(html))).not.toThrow();
+  });
+
+  it("still finds a FAQPage three @graph levels deep", () => {
+    const html = page("<h1>Help</h1>", ld({ "@graph": [{ "@graph": [{ "@graph": [faqNode] }] }] }));
+    expect(faq(html)).toEqual([
+      { q: "How do refunds work here?", a: "An answer that is long enough to keep." },
+    ]);
+  });
+  it("ignores a FAQPage nested beyond the depth cap", () => {
+    const deepFaq = `${'{"@graph":'.repeat(40)}${JSON.stringify(faqNode)}${"}".repeat(40)}`;
+    expect(faq(page("<h1>Help</h1>", rawLd(deepFaq)))).toBeNull();
+  });
+
+  it("ignores a FAQPage after the node cap", () => {
+    const wide = `{"@graph":[${"{},".repeat(10001)}${JSON.stringify(faqNode)}]}`;
+    expect(faq(page("<h1>Help</h1>", rawLd(wide)))).toBeNull();
   });
 });

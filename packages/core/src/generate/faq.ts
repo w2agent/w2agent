@@ -130,14 +130,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function collectFaqPages(node: unknown, out: Record<string, unknown>[]): void {
-  if (Array.isArray(node)) {
-    for (const child of node) collectFaqPages(child, out);
-    return;
+const MAX_JSONLD_DEPTH = 32;
+const MAX_JSONLD_NODES = 10000;
+
+function collectFaqPages(root: unknown, out: Record<string, unknown>[]): void {
+  const stack: { node: unknown; depth: number }[] = [{ node: root, depth: 0 }];
+  let visited = 0;
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop() as { node: unknown; depth: number };
+    if (depth > MAX_JSONLD_DEPTH || ++visited > MAX_JSONLD_NODES) continue;
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], depth: depth + 1 });
+      continue;
+    }
+    if (!isRecord(node)) continue;
+    if (hasType(node, "FAQPage")) out.push(node);
+    if (node["@graph"] !== undefined) stack.push({ node: node["@graph"], depth: depth + 1 });
   }
-  if (!isRecord(node)) return;
-  if (hasType(node, "FAQPage")) out.push(node);
-  if (node["@graph"] !== undefined) collectFaqPages(node["@graph"], out);
 }
 
 function firstAnswerText(accepted: unknown): string {
