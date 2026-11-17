@@ -6,7 +6,7 @@ export const GET: APIRoute = () => {
   const filePath = join(process.cwd(), "public", "llms-full.txt");
   const body = existsSync(filePath)
     ? readFileSync(filePath, "utf-8")
-    : "# Full Content Dump\n\n> Run: npx w2agent generate <your-site-url> --output ./public/\n";
+    : "# Full Content Dump\n\n> Run: npx w2agent generate <your-site-url> --format llms-txt,full --no-platform --output ./public/\n";
   return new Response(body, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

@@ -134,7 +134,7 @@ When a platform is detected, additional integration files are generated (omitted
 | **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt generation, admin page, robots.txt filter, `wordpress/data/` seed files, `wordpress/INSTALL.md` |
 | **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation, `nextjs/w2agent-build.mjs` — CI/CD build script, `nextjs/INSTALL.md` |
 | **Nuxt** | `nuxt/server/routes/llms.txt.ts` — Nitro server route, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/INSTALL.md` |
-| **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/middleware.ts` — content negotiation, `astro/INSTALL.md` |
+| **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/pages/llms.txt.ts` and `astro/src/pages/.well-known/agent-card.json.ts` — SSR endpoints, `astro/w2agent-integration.mjs`, `astro/w2agent-build.mjs`, `astro/INSTALL.md` |
 | **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/templates/robots.txt.liquid`, `shopify/INSTALL.md` |
 | **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from docs directory, `docusaurus/INSTALL.md` |
 
@@ -229,7 +229,7 @@ npx w2agent generate https://docs.example.com
 npx w2agent generate https://example.com --format llms-txt
 
 # Only docs and blog sections, output to public/
-npx w2agent generate https://example.com --sections docs,blog --output ./public/
+npx w2agent generate https://example.com --sections docs,blog --format llms-txt,full --no-platform --output ./public/
 
 # Crawl up to 100 pages
 npx w2agent generate https://large-site.com --max-pages 100

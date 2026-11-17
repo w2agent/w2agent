@@ -124,8 +124,8 @@ The typical workflow is: audit → see issues → generate fixes → deploy.
 # 1. Audit your site
 npx w2agent audit https://your-site.com
 
-# 2. Generate llms.txt and friends (platform integration files auto-included)
-npx w2agent generate https://your-site.com --output ./public/
+# 2. Generate llms.txt and llms-full.txt into the served dir (--no-platform skips the platform integration tree)
+npx w2agent generate https://your-site.com --format llms-txt,full --no-platform --output ./public/
 
 # 3. Deploy the generated files to your site
 #    - WordPress: upload plugin to /wp-content/plugins/
