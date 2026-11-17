@@ -1,9 +1,10 @@
-import { createApp, toWebHandler } from "h3";
+import { createApp, defineEventHandler, toWebHandler } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs");
 
 import * as fs from "node:fs";
+import { ACCEPT_CASES } from "../../core/tests/helpers/accept-cases";
 import contentNegotiation from "../src/runtime/server/middleware/content-negotiation";
 import indexMd from "../src/runtime/server/routes/index-md";
 
@@ -19,8 +20,15 @@ function handler() {
   return toWebHandler(app);
 }
 
-const get = (path: string, accept: string) =>
-  handler()(new Request(`http://localhost${path}`, { headers: { accept } }));
+const request = (path: string, accept: string | null) =>
+  handler()(
+    new Request(`http://localhost${path}`, {
+      headers: accept === null ? {} : { accept },
+      redirect: "manual",
+    }),
+  );
+
+const TARGETS = { markdown: "/index.md", plain: "/llms.txt" } as const;
 
 describe("content negotiation middleware + /index.md route", () => {
   beforeEach(() => {
@@ -29,29 +37,46 @@ describe("content negotiation middleware + /index.md route", () => {
     mockFs.readFileSync.mockReturnValue("# Example\n\n> Index\n" as never);
   });
 
-  it("redirects Accept: text/markdown at / to /index.md with Vary: Accept", async () => {
-    const res = await get("/", "text/markdown");
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/index.md");
-    expect(res.headers.get("vary")).toBe("Accept");
-  });
-
   it("serves /index.md as text/markdown with the llms.txt content", async () => {
-    const res = await get("/index.md", "text/markdown");
+    const res = await request("/index.md", "text/markdown");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(await res.text()).toBe("# Example\n\n> Index\n");
   });
 
-  it("still sends Accept: text/plain at / to /llms.txt", async () => {
-    const res = await get("/", "text/plain");
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/llms.txt");
+  it("appends to an existing Vary instead of replacing it", async () => {
+    const app = createApp();
+    app.use(
+      defineEventHandler((event) => {
+        event.node.res.setHeader("Vary", "Cookie");
+      }),
+    );
+    app.use(contentNegotiation);
+    app.use(() => "<html></html>");
+    const res = await toWebHandler(app)(new Request("http://localhost/"));
+    const vary = (res.headers.get("vary") ?? "").split(/,\s*/);
+    expect(vary).toContain("Cookie");
+    expect(vary).toContain("Accept");
   });
 
-  it("leaves browsers on the HTML homepage", async () => {
-    const res = await get("/", "text/html");
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("<html>");
+  describe("Accept negotiation (NU-4)", () => {
+    for (const c of ACCEPT_CASES) {
+      it(`${c.name} -> ${c.branch}`, async () => {
+        const res = await request(c.path, c.accept);
+        if (c.branch === "untouched") {
+          expect(res.status).toBe(200);
+          expect(res.headers.get("vary")).toBeNull();
+          return;
+        }
+        expect(res.headers.get("vary") ?? "").toMatch(/(^|,\s*)Accept(\s*,|$)/i);
+        if (c.branch === "html") {
+          expect(res.status).toBe(200);
+          expect(await res.text()).toContain("<html>");
+          return;
+        }
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe(TARGETS[c.branch]);
+      });
+    }
   });
 });

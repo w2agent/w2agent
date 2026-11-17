@@ -26,7 +26,8 @@ function homeVariant(accept: string | null): HomeVariant {
     let best = 0;
     let bestQ = 0;
     for (const range of ranges) {
-      const rank = range.type === type ? 3 : range.type === wildcard ? 2 : range.type === "*/*" ? 1 : 0;
+      const rank =
+        range.type === type ? 3 : range.type === wildcard ? 2 : range.type === "*/*" ? 1 : 0;
       if (rank > best || (rank > 0 && rank === best && range.q > bestQ)) {
         best = rank;
         bestQ = range.q;

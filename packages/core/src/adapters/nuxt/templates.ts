@@ -1,4 +1,5 @@
 import type { GeneratedFile } from "../../generate/types.js";
+import { HOME_VARIANT_SOURCE } from "../shared/accept-negotiation.js";
 
 export function generateNuxtIntegration(
   llmsTxtContent: string,
@@ -81,21 +82,20 @@ export default defineCachedEventHandler(
 );
 `;
 
-  const contentNegotiationMiddleware = `import { defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader } from "h3";
+  const contentNegotiationMiddleware = `import { appendResponseHeader, defineEventHandler, getRequestHeader, sendRedirect } from "h3";
+
+${HOME_VARIANT_SOURCE}
 
 export default defineEventHandler((event) => {
-  const url = event.path;
-  const accept = getRequestHeader(event, "accept") || "";
+  // event.path includes the query string; negotiate on the pathname only
+  if (event.path.split("?")[0] !== "/") return;
 
-  // Content negotiation: AI agents requesting markdown at root get /index.md, plain text gets llms.txt
-  if (url === "/" && accept.includes("text/markdown")) {
-    // The redirect depends on Accept — caches must not send browsers to markdown
-    setResponseHeader(event, "Vary", "Accept");
-    return sendRedirect(event, "/index.md", 302);
-  }
-  if (url === "/" && accept.includes("text/plain")) {
-    return sendRedirect(event, "/llms.txt", 302);
-  }
+  // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
+  const variant = homeVariant(getRequestHeader(event, "accept") ?? null);
+  // "/" depends on Accept in every branch: caches must not mix the variants
+  appendResponseHeader(event, "Vary", "Accept");
+  if (variant === "markdown") return sendRedirect(event, "/index.md", 302);
+  if (variant === "plain") return sendRedirect(event, "/llms.txt", 302);
 });
 `;
 
@@ -229,7 +229,7 @@ your-nuxt-app/
 
 1. **Nitro handlers** serve content with 1hr cache + stale-while-revalidate
 2. **Build script** regenerates \`public/\` files before each build via \`npx --no -- w2agent generate\`
-3. **Middleware** redirects \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (302 with \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
+3. **Middleware** redirects \`/\` (with \`Vary: Accept\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page
 4. **Fallback** — if static files are missing, handlers generate minimal content
 
 ## Regenerating

@@ -47,7 +47,7 @@ npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint ht
 | `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json`; 404 when absent |
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
 
-Content-negotiation middleware is also added: at `/`, `Accept: text/markdown` is redirected to `/index.md` (with `Vary: Accept`) and `Accept: text/plain` to `/llms.txt`.
+Content-negotiation middleware is also added: `/` (with `Vary: Accept`) redirects to `/index.md` when the request lists `text/markdown` at equal or higher q than `text/html`, and to `/llms.txt` when it lists `text/plain` at strictly higher q; browsers, `*/*` and `application/json, text/plain, */*` keep the HTML page.
 
 ## Environment variables
 

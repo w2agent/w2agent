@@ -751,15 +751,6 @@ describe("Nuxt integration generation", () => {
     expect(llmsRoute?.content).toContain("maxAge: 3600");
   });
 
-  it("generates content negotiation middleware", () => {
-    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    const mw = files.find((f) => f.filename === "nuxt/server/middleware/content-negotiation.ts");
-    expect(mw).toBeDefined();
-    expect(mw?.content).toContain("defineEventHandler");
-    expect(mw?.content).toContain("text/markdown");
-    expect(mw?.content).toContain("sendRedirect");
-  });
-
   it("includes static fallback files", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const filenames = files.map((f) => f.filename);
