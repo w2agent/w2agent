@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,16 @@ interface Run {
 }
 
 function run(args: string[], cwd: string, home: string): Promise<Run> {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
+  return runWith(args, cwd, home, {});
+}
+
+function runWith(
+  args: string[],
+  cwd: string,
+  home: string,
+  extraEnv: Record<string, string>,
+): Promise<Run> {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv };
   for (const name of ["AI_AGENT", "CLAUDECODE", "CODEX_CI"]) delete env[name];
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
@@ -270,9 +279,62 @@ describe("secret values never reach stdout or stderr", () => {
             expect(doc.error.reason).toBe("invalid_argument");
           } else {
             expect(r.stderr).toMatch(/took a secret flag|too many arguments/);
+            if (r.stderr.includes("took a secret flag")) {
+              expect(r.stderr).toContain(
+                "took a secret flag (--api-key/--token) as its value. Give",
+              );
+            }
           }
         });
       }
     }
+  });
+
+  it("prints the exact refusal text in human and JSON mode", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "w2agent-redact-fresh-"));
+    const args = [
+      "integrate",
+      "http://127.0.0.1:1",
+      "--platform",
+      "nextjs",
+      "--output",
+      "--token=CANARYxyz123",
+    ];
+    const human = await run(args, dir, home);
+    expect(human.stderr.trim()).toBe(
+      "error: --output took a secret flag (--api-key/--token) as its value. Give --output a value.",
+    );
+    const json = await run([...args, "--json"], dir, home);
+    const doc = JSON.parse(json.stdout) as { error: { message: string } };
+    expect(doc.error.message).toBe(
+      "--output took a secret flag (--api-key/--token) as its value. Give --output a value.",
+    );
+  });
+
+  it("redacts a secret that audit --json reports as the URL", async () => {
+    const loader = join(tmpdir(), "w2agent-redact-fetch-stub.mjs");
+    writeFileSync(
+      loader,
+      'globalThis.fetch = async () => new Response("<h1>x</h1>", { headers: { "content-type": "text/html" } });\n',
+    );
+    const dir = mkdtempSync(join(tmpdir(), "w2agent-redact-fresh-"));
+    const r = await runWith(
+      [
+        "audit",
+        "http://127.0.0.1/CANARY123",
+        "--depth",
+        "1",
+        "-o",
+        "--api-key=CANARY123",
+        "-o",
+        "",
+        "--json",
+      ],
+      dir,
+      home,
+      { NODE_OPTIONS: `--import ${loader}` },
+    );
+    expect(r.stdout).not.toContain("CANARY123");
+    expect((JSON.parse(r.stdout) as { url: string }).url).toBe("http://127.0.0.1/<api-key>");
   });
 });

@@ -65,7 +65,7 @@ program.hook("preAction", (_program, actionCommand) => {
     );
     if (swallowed) {
       actionCommand.error(
-        `error: ${option.long ?? option.flags} took a secret flag (--api-key or --token) as its value. Give ${option.long ?? option.flags} a value.`,
+        `error: ${option.long ?? option.flags} took a secret flag (--api-key/--token) as its value. Give ${option.long ?? option.flags} a value.`,
         { exitCode: EXIT.usage, code: "w2agent.secretFlagAsValue" },
       );
     }

@@ -255,10 +255,19 @@ export function enterJsonMode(target: ConsoleLike = console): JsonMode {
   chalk.level = 0;
   return {
     emit(doc) {
-      const text =
-        typeof doc === "string"
-          ? doc
-          : JSON.stringify(redactDocument(doc, apiKeyValues(currentArgv())), null, 2);
+      const secrets = apiKeyValues(currentArgv());
+      let text: string;
+      if (typeof doc !== "string") {
+        text = JSON.stringify(redactDocument(doc, secrets), null, 2);
+      } else if (secrets.length === 0) {
+        text = doc;
+      } else {
+        try {
+          text = JSON.stringify(redactDocument(JSON.parse(doc) as unknown, secrets), null, 2);
+        } catch {
+          text = redactMessage(doc, secrets);
+        }
+      }
       return new Promise((resolve) => {
         process.stdout.write(`${text}\n`, () => resolve());
       });
