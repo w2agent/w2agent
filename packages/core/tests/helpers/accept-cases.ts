@@ -78,5 +78,11 @@ export const ACCEPT_CASES: AcceptCase[] = [
     path: "/",
     branch: "markdown",
   },
+  {
+    name: "semicolon-and-q inside a quoted parameter is not a q",
+    accept: 'text/markdown;q=0.5;p="x;q=1", text/html;q=0.8',
+    path: "/",
+    branch: "html",
+  },
   { name: "text/markdown on /about", accept: "text/markdown", path: "/about", branch: "untouched" },
 ];
