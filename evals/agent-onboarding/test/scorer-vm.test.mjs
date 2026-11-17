@@ -465,3 +465,42 @@ test("the agent-VM-still-up message names one VM, not --cleanup", async () => {
     return true;
   });
 });
+
+test("redact is linear on pathological input", async () => {
+  const { redact } = await import("../credentials.mjs");
+  for (const s of [
+    "eyJ".repeat(400000),
+    `eyJ${"a".repeat(1e6)}.`,
+    `sk-ant-${"a".repeat(1e6)}`,
+    `sk-ant-${"sk-ant-".repeat(150000)}`,
+  ]) {
+    const t0 = Date.now();
+    redact(s, []);
+    assert.ok(Date.now() - t0 < 1000, `${s.slice(0, 12)} took ${Date.now() - t0} ms`);
+  }
+});
+
+test("JWT shapes are redacted after common delimiters and at line start", async () => {
+  const { redact } = await import("../credentials.mjs");
+  for (const pre of ['"', " ", "=", ":", ""]) {
+    const r = redact(`${pre}${JWT}`, []);
+    assert.equal(r.count, 1, JSON.stringify(pre));
+    assert.ok(!r.text.includes(JWT));
+  }
+  assert.equal(redact(`k=${ROTATED}`, []).count, 1);
+});
+
+test("a token straddling the error-tail clip leaves no fragment", async () => {
+  const long = `eyJ${"A".repeat(2000)}.${"B".repeat(2000)}.${"C".repeat(2000)}`;
+  const r = rig({ guestExit: (argv) => (argv.includes("--in-sandbox") ? 2 : 0) });
+  const orig = r.deps.spawner;
+  r.deps.spawner = (c, a) => {
+    const ch = orig(c, a);
+    if (a.includes("--in-sandbox")) ch.stderr.write(`x ${long}${"tail".repeat(100)}`);
+    return ch;
+  };
+  await assert.rejects(main(["--run", r.runDir], r.deps), (err) => {
+    assert.ok(!/[ABC]{16}/.test(err.message), "no token fragment");
+    return true;
+  });
+});

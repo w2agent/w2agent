@@ -139,8 +139,8 @@ export function secretValues(staged) {
 }
 
 const SECRET_PATTERNS = [
-  /sk-ant-[A-Za-z0-9_-]{20,}/g,
-  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+  /(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}/g,
+  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
 
 export function redact(text, secrets) {

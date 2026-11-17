@@ -22,6 +22,7 @@ const OUT_CAP = 20 * 1024 * 1024;
 const BUILD_SECONDS = 600;
 const DEADLINE_EXTRA_MS = 20 * 60_000;
 const TAIL_CHARS = 1500;
+const BUF_CHARS = 64 * 1024;
 const OUT_FILES = [
   { name: "result.json", required: true },
   { name: "summary.md", required: true },
@@ -241,13 +242,13 @@ export async function scoreInSandbox(opts, deps = {}) {
       active = child;
       let buf = "";
       const onData = (d) => {
-        buf = (buf + d).slice(-TAIL_CHARS * 4);
+        buf = (buf + d).slice(-BUF_CHARS);
       };
       child.stdout.on("data", onData);
       child.stderr.on("data", onData);
       waitForExit(child).then((r) => {
         active = null;
-        resolve({ ...r, tail: redact(clip(buf), []).text });
+        resolve({ ...r, tail: clip(redact(buf, []).text) });
       });
     });
   const mustGuest = async (what, argv, o) => {
