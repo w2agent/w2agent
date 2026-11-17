@@ -320,7 +320,7 @@ w2agent login [options]
 w2agent schema      以 JSON 输出所有命令和选项
 ```
 
-退出码：0 成功，1 运行错误（包括 `--ci` 低于阈值），2 用法错误。`--json` 约定见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
+`audit`、`integrate`、`login` 和 `schema` 的退出码：0 成功，1 运行错误（包括 `--ci` 低于阈值），2 用法错误。`--json` 约定见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
 
 ```
 w2agent agent deploy <url> [options]

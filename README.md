@@ -326,7 +326,7 @@ Options:
 w2agent schema      Print all commands and options as JSON
 ```
 
-Exit codes: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
+Exit codes for `audit`, `integrate`, `login` and `schema`: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
 
 ```
 w2agent agent deploy <url> [options]

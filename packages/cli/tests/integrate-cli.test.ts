@@ -191,7 +191,7 @@ describe("built CLI: integrate agent mode", () => {
     expect(r.code).toBe(0);
     const doc = JSON.parse(r.stdout);
     expect(doc.outcome).toBe("installed");
-    expect(doc.next).toEqual([["w2agent", "audit", "https://acme.example", "--json"]]);
+    expect(doc.next).toEqual([["w2agent", "audit", nextOrigin, "--json"]]);
     const installed = files(project).filter((p) => !p.endsWith("package.json"));
     expect(installed.length).toBeGreaterThan(0);
     const host = nextOrigin.replace("http://", "");
@@ -246,9 +246,123 @@ describe("built CLI: integrate agent mode", () => {
     const cwd = tmp("cwd");
     const out = join(tmp("out"), "gen");
     const r = await run(["integrate", plainOrigin, "--dry-run", "--output", out], cwd);
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(1);
     expect(existsSync(out)).toBe(false);
     expect(readdirSync(cwd)).toEqual([]);
+  });
+
+  it("no platform detected in human mode exits 1 like --json and says core files were written", async () => {
+    const out = join(tmp("out"), "gen");
+    const r = await run(["integrate", plainOrigin, "--output", out], tmp("cwd"));
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("exit code is 1");
+    expect(existsSync(join(out, "llms.txt"))).toBe(true);
+  });
+
+  it("flags go before a -- terminator in dry-run and no-platform next", async () => {
+    const project = projectDir();
+    const dry = await run(
+      ["integrate", "--dry-run", "--json", "--project-dir", project, "--", nextOrigin],
+      tmp("cwd"),
+    );
+    expect(dry.code).toBe(0);
+    const next = JSON.parse(dry.stdout).next[0] as string[];
+    expect(next.slice(-2)).toEqual(["--", nextOrigin]);
+    expect(next).toContain("--install");
+    expect(next.indexOf("--install")).toBeLessThan(next.indexOf("--"));
+
+    const none = await run(["integrate", "--json", "--", plainOrigin], tmp("cwd"));
+    expect(none.code).toBe(1);
+    for (const n of JSON.parse(none.stdout).error.next as string[][]) {
+      expect(n.slice(-2)).toEqual(["--", plainOrigin]);
+      expect(n[n.length - 4]).toBe("--platform");
+    }
+  });
+
+  it("the dry-run next applies, and the install next re-audits the crawl URL with --timeout/--allow-host", async () => {
+    const project = projectDir();
+    const dry = await run(
+      [
+        "integrate",
+        nextOrigin,
+        "--dry-run",
+        "--json",
+        "--project-dir",
+        project,
+        "--timeout",
+        "8000",
+        "--allow-host",
+        "cdn.example",
+        "--site-url",
+        "https://acme.example",
+      ],
+      tmp("cwd"),
+    );
+    const apply = JSON.parse(dry.stdout).next[0] as string[];
+    expect(apply[0]).toBe("w2agent");
+    const installed = await run(apply.slice(1), tmp("cwd"));
+    expect(installed.code).toBe(0);
+    const doc = JSON.parse(installed.stdout);
+    expect(doc.outcome).toBe("installed");
+    expect(doc.next).toEqual([
+      [
+        "w2agent",
+        "audit",
+        nextOrigin,
+        "--json",
+        "--timeout",
+        "8000",
+        "--allow-host",
+        "cdn.example",
+      ],
+    ]);
+    const audit = await run(doc.next[0].slice(1), tmp("cwd"));
+    expect(audit.code).toBe(0);
+    expect(() => JSON.parse(audit.stdout)).not.toThrow();
+  }, 120_000);
+
+  it("a forced platform with no readable pages still scaffolds, with a warning, in both modes", async () => {
+    const dead = createServer();
+    await new Promise<void>((r) => dead.listen(0, "127.0.0.1", r));
+    const port = (dead.address() as { port: number }).port;
+    await new Promise<void>((r) => dead.close(() => r()));
+    const origin = `http://127.0.0.1:${port}`;
+    const project = projectDir();
+    const j = await run(
+      [
+        "integrate",
+        origin,
+        "--dry-run",
+        "--platform",
+        "nextjs",
+        "--json",
+        "--project-dir",
+        project,
+        "--timeout",
+        "3000",
+      ],
+      tmp("cwd"),
+    );
+    expect(j.code).toBe(0);
+    const doc = JSON.parse(j.stdout);
+    expect(doc.outcome).toBe("planned");
+    expect(doc.warnings.join("\n")).toContain("No readable pages");
+    const h = await run(
+      [
+        "integrate",
+        origin,
+        "--dry-run",
+        "--platform",
+        "nextjs",
+        "--project-dir",
+        project,
+        "--timeout",
+        "3000",
+      ],
+      tmp("cwd"),
+    );
+    expect(h.code).toBe(0);
+    expect(h.stderr).toContain("No readable pages");
   });
 
   it("unknown platform: exit 2 invalid_argument before any request", async () => {
@@ -354,8 +468,6 @@ describe("built CLI: integrate agent mode", () => {
             "integrate",
             origin,
             "--install",
-            "--platform",
-            "nextjs",
             "--project-dir",
             project,
             "--timeout",

@@ -356,6 +356,26 @@ describe("built CLI agent mode", () => {
     expect(r.stderr).toContain("--api-key");
   });
 
+  it("login --api-key= (empty) is a usage error, not the browser path", async () => {
+    const r = await run(["login", "--api-key=", "--json"], { CLAUDECODE: "1" });
+    expect(r.code).toBe(2);
+    expect(parseEnvelope(r.stdout).error.reason).toBe("invalid_argument");
+  });
+
+  it("login --api-key with an unwritable config dir: unknown_failure envelope, exit 1", async () => {
+    const blocked = join(mkdtempSync(join(tmpdir(), "w2agent-cli-blocked-")), "file");
+    writeFileSync(blocked, "x");
+    const r = await run(["login", "--api-key", "w2a_testkey", "--json"], {}, { home: blocked });
+    expect(r.code).toBe(1);
+    const env = parseEnvelope(r.stdout);
+    expect(env.error.reason).toBe("unknown_failure");
+    expect(r.stdout).not.toContain("w2a_testkey");
+    const h = await run(["login", "--api-key", "w2a_testkey"], {}, { home: blocked });
+    expect(h.code).toBe(1);
+    expect(h.stdout).toBe("");
+    expect(h.stderr).toContain("Could not save credentials");
+  });
+
   it("login --api-key stays on the key path even under an agent env", async () => {
     const r = await run(["login", "--api-key", "w2a_testkey", "--json"], { CLAUDECODE: "1" });
     expect(r.code).toBe(0);

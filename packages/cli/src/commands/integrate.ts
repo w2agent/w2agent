@@ -18,8 +18,10 @@ import {
   currentArgv,
   enterJsonMode,
   failWith,
+  insertFlags,
   type JsonMode,
   jsonRequested,
+  REASONS,
   type Reason,
   reasonOfError,
   sanitizeNext,
@@ -95,7 +97,7 @@ export function registerIntegrateCommand(program: Command): void {
       "Production URL to put in generated content when crawling another origin (e.g. localhost)",
     )
     .option("--json", "Print one JSON document on stdout (the result, or an error envelope)")
-    .action(async (url: string, opts) => {
+    .action(async (url: string, opts, command: Command) => {
       const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
       const argv = currentArgv();
       const fail = async (
@@ -197,10 +199,19 @@ export function registerIntegrateCommand(program: Command): void {
 
         spinner?.stop();
 
+        const warnings: string[] = [];
+
         // The crawler reports an unusable site as zero pages rather than throwing.
+        // With a forced platform the scaffolding is still useful, so go on and say why it is empty.
         if (result.pagesProcessed === 0) {
-          await fail(await classifyEmptyCrawl(url, timeout));
-          return;
+          const empty = await classifyEmptyCrawl(url, timeout);
+          if (!forcedPlatform) {
+            await fail(empty);
+            return;
+          }
+          const warning = `No readable pages were found at ${url}; generated files are scaffolding only. ${empty.message}`;
+          warnings.push(warning);
+          if (!json) console.error(chalk.yellow(`  ! ${warning}`));
         }
 
         if (!opts.a2aEndpoint) {
@@ -219,7 +230,7 @@ export function registerIntegrateCommand(program: Command): void {
             await fail({
               reason: "no_platform_detected",
               message: "Could not auto-detect the platform. Pass --platform.",
-              next: VALID_PLATFORMS.map((id) => [...argv, "--platform", id]),
+              next: VALID_PLATFORMS.map((id) => insertFlags(argv, ["--platform", id])),
             });
             return;
           }
@@ -232,11 +243,16 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform shopify`)}`);
           console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform docusaurus`)}`);
           console.log("");
+          process.exitCode = REASONS.no_platform_detected.exitCode;
           if (opts.dryRun) {
             console.log(chalk.gray("  Dry run: nothing was written."));
             return;
           }
-          console.log(chalk.gray("  Core files were still generated in the output directory."));
+          console.log(
+            chalk.gray(
+              "  Core files were still generated in the output directory, but the exit code is 1: no platform was detected.",
+            ),
+          );
 
           const outputDir = resolve(opts.output);
           const siteFiles = siteOrigin ? rewriteOrigin(result.files, url, siteOrigin) : undefined;
@@ -281,7 +297,6 @@ export function registerIntegrateCommand(program: Command): void {
           result.files.push(...generated);
         }
 
-        const warnings: string[] = [];
         if (siteOrigin) {
           const rewritten = rewriteOrigin(result.files, url, siteOrigin);
           result.files = rewritten.files;
@@ -330,7 +345,7 @@ export function registerIntegrateCommand(program: Command): void {
                 changes,
                 warnings: [...plan.warnings, ...warnings],
                 postInstallSteps: plan.postInstallSteps,
-                next: sanitizeNext([["w2agent", "audit", siteOrigin ?? url, "--json"]], argv),
+                next: sanitizeNext([reauditArgv(url, opts, command)], argv),
               });
               return;
             }
@@ -415,6 +430,17 @@ export function registerIntegrateCommand(program: Command): void {
         }
       }
     });
+}
+
+/** Audits the crawled URL (not --site-url): run it after the postInstallSteps and a restart of the local server. */
+function reauditArgv(url: string, opts: Record<string, unknown>, command: Command): string[] {
+  const argv = ["w2agent", "audit", url, "--json"];
+  if (command.getOptionValueSource("timeout") === "cli")
+    argv.push("--timeout", String(opts.timeout));
+  if (Array.isArray(opts.allowHost)) {
+    for (const host of opts.allowHost) argv.push("--allow-host", String(host));
+  }
+  return argv;
 }
 
 async function classifyEmptyCrawl(

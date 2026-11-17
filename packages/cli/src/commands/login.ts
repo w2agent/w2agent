@@ -49,7 +49,7 @@ export function registerLoginCommand(program: Command): void {
       const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
 
       // --api-key path
-      if (opts.apiKey) {
+      if (opts.apiKey !== undefined) {
         const key = opts.apiKey;
         if (!key.startsWith("w2a_") || key.length <= 4) {
           await failWith(
@@ -63,7 +63,15 @@ export function registerLoginCommand(program: Command): void {
           );
           return;
         }
-        saveCredentials(key);
+        try {
+          saveCredentials(key);
+        } catch (err) {
+          await failWith(json, {
+            reason: "unknown_failure",
+            message: `Could not save credentials: ${(err as Error).message}`,
+          });
+          return;
+        }
         if (json) await json.emit({ ok: true, outcome: "authenticated" });
         else console.log(chalk.green("✓ API key saved successfully."));
         return;
@@ -138,6 +146,10 @@ export function runBrowserLogin(deps: BrowserLoginDeps = {}): Promise<void> {
     const abort = (reason: "unknown_failure" | "timeout", message: string): void => {
       if (settled) return;
       settled = true;
+      fail(reason, message);
+    };
+
+    const fail = (reason: "unknown_failure" | "timeout", message: string): void => {
       clearTimeout(timer);
       spinner?.stop();
       finishServer();
@@ -193,10 +205,18 @@ export function runBrowserLogin(deps: BrowserLoginDeps = {}): Promise<void> {
       settled = true;
       clearTimeout(timer);
 
+      try {
+        saveCredentials(token, email);
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "text/plain", Connection: "close" });
+        res.end("Could not save credentials.", () =>
+          fail("unknown_failure", `Could not save credentials: ${(err as Error).message}`),
+        );
+        return;
+      }
+
       res.writeHead(200, { "Content-Type": "text/html", Connection: "close" });
       res.end(SUCCESS_HTML, () => finishServer());
-
-      saveCredentials(token, email);
       spinner?.stop();
       if (json) {
         void json.emit({ ok: true, outcome: "authenticated" }).then(resolve);

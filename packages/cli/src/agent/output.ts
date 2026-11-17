@@ -74,10 +74,29 @@ export function redactArgv(argv: readonly string[]): string[] {
   return out;
 }
 
-export function redactMessage(message: string): string {
-  return message
+export function apiKeyValues(argv: readonly string[]): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--api-key" && i + 1 < argv.length) values.push(argv[i + 1]);
+    else if (arg.startsWith("--api-key=")) values.push(arg.slice("--api-key=".length));
+  }
+  // Shorter values would also match ordinary words in a message.
+  return values.filter((v) => v.length >= 5).sort((a, b) => b.length - a.length);
+}
+
+export function redactMessage(message: string, secrets: readonly string[] = []): string {
+  let text = message;
+  for (const secret of secrets) text = text.split(secret).join(API_KEY_PLACEHOLDER);
+  return text
     .replace(/--api-key([= ])\S+/g, `--api-key$1${API_KEY_PLACEHOLDER}`)
     .replace(/w2a_[A-Za-z0-9_-]+/g, API_KEY_PLACEHOLDER);
+}
+
+/** Adds flags to an argv, ahead of a `--` terminator when there is one. */
+export function insertFlags(argv: readonly string[], flags: readonly string[]): string[] {
+  const end = argv.indexOf("--");
+  return end === -1 ? [...argv, ...flags] : [...argv.slice(0, end), ...flags, ...argv.slice(end)];
 }
 
 export function sanitizeNext(
@@ -116,7 +135,7 @@ export function buildErrorEnvelope(
     ok: false,
     error: {
       reason: failure.reason,
-      message: redactMessage(failure.message),
+      message: redactMessage(failure.message, apiKeyValues(failingArgv)),
       userActionRequired: info.userActionRequired,
       retryable: info.retryable,
       next: sanitizeNext(failure.next ?? [], failingArgv),

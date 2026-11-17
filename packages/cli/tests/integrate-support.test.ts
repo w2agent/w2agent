@@ -53,6 +53,26 @@ describe("applyArgv / dryRunArgv", () => {
     );
   });
 
+  it("keeps a -- terminator last and does not treat what follows as flags", () => {
+    expect(
+      applyArgv(["w2agent", "integrate", "--dry-run", "--json", "--", "http://127.0.0.1"]),
+    ).toEqual(["w2agent", "integrate", "--install", "--json", "--", "http://127.0.0.1"]);
+    expect(applyArgv(["w2agent", "integrate", "--", "--dry-run"])).toEqual([
+      "w2agent",
+      "integrate",
+      "--",
+      "--dry-run",
+    ]);
+    expect(dryRunArgv(["w2agent", "integrate", "--json", "--", "u"])).toEqual([
+      "w2agent",
+      "integrate",
+      "--json",
+      "--dry-run",
+      "--",
+      "u",
+    ]);
+  });
+
   it("does not duplicate --install", () => {
     expect(applyArgv(["w2agent", "integrate", "u", "--install", "--dry-run"])).toEqual([
       "w2agent",
@@ -108,21 +128,49 @@ describe("rewriteOrigin", () => {
     expect(files[0].content).toContain("mylocalhost:3000 and 127.0.0.10 and localhost.evil.com");
   });
 
-  it("rewrites the bare crawl hostname and host:port, with boundaries", () => {
+  it("rewrites the bare crawl hostname only where it is the whole value", () => {
+    const content = [
+      "# 127.0.0.1",
+      "127.0.0.1",
+      '{"name": "127.0.0.1", "slug": "127-0-0-1"}',
+      "host 127.0.0.1:3000 ip 127.0.0.10",
+    ].join("\n");
+    const { files } = rewriteOrigin([file("a", content)], "http://127.0.0.1:3000", site);
+    expect(files[0].content).toBe(
+      [
+        "# acme.example",
+        "acme.example",
+        '{"name": "acme.example", "slug": "127-0-0-1"}',
+        "host acme.example ip 127.0.0.10",
+      ].join("\n"),
+    );
+  });
+
+  it("leaves bare hostnames in prose alone and warns about them", () => {
     const { files, warnings } = rewriteOrigin(
       [
-        file(
-          "a",
-          "# 127.0.0.1\nhost 127.0.0.1:3000 ip 127.0.0.10 and 127.0.0.1.evil.com and x127.0.0.1",
-        ),
+        file("a.md", "Open localhost in your browser.\n# localhost Agent Skill\n[localhost](x)"),
+        file("b.md", "# localhost\n"),
       ],
-      "http://127.0.0.1:3000",
+      "http://localhost:3000",
       site,
     );
     expect(files[0].content).toBe(
-      "# acme.example\nhost acme.example ip 127.0.0.10 and 127.0.0.1.evil.com and x127.0.0.1",
+      "Open localhost in your browser.\n# localhost Agent Skill\n[localhost](x)",
     );
-    expect(warnings).toEqual([]);
+    expect(files[1].content).toBe("# acme.example\n");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("a.md");
+    expect(warnings[0]).not.toContain("b.md");
+  });
+
+  it("keeps hostname-only boundaries for heading and JSON-value rewrites", () => {
+    const { files } = rewriteOrigin(
+      [file("a", '# 127.0.0.10\n"127.0.0.1.evil.com"\n# x127.0.0.1\n"127.0.0.10"')],
+      "http://127.0.0.1:3000",
+      site,
+    );
+    expect(files[0].content).toBe('# 127.0.0.10\n"127.0.0.1.evil.com"\n# x127.0.0.1\n"127.0.0.10"');
   });
 
   it("warns when the bare crawl hostname remains with another port", () => {
@@ -225,14 +273,14 @@ describe("rewriteOrigin", () => {
     expect(warnings).toEqual([]);
   });
 
-  it("rewrites a bare default-port crawl host", () => {
+  it("warns for a bare default-port crawl host used in prose, rewrites it as a heading", () => {
     const { files, warnings } = rewriteOrigin(
-      [file("a", "mail me at user@staging.acme-dev.test\nhost staging.acme-dev.test")],
+      [file("a", "mail me at user@staging.acme-dev.test\n# staging.acme-dev.test")],
       "http://staging.acme-dev.test",
       site,
     );
-    expect(files[0].content).toBe("mail me at user@acme.example\nhost acme.example");
-    expect(warnings).toEqual([]);
+    expect(files[0].content).toBe("mail me at user@staging.acme-dev.test\n# acme.example");
+    expect(warnings).toHaveLength(1);
   });
 
   it("is a no-op when the origins are equal and skips the residue check for the same host", () => {

@@ -5,6 +5,7 @@ import {
   buildErrorEnvelope,
   EXIT,
   enterJsonMode,
+  insertFlags,
   isReason,
   loginRequiresApiKey,
   REASONS,
@@ -152,7 +153,64 @@ describe("next rules", () => {
   });
 });
 
+describe("terminator placement", () => {
+  it("inserts flags before -- and appends without one", () => {
+    expect(insertFlags(["w2agent", "integrate", "--", "u"], ["--platform", "nextjs"])).toEqual([
+      "w2agent",
+      "integrate",
+      "--platform",
+      "nextjs",
+      "--",
+      "u",
+    ]);
+    expect(insertFlags(["w2agent", "integrate", "u"], ["--platform", "nextjs"])).toEqual([
+      "w2agent",
+      "integrate",
+      "u",
+      "--platform",
+      "nextjs",
+    ]);
+  });
+
+  it("puts a doubled --timeout before --, and leaves an option after -- alone", () => {
+    expect(withLargerTimeout(["w2agent", "audit", "--json", "--", "u"], 2000)).toEqual([
+      "w2agent",
+      "audit",
+      "--json",
+      "--timeout",
+      "4000",
+      "--",
+      "u",
+    ]);
+    expect(withLargerTimeout(["w2agent", "audit", "--", "--timeout", "7"], 2000)).toEqual([
+      "w2agent",
+      "audit",
+      "--timeout",
+      "4000",
+      "--",
+      "--timeout",
+      "7",
+    ]);
+  });
+});
+
 describe("message redaction", () => {
+  it("redacts the literal --api-key value wherever it appears, including values with spaces", () => {
+    const env = buildErrorEnvelope(
+      {
+        reason: "unknown_failure",
+        message: "bad key my secret key here and again my secret key here",
+      },
+      ["w2agent", "login", "--api-key", "my secret key here"],
+    );
+    expect(env.error.message).toBe("bad key <api-key> and again <api-key>");
+    const eq = buildErrorEnvelope(
+      { reason: "unknown_failure", message: "got s3cret-value-1 twice: s3cret-value-1" },
+      ["w2agent", "login", "--api-key=s3cret-value-1"],
+    );
+    expect(eq.error.message).toBe("got <api-key> twice: <api-key>");
+  });
+
   it("redacts w2a_ tokens and --api-key values in the envelope message", () => {
     const env = buildErrorEnvelope(
       {

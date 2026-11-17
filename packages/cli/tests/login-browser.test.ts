@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -87,5 +87,39 @@ describe("runBrowserLogin", () => {
     expect(exit).toHaveBeenCalledWith(1);
     expect(docs).toHaveLength(1);
     expect(docs[0]).toMatchObject({ ok: false, error: { reason: "timeout" } });
+  });
+});
+
+describe("runBrowserLogin when credentials cannot be saved", () => {
+  it("reports an operational envelope instead of throwing", async () => {
+    const blocked = join(mkdtempSync(join(tmpdir(), "w2agent-browser-blocked-")), "file");
+    writeFileSync(blocked, "not a directory");
+    const savedHome = process.env.HOME;
+    process.env.HOME = blocked;
+    try {
+      const { mode, docs } = fakeJson();
+      const exit = vi.fn();
+      let status = 0;
+      await runBrowserLogin({
+        json: mode,
+        timeoutMs: 5000,
+        exit,
+        open: (authUrl) => {
+          const u = new URL(authUrl);
+          void fetch(
+            `http://127.0.0.1:${u.searchParams.get("port")}/callback?token=w2a_tok&state=${u.searchParams.get("state")}`,
+          ).then((r) => {
+            status = r.status;
+          });
+        },
+      });
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(docs).toHaveLength(1);
+      expect(docs[0]).toMatchObject({ ok: false, error: { reason: "unknown_failure" } });
+      await sleep(50);
+      expect(status).toBe(500);
+    } finally {
+      process.env.HOME = savedHome;
+    }
   });
 });

@@ -46,23 +46,29 @@ export function mapPlanChanges(plan: InstallPlan, projectDir: string): PlannedCh
 
 /** The command that applies a dry run: same argv with --dry-run swapped for --install. */
 export function applyArgv(argv: readonly string[]): string[] {
-  const hasInstall = argv.includes("--install");
+  const end = argv.indexOf("--");
+  const head = end === -1 ? argv : argv.slice(0, end);
+  const tail = end === -1 ? [] : argv.slice(end);
+  const hasInstall = head.includes("--install");
   const out: string[] = [];
-  for (const arg of argv) {
+  for (const arg of head) {
     if (arg === "--dry-run") {
       if (!hasInstall) out.push("--install");
     } else {
       out.push(arg);
     }
   }
-  return out;
+  return [...out, ...tail];
 }
 
 /** The dry-run form of a generate-to-directory command. */
 export function dryRunArgv(argv: readonly string[]): string[] {
+  const end = argv.indexOf("--");
+  const head = end === -1 ? argv : argv.slice(0, end);
+  const tail = end === -1 ? [] : argv.slice(end);
   const out: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
+  for (let i = 0; i < head.length; i++) {
+    const arg = head[i];
     if (arg === "-o" || arg === "--output") {
       i++;
     } else if (!arg.startsWith("--output=") && !(arg.startsWith("-o") && arg.length > 2)) {
@@ -70,7 +76,7 @@ export function dryRunArgv(argv: readonly string[]): string[] {
     }
   }
   if (!out.includes("--dry-run")) out.push("--dry-run");
-  return out;
+  return [...out, ...tail];
 }
 
 const DEFAULT_PORTS: Record<string, string> = { "http:": "80", "https:": "443" };
@@ -89,7 +95,7 @@ const AFTER_HOST_PORT = "(?![A-Za-z0-9_@-]|:\\d|\\.[A-Za-z0-9-])";
 
 interface Rule {
   re: RegExp;
-  replace: (match: string) => string;
+  replace: (match: string, ...groups: string[]) => string;
 }
 
 interface Authority {
@@ -136,21 +142,30 @@ function rulesFor(a: Authority, site: URL, includeBare: boolean): Rule[] {
     });
   }
   if (includeBare && a.hostname !== site.hostname) {
-    rules.push({
-      re: new RegExp(`(?<![A-Za-z0-9.-])${escapeRegExp(a.hostname)}${AFTER_HOST_PORT}`, "gi"),
-      replace: () => site.hostname,
-    });
+    const bare = escapeRegExp(a.hostname);
+    // Only a whole derived value: a line that is just the host (optionally a
+    // Markdown heading) or a quoted string that is just the host.
+    rules.push(
+      {
+        re: new RegExp(`^([ \\t]*(?:#{1,6}[ \\t]+)?)${bare}(?=[ \\t\\r]*$)`, "gim"),
+        replace: (_m, lead) => `${lead}${site.hostname}`,
+      },
+      { re: new RegExp(`(?<=")${bare}(?=")`, "gi"), replace: () => site.hostname },
+    );
   }
   return rules;
 }
 
 /**
- * Rewrites the crawl origin, `host:port` and the bare crawl hostname to the
- * site's in every file. Matches end at a real boundary: `localhost:3000` is not
- * found inside `localhost:30001`, `localhost:3000.evil.com`, `mylocalhost` or
- * `127.0.0.10`. When the crawl host is a loopback name, the other loopback
- * names on the same port are rewritten too. Anything left that still names the
- * crawl host is reported in `warnings`.
+ * Rewrites the crawl origin and `host:port` to the site's in every file. Matches
+ * end at a real boundary: `localhost:3000` is not found inside `localhost:30001`,
+ * `localhost:3000.evil.com`, `mylocalhost` or `127.0.0.10`. When the crawl host
+ * is a loopback name, the other loopback names on the same port are rewritten
+ * too. The bare crawl hostname is rewritten only where it is a whole derived
+ * value (core falls back to it as the site name): a line that is just the host
+ * or `# host`, and a string value that is exactly `"host"`. Prose that merely
+ * mentions it stays as written. Anything left that still names the crawl host
+ * is reported in `warnings`.
  */
 export function rewriteOrigin(
   files: GeneratedFile[],

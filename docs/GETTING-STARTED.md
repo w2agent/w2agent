@@ -101,7 +101,7 @@ w2agent login --api-key <key> [--json]   # Required when AI_AGENT, CLAUDECODE or
 w2agent schema           # Print every command and option as JSON
 ```
 
-Scripts and AI agents: `--json` on `audit`, `integrate` and `login` prints one JSON document on stdout. Exit codes are 0 (success), 1 (operational error), 2 (usage error). See [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md).
+Scripts and AI agents: `--json` on `audit`, `integrate` and `login` prints one JSON document on stdout. For `audit`, `integrate`, `login` and `schema`, exit codes are 0 (success), 1 (operational error), 2 (usage error). See [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md).
 
 ### `mcp` — Generate and deploy agent servers
 

@@ -95,11 +95,14 @@ export function parseNonNegativeInt(value: unknown): number | undefined {
 
 export function withLargerTimeout(argv: readonly string[], currentMs: number): string[] {
   const larger = String(currentMs * 2);
+  const end = argv.indexOf("--");
+  const head = end === -1 ? argv : argv.slice(0, end);
+  const tail = end === -1 ? [] : argv.slice(end);
   const out: string[] = [];
   let replaced = false;
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--timeout" && i + 1 < argv.length) {
+  for (let i = 0; i < head.length; i++) {
+    const arg = head[i];
+    if (arg === "--timeout" && i + 1 < head.length) {
       out.push(arg, larger);
       i++;
       replaced = true;
@@ -111,7 +114,7 @@ export function withLargerTimeout(argv: readonly string[], currentMs: number): s
     }
   }
   if (!replaced) out.push("--timeout", larger);
-  return out;
+  return [...out, ...tail];
 }
 
 function invalidArgument(opts: Record<string, unknown>): string | undefined {

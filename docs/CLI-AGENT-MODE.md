@@ -13,9 +13,11 @@ Use `--json` whenever a program, not a person, reads the output. Under `--json`:
 
 `--json` is detected from the raw arguments, so even a mistyped command gets an envelope instead of usage text.
 
+One exception: `--help` and `--version` print plain text even with `--json`, and exit 0.
+
 ## Exit codes
 
-The same codes apply with or without `--json`.
+These codes apply to `audit`, `integrate`, `login` and `schema`, with or without `--json`.
 
 | Code | Meaning |
 |------|---------|
@@ -86,7 +88,9 @@ w2agent integrate http://127.0.0.1:<port> --dry-run --json \
 }
 ```
 
-(Shortened. A real run lists every change.) After `--install`, `next` is `audit <site origin> --json`, so you can verify the result.
+(Shortened. A real run lists every change.) After `--install`, `next` is `audit <crawl url> --json`, carrying your `--timeout` and `--allow-host` when you gave them. It audits the crawled URL, not `--site-url`. Run it after the `postInstallSteps` and after you rebuild or restart the local server that serves the changes.
+
+If `--platform` is forced and the crawl found no readable pages, `integrate` still plans or writes the scaffolding. It adds a `warnings` entry that says no pages were readable and why. Without `--platform` the same crawl is an error (below).
 
 ### `login --json`
 
@@ -130,7 +134,7 @@ On failure, with `--json`, stdout holds:
 | `unknown_failure` | 1 | no | no | Read `message`. Includes a page that returned nothing readable. |
 | `invalid_url` | 2 | no | no | Fix the URL (also raised for a bad `--site-url`). |
 | `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
-| `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). |
+| `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode also exits 1 here, and in default output mode it still writes the core files to `--output` (`--dry-run` writes nothing). |
 | `not_a_project` | 1 | yes | no | `--project-dir` is missing or is not a project root for this platform. Pass the right `--project-dir`. |
 | `auth_required` | 1 | yes | no | Login needs an API key. See [login in agent environments](#login-in-agent-environments). |
 | `below_threshold` | 1 | no | no | `audit --ci --json` scored under `--threshold`. This is a result, not a crash: fix the site, then audit again. |
@@ -138,7 +142,8 @@ On failure, with `--json`, stdout holds:
 ### `next` rules
 
 - `next` never contains the command that just failed.
-- `next` never contains a secret. The value of `--api-key` (both `--api-key v` and `--api-key=v`) becomes the placeholder `<api-key>`. Replace it with a real key before you run the command.
+- `next` never contains a secret. The value of `--api-key` (both `--api-key v` and `--api-key=v`) becomes the placeholder `<api-key>`. Replace it with a real key before you run the command. The same value is also redacted wherever it appears in `message`.
+- When the command line has a `--` terminator, added flags go before it.
 
 ## Plan, apply, verify
 
@@ -147,7 +152,7 @@ On failure, with `--json`, stdout holds:
 1. Plan: `w2agent integrate <url> --dry-run --json --project-dir <dir>`. This never writes files.
 2. Show the user `changes`, `warnings` and `postInstallSteps`.
 3. Apply: run the argv in `next[0]`. It is the same command with `--install` and without `--dry-run`.
-4. Verify: run the argv in the `installed` document's `next` (`audit <site> --json`).
+4. Verify: after the `postInstallSteps` and a rebuild or restart of the local server, run the argv in the `installed` document's `next` (`audit <crawl url> --json`).
 
 ## `--site-url`: crawl one origin, write for another
 
@@ -158,17 +163,19 @@ w2agent integrate http://127.0.0.1:<port> --install --json \
   --site-url https://acme.example --project-dir ./my-app
 ```
 
-`--site-url` must be an absolute `http` or `https` origin without credentials. It rewrites:
+`--site-url` must be an absolute `http` or `https` URL without credentials. Only its origin is used (a path, query or fragment is dropped). It rewrites:
 
 - the crawl origin, in plain, JSON-escaped and percent-encoded form;
 - `host:port` forms of the crawl host;
 - loopback aliases (`localhost`, `127.0.0.1`, `[::1]`) on the same port.
 
-Any other mention of the crawl host, including the bare hostname, is not rewritten. Each one is reported in `warnings` (on stderr in human mode). A warning means generated content still names the crawl host. Check it by hand before you publish.
+The bare crawl hostname is rewritten only where it is a whole value that core derives from it (the site name): a line that is just the host or `# <host>`, and a string value that is exactly `"<host>"`. A mention in prose, such as "open localhost in your browser", is left as written.
+
+Every other mention of the crawl host is reported in `warnings` (on stderr in human mode). A warning means generated content still names the crawl host. Check it by hand before you publish.
 
 ## `w2agent schema`
 
-`w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It always exits 0.
+`w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It exits 0, or 2 on a usage error.
 
 ## Login in agent environments
 
@@ -183,4 +190,4 @@ Create an API key at [w2agent.dev](https://w2agent.dev), then run:
 w2agent login --api-key <key> --json
 ```
 
-A key that does not start with `w2a_` is rejected with `invalid_argument` (exit 2).
+A key that does not start with `w2a_`, or an empty one (`--api-key=`), is rejected with `invalid_argument` (exit 2). If the key or the browser token cannot be saved (for example an unwritable config directory), the result is `unknown_failure` with exit 1.
