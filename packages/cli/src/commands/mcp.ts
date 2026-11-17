@@ -3,13 +3,7 @@ import { dirname, resolve } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import {
-  type GenerateContext,
-  type GenerateOptions,
-  generateMcpServer,
-  runGenerate,
-  type SelfHostPlatform,
-} from "w2agent-core";
+import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "w2agent-core";
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program
@@ -49,6 +43,7 @@ export function registerMcpCommand(program: Command): void {
         maxPages: parseInt(opts.maxPages, 10),
         timeout: parseInt(opts.timeout, 10),
         formats: ["mcp-server"],
+        ...(selfHost ? { mcpSelfHost: selfHost } : {}),
         ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
       };
 
@@ -60,22 +55,16 @@ export function registerMcpCommand(program: Command): void {
           spinner.text = status;
         });
 
-        let mcpFiles = result.files.filter((f) => f.filename.startsWith("mcp-server/"));
-
-        // If self-host, re-generate with platform templates
-        if (selfHost) {
-          spinner.text = `Generating ${selfHost} template...`;
-          // Extract the ctx from the result - rebuild from generated data
-          const pagesFile = result.files.find((f) => f.filename === "mcp-server/data/pages.json");
-          const pages = pagesFile ? JSON.parse(pagesFile.content) : [];
-          const ctx: GenerateContext = {
-            pages,
-            rawPages: [],
-            metadata: { baseUrl: new URL(url).origin, wellKnown: {} },
-            baseUrl: new URL(url).origin,
-          };
-          mcpFiles = generateMcpServer(ctx, selfHost);
+        if (result.pagesProcessed === 0) {
+          spinner.fail(
+            result.pagesFetched === 0
+              ? `No pages could be crawled from ${url} (nothing written)`
+              : `No page at ${url} had extractable content (nothing written)`,
+          );
+          process.exit(1);
         }
+
+        const mcpFiles = result.files.filter((f) => f.filename.startsWith("mcp-server/"));
 
         spinner.stop();
 

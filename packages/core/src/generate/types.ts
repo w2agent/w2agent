@@ -1,4 +1,5 @@
 import type { AuditOptions, FetchedPage, SiteMetadata } from "../audit/types.js";
+import type { SelfHostPlatform } from "./mcp-server.js";
 
 export interface GenerateContext {
   pages: PageMarkdown[];
@@ -28,6 +29,8 @@ export interface GenerateOptions {
   a2aEndpoint?: string;
   /** Off-origin hosts allowed for generated-tool fetch targets. */
   allowedOffOriginHosts?: string[];
+  /** Emit the mcp-server format as a self-host project for this platform (default: standalone Express). */
+  mcpSelfHost?: SelfHostPlatform;
   /** Gate applied to every crawl fetch target and redirect hop (see AuditOptions). */
   isAllowedTarget?: AuditOptions["isAllowedTarget"];
   /** Append detected-platform integration files (nextjs/, nuxt/, ...) to the output. Default true. */

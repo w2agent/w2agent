@@ -57,6 +57,16 @@ export async function bootGenerated(
     artifacts.ecommerce,
     artifacts.localBusiness,
   );
+  return bootFiles(variant, files, root, hostMap);
+}
+
+// Write already-emitted files into root (host-mapped) and serve the variant.
+export async function bootFiles(
+  variant: Variant,
+  files: Array<{ filename: string; content: string }>,
+  root: string,
+  hostMap: Array<[string, string]>,
+): Promise<Booted> {
   for (const f of files) {
     const target = join(root, f.filename);
     mkdirSync(dirname(target), { recursive: true });

@@ -219,7 +219,12 @@ export async function runGenerate(
   // Generate MCP server
   if (options.formats.includes("mcp-server")) {
     onProgress?.("Generating MCP server...");
-    const mcpFiles = generateMcpServer(ctx, undefined, ecommerceArtifacts, localBusinessArtifacts);
+    const mcpFiles = generateMcpServer(
+      ctx,
+      options.mcpSelfHost,
+      ecommerceArtifacts,
+      localBusinessArtifacts,
+    );
     files.push(...mcpFiles);
   }
 

@@ -137,6 +137,14 @@ export function registerGenerateCommand(program: Command): void {
           process.exit(1);
         }
 
+        const requested = generateOptions.formats ?? [];
+        if (result.pagesProcessed === 0 && requested.some((f) => CONTENT_FORMATS.includes(f))) {
+          spinner.fail(
+            `No page at ${url} had extractable content${sections ? " (or matched --sections)" : ""} (nothing written)`,
+          );
+          process.exit(1);
+        }
+
         spinner.stop();
 
         if (result.pagesProcessed === 0) {
@@ -286,6 +294,16 @@ const ALL_FORMATS: GenerateFormat[] = [
   "agent-card",
   "faq",
   "webmcp",
+];
+
+const CONTENT_FORMATS: GenerateFormat[] = [
+  "llms-txt",
+  "full",
+  "markdown",
+  "agents-md",
+  "mcp-server",
+  "skill-md",
+  "openclaw",
 ];
 
 const OPT_IN_FORMATS: GenerateFormat[] = ["mcp-server", "skill-md", "openclaw", "agents-md"];

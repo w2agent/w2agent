@@ -129,6 +129,8 @@ w2agent agent status <slug>                    # Check hosted deployment
 w2agent agent update <slug>                    # Re-crawl hosted deployment
 ```
 
+The `--self-host` variants carry the same tools as the standalone server (FAQ, product and form tools, `--allow-host`). `agent deploy` exits 1 and writes nothing when no page can be crawled or no page has extractable content. `generate` does the same when a content format (`llms-txt`, `full`, `markdown`, `agents-md`, `mcp-server`, `skill-md`, `openclaw`) is requested and no page has extractable content, so an existing `llms.txt` is never overwritten by an empty stub.
+
 ### Platform Integration Files (auto-detected)
 
 When a platform is detected, additional integration files are generated (omitted with `--no-platform`):
