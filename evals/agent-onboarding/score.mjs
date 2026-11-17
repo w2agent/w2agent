@@ -79,16 +79,18 @@ function toText(content) {
 
 function parseLines(text) {
   const events = [];
+  const lineNos = [];
   let bad = 0;
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
+  text.split("\n").forEach((line, i) => {
+    if (!line.trim()) return;
     try {
       events.push(JSON.parse(line));
+      lineNos.push(i + 1);
     } catch {
       bad++;
     }
-  }
-  return { events, bad };
+  });
+  return { events, bad, lineNos };
 }
 
 // Returns { calls, cost, tokens, turns, badLines }.
@@ -368,6 +370,115 @@ function classify(t) {
 
 export function isInstallOfW2agentPackage(command) {
   return segmentsOf(command).some((s) => classify(stripWrappers(tokensOf(s))).targets.length > 0);
+}
+
+const RAW_CAP = 50;
+const NPM404_RE = /E404|ERR_PNPM_FETCH_404|npm error 404|npm ERR! 404/;
+const HTTP404_RE = /HTTP\/[\d.]+ 404|\b404 Not Found/;
+const flat = (s) => s.replace(/\s+/g, " ").trim();
+
+function* stringsOf(v, path = "") {
+  if (typeof v === "string") yield [path, v];
+  else if (Array.isArray(v)) for (const x of v) yield* stringsOf(x, path);
+  else if (v && typeof v === "object")
+    for (const [k, x] of Object.entries(v)) yield* stringsOf(x, path ? `${path}.${k}` : k);
+}
+
+// Pieces of one event: { source, text, command?, authored }. Authored text is what the
+// agent wrote (tool inputs, codex commands); results and file contents it read are not.
+function* rawPieces(e, harness, names, seen) {
+  if (harness === "claude") {
+    const blocks = Array.isArray(e.message?.content) ? e.message.content : [];
+    for (const b of blocks) {
+      if (b?.type === "tool_use") {
+        if (seen.has(b.id)) continue;
+        seen.add(b.id);
+        const command = typeof b.input?.command === "string" ? b.input.command : undefined;
+        names.set(b.id, { name: b.name, command });
+        for (const [k, text] of stringsOf(b.input))
+          yield { source: `tool_use:${b.name}.${k}`, text, command, authored: true };
+      } else if (b?.type === "tool_result") {
+        const c = names.get(b.tool_use_id);
+        for (const [, text] of stringsOf(b.content))
+          yield {
+            source: `tool_result:${c?.name ?? "?"}`,
+            text,
+            command: c?.command,
+            authored: false,
+          };
+      } else {
+        for (const [k, text] of stringsOf(b))
+          yield { source: `${e.type}.${k || "text"}`, text, authored: false };
+      }
+    }
+    return;
+  }
+  if (e.type !== "item.completed" || !e.item) return;
+  const it = e.item;
+  if (it.id) {
+    if (seen.has(it.id)) return;
+    seen.add(it.id);
+  }
+  if (it.type === "command_execution") {
+    if (typeof it.command === "string")
+      yield {
+        source: "command_execution.command",
+        text: it.command,
+        command: it.command,
+        authored: true,
+      };
+    if (typeof it.aggregated_output === "string")
+      yield {
+        source: "command_execution.output",
+        text: it.aggregated_output,
+        command: it.command,
+        authored: false,
+      };
+    return;
+  }
+  for (const [k, text] of stringsOf(it)) yield { source: `${it.type}.${k}`, text, authored: false };
+}
+
+const SHELL_LEAD = /^\s*(?:(?:if|then|elif|else|while|until|do)\s+|!\s+|[A-Za-z_]\w*=)/;
+const mentionsInstall = (line) =>
+  line.split(/\$\(|`|[()"]/).some((piece) => {
+    let q = piece;
+    for (let m = SHELL_LEAD.exec(q); m; m = SHELL_LEAD.exec(q)) q = q.slice(m[0].length);
+    return isInstallOfW2agentPackage(q);
+  });
+
+// Advisory scan of the raw JSONL for npm/HTTP 404 signatures and for install/exec
+// mentions in agent-authored text. A human classifies each hit.
+export function scanRawTranscript(text, harness) {
+  const { events, bad, lineNos } = parseLines(text);
+  const out = { badLines: bad, counts: { npm404: 0, http404: 0, installMentions: 0 } };
+  const lists = { npm404: [], http404: [], installMentions: [] };
+  const add = (kind, hit) => {
+    out.counts[kind]++;
+    if (lists[kind].length < RAW_CAP) lists[kind].push(hit);
+  };
+  const names = new Map();
+  const seen = new Set();
+  events.forEach((e, i) => {
+    for (const p of rawPieces(e, harness, names, seen)) {
+      const base = { line: lineNos[i], source: p.source, command: p.command };
+      for (const [kind, re] of [
+        ["npm404", NPM404_RE],
+        ["http404", HTTP404_RE],
+      ]) {
+        const m = re.exec(p.text);
+        if (!m) continue;
+        if (kind === "http404" && NPM404_RE.test(p.text)) continue;
+        const at = Math.max(0, m.index - 80);
+        add(kind, { ...base, snippet: flat(p.text.slice(at, m.index + m[0].length + 80)) });
+      }
+      if (!p.authored) continue;
+      for (const l of p.text.split("\n")) {
+        if (mentionsInstall(l)) add("installMentions", { ...base, text: flat(l).slice(0, 200) });
+      }
+    }
+  });
+  return { ...out, ...lists };
 }
 
 const count404 = (out) => {
@@ -940,6 +1051,12 @@ export function renderSummary(r) {
       ["wall time (s)", r.run ? String(Math.round(r.run.wallMs / 1000)) : "-"],
       ["cost / tokens", t.cost != null ? `$${t.cost.toFixed(2)}` : JSON.stringify(t.tokens)],
     );
+    if (t.rawScan)
+      rows.push(
+        ["raw npm404 (advisory)", String(t.rawScan.counts.npm404)],
+        ["raw http404 (advisory)", String(t.rawScan.counts.http404)],
+        ["raw install mentions (advisory)", String(t.rawScan.counts.installMentions)],
+      );
     rows.push(["containment flags", String(t.containment.flags.length)]);
     if (t.docsOnlyViolations)
       rows.push(["docs-only violations", String(t.docsOnlyViolations.length)]);
@@ -979,6 +1096,19 @@ export function renderSummary(r) {
   }
   if (r.transcript) {
     list("Unpublished-package attempts", r.transcript.unpublishedAttempts);
+    const raw = r.transcript.rawScan;
+    if (raw) {
+      const at = (h) =>
+        `line ${h.line} ${h.source}${h.command ? ` [${h.command.slice(0, 80)}]` : ""}`;
+      list(
+        "Raw npm404 hits (advisory; classify each)",
+        raw.npm404.slice(0, 10).map((h) => `${at(h)}: \`${h.snippet}\``),
+      );
+      list(
+        "Raw install mentions (advisory; classify each)",
+        raw.installMentions.slice(0, 10).map((h) => `${at(h)}: \`${h.text}\``),
+      );
+    }
     list(
       "Containment flags",
       r.transcript.containment.flags.map((f) => `${f.kind}: ${f.target}`),
@@ -1059,6 +1189,10 @@ export async function main(argv = process.argv.slice(2)) {
         cost: parsed.cost,
         tokens: parsed.tokens,
         unpublishedAttempts: findUnpublishedAttempts(parsed.calls),
+        rawScan: scanRawTranscript(
+          existsSync(tPath) ? readFileSync(tPath, "utf8") : "",
+          run.harness,
+        ),
         containment: {
           note: claude ? null : CODEX_CONTAINMENT_NOTE,
           flags: containmentFlags(parsed.calls, workspace, { persistCwd: claude }),

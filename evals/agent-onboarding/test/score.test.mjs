@@ -807,3 +807,100 @@ test("containment: quoted write-verb targets are unquoted and keep inner spaces"
   assert.deepEqual(flagsFor('rm "/tmp/a b"'), ["rm:/tmp/a b"]);
   assert.deepEqual(flagsFor("cp a.txt '/tmp/q'"), ["cp:/tmp/q"]);
 });
+
+const rawClaude = () =>
+  claudeTranscript([
+    {
+      name: "Write",
+      input: { file_path: "/tmp/s.sh", content: "set -e\nnpx -y w2agent@0.1.0 audit .\n" },
+    },
+    {
+      name: "Bash",
+      input: { command: "bash /tmp/s.sh" },
+      output: "npm error code E404\nnpm error 404",
+    },
+    {
+      name: "Read",
+      input: { file_path: "/x/README.md" },
+      output: "Quick start\nnpx w2agent@0.1.0 audit .",
+    },
+    {
+      name: "Bash",
+      input: { command: "curl -I localhost:3000/nope" },
+      output: "HTTP/1.1 404 Not Found",
+    },
+  ]);
+
+test("rawScan claude: install mention only from agent-authored text", () => {
+  const r = S.scanRawTranscript(rawClaude(), "claude");
+  assert.equal(r.counts.installMentions, 1);
+  assert.equal(r.installMentions[0].source, "tool_use:Write.content");
+  assert.match(r.installMentions[0].text, /npx -y w2agent@0\.1\.0/);
+});
+
+test("rawScan claude: npm404 carries the command, http404 stays separate", () => {
+  const r = S.scanRawTranscript(rawClaude(), "claude");
+  assert.equal(r.counts.npm404, 1);
+  assert.equal(r.npm404[0].command, "bash /tmp/s.sh");
+  assert.equal(r.npm404[0].source, "tool_result:Bash");
+  assert.equal(r.counts.http404, 1);
+  assert.match(r.http404[0].command, /curl/);
+});
+
+test("rawScan codex: heredoc install mention and pnpm fetch 404", () => {
+  const cmd = "/bin/zsh -lc \"cat > s.sh <<'EOF'\npnpm dlx w2agent\nEOF\"";
+  const r = S.scanRawTranscript(
+    codexTranscript([
+      {
+        type: "command_execution",
+        command: cmd,
+        aggregated_output: "ERR_PNPM_FETCH_404",
+        exit_code: 1,
+      },
+    ]),
+    "codex",
+  );
+  assert.equal(r.counts.installMentions, 1);
+  assert.equal(r.counts.npm404, 1);
+  assert.equal(r.npm404[0].source, "command_execution.output");
+  assert.equal(r.npm404[0].command, cmd);
+});
+
+test("rawScan: bad lines are counted and skipped, lists are capped", () => {
+  const r = S.scanRawTranscript(`not json\n{broken\n${rawClaude()}`, "claude");
+  assert.equal(r.badLines, 2);
+  assert.equal(r.counts.npm404, 1);
+  const many = claudeTranscript(
+    Array.from({ length: 60 }, () => ({ name: "Bash", input: { command: "x" }, output: "E404" })),
+  );
+  const m = S.scanRawTranscript(many, "claude");
+  assert.equal(m.counts.npm404, 60);
+  assert.equal(m.npm404.length, 50);
+});
+
+test("rawScan: install forms inside shell substitutions, conditionals and assignments", () => {
+  const hits = [
+    "OUT=$(npx -y w2agent@0.1.0 audit x --json)",
+    "if npx w2agent@0.1.0 audit x; then echo ok; fi",
+    "RES=`npx w2agent audit x`",
+    'result="$(npx w2agent audit x)"',
+  ];
+  const misses = [
+    "echo run npx w2agent later",
+    "npm view w2agent@0.1.0 version",
+    "node w2agent/packages/cli/dist/index.js audit x",
+  ];
+  const r = S.scanRawTranscript(
+    claudeTranscript([
+      {
+        name: "Write",
+        input: { file_path: "/tmp/a.sh", content: [...hits, ...misses].join("\n") },
+      },
+    ]),
+    "claude",
+  );
+  assert.deepEqual(
+    r.installMentions.map((h) => h.text),
+    hits,
+  );
+});

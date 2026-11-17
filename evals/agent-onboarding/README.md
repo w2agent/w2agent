@@ -46,6 +46,10 @@ Score the before and after runs with one fixed scorer CLI (`--cli <path>`), so t
 
 `result.json` and `summary.md` print `<run>`, `<workspace>` and `~` in place of machine paths.
 
+`transcript.rawScan` is an advisory scan of the raw transcript. It lists npm and HTTP 404 signatures (any string in any event, with the call's command) and `w2agent` install/exec mentions found in agent-authored text only (tool inputs, codex commands), so installs hidden in agent-written scripts show up. Each list holds at most 50 hits; `counts` has the totals. It does not change `unpublishedAttempts`.
+
+A human classifies each hit as a probe (`npm view` 404), an HTTP 404 from the local site, docs text, or a real install/exec. Only a real install/exec of an unpublished name counts against the gate.
+
 If the agent breaks the site (install, build, start or audit fails), the result is `site.ok: false` with the failing stage and an output tail, and the score is null.
 
 `evals/**/results/` stays in `.gitignore` as a safety net; do not write results into the repo.
