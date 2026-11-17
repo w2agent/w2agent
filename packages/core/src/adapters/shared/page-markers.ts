@@ -10,6 +10,32 @@ export interface PageMarkers {
   generators: string[];
 }
 
+export function stripStringsAndComments(code: string): string {
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+    const next = code[i + 1];
+    if (ch === "/" && next === "/") {
+      const end = code.indexOf("\n", i);
+      i = end < 0 ? code.length : end;
+    } else if (ch === "/" && next === "*") {
+      const end = code.indexOf("*/", i + 2);
+      i = end < 0 ? code.length : end + 2;
+      out += " ";
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      i++;
+      while (i < code.length && code[i] !== ch) i += code[i] === "\\" ? 2 : 1;
+      i++;
+      out += `${ch}${ch}`;
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
+}
+
 const cache = new WeakMap<FetchedPage, PageMarkers>();
 
 export function pageMarkers(page: FetchedPage): PageMarkers {
@@ -36,7 +62,7 @@ export function pageMarkers(page: FetchedPage): PageMarkers {
     .toArray()
     .map((el) => ({ type: $(el).attr("type"), code: $(el).html() ?? "" }))
     .filter((s) => isCodeScript(s.type, s.code))
-    .map((s) => s.code);
+    .map((s) => stripStringsAndComments(s.code));
   const generators = $('meta[name="generator" i]')
     .toArray()
     .map((el) => ($(el).attr("content") ?? "").trim());

@@ -458,3 +458,36 @@ describe("platform detection: gate fix round 1", () => {
     expect(wordpressAdapter.detect([page(html)], meta)).toBeNull();
   });
 });
+
+describe("platform detection: code-script markers ignore strings and comments", () => {
+  it.each([
+    '<script>window.__INITIAL_STATE__={"article":"window.__NUXT__ = {}"}</script>',
+    '<script>var s="window.__NUXT__=1";</script>',
+    "<script>var s='it\\'s window.__NUXT__ = 1';</script>",
+    "<script>var s=`window.__NUXT__ = ${1}`;</script>",
+    "<script>// window.__NUXT__ = {}\nvar a = 1;</script>",
+    "<script>/* window.__NUXT__ = {} */ var a = 1;</script>",
+  ])("Nuxt: %s is not Nuxt", (script) => {
+    expect(nuxtAdapter.detect([page(shell(script))], meta)).toBeNull();
+  });
+
+  it("Shopify: a Shopify.theme assignment inside a string or comment is not Shopify", () => {
+    for (const script of [
+      '<script>console.log("Shopify.theme = x")</script>',
+      "<script>// Shopify.theme = {}\n</script>",
+    ]) {
+      expect(shopifyAdapter.detect([page(shell(script))], meta)).toBeNull();
+    }
+  });
+
+  it("real assignments next to strings and comments still match", () => {
+    const nuxt = shell(
+      '<script>window.__NUXT__={};window.__NUXT__.config={public:{},app:{baseURL:"/a//b"}}</script>',
+    );
+    expect(nuxtAdapter.detect([page(nuxt)], meta)?.confidence).toBe(0.95);
+    const shop = shell(
+      '<script>/* theme */ var Shopify = Shopify || {};\nShopify.theme = {"name":"Dawn // x"};</script>',
+    );
+    expect(shopifyAdapter.detect([page(shop)], meta)?.confidence).toBe(0.9);
+  });
+});

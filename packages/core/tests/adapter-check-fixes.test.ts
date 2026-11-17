@@ -30,7 +30,7 @@ describe("nextjs-well-known-served applicability", () => {
   it("fails a credited JSON body that is not an agent card", () => {
     const r = run({ "agent-card.json": '{"error":"not found"}' });
     expect(r).toMatchObject({ status: "fail", score: 0 });
-    expect(r.details).toContain("public/.well-known/");
+    expect(r.details).toContain("must be an A2A agent card");
     expect(run({ "agent-card.json": "<html>" }).status).toBe("fail");
   });
 

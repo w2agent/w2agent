@@ -37,7 +37,7 @@ export const nextjsWellKnownCheck: Check = {
         : "agent-card.json is served but is not an A2A agent card",
       details: hasAgentCard
         ? undefined
-        : "Add files to public/.well-known/ or create route handlers in app/.well-known/",
+        : "The served file must be an A2A agent card (a JSON object with a name); fix it, or remove it if the site runs no A2A agent",
     };
   },
 };

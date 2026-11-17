@@ -447,6 +447,8 @@ describe("Next.js checks", () => {
     expect(namelessJson).toMatchObject({ status: "fail", score: 0 });
     expect(namelessJson?.message).toContain("not an A2A agent card");
     expect(namelessJson?.message).not.toContain("not found");
+    expect(namelessJson?.details).toContain("must be an A2A agent card");
+    expect(namelessJson?.details).not.toContain("Add files");
   });
 });
 
