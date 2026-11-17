@@ -58,6 +58,20 @@ function oneLine(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
 
+function mdText(value: string): string {
+  return value.replace(/[\\`*_[\]<>|&]/g, "\\$&");
+}
+
+function mdDescription(value: string): string {
+  return value.replace(/[\\[\]<>]/g, "\\$&");
+}
+
+function mdUrl(value: string): string {
+  return value.replace(/[\s()<>]/g, (c) =>
+    encodeURIComponent(c).replace("(", "%28").replace(")", "%29"),
+  );
+}
+
 function sectionName(sourceDirName: string | undefined): string {
   const top = (sourceDirName || ".").split("/")[0];
   if (!top || top === ".") return "Docs";
@@ -113,13 +127,13 @@ function renderLlmsTxt(
   siteDesc: string,
 ): string {
   let output = `# ${oneLine(siteName)}\n\n`;
-  if (oneLine(siteDesc)) output += `> ${oneLine(siteDesc)}\n\n`;
+  if (oneLine(siteDesc)) output += `> ${mdDescription(oneLine(siteDesc))}\n\n`;
 
   for (const [section, items] of sections) {
     output += `## ${section}\n\n`;
     for (const item of items) {
-      output += `- [${item.title}](${item.url})`;
-      if (item.description) output += `: ${item.description}`;
+      output += `- [${mdText(item.title)}](${mdUrl(item.url)})`;
+      if (item.description) output += `: ${mdDescription(item.description)}`;
       output += "\n";
     }
     output += "\n";

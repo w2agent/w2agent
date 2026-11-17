@@ -8,6 +8,7 @@ import { generateFaq } from "./faq.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import type { LocalBusinessArtifacts } from "./local-business.js";
 import { generateLocalBusinessToolHandlers } from "./local-business.js";
+import { mdText, mdUrl } from "./markdown-text.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
@@ -1086,19 +1087,6 @@ function generateTsConfig(): string {
 }
 
 // --- README ---
-
-function mdText(value: string): string {
-  return value
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[\\`*_[\]<>|]/g, "\\$&");
-}
-
-function mdUrl(value: string): string {
-  return value
-    .replace(/\s/g, (c) => encodeURIComponent(c))
-    .replace(/[()<>]/g, (c) => encodeURIComponent(c));
-}
 
 function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: string): string {
   const lines: string[] = [];

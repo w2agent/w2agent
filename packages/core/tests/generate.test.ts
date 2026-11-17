@@ -350,9 +350,9 @@ describe("generateLlmsFullTxt", () => {
 
     const result = generateLlmsFullTxt(pages);
 
-    expect(result).toContain("---\nurl: https://example.com/\ntitle: Home\n---");
+    expect(result).toContain('---\nurl: "https://example.com/"\ntitle: "Home"\n---');
     expect(result).toContain("Welcome home.");
-    expect(result).toContain("---\nurl: https://example.com/about\ntitle: About\n---");
+    expect(result).toContain('---\nurl: "https://example.com/about"\ntitle: "About"\n---');
     expect(result).toContain("About us.");
   });
 

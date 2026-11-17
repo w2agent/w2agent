@@ -101,6 +101,16 @@ describe("astro:build:done — llms.txt from built pages", () => {
     expect(llms).not.toContain("https://example.com/blog/");
   });
 
+  it("escapes brackets in a title and parentheses in a URL so the link survives", async () => {
+    put("a/index.html", html({ title: "API [v2] ] done" }));
+    put("b (x)/index.html", html({ title: "Paren" }));
+    put("c/index.html", html({ title: "C", description: "see [x](http://e.test/) &lt;b&gt;" }));
+    const { llms } = await build(["a/", "b (x)/", "c/"], { site: "https://example.com" });
+    expect(llms).toContain("- [C](https://example.com/c/): see \\[x\\](http://e.test/) \\<b\\>\n");
+    expect(llms).toContain("- [API \\[v2\\] \\] done](https://example.com/a/)\n");
+    expect(llms).toContain("- [Paren](https://example.com/b%20%28x%29/)\n");
+  });
+
   it("does not list a draft that is not in the build page list", async () => {
     put("index.html", html({ title: "Home" }));
     put(
@@ -186,7 +196,7 @@ describe("astro:build:done — llms.txt from built pages", () => {
     );
     const { llms } = await build(["x/y/"], { site: "https://example.com" });
     expect(llms).toContain(
-      "- [Tom & Jerry <b> \"q\" 's' AB](https://example.com/x/y/): line one line & two",
+      "- [Tom \\& Jerry \\<b\\> \"q\" 's' AB](https://example.com/x/y/): line one line & two",
     );
   });
 
@@ -269,7 +279,7 @@ describe("astro:build:done — llms.txt from built pages", () => {
   it("keeps a > inside a description", async () => {
     put("a/index.html", html({ title: "X", description: "a > b and c" }));
     const { llms } = await build(["a/"], { site: "https://example.com" });
-    expect(llms).toContain("): a > b and c");
+    expect(llms).toContain("): a \\> b and c");
   });
 
   it("ignores title and meta tags after the head closes", async () => {

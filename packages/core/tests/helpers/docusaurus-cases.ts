@@ -134,3 +134,26 @@ export const EMPTY_PLUGINS = [
     content: { loadedVersions: [{ versionName: "current", isLast: true, docs: [] }] },
   },
 ];
+
+export const BRACKET_TITLE = "API [v2] (beta) ] done";
+
+export const BRACKET_PLUGINS = [
+  {
+    name: "docusaurus-plugin-content-docs",
+    options: { id: "default" },
+    content: {
+      loadedVersions: [
+        {
+          versionName: "current",
+          isLast: true,
+          docs: [
+            doc("/proj/ref", BRACKET_TITLE, ".", { description: "see [x](http://e.test/) <b>" }),
+          ],
+        },
+      ],
+    },
+  },
+];
+
+export const BRACKET_LINK =
+  "- [API \\[v2\\] (beta) \\] done](https://docs.example.com/proj/ref): see \\[x\\](http://e.test/) \\<b\\>";

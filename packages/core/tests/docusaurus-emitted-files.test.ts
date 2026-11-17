@@ -8,6 +8,8 @@ import { docusaurusAdapter } from "../src/adapters/docusaurus/index.js";
 import type { GenerateContext, GeneratedFile } from "../src/generate/types.js";
 import { generateWebMcp } from "../src/generate/webmcp.js";
 import {
+  BRACKET_LINK,
+  BRACKET_PLUGINS,
   EMPTY_PLUGINS,
   EXPECTED_LLMS_TXT,
   FORBIDDEN_FRAGMENTS,
@@ -127,6 +129,11 @@ describe("emitted w2agent-plugin.js", () => {
   it("builds llms.txt from the loaded docs content", async () => {
     await load().postBuild(PLUGINS);
     expect(llms()).toBe(EXPECTED_LLMS_TXT);
+  });
+
+  it("escapes ] and [ in a title so the link survives", async () => {
+    await load().postBuild(BRACKET_PLUGINS);
+    expect(llms()).toContain(`${BRACKET_LINK}\n`);
   });
 
   it("lists no unlisted, draft, old-version or non-docs entries", async () => {

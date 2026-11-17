@@ -22,6 +22,20 @@ function oneLine(value) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
 
+function mdText(value) {
+  return value.replace(/[\\\x60*_[\]<>|&]/g, "\\$&");
+}
+
+function mdDescription(value) {
+  return value.replace(/[\\[\]<>]/g, "\\$&");
+}
+
+function mdUrl(value) {
+  return value.replace(/[\s()<>]/g, (c) =>
+    encodeURIComponent(c).replace("(", "%28").replace(")", "%29"),
+  );
+}
+
 function sectionName(sourceDirName) {
   const top = (sourceDirName || ".").split("/")[0];
   if (!top || top === ".") return "Docs";
@@ -64,13 +78,13 @@ function collectSections(plugins, siteConfig) {
 
 function renderLlmsTxt(sections, siteName, siteDesc) {
   let output = "# " + oneLine(siteName) + "\n\n";
-  if (oneLine(siteDesc)) output += "> " + oneLine(siteDesc) + "\n\n";
+  if (oneLine(siteDesc)) output += "> " + mdDescription(oneLine(siteDesc)) + "\n\n";
 
   for (const [section, items] of sections) {
     output += "## " + section + "\n\n";
     for (const item of items) {
-      output += "- [" + item.title + "](" + item.url + ")";
-      if (item.description) output += ": " + item.description;
+      output += "- [" + mdText(item.title) + "](" + mdUrl(item.url) + ")";
+      if (item.description) output += ": " + mdDescription(item.description);
       output += "\n";
     }
     output += "\n";

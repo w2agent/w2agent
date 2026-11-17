@@ -156,6 +156,20 @@ function clean(text: string): string {
   return decodeEntities(text).replace(/\s+/g, " ").trim();
 }
 
+function mdText(value: string): string {
+  return value.replace(/[\\`*_[\]<>|&]/g, "\\$&");
+}
+
+function mdDescription(value: string): string {
+  return value.replace(/[\\[\]<>]/g, "\\$&");
+}
+
+function mdUrl(value: string): string {
+  return value.replace(/[\s()<>]/g, (c) =>
+    encodeURIComponent(c).replace("(", "%28").replace(")", "%29"),
+  );
+}
+
 function metaTags(html: string): Array<Record<string, string>> {
   const tags: Array<Record<string, string>> = [];
   for (const tag of html.match(/<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi) ?? []) {
@@ -243,8 +257,8 @@ function generateFromPages(
   for (const [section, items] of sections) {
     output += `## ${section}\n\n`;
     for (const item of items) {
-      output += `- [${item.title}](${item.url})`;
-      if (item.description) output += `: ${item.description}`;
+      output += `- [${mdText(item.title)}](${mdUrl(item.url)})`;
+      if (item.description) output += `: ${mdDescription(item.description)}`;
       output += "\n";
     }
     output += "\n";

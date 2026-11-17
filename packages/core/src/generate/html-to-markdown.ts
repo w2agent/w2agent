@@ -1,5 +1,6 @@
 import type { CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
+import { oneLine } from "./markdown-text.js";
 import type { ExtractedForm, ExtractedFormField, PageMarkdown } from "./types.js";
 
 // Use cheerio's return types directly — Cheerio<any> works for all node operations
@@ -8,9 +9,9 @@ type CheerioNode = ReturnType<CheerioAPI>;
 export function htmlToMarkdown(html: string, url: string): PageMarkdown {
   const $ = cheerio.load(html);
 
-  const title = $("title").first().text().trim() || $("h1").first().text().trim() || "";
+  const title = oneLine($("title").first().text()) || oneLine($("h1").first().text());
 
-  const description = $('meta[name="description"]').attr("content")?.trim() || "";
+  const description = oneLine($('meta[name="description"]').attr("content") ?? "");
 
   const forms = extractForms($);
 

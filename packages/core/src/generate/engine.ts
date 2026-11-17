@@ -13,6 +13,7 @@ import { htmlToMarkdown } from "./html-to-markdown.js";
 import { generateLlmsFullTxt } from "./llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "./llms-txt.js";
 import { buildLocalBusinessArtifacts, generateBusinessInfoTable } from "./local-business.js";
+import { matchesSections, yamlFrontmatter } from "./markdown-text.js";
 import { generateMcpServer } from "./mcp-server.js";
 import { generateRobotsTxt } from "./robots-txt.js";
 import { generateSchemaOrg } from "./schema-org.js";
@@ -101,31 +102,8 @@ export async function runGenerate(
     }
   }
 
-  // Filter by sections if specified
-  let filteredPages = markdownPages;
-  if (options.sections && options.sections.length > 0) {
-    filteredPages = markdownPages.filter((page) => {
-      try {
-        const path = new URL(page.url).pathname;
-        const firstSegment = path.split("/").filter(Boolean)[0]?.toLowerCase();
-        return options.sections?.some((s) => s.toLowerCase() === firstSegment);
-      } catch {
-        return false;
-      }
-    });
-    // Always include homepage even when filtering
-    const homepage = markdownPages.find((p) => {
-      try {
-        return new URL(p.url).pathname === "/";
-      } catch {
-        return false;
-      }
-    });
-    if (homepage && !filteredPages.includes(homepage)) {
-      filteredPages.unshift(homepage);
-    }
-  }
-
+  // Filter by sections if specified (homepage is always kept)
+  const filteredPages = markdownPages.filter((page) => matchesSections(page.url, options.sections));
   const baseUrl = new URL(url).origin;
   const files: GeneratedFile[] = [];
   const sectionNames: string[] = [];
@@ -162,7 +140,7 @@ export async function runGenerate(
     onProgress?.("Generating markdown files...");
     for (const page of filteredPages) {
       const filename = `${urlToFilename(page.url)}.md`;
-      const content = `---\nurl: ${page.url}\ntitle: ${page.title}\n---\n\n${page.markdown}\n`;
+      const content = `${yamlFrontmatter(page)}\n\n${page.markdown}\n`;
       files.push(makeFile(`markdown/${filename}`, content));
     }
   }

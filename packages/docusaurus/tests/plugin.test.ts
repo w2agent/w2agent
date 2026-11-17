@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BRACKET_LINK,
+  BRACKET_PLUGINS,
   EMPTY_PLUGINS,
   EXPECTED_LLMS_TXT,
   FORBIDDEN_FRAGMENTS,
@@ -117,6 +119,13 @@ describe("postBuild — llms.txt from the loaded docs content", () => {
       "- [Setup Guide](https://docs.example.com/proj/guides/setup): Install the thing.",
     );
     expect(lines.filter((l) => l.startsWith("- ["))).toHaveLength(4);
+  });
+});
+
+describe("postBuild — link text escaping", () => {
+  it("escapes ] and [ in a title so the link survives", async () => {
+    await load().postBuild(BRACKET_PLUGINS);
+    expect(llms()).toContain(`${BRACKET_LINK}\n`);
   });
 });
 

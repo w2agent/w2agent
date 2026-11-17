@@ -1,3 +1,4 @@
+import { yamlFrontmatter } from "./markdown-text.js";
 import type { PageMarkdown } from "./types.js";
 
 /**
@@ -16,9 +17,7 @@ export function generateLlmsFullTxt(pages: PageMarkdown[]): string {
   const sections: string[] = [];
 
   for (const page of pages) {
-    const frontmatter = ["---", `url: ${page.url}`, `title: ${page.title}`, "---"].join("\n");
-
-    sections.push(`${frontmatter}\n\n${page.markdown}`);
+    sections.push(`${yamlFrontmatter(page)}\n\n${page.markdown}`);
   }
 
   return `${sections.join("\n\n")}\n`;

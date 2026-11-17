@@ -1,3 +1,4 @@
+import { matchesSections, mdDescription, mdText, mdUrl, oneLine } from "./markdown-text.js";
 import type { PageMarkdown } from "./types.js";
 
 interface LlmsTxtOptions {
@@ -19,10 +20,11 @@ export function generateLlmsTxt(pages: PageMarkdown[], options: LlmsTxtOptions):
   const lines: string[] = [];
 
   // Header
-  lines.push(`# ${options.siteName}`);
+  lines.push(`# ${oneLine(options.siteName)}`);
   lines.push("");
-  if (options.siteDescription) {
-    lines.push(`> ${options.siteDescription}`);
+  const siteDescription = mdDescription(options.siteDescription);
+  if (siteDescription) {
+    lines.push(`> ${siteDescription}`);
     lines.push("");
   }
 
@@ -33,13 +35,10 @@ export function generateLlmsTxt(pages: PageMarkdown[], options: LlmsTxtOptions):
     lines.push(`## ${sectionName}`);
     lines.push("");
     for (const page of sectionPages) {
-      const desc = getDescription(page);
-      const title = page.title || urlToTitle(page.url);
-      if (desc) {
-        lines.push(`- [${title}](${page.url}): ${desc}`);
-      } else {
-        lines.push(`- [${title}](${page.url})`);
-      }
+      const desc = mdDescription(getDescription(page));
+      const title = mdText(page.title) || mdText(urlToTitle(page.url));
+      const link = `- [${title}](${mdUrl(page.url)})`;
+      lines.push(desc ? `${link}: ${desc}` : link);
     }
     lines.push("");
   }
@@ -57,12 +56,8 @@ function groupBySection(
   const groups = new Map<string, PageMarkdown[]>();
 
   for (const page of pages) {
+    if (!matchesSections(page.url, filterSections)) continue;
     const section = getSectionName(page.url);
-    if (filterSections && filterSections.length > 0) {
-      if (!filterSections.some((s) => section.toLowerCase() === s.toLowerCase())) {
-        continue;
-      }
-    }
     if (!groups.has(section)) {
       groups.set(section, []);
     }
@@ -139,8 +134,9 @@ function capitalize(str: string): string {
  * Priority: meta description → first sentence of content → empty
  */
 function getDescription(page: PageMarkdown): string {
-  if (page.description) {
-    return truncate(page.description, 150);
+  const described = oneLine(page.description ?? "");
+  if (described) {
+    return truncate(described, 150);
   }
 
   // Extract first meaningful sentence from markdown
@@ -160,7 +156,7 @@ function getDescription(page: PageMarkdown): string {
       continue;
     }
     // Found a paragraph line
-    const sentence = trimmed.split(/\.\s/)[0];
+    const sentence = oneLine(trimmed.split(/\.\s/)[0]);
     if (sentence && sentence.length > 10) {
       return truncate(sentence.endsWith(".") ? sentence : `${sentence}.`, 150);
     }
