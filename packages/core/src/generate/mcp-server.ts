@@ -1248,7 +1248,7 @@ function generateReadme(
       `npx wrangler deploy`,
       "```",
       ``,
-      `After re-crawling, rerun \`bash setup.sh\` to refresh the data.`,
+      `After re-crawling, regenerating rewrites \`wrangler.toml\`: set the same namespace id again (\`npx wrangler kv namespace list\` shows it), then rerun \`bash setup.sh\`.`,
     );
   }
   lines.push(``);
@@ -1494,6 +1494,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 // --- Cloudflare Workers Self-Host Template ---
 
+const SETUP_SH_HAS_ID = String.raw`has_id() {
+  awk '
+    function close_table() { if (intable && bound && hasid) ok = 1 }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*\[/ {
+      close_table()
+      intable = ($0 ~ /^[[:space:]]*\[\[[[:space:]]*kv_namespaces[[:space:]]*\]\]/)
+      bound = 0; hasid = 0; next
+    }
+    intable && $0 ~ "^[[:space:]]*binding[[:space:]]*=[[:space:]]*(\"MCP_DATA\"|\047MCP_DATA\047)" { bound = 1 }
+    intable && $0 ~ "^[[:space:]]*id[[:space:]]*=[[:space:]]*(\"[^\"]+\"|\047[^\047]+\047)" && $0 !~ "^[[:space:]]*id[[:space:]]*=[[:space:]]*(\"[.][.][.]\"|\047[.][.][.]\047)" { hasid = 1 }
+    END { close_table(); exit (ok ? 0 : 1) }
+  ' wrangler.toml
+}
+`;
+
 function generateCloudflareTemplate(
   siteName: string,
   baseUrl: string,
@@ -1605,9 +1621,12 @@ case "$*" in
   *) echo "Usage: bash setup.sh [--local]" >&2; exit 2 ;;
 esac
 
-if [ "$scope" = "--remote" ] && ! grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"[^"]+"' wrangler.toml; then
-  echo "wrangler.toml has no KV namespace id. Run: npx wrangler kv namespace create MCP_DATA" >&2
-  echo "Then set id = \\"<id>\\" under the MCP_DATA binding in wrangler.toml and rerun." >&2
+${SETUP_SH_HAS_ID}
+if [ "$scope" = "--remote" ] && ! has_id; then
+  echo "wrangler.toml has no KV namespace id under the MCP_DATA binding." >&2
+  echo "First time: run npx wrangler kv namespace create MCP_DATA and use the id it prints." >&2
+  echo "Namespace already exists (e.g. after a re-crawl): reuse its id, see npx wrangler kv namespace list." >&2
+  echo "Set id = \\"<id>\\" under the MCP_DATA binding in wrangler.toml and rerun." >&2
   exit 1
 fi
 

@@ -255,7 +255,7 @@ bash setup.sh                               # uploads the data to KV
 npx wrangler deploy
 ```
 
-To test locally first: `bash setup.sh --local && npx wrangler dev`. After a re-crawl, rerun `bash setup.sh`.
+To test locally first: `bash setup.sh --local && npx wrangler dev`. After a re-crawl, regenerating rewrites `wrangler.toml`: set the same namespace id again (`npx wrangler kv namespace list` shows it), then rerun `bash setup.sh`.
 
 **Rule 2**: Deployment success ≠ agent working. Proceed to Phase 4 immediately.
 

@@ -119,7 +119,7 @@ export function registerMcpCommand(program: Command): void {
         if (selfHost === "vercel") {
           console.log("  Next steps:");
           console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
-          console.log(chalk.gray("  npm install && vercel --prod"));
+          console.log(chalk.gray("  npm install && npx vercel --prod"));
         } else if (selfHost === "cf") {
           console.log("  Next steps:");
           console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);

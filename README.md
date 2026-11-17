@@ -159,7 +159,7 @@ cd w2agent-output/mcp-server && npm install
 |---|---|---|
 | **Setup** | `npx w2agent@0.1.0 login` + one command | Generate + deploy to your infra |
 | **Domain** | `<slug>.agent.w2agent.dev` | Your domain |
-| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (regenerate; on Cloudflare also rerun `bash setup.sh`, then deploy) |
+| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (regenerate; on Cloudflare set the same KV namespace id in the rewritten `wrangler.toml`, rerun `bash setup.sh`, then deploy) |
 | **Directory listing** | Yes (opt-in) | No |
 | **Auth required** | Free API key | None |
 | **Best for** | Quick deploy, directory visibility | Custom domains, air-gapped, enterprise |

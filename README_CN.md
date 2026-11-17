@@ -159,7 +159,7 @@ cd w2agent-output/mcp-server && npm install
 |---|---|---|
 | **部署方式** | `npx w2agent@0.1.0 login` + 一条命令 | 生成后部署到自有基础设施 |
 | **域名** | `<slug>.agent.w2agent.dev` | 自定义域名 |
-| **重新爬取** | 自动（通过控制台按需触发） | 手动（重新生成；Cloudflare 需再次运行 `bash setup.sh` 后部署） |
+| **重新爬取** | 自动（通过控制台按需触发） | 手动（重新生成；Cloudflare 需在重写后的 `wrangler.toml` 中重新填入同一个 KV 命名空间 id，再运行 `bash setup.sh` 并部署） |
 | **目录收录** | 支持（可选加入） | 不支持 |
 | **是否需要授权** | 免费 API Key | 无需 |
 | **适用场景** | 快速部署、目录曝光 | 自定义域名、离线环境、企业级 |

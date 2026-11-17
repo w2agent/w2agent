@@ -43,7 +43,7 @@ interface Project {
   log: string;
 }
 
-function project(opts: { id?: string; skipData?: string } = {}): Project {
+function project(opts: { id?: string; skipData?: string; toml?: string } = {}): Project {
   const dir = mkdtempSync(join(tmpdir(), "mcp-cf-setup-"));
   roots.push(dir);
   mkdirSync(join(dir, "bin"));
@@ -56,7 +56,7 @@ function project(opts: { id?: string; skipData?: string } = {}): Project {
   chmodSync(join(dir, "bin/npx"), 0o755);
   let toml = content("wrangler.toml");
   if (opts.id) toml = toml.replace(/^# id = .*$/m, `id = "${opts.id}"`);
-  writeFileSync(join(dir, "proj/wrangler.toml"), toml);
+  writeFileSync(join(dir, "proj/wrangler.toml"), opts.toml ?? toml);
   writeFileSync(join(dir, "proj/setup.sh"), content("setup.sh"));
   for (const k of kvKeys)
     if (k !== opts.skipData) writeFileSync(join(dir, `proj/data/${k}.json`), "{}");
@@ -116,6 +116,45 @@ describe.skipIf(!hasBash)("generated cloudflare setup.sh", () => {
     const p = project();
     expect(content("wrangler.toml")).toMatch(/^# id = /m);
     expect(run(p, []).status).not.toBe(0);
+  });
+
+  const head = 'name = "x"\nmain = "worker.ts"\n\n';
+  const noId: Array<[string, string]> = [
+    [
+      "id only under another binding",
+      `${head}[[kv_namespaces]]\nbinding = "OTHER"\nid = "abc"\n\n[[kv_namespaces]]\nbinding = "MCP_DATA"\n`,
+    ],
+    [
+      "id only under an env table",
+      `${head}[[kv_namespaces]]\nbinding = "MCP_DATA"\n\n[[env.staging.kv_namespaces]]\nbinding = "MCP_DATA"\nid = "abc"\n`,
+    ],
+    ["placeholder id", `${head}[[kv_namespaces]]\nbinding = "MCP_DATA"\nid = "..."\n`],
+    ["empty single-quoted id", `${head}[[kv_namespaces]]\nbinding = "MCP_DATA"\nid = ''\n`],
+    ["commented id", `${head}[[kv_namespaces]]\nbinding = "MCP_DATA"\n  # id = "abc"\n`],
+  ];
+  it.each(noId)("remote rejects: %s", (_n, toml) => {
+    const r = run(project({ toml }), []);
+    expect(r.status).toBe(1);
+    expect(r.calls).toEqual([]);
+    expect(r.out).toContain("kv namespace create");
+    expect(r.out).toContain("kv namespace list");
+  });
+
+  const okId: Array<[string, string]> = [
+    ["single-quoted id", `${head}[[kv_namespaces]]\nbinding = "MCP_DATA"\nid = 'abc'\n`],
+    [
+      "id before binding in the table",
+      `${head}[[kv_namespaces]]\nid = "abc"\nbinding = 'MCP_DATA'\n`,
+    ],
+    [
+      "MCP_DATA is the second table",
+      `${head}[[kv_namespaces]]\nbinding = "OTHER"\nid = "o"\n\n[[kv_namespaces]]\nbinding = "MCP_DATA"\nid = "abc" # note\n`,
+    ],
+  ];
+  it.each(okId)("remote accepts: %s", (_n, toml) => {
+    const r = run(project({ toml }), []);
+    expect(r.status).toBe(0);
+    expect(r.calls).toEqual(expected("--remote"));
   });
 
   it("stops at the first failed upload and does not report success", () => {
