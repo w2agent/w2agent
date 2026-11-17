@@ -76,14 +76,15 @@ describe("robots.txt manual action", () => {
     expect(robotsManual(plan)).toHaveLength(0);
   });
 
-  it("shopify: planned robots.txt.liquid suppresses the manual action", () => {
+  it("shopify: no generic robots manual action and no robots.txt.liquid write", () => {
     mkdirSync(join(dir, "templates"), { recursive: true });
     const plan = planInstall(
       shopifyAdapter,
-      [robots, makeFile("shopify/templates/robots.txt.liquid", "{{ x }}")],
+      [robots, makeFile("shopify/data/robots-txt-additions.txt", "User-agent: Claude-User\n")],
       dir,
     );
-    expect(plan.actions.some((a) => a.dest === "templates/robots.txt.liquid")).toBe(true);
+    expect(plan.actions.some((a) => a.dest === "data/robots-txt-additions.txt")).toBe(true);
+    expect(plan.actions.some((a) => a.dest === "templates/robots.txt.liquid")).toBe(false);
     expect(robotsManual(plan)).toHaveLength(0);
   });
 

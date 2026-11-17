@@ -61,7 +61,7 @@ title: Page Title
 
 #### robots.txt
 
-AI-friendly robots.txt for known AI crawlers. It adds Allow groups only for AI user and search agents that `User-agent: *` alone blocks (keeping the `*` path rules and Crawl-delay), and never changes a group that names an agent, so an owner's explicit block stays. `Sitemap:` is added only when a sitemap was found. `generateRobotsAdditions` returns just the added text.
+AI-friendly robots.txt for known AI crawlers. It adds Allow groups only for AI user and search agents that `User-agent: *` alone blocks (keeping the `*` path rules and Crawl-delay), and never changes a group that names an agent, so an owner's explicit block stays. `Sitemap:` is added only when a sitemap was found. A file that ends in a `User-agent` line with no rules gets no Allow group, because the added agents would join that group.
 
 #### schema-org.json
 
@@ -135,7 +135,7 @@ When a platform is detected, additional integration files are generated (omitted
 | **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation (`--install` writes `proxy.ts` on Next.js 16), `nextjs/w2agent-build.mjs` — build script, run as `prebuild`, `nextjs/INSTALL.md` |
 | **Nuxt** | `nuxt/server/routes/{llms.txt,llms-full.txt,index.md}.ts` — Nitro server routes, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/modules/w2agent.ts` — bundles the seed files into the server build, `nuxt/public/{llms.txt,llms-full.txt}` seeds, `nuxt/w2agent-build.mjs` — build script, run as `prebuild`, `nuxt/INSTALL.md` |
 | **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/pages/llms.txt.ts` and `astro/src/pages/.well-known/agent-card.json.ts` — SSR endpoints, `astro/w2agent-integration.mjs`, `astro/w2agent-build.mjs`, `astro/INSTALL.md` |
-| **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/INSTALL.md`; only when the crawled `robots.txt` blocks AI agents through the `*` group (Shopify's default does not), `shopify/templates/robots.txt.liquid` (Shopify's `robots.default_groups` loop followed by Allow groups for the AI agents that only the `*` group blocks; no `Sitemap:` line, never reverses a block that names an agent) and `shopify/data/robots-txt-additions.txt` (those Allow groups alone, to paste after the loop of an existing template; `{` and `}` are percent-encoded so crawled paths cannot run as Liquid) |
+| **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/INSTALL.md`; only when the crawled `robots.txt` blocks AI agents through the `*` group (Shopify's default does not), `shopify/data/robots-txt-additions.txt` (Allow groups for the AI agents that only the `*` group blocks, to paste at the end of the theme's existing `templates/robots.txt.liquid`; no `Sitemap:` line, never reverses a block that names an agent; `{` and `}` are percent-encoded so crawled paths cannot run as Liquid). No `robots.txt.liquid` is generated: it would replace the owner's custom rules |
 | **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from the docs Docusaurus loaded (keeps an existing `static/llms.txt` unless `overwrite: true`), `docusaurus/w2agent-webmcp-module.js` (WebMCP client module, only when WebMCP tools are generated), `docusaurus/INSTALL.md` |
 
 ## Platform Detection
@@ -194,7 +194,7 @@ Each platform has a dedicated install resolver that detects your project layout 
 - **Astro** — detects static vs server output mode (an Astro 4 `hybrid` setting counts as server), installs SSR endpoints only when applicable; the emitted endpoints answer 404 when the file is missing
 - **Docusaurus** — detects existing plugin config; adds a `clientModules` post-install step when the WebMCP module is written
 - **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent-site/`
-- **Shopify** — detects theme directory, never overwrites existing `robots.txt.liquid` (the install step then tells you to paste the groups from `data/robots-txt-additions.txt` after its `robots.default_groups` loop); a store whose `robots.txt` does not block AI agents gets no robots files
+- **Shopify** — detects theme directory, never writes `robots.txt.liquid` (the install step tells you to paste the groups from `data/robots-txt-additions.txt` at the end of your existing one, after its `robots.default_groups` loop and your own rules); a store whose `robots.txt` does not block AI agents gets no robots files
 
 Behavior:
 - Skips non-project files (`INSTALL.md`)

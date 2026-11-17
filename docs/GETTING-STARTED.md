@@ -169,7 +169,7 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 | **Next.js** | Route handlers + middleware | Routes revalidate hourly (ISR) but re-read the same deployed file, so new content arrives only with the next build; a `prebuild` script refreshes the content from the live site before each build (the previous deploy; the first deploy serves the install-time seed) |
 | **Nuxt** | Nitro server routes + middleware | Server routes generate llms.txt dynamically per request |
 | **Astro** | Static files + middleware | Static output at build time, middleware for content negotiation |
-| **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |
+| **Shopify** | Liquid snippets + robots.txt additions | Liquid templates use live store data (product titles, prices) |
 | **Docusaurus** | Build plugin | Reads the built docs content, generates llms.txt with real URLs; an existing `static/llms.txt` is served as is unless `overwrite: true` |
 
 ## CI/CD Integration

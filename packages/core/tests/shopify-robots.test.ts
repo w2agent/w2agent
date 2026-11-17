@@ -12,12 +12,30 @@ import type { GenerateContext } from "../src/generate/types.js";
 
 const BASE = "https://shop.example";
 
+const SHOPIFY_DEFAULT_GROUPS_LOOP = `{% for group in robots.default_groups %}
+  {{- group.user_agent }}
+
+  {%- for rule in group.rules -%}
+    {{ rule }}
+  {%- endfor -%}
+
+  {%- if group.sitemap != blank %}
+    {{ group.sitemap }}
+  {%- endif %}
+{% endfor %}`;
+
+const OWNER_RULES = [
+  "User-agent: *",
+  "Disallow: /",
+  "Disallow: /private",
+  "",
+  "User-agent: ChatGPT-User",
+  "Disallow: /",
+  "",
+].join("\n");
+
 class Line extends Drop {
-  constructor(
-    private readonly text: string,
-    readonly directive?: string,
-    readonly value?: string,
-  ) {
+  constructor(private readonly text: string) {
     super();
   }
   valueOf() {
@@ -25,31 +43,24 @@ class Line extends Drop {
   }
 }
 
-function defaultGroups(blockedAgents: string[] = []) {
-  const rule = (d: string, v: string) => new Line(`${d}: ${v}`, d, v);
-  const owner = blockedAgents.map((agent) => ({
-    user_agent: new Line(`User-agent: ${agent}`, undefined, agent),
-    rules: [rule("Disallow", "/")],
-    sitemap: "",
-  }));
+function defaultGroups() {
+  const rule = (d: string, v: string) => new Line(`${d}: ${v}`);
   return [
     {
-      user_agent: new Line("User-agent: *", undefined, "*"),
+      user_agent: new Line("User-agent: *"),
       rules: [
         rule("Disallow", "/admin"),
         rule("Disallow", "/cart"),
         rule("Disallow", "/checkout"),
         rule("Disallow", "/*preview_script_id*"),
-        rule("Disallow", "/"),
       ],
       sitemap: new Line(`Sitemap: ${BASE}/sitemap.xml`),
     },
     {
-      user_agent: new Line("User-agent: Nutch", undefined, "Nutch"),
+      user_agent: new Line("User-agent: Nutch"),
       rules: [rule("Disallow", "/")],
       sitemap: "",
     },
-    ...owner,
   ];
 }
 
@@ -62,16 +73,25 @@ function ctx(robotsTxt: string | undefined): GenerateContext {
   };
 }
 
-function templateFor(robotsTxt: string | undefined): string | undefined {
+function additionsFor(robotsTxt: string | undefined): string | undefined {
   const files = shopifyAdapter.generateIntegration(ctx(robotsTxt), []);
-  return files.find((f) => f.filename === "shopify/templates/robots.txt.liquid")?.content;
+  return files.find((f) => f.filename === "shopify/data/robots-txt-additions.txt")?.content;
 }
 
-async function render(template: string, blockedAgents: string[] = []): Promise<string> {
+async function render(template: string): Promise<string> {
   return new Liquid().render(new Liquid().parse(template), {
-    robots: { default_groups: defaultGroups(blockedAgents) },
+    robots: { default_groups: defaultGroups() },
     shop: { name: "SECRETSHOP", url: BASE },
   });
+}
+
+const OWNER_TEMPLATE = `${SHOPIFY_DEFAULT_GROUPS_LOOP}\n\n${OWNER_RULES}`;
+
+// The generator only sees the live robots.txt, which is the owner template rendered.
+async function ownerWithAdditions() {
+  const live = await render(OWNER_TEMPLATE);
+  const additions = additionsFor(live);
+  return { live, additions, out: await render(`${OWNER_TEMPLATE}\n${additions ?? ""}`) };
 }
 
 function allowed(rendered: string, agent: string, path = "/") {
@@ -80,71 +100,56 @@ function allowed(rendered: string, agent: string, path = "/") {
 
 const count = (text: string, needle: string) => text.split(needle).length - 1;
 
-describe("Shopify robots.txt.liquid", () => {
-  it("is not generated when the crawled robots.txt does not block * at the root", () => {
+describe("Shopify robots additions", () => {
+  it("writes only the additions file, never a robots.txt.liquid", () => {
+    const files = shopifyAdapter.generateIntegration(
+      ctx("User-agent: *\nDisallow: /\nDisallow: /secret\n"),
+      [],
+    );
+    const names = files.map((f) => f.filename);
+    expect(names).toContain("shopify/data/robots-txt-additions.txt");
+    expect(names.some((n) => n.endsWith("robots.txt.liquid"))).toBe(false);
+    const install = files.find((f) => f.filename === "shopify/INSTALL.md")?.content ?? "";
+    expect(install).toContain(
+      "at its end, after the `robots.default_groups` loop and your own rules",
+    );
+    expect(install).toContain("Do not create one from these groups alone");
+  });
+
+  it("writes nothing when the crawled robots.txt does not block * at the root", () => {
     const files = shopifyAdapter.generateIntegration(
       ctx("User-agent: *\nDisallow: /admin\nDisallow: /cart\n"),
       [],
     );
-    const names = files.map((f) => f.filename);
-    expect(names).not.toContain("shopify/templates/robots.txt.liquid");
-    expect(names).not.toContain("shopify/data/robots-txt-additions.txt");
+    expect(files.map((f) => f.filename)).not.toContain("shopify/data/robots-txt-additions.txt");
     expect(files.find((f) => f.filename === "shopify/INSTALL.md")?.content).not.toContain(
       "robots.txt.liquid",
     );
   });
 
-  it("is not generated when no robots.txt was crawled", () => {
-    expect(templateFor(undefined)).toBeUndefined();
+  it("writes nothing when no robots.txt was crawled", () => {
+    expect(additionsFor(undefined)).toBeUndefined();
   });
 
-  it("keeps the Shopify defaults and adds only Allow groups for agents blocked by *", async () => {
-    const template = templateFor(
-      "User-agent: *\nDisallow: /\nDisallow: /secret\nDisallow: /admin\n",
-    )!;
-    expect(template).toContain("robots.default_groups");
-    expect(template).not.toMatch(/^Sitemap:/m);
-    expect(template).not.toContain("llms.txt");
-    expect(template).not.toContain("variant=");
+  it("appended to an owner template, keeps every owner rule and allows only unnamed AI agents", async () => {
+    const { live, additions, out } = await ownerWithAdditions();
+    expect(additions).toBeDefined();
+    expect(additions).not.toMatch(/^Sitemap:/m);
 
-    const out = await render(template);
-    const defaults = out.slice(0, out.indexOf("User-agent: ChatGPT-User"));
-    for (const line of [
-      "User-agent: *",
-      "Disallow: /admin",
-      "Disallow: /cart",
-      "Disallow: /checkout",
-      "Disallow: /*preview_script_id*",
-      "User-agent: Nutch",
-    ]) {
-      expect(count(defaults, `${line}\n`)).toBe(1);
-    }
-    expect(count(out, "Disallow: /cart\n")).toBe(1);
-    expect(count(out, "Disallow: /secret\n")).toBe(1);
-    expect(out.match(/^User-agent: \*$/gm)).toHaveLength(1);
-
-    const parsed = robotsParser(`${BASE}/robots.txt`, out);
-    expect(parsed.getSitemaps()).toEqual([`${BASE}/sitemap.xml`]);
-    expect(count(out, "Sitemap:")).toBe(1);
-
-    for (const agent of ["ChatGPT-User", "Claude-User", "OAI-SearchBot"]) {
+    expect(allowed(live, "Claude-User")).toBe(false);
+    expect(allowed(out, "ChatGPT-User")).toBe(false);
+    expect(count(out, "User-agent: ChatGPT-User\n")).toBe(1);
+    for (const agent of ["Claude-User", "OAI-SearchBot", "Perplexity-User"]) {
       expect(allowed(out, agent)).toBe(true);
-      expect(allowed(out, agent, "/secret")).toBe(false);
+      expect(allowed(out, agent, "/private")).toBe(false);
       expect(allowed(out, agent, "/admin")).toBe(false);
     }
-    expect(allowed(out, "GPTBot")).toBe(false);
-    expect(allowed(out, "SomeUnknownBot")).toBe(false);
-  });
-
-  it("never reverses a block the owner wrote for a named agent", async () => {
-    const template = templateFor(
-      "User-agent: GPTBot\nDisallow: /\n\nUser-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\n",
-    )!;
-    const out = await render(template, ["GPTBot", "ChatGPT-User"]);
-    expect(allowed(out, "GPTBot")).toBe(false);
-    expect(allowed(out, "ChatGPT-User")).toBe(false);
-    expect(allowed(out, "Claude-User")).toBe(true);
-    expect(count(out, "User-agent: ChatGPT-User\n")).toBe(1);
+    for (const agent of ["GPTBot", "ClaudeBot", "SomeUnknownBot", "Nutch"]) {
+      expect(allowed(out, agent)).toBe(false);
+    }
+    expect(allowed(out, "SomeUnknownBot", "/private")).toBe(false);
+    expect(allowed(out, "SomeUnknownBot", "/products")).toBe(false);
+    expect(out.startsWith(live)).toBe(true);
   });
 
   it("keeps hostile crawled path rules inert in Liquid", async () => {
@@ -156,24 +161,20 @@ describe("Shopify robots.txt.liquid", () => {
       "/a}}b%}c",
     ];
     const robots = `User-agent: *\nDisallow: /\n${hostile.map((p) => `Disallow: ${p}`).join("\n")}\n`;
-    const template = templateFor(robots)!;
-    const additions = shopifyRobotsAdditions(robotsAllowGroups(robots, BASE));
+    const additions = additionsFor(robots)!;
+    expect(additions).not.toMatch(/[{}]/);
+    expect(additions).toBe(shopifyRobotsAdditions(robotsAllowGroups(robots, BASE)));
 
-    for (const text of [additions, template.slice(template.indexOf("{% endfor %}") + 12)]) {
-      expect(text).not.toMatch(/\{/);
-      expect(text).not.toMatch(/\}/);
-    }
-
-    const out = await render(template);
+    const out = await render(`${OWNER_TEMPLATE}\n${additions}`);
     expect(out).not.toContain("SECRETSHOP");
     expect(out).toContain("Disallow: /%7B%7B shop.name %7D%7D");
     expect(out).toContain("Disallow: /%7B% raw %%7D");
 
     for (const path of ["/{{ shop.name }}", "/{% raw %}x", "/{% endraw %}", "/{%- comment -%}"]) {
-      expect(allowed(out, "ChatGPT-User", path)).toBe(false);
+      expect(allowed(out, "Claude-User", path)).toBe(false);
     }
-    expect(allowed(out, "ChatGPT-User", "/a}}b%}c")).toBe(false);
-    expect(allowed(out, "ChatGPT-User", "/fine")).toBe(true);
+    expect(allowed(out, "Claude-User", "/a}}b%}c")).toBe(false);
+    expect(allowed(out, "Claude-User", "/fine")).toBe(true);
   });
 
   it("encodes braces and rejects line breaks in emitted values", () => {
@@ -184,7 +185,7 @@ describe("Shopify robots.txt.liquid", () => {
     expect(() => liquidSafeRobotsLine("Disallow: /a\rb")).toThrow();
   });
 
-  it("writes the same groups to the additions file and the template", () => {
+  it("generateShopifyIntegration writes the groups to the additions file", () => {
     const files = generateShopifyIntegration(
       "# x",
       [["User-agent: ChatGPT-User", "Allow: /"]],
@@ -192,8 +193,7 @@ describe("Shopify robots.txt.liquid", () => {
     );
     const additions = files.find((f) => f.filename === "shopify/data/robots-txt-additions.txt");
     expect(additions?.content).toBe("User-agent: ChatGPT-User\nAllow: /\n");
-    const install = files.find((f) => f.filename === "shopify/INSTALL.md")?.content;
-    expect(install).toContain("data/robots-txt-additions.txt");
+    expect(files.map((f) => f.filename)).not.toContain("shopify/templates/robots.txt.liquid");
   });
 });
 
@@ -210,5 +210,11 @@ describe("robotsAllowGroups", () => {
     for (const line of groups.flat()) {
       expect(line).toMatch(/^(User-agent|Allow|Disallow|Crawl-delay): |^$/);
     }
+  });
+
+  it("returns [] when the file ends in a User-agent line with no rules", () => {
+    const robots = "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\n# end\n\n";
+    expect(robotsAllowGroups(robots, BASE)).toEqual([]);
+    expect(additionsFor(robots)).toBeUndefined();
   });
 });

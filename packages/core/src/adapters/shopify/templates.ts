@@ -1,17 +1,5 @@
 import type { GeneratedFile } from "../../generate/types.js";
 
-const SHOPIFY_DEFAULT_GROUPS_LOOP = `{% for group in robots.default_groups %}
-  {{- group.user_agent }}
-
-  {%- for rule in group.rules -%}
-    {{ rule }}
-  {%- endfor -%}
-
-  {%- if group.sitemap != blank %}
-    {{ group.sitemap }}
-  {%- endif %}
-{% endfor %}`;
-
 export function liquidSafeRobotsLine(line: string): string {
   if (/[\r\n]/.test(line)) throw new Error("robots.txt line contains a line break");
   return line.replace(/\{/g, "%7B").replace(/\}/g, "%7D");
@@ -61,23 +49,18 @@ export function generateShopifyIntegration(
 {% endif %}
 `;
 
-  const robotsTxtLiquid = `${SHOPIFY_DEFAULT_GROUPS_LOOP}
-
-${robotsAdditions}`;
-
   const robotsStep = hasRobots
     ? `
 ### 3. Allow AI agents in robots.txt (Shopify 2.0+)
-Your robots.txt blocks AI agents through the \`*\` group. The groups below allow only the agents that no \`User-agent\` line names; a block you wrote for a named agent stays.
+Your live robots.txt blocks AI agents through \`User-agent: *\`. The groups in \`data/robots-txt-additions.txt\` allow only agents that no \`User-agent\` line names; a block you wrote for a named agent stays.
 1. Go to **Online Store → Themes → Edit Code**
-2. If \`templates/robots.txt.liquid\` does not exist, create it with the contents of \`templates/robots.txt.liquid\` from this package. It keeps Shopify's default rules through \`robots.default_groups\` and adds the groups after them.
-3. If it already exists, paste the groups from \`data/robots-txt-additions.txt\` after the \`{% endfor %}\` of its \`robots.default_groups\` loop. If it has no such loop, add Shopify's loop first.
+2. Open the existing \`templates/robots.txt.liquid\` and paste the groups at its end, after the \`robots.default_groups\` loop and your own rules.
+3. If the theme has no \`templates/robots.txt.liquid\`, the block comes from elsewhere. Do not create one from these groups alone: it would replace Shopify's default rules.
 `
     : "";
 
   const robotsRef = hasRobots
-    ? `  templates/robots.txt.liquid    ← Shopify defaults + AI agent Allow groups
-  data/robots-txt-additions.txt  ← The Allow groups alone (paste after the default_groups loop)
+    ? `  data/robots-txt-additions.txt  ← Allow groups to paste at the end of templates/robots.txt.liquid
 `
     : "";
 
@@ -118,7 +101,6 @@ Run \`w2agent generate ${siteUrl}\` again and update the page content and snippe
   files.push(makeFile("shopify/snippets/w2agent-head.liquid", headSnippet));
   files.push(makeFile("shopify/data/llms.txt", llmsTxtContent));
   if (hasRobots) {
-    files.push(makeFile("shopify/templates/robots.txt.liquid", robotsTxtLiquid));
     files.push(makeFile("shopify/data/robots-txt-additions.txt", robotsAdditions));
   }
   files.push(makeFile("shopify/INSTALL.md", installMd));

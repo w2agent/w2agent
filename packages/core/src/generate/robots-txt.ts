@@ -1,4 +1,4 @@
-import { planRobotsAccessFix } from "../audit/shared/robots-fix.js";
+import { endsInOpenGroup, planRobotsAccessFix } from "../audit/shared/robots-fix.js";
 import type { GenerateContext } from "./types.js";
 
 const HEADER = "# --- w2agent: suggested AI bot rules ---";
@@ -24,28 +24,39 @@ export function generateRobotsTxt(ctx: GenerateContext): string {
 }
 
 /**
- * Only the text w2agent adds to the site's robots.txt, with "\n" line endings and a trailing
- * newline; "" when there is nothing to add. Without an existing robots.txt this is the whole
- * generated file. Appending it to the existing file (after a blank line) reproduces
- * generateRobotsTxt, except for CRLF conversion.
- */
-export function generateRobotsAdditions(ctx: GenerateContext): string {
-  const additions = planAdditions(ctx);
-  return additions.length === 0 ? "" : `${additions.join("\n")}\n`;
-}
-
-/**
  * The Allow groups w2agent would add to an existing robots.txt (one line array per group),
  * for AI agents the `*` group blocks and no User-agent line names. Never reverses a block the
- * owner wrote for a named agent. `[]` when there is no robots.txt or nothing to add.
+ * owner wrote for a named agent. `[]` when there is no robots.txt or nothing to add, and when
+ * the file ends in a `User-agent` line with no rules (appended agents would join that group).
  */
 export function robotsAllowGroups(robotsTxt: string | undefined, baseUrl: string): string[][] {
-  if (!robotsTxt) return [];
+  if (!robotsTxt || endsInOpenGroup(robotsTxt)) return [];
   return planRobotsAccessFix(robotsTxt, baseUrl, { namedBlocks: "keep" })?.groups ?? [];
 }
 
+const SITEMAP_ROOT = /^<(?:urlset|sitemapindex)[\s>/]/;
+
+// The root element must be urlset or sitemapindex, after only whitespace, processing
+// instructions (the XML declaration) and comments. Linear scan: crawled input is untrusted.
 function hasSitemap(sitemapXml: string | undefined): boolean {
-  return !!sitemapXml && (sitemapXml.includes("<urlset") || sitemapXml.includes("<sitemapindex"));
+  if (!sitemapXml) return false;
+  let i = 0;
+  while (i < sitemapXml.length) {
+    if (/\s/.test(sitemapXml[i])) {
+      i++;
+      continue;
+    }
+    const close = sitemapXml.startsWith("<?", i)
+      ? "?>"
+      : sitemapXml.startsWith("<!--", i)
+        ? "-->"
+        : undefined;
+    if (!close) break;
+    const end = sitemapXml.indexOf(close, i + 2);
+    if (end < 0) return false;
+    i = end + close.length;
+  }
+  return SITEMAP_ROOT.test(sitemapXml.slice(i, i + 16));
 }
 
 function planAdditions(ctx: GenerateContext): string[] {

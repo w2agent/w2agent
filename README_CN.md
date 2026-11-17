@@ -250,7 +250,7 @@ w2agent 自动检测你的平台并生成原生集成代码：
 | **Next.js** | `__NEXT_DATA__`、`_next/static` | 带 ISR 的路由处理器、用于内容协商的中间件、构建脚本 | 构建 + 实时审计 |
 | **Nuxt** | `__NUXT`、Nuxt meta 标签 | Nitro 服务器路由、自动导入的中间件 | 构建 + 实时审计 |
 | **Astro** | Generator meta、astro 静态资源 | 静态文件 + 用于内容协商的中间件 | 构建 + 实时审计 |
-| **Shopify** | cdn.shopify.com、Shopify 响应头 | Liquid 片段、robots.txt.liquid、产品 JSON-LD | 语法 + 结构 |
+| **Shopify** | cdn.shopify.com、Shopify 响应头 | Liquid 片段、robots.txt 追加规则、产品 JSON-LD | 语法 + 结构 |
 | **Docusaurus** | Generator meta、html class | 从文档目录生成 llms.txt 的构建插件 | 构建 + 实时审计 |
 
 审计期间平台专用检查自动执行：

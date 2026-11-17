@@ -199,10 +199,7 @@ describe("resolver steps follow the guarded actions", () => {
 
     const plan = planInstall(
       shopifyAdapter,
-      [
-        makeFile("shopify/templates/robots.txt.liquid", "new"),
-        makeFile("shopify/data/robots-txt-additions.txt", "# additions"),
-      ],
+      [makeFile("shopify/data/robots-txt-additions.txt", "# additions")],
       tempDir,
     );
 

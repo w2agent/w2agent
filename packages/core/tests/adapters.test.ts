@@ -705,15 +705,16 @@ describe("Shopify integration generation", () => {
     expect(snippet?.content).toContain("product.available");
   });
 
-  it("generates robots.txt.liquid only when the crawled robots.txt blocks AI agents via *", () => {
+  it("generates robots additions only when the crawled robots.txt blocks AI agents via *, and never a robots.txt.liquid", () => {
     const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files.some((f) => f.filename.endsWith("robots.txt.liquid"))).toBe(false);
+    expect(files.some((f) => f.filename.endsWith("robots-txt-additions.txt"))).toBe(false);
 
     const ctx = makeCtx();
     ctx.metadata = { ...ctx.metadata, robotsTxt: "User-agent: *\nDisallow: /\n" };
     const blocked = shopifyAdapter.generateIntegration(ctx, makeCoreFiles());
-    const robots = blocked.find((f) => f.filename === "shopify/templates/robots.txt.liquid");
-    expect(robots?.content).toContain("robots.default_groups");
+    expect(blocked.some((f) => f.filename.endsWith("robots.txt.liquid"))).toBe(false);
+    const robots = blocked.find((f) => f.filename === "shopify/data/robots-txt-additions.txt");
+    expect(robots?.content).toContain("User-agent: ChatGPT-User");
     expect(robots?.content).not.toContain("Disallow: /checkout");
   });
 });

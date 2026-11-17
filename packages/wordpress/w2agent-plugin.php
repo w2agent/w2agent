@@ -208,7 +208,15 @@ function w2agent_robots_bot_tokens() {
     ];
 }
 
-function w2agent_robots_groups( $output ) {
+// Trims the characters JavaScript trim() strips (ASCII whitespace, NBSP, BOM and Unicode spaces) so
+// this parser agrees with robots-parser on UTF-8 input.
+function w2agent_robots_trim( $value ) {
+    $ws = '(?:[\x09-\x0D\x20]|\xC2\xA0|\xEF\xBB\xBF|\xE1\x9A\x80|\xE2\x80[\x80-\x8A\xA8\xA9\xAF]|\xE2\x81\x9F|\xE3\x80\x80)+';
+    return preg_replace( '/^' . $ws . '|' . $ws . '\z/', '', (string) $value );
+}
+
+// $open is set when the last record with a key is a `User-agent` line: that group has no rules yet.
+function w2agent_robots_groups( $output, &$open = false ) {
     $groups     = [];
     $current    = -1;
     $last_agent = false;
@@ -218,8 +226,8 @@ function w2agent_robots_groups( $output ) {
         $text  = $hash === false ? $raw : substr( $raw, 0, $hash );
         $colon = strpos( $text, ':' );
         if ( $colon === false ) continue;
-        $key   = strtolower( trim( substr( $text, 0, $colon ) ) );
-        $value = trim( substr( $text, $colon + 1 ) );
+        $key   = strtolower( w2agent_robots_trim( substr( $text, 0, $colon ) ) );
+        $value = w2agent_robots_trim( substr( $text, $colon + 1 ) );
         if ( $key === '' ) continue;
         if ( $key === 'user-agent' ) {
             if ( ! $last_agent || $current < 0 ) {
@@ -230,7 +238,7 @@ function w2agent_robots_groups( $output ) {
                 $agent = strtolower( $value );
                 $slash = strpos( $agent, '/' );
                 if ( $slash !== false ) $agent = substr( $agent, 0, $slash );
-                $groups[ $current ]['agents'][] = trim( $agent );
+                $groups[ $current ]['agents'][] = w2agent_robots_trim( $agent );
             }
             $last_agent = true;
             continue;
@@ -243,6 +251,7 @@ function w2agent_robots_groups( $output ) {
             $groups[ $current ]['delay'] = $value;
         }
     }
+    $open = $last_agent;
     return $groups;
 }
 
@@ -283,12 +292,16 @@ function w2agent_robots_blocks_root( $rules ) {
 }
 
 // The text to append to the live robots.txt: one group that lets the AI agents through when the
-// `*` rules block "/". An agent named anywhere in the output is never touched. '' when nothing is needed.
+// `*` rules block "/". An agent named anywhere in the output is never touched. '' when nothing is needed,
+// and when the output ends in a `User-agent` line with no rules (our agents would join that group).
 function w2agent_robots_additions( $output ) {
     $named = [];
     $star  = [];
     $delay = null;
-    foreach ( w2agent_robots_groups( $output ) as $group ) {
+    $open  = false;
+    $parsed = w2agent_robots_groups( $output, $open );
+    if ( $open ) return '';
+    foreach ( $parsed as $group ) {
         foreach ( $group['agents'] as $agent ) $named[ $agent ] = true;
         if ( in_array( '*', $group['agents'], true ) ) {
             $star = array_merge( $star, $group['rules'] );

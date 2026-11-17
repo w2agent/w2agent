@@ -216,3 +216,13 @@ test("robots.txt filter runs late, bails when discouraged, adds no Sitemap or * 
   assert.doesNotMatch(additions, /sitemap/i);
   assert.doesNotMatch(additions, /'User-agent: \*'/);
 });
+
+test("robots.txt parser trims BOM and NBSP like JS and adds nothing after a dangling User-agent", () => {
+  const additions = block("function w2agent_robots_additions", "add_filter( 'robots_txt'");
+  assert.match(additions, /if \( \$open \) return '';/);
+  const trim = block("function w2agent_robots_trim", "function w2agent_robots_groups");
+  assert.match(trim, /\\xEF\\xBB\\xBF/);
+  assert.match(trim, /\\xC2\\xA0/);
+  const groups = block("function w2agent_robots_groups", "function w2agent_robots_match");
+  assert.doesNotMatch(groups, /[^_]trim\(/);
+});

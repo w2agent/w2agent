@@ -44,8 +44,8 @@ for (const c of cases) {
     const combined = parse(`${c.robots}\n${added}`);
     const unnamedTokens = tokens.filter((t) => !named.has(t.toLowerCase()));
     out(
-      (added !== "") === (c.blocksRoot && unnamedTokens.length > 0),
-      `${c.name} [${copy}]: adds a group only when * blocks the root`,
+      (added !== "") === (c.blocksRoot && unnamedTokens.length > 0 && !c.open),
+      `${c.name} [${copy}]: adds a group only when * blocks the root and no agent group is left open`,
     );
     out(
       !added.split("\n").some((l) => /^user-agent:\s*\*/i.test(l) || /^sitemap:/i.test(l)),
@@ -54,7 +54,7 @@ for (const c of cases) {
     for (const t of tokens) {
       const want = named.has(t.toLowerCase())
         ? allowed(original, t)
-        : c.blocksRoot
+        : c.blocksRoot && !c.open
           ? true
           : allowed(original, t);
       out(allowed(combined, t) === want, `${c.name} [${copy}]: ${t} at / (${want ? "allowed" : "blocked"})`);

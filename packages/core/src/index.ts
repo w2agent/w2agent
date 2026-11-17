@@ -72,11 +72,7 @@ export {
   type McpDetectedTools,
   type SelfHostPlatform,
 } from "./generate/mcp-server.js";
-export {
-  generateRobotsAdditions,
-  generateRobotsTxt,
-  robotsAllowGroups,
-} from "./generate/robots-txt.js";
+export { generateRobotsTxt, robotsAllowGroups } from "./generate/robots-txt.js";
 export { generateSchemaOrg } from "./generate/schema-org.js";
 export { generateSkillMd, type SkillMdOptions } from "./generate/skill-md.js";
 export {

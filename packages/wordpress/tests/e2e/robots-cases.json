@@ -37,6 +37,55 @@
   { "name": "no star group at all", "robots": "User-agent: GPTBot\nDisallow: /\n", "blocksRoot": false },
   { "name": "empty output", "robots": "", "blocksRoot": false },
   {
+    "name": "dangling ChatGPT-User group adds nothing",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"],
+    "open": true
+  },
+  {
+    "name": "dangling GPTBot group with trailing comment and blank lines adds nothing",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\n# end of file\n\n\n",
+    "blocksRoot": true,
+    "named": ["GPTBot"],
+    "open": true
+  },
+  {
+    "name": "dangling group in CRLF file adds nothing",
+    "robots": "User-agent: *\r\nDisallow: /\r\n\r\nUser-agent: ChatGPT-User\r\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"],
+    "open": true
+  },
+  {
+    "name": "Sitemap line after a dangling agent closes the group",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nSitemap: http://example.test/s.xml\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"]
+  },
+  {
+    "name": "BOM before a named agent",
+    "robots": "﻿User-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"]
+  },
+  {
+    "name": "BOM before the star group",
+    "robots": "﻿User-agent: *\nDisallow: /\n",
+    "blocksRoot": true
+  },
+  {
+    "name": "NBSP around names and values",
+    "robots": "User-agent: ChatGPT-User \nDisallow: /\n\n User-agent: *\nDisallow: /\n",
+    "blocksRoot": true,
+    "named": ["ChatGPT-User"]
+  },
+  {
+    "name": "empty Crawl-delay in a second star group",
+    "robots": "User-agent: *\nDisallow: /\nCrawl-delay: 5\n\nUser-agent: *\nCrawl-delay:\n",
+    "blocksRoot": true
+  },
+  {
     "name": "path rule and crawl-delay carry into the group",
     "robots": "User-agent: *\nDisallow: /\nDisallow: /private/\nAllow: /public/\nCrawl-delay: 5\n",
     "blocksRoot": true,

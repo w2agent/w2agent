@@ -15,7 +15,7 @@ import { generateFaq } from "../src/generate/faq.js";
 import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
 import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "../src/generate/llms-txt.js";
-import { generateRobotsAdditions, generateRobotsTxt } from "../src/generate/robots-txt.js";
+import { generateRobotsTxt } from "../src/generate/robots-txt.js";
 import { generateSchemaOrg } from "../src/generate/schema-org.js";
 import { generateSkillMd } from "../src/generate/skill-md.js";
 import { generateOpenClawSkillMd } from "../src/generate/skill-md-openclaw.js";
@@ -511,7 +511,8 @@ describe("generateRobotsTxt", () => {
   });
 
   it("a named group with an empty rule set still counts as naming the token", () => {
-    const existing = "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\n";
+    const existing =
+      "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nSitemap: https://example.com/s.xml\n";
     const result = withRobots(existing);
     expect(result.match(/User-agent: ChatGPT-User/g)).toHaveLength(1);
     expect(blockedFor(result, "Claude-User")).toBe(false);
@@ -552,36 +553,69 @@ describe("generateRobotsTxt", () => {
     expect(blockedFor(result, "Applebot")).toBe(false);
   });
 
-  describe("generateRobotsAdditions", () => {
-    const ctxFor = (robotsTxt: string | undefined, sitemapXml?: string) =>
-      makeCtx({
-        metadata: { baseUrl: "https://example.com", robotsTxt, sitemapXml, wellKnown: {} },
-      });
+  it("an input ending in a User-agent line with no rules gets no Allow group, so the agent stays blocked", () => {
+    const tails = ["\n", "\n# end\n\n", "\n\n\n"];
+    for (const agent of ["ChatGPT-User", "GPTBot"]) {
+      for (const tail of tails) {
+        const existing = `User-agent: *\nDisallow: /\n\nUser-agent: ${agent}${tail}`;
+        const result = withRobots(existing, SITEMAP);
+        expect(blockedFor(existing, agent)).toBe(true);
+        expect(blockedFor(result, agent)).toBe(true);
+        expect(result).not.toMatch(/^Allow: \/$/m);
+        expect(result).not.toMatch(/^User-agent: Claude-User$/m);
+      }
+    }
+  });
 
-    it("returns only the added groups and lines, never the owner's text", () => {
-      const existing =
-        "User-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\nDisallow: /private/\n";
-      const delta = generateRobotsAdditions(ctxFor(existing, SITEMAP));
-      expect(delta).not.toMatch(/^Disallow: \/$/m);
-      expect(delta).not.toMatch(/^User-agent: \*$/m);
-      expect(delta).not.toMatch(/^User-agent: ChatGPT-User$/m);
-      expect(delta).toMatch(/^User-agent: Claude-User$/m);
-      expect(delta).toContain("Disallow: /private/\nAllow: /\n");
-      expect(delta).toContain(SM);
-      expect(delta.startsWith("# --- w2agent")).toBe(true);
-      expect(generateRobotsTxt(ctxFor(existing, SITEMAP))).toBe(`${existing}\n${delta}`);
-    });
+  it("a keyed line after the dangling User-agent closes the group in robots-parser, so groups are added", () => {
+    const existing =
+      "User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nSitemap: https://example.com/s.xml\n";
+    const result = withRobots(existing);
+    expect(result).toMatch(/^User-agent: Claude-User$/m);
+    expect(blockedFor(result, "GPTBot")).toBe(true);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
+  });
 
-    it("returns an empty string when there is nothing to add", () => {
-      const existing = `User-agent: *\nDisallow: /private/\n${TAIL}`;
-      expect(generateRobotsAdditions(ctxFor(existing))).toBe("");
-      expect(generateRobotsTxt(ctxFor(existing))).toBe(existing);
-    });
+  it("ignores an empty Crawl-delay and keeps the last non-empty one", () => {
+    const existing = "User-agent: *\nDisallow: /\nCrawl-delay: 5\n\nUser-agent: *\nCrawl-delay:\n";
+    const result = withRobots(existing);
+    const added = result.slice(existing.length);
+    expect(added).toContain("Crawl-delay: 5\nAllow: /");
+    expect(added).not.toMatch(/^Crawl-delay: *$/m);
+  });
 
-    it("is the whole generated file when no robots.txt exists", () => {
-      expect(generateRobotsAdditions(ctxFor(undefined, SITEMAP))).toBe(
-        generateRobotsTxt(ctxFor(undefined, SITEMAP)),
+  describe("sitemap detection", () => {
+    const meta = (sitemapXml: string) =>
+      makeCtx({ metadata: { baseUrl: "https://example.com", sitemapXml, wellKnown: {} } });
+    const has = (xml: string) => generateRobotsTxt(meta(xml)).includes("Sitemap:");
+
+    it("accepts only a sitemap root element after BOM, whitespace, declaration and comments", () => {
+      expect(has(SITEMAP)).toBe(true);
+      expect(has('﻿\n<?xml version="1.0" encoding="UTF-8"?>\n<!-- gen --><urlset/>')).toBe(true);
+      expect(has('<?xml version="1.0"?><sitemapindex xmlns="x"><sitemap/></sitemapindex>')).toBe(
+        true,
       );
+      expect(has("<urlset>")).toBe(true);
+    });
+
+    it("accepts a stylesheet instruction before the root and stays fast on hostile input", () => {
+      expect(
+        has('<?xml version="1.0"?><?xml-stylesheet href="s.xsl"?>\n<sitemapindex xmlns="x"/>'),
+      ).toBe(true);
+      for (const hostile of [`${"<!--a-->".repeat(40)}<html>`, `${"<?x?>".repeat(40)}<html>`]) {
+        const start = Date.now();
+        expect(has(hostile)).toBe(false);
+        expect(Date.now() - start).toBeLessThan(500);
+      }
+      expect(has("<!--".repeat(20000))).toBe(false);
+    });
+
+    it("rejects soft-404 HTML that only mentions a sitemap tag", () => {
+      expect(has("<html><!-- <urlset --></html>")).toBe(false);
+      expect(has("<html><body><urlset></urlset></body></html>")).toBe(false);
+      expect(has("<!doctype html><p>no <sitemapindex> here</p>")).toBe(false);
+      expect(has("<urlsetfoo/>")).toBe(false);
+      expect(has("")).toBe(false);
     });
   });
 });

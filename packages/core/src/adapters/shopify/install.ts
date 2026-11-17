@@ -7,7 +7,6 @@ import type { InstallAction, InstallPlan } from "../../install/types.js";
 interface ShopifyLayout {
   isThemeDir: boolean;
   hasExistingHeadSnippet: boolean;
-  hasExistingRobotsTxt: boolean;
 }
 
 export function detectShopifyLayout(projectDir: string): ShopifyLayout {
@@ -18,7 +17,6 @@ export function detectShopifyLayout(projectDir: string): ShopifyLayout {
   return {
     isThemeDir,
     hasExistingHeadSnippet: existsSync(join(projectDir, "snippets", "w2agent-head.liquid")),
-    hasExistingRobotsTxt: existsSync(join(projectDir, "templates", "robots.txt.liquid")),
   };
 }
 
@@ -54,20 +52,6 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
       continue;
     }
 
-    // robots.txt.liquid — never overwrite
-    if (relPath === "templates/robots.txt.liquid") {
-      if (layout.hasExistingRobotsTxt) {
-        actions.push({
-          type: "skip",
-          dest: relPath,
-          reason: "existing robots.txt.liquid — merge w2agent rules manually",
-        });
-        continue;
-      }
-      actions.push({ type: "write", dest: relPath, content: file.content });
-      continue;
-    }
-
     // Data files — always write
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
@@ -77,12 +61,9 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
   if (willWrite(guarded.actions, "snippets/w2agent-head.liquid")) {
     postInstallSteps.push("Add {% render 'w2agent-head' %} to your theme.liquid <head> section.");
   }
-  if (
-    guarded.actions.some((a) => a.type === "skip" && a.dest === "templates/robots.txt.liquid") &&
-    hasWrittenCopy(guarded.actions, "data/robots-txt-additions.txt")
-  ) {
+  if (hasWrittenCopy(guarded.actions, "data/robots-txt-additions.txt")) {
     postInstallSteps.push(
-      "Paste the groups from data/robots-txt-additions.txt into your existing templates/robots.txt.liquid, after the robots.default_groups loop.",
+      "Paste the groups from data/robots-txt-additions.txt at the end of your theme's existing templates/robots.txt.liquid (after the robots.default_groups loop and your own rules). If the theme has no robots.txt.liquid, do not create one from these groups alone.",
     );
   }
 

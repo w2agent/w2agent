@@ -217,20 +217,20 @@ run_config() {
   if [[ "$setup_type" == "mock-existing-robots" ]]; then
     local orig_content
     orig_content=$(cat "$dir/templates/robots.txt.liquid" 2>/dev/null || echo "")
-    if echo "$integrate_out" | grep -q "Skipped:" && [[ "$orig_content" == "# pre-existing robots.txt.liquid" ]]; then
-      pass "robots.txt.liquid" "correctly skipped; pre-existing file preserved"
+    if [[ "$orig_content" == "# pre-existing robots.txt.liquid" ]]; then
+      pass "robots.txt.liquid" "pre-existing file preserved"
       r_robots="✅"
     else
-      fail "robots.txt.liquid" "expected skip of pre-existing file"
+      fail "robots.txt.liquid" "pre-existing file was changed"
       r_robots="❌"
     fi
   else
     if [[ -f "$dir/templates/robots.txt.liquid" ]]; then
-      pass "robots.txt.liquid" "templates/robots.txt.liquid written"
-      r_robots="✅"
-    else
-      fail "robots.txt.liquid" "templates/robots.txt.liquid not found"
+      fail "robots.txt.liquid" "templates/robots.txt.liquid must never be written"
       r_robots="❌"
+    else
+      pass "robots.txt.liquid" "not written (groups, if any, ship as data/robots-txt-additions.txt)"
+      r_robots="✅"
     fi
   fi
 

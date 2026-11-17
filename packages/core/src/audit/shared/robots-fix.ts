@@ -78,6 +78,24 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
   return groups;
 }
 
+/**
+ * True when the last line with a key is `User-agent`: that group has no rules yet, so agents
+ * appended after it would join it. Follows robots-parser, where any keyed line (Sitemap, an
+ * unknown key) ends the agent run and comments, blank and colon-less lines do not.
+ */
+export function endsInOpenGroup(robotsTxt: string): boolean {
+  let lastKey = "";
+  for (const raw of robotsTxt.split(LINE_BREAK)) {
+    const hash = raw.indexOf("#");
+    const text = hash > -1 ? raw.slice(0, hash) : raw;
+    const colon = text.indexOf(":");
+    if (colon < 0) continue;
+    const key = text.slice(0, colon).trim().toLowerCase();
+    if (key) lastKey = key;
+  }
+  return lastKey === "user-agent";
+}
+
 function blocksRoot(rule: RobotsRule, baseUrl: string): boolean {
   if (rule.directive !== "Disallow" || !rule.value) return false;
   const probe = robotsParser(`${baseUrl}/robots.txt`, `User-agent: *\nDisallow: ${rule.value}`);
@@ -103,7 +121,7 @@ export function planRobotsAccessFix(
   const wildcardRules = groups.filter((g) => g.agentLines.some((a) => a.agent === "*"));
 
   const lastCrawlDelay = (from: RobotsGroup[]) =>
-    from.filter((g) => g.crawlDelay !== undefined).pop()?.crawlDelay;
+    from.filter((g) => g.crawlDelay).pop()?.crawlDelay;
 
   const addGroup = (token: string, rules: RobotsRule[], crawlDelay: string | undefined) => {
     const key = [
@@ -157,11 +175,6 @@ export function planRobotsAccessFix(
       ...rules.split("\n"),
     ]),
   };
-}
-
-export function applyRobotsAccessFixRemovals(robotsTxt: string, fix: RobotsAccessFix): string[] {
-  const removed = new Set(fix.removals.map((r) => r.line));
-  return robotsTxt.split(LINE_BREAK).filter((_, i) => !removed.has(i + 1));
 }
 
 export function describeRobotsAccessFixRemovals(fix: RobotsAccessFix): string[] {

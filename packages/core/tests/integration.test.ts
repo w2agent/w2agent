@@ -679,7 +679,8 @@ describe("integration: Shopify", () => {
   it("generates expected files", () => {
     const filenames = files.map((f) => f.filename);
     expect(filenames).toContain("shopify/snippets/w2agent-head.liquid");
-    expect(filenames).toContain("shopify/templates/robots.txt.liquid");
+    expect(filenames).toContain("shopify/data/robots-txt-additions.txt");
+    expect(filenames).not.toContain("shopify/templates/robots.txt.liquid");
     expect(filenames).toContain("shopify/data/llms.txt");
   });
 
@@ -698,9 +699,8 @@ describe("integration: Shopify", () => {
     expect(head.content).toContain("product.price");
   });
 
-  it("robots.txt template keeps Shopify defaults and allows AI agents blocked by *", () => {
-    const robots = files.find((f) => f.filename.includes("robots.txt.liquid"))!;
-    expect(robots.content).toContain("robots.default_groups");
+  it("robots additions allow AI agents blocked by * and carry no Sitemap", () => {
+    const robots = files.find((f) => f.filename.endsWith("robots-txt-additions.txt"))!;
     expect(robots.content).toContain("User-agent: ChatGPT-User");
     expect(robots.content).toContain("Allow: /");
     expect(robots.content).not.toContain("Sitemap:");

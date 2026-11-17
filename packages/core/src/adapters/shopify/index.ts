@@ -9,7 +9,7 @@ import { generateShopifyIntegration } from "./templates.js";
 export const shopifyAdapter: PlatformAdapter = {
   id: "shopify",
   name: "Shopify",
-  description: "Shopify store — Liquid snippets, robots.txt.liquid, page-based llms.txt",
+  description: "Shopify store — Liquid snippets, robots.txt additions, page-based llms.txt",
 
   detect(pages: FetchedPage[]): PlatformDetectionResult | null {
     let confidence = 0;

@@ -143,7 +143,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | In theme dir | Has `layout/theme.liquid` or `config/settings_schema.json` | Write snippets + templates |
 | Not in theme dir | Missing markers | Warn + still write |
 | Existing head snippet | File exists | Skip + warn |
-| Existing `robots.txt.liquid` | File exists | Skip + provide merge instructions (never overwrite) |
+| robots.txt additions | `data/robots-txt-additions.txt` generated (live robots.txt blocks AI agents via `*`) | Write the data file + a step to paste it at the end of the existing `templates/robots.txt.liquid`; no `robots.txt.liquid` is ever written |
 
 ## Testing
 

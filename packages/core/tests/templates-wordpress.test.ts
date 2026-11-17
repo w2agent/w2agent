@@ -303,6 +303,25 @@ describe("generateWpPlugin — robots.txt filter (WP-5)", () => {
     expect(add).not.toContain("'User-agent: *'");
   });
 
+  it("trims BOM and NBSP like JS and adds nothing after a dangling User-agent line", () => {
+    const php = pluginPhp();
+    const add = between(php, "function w2agent_site_robots_additions", "add_filter('robots_txt'");
+    expect(add).toContain("if ($open) return '';");
+    const trim = between(
+      php,
+      "function w2agent_site_robots_trim",
+      "function w2agent_site_robots_groups",
+    );
+    expect(trim).toContain("\\xEF\\xBB\\xBF");
+    expect(trim).toContain("\\xC2\\xA0");
+    const groups = between(
+      php,
+      "function w2agent_site_robots_groups",
+      "function w2agent_site_robots_match",
+    );
+    expect(groups).not.toMatch(/[^_]trim\(/);
+  });
+
   it("the standalone plugin keeps the same token list as core", () => {
     const standalone = readFileSync(join(__dirname, "../../wordpress/w2agent-plugin.php"), "utf-8");
     const from = standalone.indexOf("function w2agent_robots_bot_tokens()");

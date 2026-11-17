@@ -12,7 +12,6 @@ function makeFile(filename: string, content = "test content"): GeneratedFile {
 function makeShopifyFiles(): GeneratedFile[] {
   return [
     makeFile("shopify/snippets/w2agent-head.liquid", "{% comment %}w2agent{% endcomment %}"),
-    makeFile("shopify/templates/robots.txt.liquid", "User-agent: *"),
     makeFile("shopify/data/llms.txt", "# LLMs"),
     makeFile("shopify/data/robots-txt-additions.txt", "# additions"),
     makeFile("shopify/INSTALL.md", "# Install"),
@@ -37,7 +36,7 @@ describe("Shopify install resolver", () => {
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
 
     expect(dests).toContain("snippets/w2agent-head.liquid");
-    expect(dests).toContain("templates/robots.txt.liquid");
+    expect(dests).not.toContain("templates/robots.txt.liquid");
     expect(dests).toContain("data/llms.txt");
     expect(dests).toContain("data/robots-txt-additions.txt");
     expect(plan.postInstallSteps.some((s) => s.includes("render"))).toBe(true);
@@ -68,26 +67,30 @@ describe("Shopify install resolver", () => {
     expect(skipped).toBeDefined();
   });
 
-  it("skips existing robots.txt.liquid with merge instructions", () => {
-    mkdirSync(join(tempDir, "templates"), { recursive: true });
-    writeFileSync(
-      join(tempDir, "templates", "robots.txt.liquid"),
-      "User-agent: *\nDisallow: /admin",
-      "utf-8",
-    );
+  it("never writes or replaces templates/robots.txt.liquid, and tells the owner to paste the groups", () => {
+    for (const existing of [false, true]) {
+      if (existing) {
+        mkdirSync(join(tempDir, "templates"), { recursive: true });
+        writeFileSync(join(tempDir, "templates", "robots.txt.liquid"), "owner rules", "utf-8");
+      }
+      const plan = resolveShopifyInstall(makeShopifyFiles(), tempDir);
+      expect(plan.actions.some((a) => a.dest === "templates/robots.txt.liquid")).toBe(false);
+      expect(
+        plan.postInstallSteps.some(
+          (s) =>
+            s.includes("robots-txt-additions.txt") &&
+            s.includes("end of your theme's existing templates/robots.txt.liquid") &&
+            s.includes("do not create one"),
+        ),
+      ).toBe(true);
+    }
+  });
 
-    const plan = resolveShopifyInstall(makeShopifyFiles(), tempDir);
-    const skipped = plan.actions.find(
-      (a) => a.type === "skip" && a.dest === "templates/robots.txt.liquid",
+  it("has no robots step when the additions file is not generated", () => {
+    const files = makeShopifyFiles().filter(
+      (f) => !f.filename.endsWith("robots-txt-additions.txt"),
     );
-    expect(skipped).toBeDefined();
-    expect(skipped?.reason).toContain("merge");
-    expect(
-      plan.postInstallSteps.some(
-        (s) =>
-          s.includes("robots-txt-additions.txt") &&
-          s.includes("after the robots.default_groups loop"),
-      ),
-    ).toBe(true);
+    const plan = resolveShopifyInstall(files, tempDir);
+    expect(plan.postInstallSteps.some((s) => s.includes("robots"))).toBe(false);
   });
 });

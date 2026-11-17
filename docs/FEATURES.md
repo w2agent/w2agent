@@ -282,7 +282,7 @@ Each module pre-configures the right mix of features for a specific site type.
 | **Next.js** | Route handlers + middleware | Full build + live audit (llms.txt, agent-card, content negotiation) | ISR route handlers, content negotiation middleware, build script for CI/CD. | Shipped |
 | **Nuxt** | Server routes + middleware | Full build + live audit (llms.txt, agent-card) | Nitro server routes, auto-imported middleware. | Shipped |
 | **Astro** | Static files + middleware | Full build + live audit (llms.txt, agent-card, response time) | Static output or SSR middleware for content negotiation. | Shipped |
-| **Shopify** | Liquid snippets | Syntax validation, structure verification | Liquid head snippet with Product JSON-LD, robots.txt.liquid, auto-detection. | Shipped |
+| **Shopify** | Liquid snippets | Syntax validation, structure verification | Liquid head snippet with Product JSON-LD, robots.txt additions, auto-detection. | Shipped |
 | **Docusaurus** | Build plugin | Full build + live audit (llms.txt, agent-card) | Build-time llms.txt generation from the built docs content (an existing `static/llms.txt` is served as is unless `overwrite: true`), auto-detection. | Shipped |
 | **Webflow** | App or proxy | — | Content negotiation at same URLs, structured data injection. | |
 | **Universal proxy** | Reverse proxy | — | Caddy/Nginx plugin or standalone binary. Any origin. Self-hostable. | |
