@@ -52,8 +52,8 @@ Full site content concatenated with frontmatter separators:
 
 ```markdown
 ---
-url: https://example.com/page
-title: Page Title
+url: "https://example.com/page"
+title: "Page Title"
 ---
 
 [full page content as markdown]
