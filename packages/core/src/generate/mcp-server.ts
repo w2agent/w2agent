@@ -485,6 +485,9 @@ function allocateInputKeys(ep: OpenAPIEndpoint): AllocatedInputs {
   return { path, query, body };
 }
 
+// Only an object-typed query parameter is exploded into its properties, so only it never sends its own name.
+const OBJECT_ZOD = "z.record(z.string(), z.unknown())";
+
 // OpenAPI types the parser keeps are JSON values: OAS 3.1 allows an array such as ["boolean","null"].
 function openapiZodType(type: unknown): string {
   let t = type;
@@ -495,7 +498,7 @@ function openapiZodType(type: unknown): string {
   if (t === "integer" || t === "number") return "z.number()";
   if (t === "boolean") return "z.boolean()";
   if (t === "array") return "z.array(z.unknown())";
-  if (t === "object") return "z.record(z.string(), z.unknown())";
+  if (t === "object") return OBJECT_ZOD;
   return "z.string()";
 }
 
@@ -555,7 +558,7 @@ function generateOpenapiToolHandlers(
     if (queryParams.length > 0) {
       lines.push(`  const _query: string[] = [];`);
       lines.push(
-        `  const _declared: string[] = ${JSON.stringify(queryParams.map(({ p }) => p.name))};`,
+        `  const _declared: string[] = ${JSON.stringify(queryParams.filter(({ p }) => openapiZodType(p.type) !== OBJECT_ZOD).map(({ p }) => p.name))};`,
       );
       lines.push(`  const _objectKeys = new Set<string>();`);
       for (const { p, key } of queryParams) {

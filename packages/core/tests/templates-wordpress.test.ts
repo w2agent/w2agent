@@ -58,6 +58,31 @@ describe("generateWpPlugin — llms.txt text escaping (GEN-7)", () => {
     expect(php).toContain("\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]+/u'");
     expect(php).not.toContain("\\\\x");
   });
+
+  it("keeps text on a non-UTF-8 charset and decodes stored entities once on UTF-8", () => {
+    const php = pluginPhp();
+    const one = between(
+      php,
+      "function w2agent_site_one_line(",
+      "function w2agent_site_decode_entities",
+    );
+    expect(one).toContain("if ($out === null) {");
+    expect(one).toContain("preg_replace('/[\\x09-\\x0D\\x20]+/', ' ', $value)");
+    expect(one).toContain("trim((string) $out, ' ')");
+    const dec = between(
+      php,
+      "function w2agent_site_decode_entities(",
+      "function w2agent_site_md_escape",
+    );
+    expect(dec).toContain("get_option('blog_charset')");
+    expect(dec).toContain("html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8')");
+    expect(php).toContain("w2agent_site_one_line(w2agent_site_decode_entities($value))");
+    const render = between(php, "function w2agent_site_render($sections)", "// One transient");
+    expect(render).not.toMatch(/html_entity_decode|w2agent_site_decode_entities/);
+    const url = between(php, "function w2agent_site_md_url(", "function w2agent_site_render");
+    expect(url).toContain("if ($out === null) {");
+    expect(url).toContain("preg_replace_callback('/[\\x09-\\x0D\\x20()<>]/', $encode, $value)");
+  });
 });
 
 describe("generateWpPlugin — HTTP status codes", () => {

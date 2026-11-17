@@ -621,6 +621,38 @@ describe("Astro checks", () => {
       expect(r.status).toBe("fail");
       expect(r.details).toContain("need an Allow group");
     });
+
+    it("named blocks only: no wildcard sentence even when other groups follow", () => {
+      const r = run(
+        "User-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: Foo\nAllow: /\n\nUser-agent: Bar\n",
+      );
+      expect(r.status).toBe("fail");
+      expect(r.details).not.toContain("blocked only by the User-agent: * group");
+      expect(r.details).toContain("ChatGPT-User is blocked by its own User-agent group");
+      expect(r.details).toContain(
+        "add that group's rules (or remove the line) before adding Allow groups",
+      );
+    });
+
+    it("an open group with wildcard-blocked agents gives both the Allow-group and the open-group advice", () => {
+      const r = run("User-agent: *\nDisallow: /\n\nUser-agent: Foo\n");
+      expect(r.details).toContain("blocked only by the User-agent: * group need an Allow group");
+      expect(r.details).toContain(
+        "add that group's rules (or remove the line) before adding Allow groups",
+      );
+    });
+
+    it("an open group names no wildcard sentence when every blocked agent is named", () => {
+      const r = run(
+        "User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: Foo\n",
+      );
+      expect(r.details).not.toContain("blocked only by the User-agent: * group");
+    });
+
+    it("no open group: the open-group advice is absent", () => {
+      const r = run("User-agent: *\nDisallow: /\n");
+      expect(r.details).not.toContain("add that group's rules");
+    });
   });
 
   it("astro-robots-txt does not treat a path-only disallow as blocking", () => {

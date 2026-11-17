@@ -31,6 +31,8 @@ interface RobotsGroup {
 export interface RobotsAccessFix {
   openGroup: boolean;
   named: string[];
+  /** Blocked agents that no group names, so only the `*` group blocks them. */
+  wildcard: string[];
   groups: string[][];
 }
 
@@ -115,6 +117,7 @@ export function planRobotsAccessFix(
   const groups = parseGroups(robotsTxt);
   const byRules = new Map<string, string[]>();
   const named: string[] = [];
+  const wildcard: string[] = [];
   const wildcardRules = groups.filter((g) => g.agentLines.some((a) => a.agent === "*"));
   const wildcardRuleList = wildcardRules.flatMap((g) => g.rules);
   const wildcardCrawlDelay = wildcardRules.filter((g) => g.crawlDelay).pop()?.crawlDelay;
@@ -133,6 +136,7 @@ export function planRobotsAccessFix(
       named.push(token);
       continue;
     }
+    wildcard.push(token);
     byRules.set(key, [...(byRules.get(key) ?? []), token]);
   }
 
@@ -140,6 +144,7 @@ export function planRobotsAccessFix(
   return {
     openGroup,
     named,
+    wildcard,
     groups: openGroup
       ? []
       : [...byRules].map(([rules, tokens]) => [

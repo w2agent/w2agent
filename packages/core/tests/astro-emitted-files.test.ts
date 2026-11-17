@@ -301,4 +301,20 @@ describe("emitted astro/INSTALL.md", () => {
     expect(src).toContain("export const prerender = false;");
     expect(md).toContain("do not use it when you write `public/llms.txt` by hand");
   });
+
+  it("manual step 2 passes overwrite: true after the step 1 seed copy and the diagram does not promise llms.txt", () => {
+    const md = emitted("astro/INSTALL.md").content;
+    const step2 = md.slice(
+      md.indexOf("### 2. Add build integration"),
+      md.indexOf("### Alternative: prebuild script"),
+    );
+    const config = step2.match(/```js\n([\s\S]*?)```/)?.[1] ?? "";
+    expect(config).toContain("integrations: [w2agent({ overwrite: true })]");
+    expect(config).not.toContain("w2agent()");
+    expect(step2).toMatch(/hand-written `public\/llms\.txt`[^.]*plain `w2agent\(\)`/);
+    const diagram = md.slice(md.indexOf("Build time:"), md.indexOf("Runtime (static):"));
+    expect(diagram).not.toMatch(/Writes llms\.txt, llms-full\.txt/);
+    expect(diagram).toContain("llms-full.txt");
+    expect(diagram).toContain("overwrite");
+  });
 });

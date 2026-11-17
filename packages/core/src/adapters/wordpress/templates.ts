@@ -146,7 +146,21 @@ function w2agent_site_sections() {
 // the JavaScript \\s set (PCRE's \\s differs: it matches U+0085 and misses U+FEFF).
 function w2agent_site_one_line($value) {
     $value = wp_check_invalid_utf8((string) $value, true);
-    return trim(preg_replace('/[\\x09-\\x0D\\x20\\x{A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]+/u', ' ', $value), ' ');
+    $out = preg_replace('/[\\x09-\\x0D\\x20\\x{A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]+/u', ' ', $value);
+    if ($out === null) {
+        // A site whose blog_charset is not UTF-8 leaves bytes the /u pattern rejects: collapse ASCII whitespace byte-wise so the text is kept.
+        $out = preg_replace('/[\\x09-\\x0D\\x20]+/', ' ', $value);
+    }
+    return trim((string) $out, ' ');
+}
+
+// Titles, site names and excerpts are stored HTML-escaped (kses turns & into &amp; for authors without unfiltered_html), while the core generator sees decoded text. Decoded once, and only when the site charset is UTF-8.
+function w2agent_site_decode_entities($value) {
+    $value = (string) $value;
+    if (!in_array(strtolower((string) get_option('blog_charset')), ['utf-8', 'utf8'], true)) {
+        return $value;
+    }
+    return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
 
 function w2agent_site_md_escape($value, $chars) {
@@ -154,7 +168,7 @@ function w2agent_site_md_escape($value, $chars) {
     foreach (str_split($chars) as $char) {
         $map[$char] = "\\x5C" . $char;
     }
-    return strtr(w2agent_site_one_line($value), $map);
+    return strtr(w2agent_site_one_line(w2agent_site_decode_entities($value)), $map);
 }
 
 function w2agent_site_md_text($value) {
@@ -166,13 +180,15 @@ function w2agent_site_md_description($value) {
 }
 
 function w2agent_site_md_url($value) {
-    return preg_replace_callback(
-        '/[\\x09-\\x0D\\x20\\x{A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}()<>]/u',
-        function ($m) {
-            return str_replace(['(', ')'], ['%28', '%29'], rawurlencode($m[0]));
-        },
-        (string) $value
-    );
+    $value = (string) $value;
+    $encode = function ($m) {
+        return str_replace(['(', ')'], ['%28', '%29'], rawurlencode($m[0]));
+    };
+    $out = preg_replace_callback('/[\\x09-\\x0D\\x20\\x{A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}()<>]/u', $encode, $value);
+    if ($out === null) {
+        $out = preg_replace_callback('/[\\x09-\\x0D\\x20()<>]/', $encode, $value);
+    }
+    return (string) $out;
 }
 
 function w2agent_site_render($sections) {

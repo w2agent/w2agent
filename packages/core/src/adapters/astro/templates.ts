@@ -190,7 +190,7 @@ Astro's static-first approach is ideal for AI content. This integration provides
 \`\`\`
 Build time:
   -> w2agent integration runs at astro:build:done
-  -> Writes llms.txt, llms-full.txt to output directory (needs the w2agent CLI installed in your project)
+  -> Writes llms-full.txt to the output directory, and llms.txt too with overwrite: true (needs the w2agent CLI installed in your project)
 
 Runtime (static):
   -> Serve directly from public/ (zero overhead)
@@ -219,11 +219,11 @@ Then in \`astro.config.mjs\`:
 import w2agent from "./w2agent-integration.mjs";
 
 export default defineConfig({
-  integrations: [w2agent()],
+  integrations: [w2agent({ overwrite: true })],
 });
 \`\`\`
 
-An existing \`public/llms.txt\` (such as the file copied in step 1) is kept: Astro copies it into the build and the integration only regenerates \`llms-full.txt\`. To regenerate \`llms.txt\` too, use \`w2agent({ overwrite: true })\`.
+The \`public/llms.txt\` copied in step 1 is w2agent output, so \`overwrite: true\` lets every build regenerate it. A hand-written \`public/llms.txt\` is kept with plain \`w2agent()\`: Astro copies it into the build and the integration only regenerates \`llms-full.txt\`.
 
 ### Alternative: prebuild script
 \`\`\`bash

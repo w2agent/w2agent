@@ -37,9 +37,14 @@ function robotsBlockDetails(fix: RobotsAccessFix | undefined): string {
     `${names.join(", ")} ${names.length === 1 ? "is" : "are"} blocked by ${names.length === 1 ? "its" : "their"} own User-agent group. That is the owner's choice and w2agent does not reverse it; edit the group only if the block is unintended.`;
   if (!fix) return "Allow the AI crawlers that robots.txt blocks to enable agent discovery.";
   const parts: string[] = [];
-  if (fix.groups.length > 0 || fix.openGroup) {
+  if (fix.wildcard.length > 0) {
     parts.push(
       "Agents blocked only by the User-agent: * group need an Allow group of their own (see the ai-agent-access fix snippet).",
+    );
+  }
+  if (fix.openGroup) {
+    parts.push(
+      "robots.txt ends in a User-agent line with no rules, so appended groups would join it: add that group's rules (or remove the line) before adding Allow groups.",
     );
   }
   if (fix.named.length > 0) parts.push(keep(fix.named));

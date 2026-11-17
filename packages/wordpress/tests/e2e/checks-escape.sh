@@ -24,5 +24,21 @@ escape_checks() {
   chk "GEN-7 $plugin: no unescaped javascript link" '! grep -qE "(^|[^\\\\])\]\(javascript:" <<<"$body"'
   wpc "$R" post delete "$id" --force >/dev/null 2>&1
   wpc "$R" transient delete "$transient" >/dev/null 2>&1
+
+  # Authors without unfiltered_html get "&" stored as "&amp;" (kses title_save_pre); wp-cli stores the same text.
+  id=$(wpc "$R" post create --post_status=publish --post_title='Tom &amp; Jerry &lt;b&gt; Cafe' \
+    --post_excerpt='Fish &amp; Chips &#8217;n&#8217; more' --porcelain 2>/dev/null)
+  pre "$plugin: entity probe post created" '[ -n "$id" ]'
+  pre "$plugin: WordPress stored the title with the entity" \
+    'wpc "$R" post get "$id" --field=post_title 2>/dev/null | grep -qF "Tom &amp; Jerry"'
+  wpc "$R" transient delete "$transient" >/dev/null 2>&1
+  body=$(curl -s "$B/llms.txt")
+  line=$(grep -F "Jerry" <<<"$body")
+  chk "ENT $plugin: stored &amp; is decoded once, then escaped" \
+    'grep -qF -- "- [Tom \\& Jerry \\<b\\> Cafe](" <<<"$line" && ! grep -qF "amp;" <<<"$line"'
+  chk "ENT $plugin: excerpt entities decoded, not escaped as text" \
+    'grep -qF -- "): Fish & Chips ’n’ more" <<<"$line"'
+  wpc "$R" post delete "$id" --force >/dev/null 2>&1
+  wpc "$R" transient delete "$transient" >/dev/null 2>&1
   wpc "$R" plugin activate w2agent w2agent-site >/dev/null 2>&1
 }

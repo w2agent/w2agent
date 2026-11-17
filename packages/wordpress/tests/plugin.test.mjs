@@ -224,6 +224,28 @@ test("escapes every llms.txt text value like the core generator", () => {
   assert.ok(one.includes("wp_check_invalid_utf8"));
 });
 
+test("keeps text on a non-UTF-8 charset and decodes stored entities once on UTF-8", () => {
+  const one = block("function w2agent_one_line(", "function w2agent_decode_entities");
+  assert.match(
+    one,
+    /if \( \$out === null \) \{[\s\S]*preg_replace\( '\/\[\\x09-\\x0D\\x20\]\+\/', ' ', \$value \)/,
+  );
+  assert.ok(one.includes("trim( (string) $out, ' ' )"));
+  const dec = block("function w2agent_decode_entities(", "function w2agent_md_escape");
+  assert.ok(dec.includes("get_option( 'blog_charset' )"));
+  assert.ok(dec.includes("html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' )"));
+  const esc = block("function w2agent_md_escape(", "function w2agent_md_text");
+  assert.ok(esc.includes("w2agent_one_line( w2agent_decode_entities( $value ) )"));
+  const render = block("function w2agent_render( $sections )", "// One transient");
+  assert.doesNotMatch(render, /html_entity_decode|w2agent_decode_entities/);
+  const url = block("function w2agent_md_url(", "function w2agent_render");
+  assert.match(
+    url,
+    /if \( \$out === null \) \{[\s\S]*preg_replace_callback\( '\/\[\\x09-\\x0D\\x20\(\)<>\]\/'/,
+  );
+  assert.ok(url.includes("return (string) $out;"));
+});
+
 test("avoids PHP newer than 7.4 and the placeholder word", () => {
   assert.doesNotMatch(php, /str_starts_with|str_ends_with|str_contains|\bmatch\s*\(|\?->/);
   assert.doesNotMatch(php, /undefined/);

@@ -65,6 +65,16 @@ const spec = {
         ],
       },
     },
+    "/object-named": {
+      get: {
+        operationId: "objectNamed",
+        summary: "object-named",
+        parameters: [
+          { name: "filter", in: "query", ...obj },
+          { name: "sort", in: "query", ...obj },
+        ],
+      },
+    },
     "/path-{flag}": {
       get: {
         operationId: "pathAndQuery",
@@ -177,6 +187,22 @@ describe.each(VARIANTS)("generated query key collisions: %s", (variant: Variant)
     const { r, sent } = await call("own-name", { filter: { filter: "x" }, other: "o" });
     expect(r.isError, r.text).toBe(false);
     expect(sent).toEqual(["/own-name?filter=x&other=o"]);
+  });
+
+  it("an object property named like another object parameter is sent: that name never goes on the wire", async () => {
+    const { r, sent } = await call("object-named", {
+      filter: { sort: "up" },
+      sort: { dir: "asc" },
+    });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/object-named?sort=up&dir=asc"]);
+  });
+
+  it("two object parameters that both set the property sort are still refused", async () => {
+    const { r, sent } = await call("object-named", { filter: { sort: "up" }, sort: { sort: "x" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"sort"');
+    expect(sent).toEqual([]);
   });
 
   it("a path parameter with the same name does not collide with an object property", async () => {
