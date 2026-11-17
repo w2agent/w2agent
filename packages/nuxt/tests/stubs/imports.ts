@@ -5,6 +5,16 @@ export function setAssets(files: Record<string, string>) {
   for (const [key, value] of Object.entries(files)) assets.set(key, value);
 }
 
+let baseURL = "/";
+
+export function setBaseURL(value: string) {
+  baseURL = value;
+}
+
+export function useRuntimeConfig() {
+  return { app: { baseURL } };
+}
+
 export const storageBases: string[] = [];
 
 export function useStorage(base = "") {

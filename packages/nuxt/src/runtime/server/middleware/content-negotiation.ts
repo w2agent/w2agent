@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useTemplate: negotiation function is kept byte-identical to the core template (drift-guarded)
 import { appendResponseHeader, defineEventHandler, getRequestHeader, sendRedirect } from "h3";
+import { useRuntimeConfig } from "#imports";
 
 type HomeVariant = "markdown" | "plain" | "html";
 
@@ -68,10 +69,13 @@ function homeVariant(accept: string | null): HomeVariant {
 }
 
 export default defineEventHandler((event) => {
-  if (event.path.split("?")[0] !== "/") return;
+  const pathname = event.path.split("?")[0];
+  if (pathname !== "/" && pathname !== "") return;
 
   const variant = homeVariant(getRequestHeader(event, "accept") ?? null);
   appendResponseHeader(event, "Vary", "Accept");
-  if (variant === "markdown") return sendRedirect(event, "index.md", 302);
-  if (variant === "plain") return sendRedirect(event, "llms.txt", 302);
+  const baseURL = useRuntimeConfig().app.baseURL;
+  const base = baseURL.endsWith("/") ? baseURL : baseURL + "/";
+  if (variant === "markdown") return sendRedirect(event, base + "index.md", 302);
+  if (variant === "plain") return sendRedirect(event, base + "llms.txt", 302);
 });

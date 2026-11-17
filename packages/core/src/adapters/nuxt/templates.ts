@@ -21,7 +21,7 @@ export default defineCachedEventHandler(
   async (event) => {
     const storage = useStorage("assets:w2agent");
     const raw = (await storage.hasItem("${key}")) ? await storage.getItemRaw("${key}") : null;
-    if (raw === null || raw === undefined) {
+    if (raw == null) {
       throw createError({ statusCode: 404, statusMessage: "Not Found" });
     }
     setResponseHeader(event, "Content-Type", "${contentType}");
@@ -78,19 +78,25 @@ export default defineCachedEventHandler(
   const indexMdRoute = assetRoute("llms.txt", "text/markdown; charset=utf-8");
 
   const contentNegotiationMiddleware = `import { appendResponseHeader, defineEventHandler, getRequestHeader, sendRedirect } from "h3";
+import { useRuntimeConfig } from "#imports";
 
 ${HOME_VARIANT_SOURCE}
 
 export default defineEventHandler((event) => {
-  // event.path includes the query string; negotiate on the pathname only
-  if (event.path.split("?")[0] !== "/") return;
+  // event.path includes the query string; negotiate on the pathname only.
+  // Under app.baseURL Nitro strips the base, so "/docs?x=1" arrives as "?x=1" (empty pathname).
+  const pathname = event.path.split("?")[0];
+  if (pathname !== "/" && pathname !== "") return;
 
   // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
   const variant = homeVariant(getRequestHeader(event, "accept") ?? null);
   // "/" depends on Accept in every branch: caches must not mix the variants
   appendResponseHeader(event, "Vary", "Accept");
-  if (variant === "markdown") return sendRedirect(event, "index.md", 302);
-  if (variant === "plain") return sendRedirect(event, "llms.txt", 302);
+  // Locations carry app.baseURL: a relative one resolves outside the base from "/docs" and "/docs?x=1"
+  const baseURL = useRuntimeConfig().app.baseURL;
+  const base = baseURL.endsWith("/") ? baseURL : baseURL + "/";
+  if (variant === "markdown") return sendRedirect(event, base + "index.md", 302);
+  if (variant === "plain") return sendRedirect(event, base + "llms.txt", 302);
 });
 `;
 

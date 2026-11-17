@@ -7,6 +7,7 @@ on:
       - "packages/core/src/adapters/**"
       - "packages/core/tests/integration.test.ts"
       - "packages/core/tests/fixtures/platforms/**"
+      - "packages/nuxt/**"
   workflow_dispatch:
 
 jobs:
@@ -34,6 +35,9 @@ jobs:
 
       - name: Build core
         run: pnpm --filter w2agent-core build
+
+      - name: Build Nuxt module
+        run: pnpm --filter @w2agent/nuxt build
 
       - name: Run integration tests
         env:

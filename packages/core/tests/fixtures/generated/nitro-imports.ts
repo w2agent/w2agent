@@ -15,6 +15,10 @@ const ASSETS: Record<string, string> = {
   "llms-full.txt": "# example.com\n\nFull content.\n",
 };
 
+export function useRuntimeConfig() {
+  return { app: { baseURL: "/" } };
+}
+
 export function useStorage(_base?: string) {
   return {
     hasItem: async (key: string) => key in ASSETS,

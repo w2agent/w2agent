@@ -1,5 +1,13 @@
-import { type ChildProcess, execSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { type ChildProcess, execFileSync, execSync, spawn } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -339,58 +347,149 @@ describe("integration: Next.js", { timeout: 180_000 }, () => {
 
 // ─── Nuxt: Audit Live Server ──────────────────────────────────
 
-describe("integration: Nuxt", { timeout: 180_000 }, () => {
-  let fixtureDir: string;
-  let files: GeneratedFile[];
+// Nitro runs from a copy of .output only, with a cwd that has no public/ and no project files:
+// content that is read from the source tree at request time would show up as a placeholder
+// or a 404 here.
+function startNuxtOutputServer(projectDir: string, port: number): ServerHandle {
+  const outputRoot = mkdtempSync(join(tmpdir(), "w2agent-integration-nuxt-output-"));
+  cpSync(join(projectDir, ".output"), join(outputRoot, ".output"), { recursive: true });
+  // the project's own public/ (the source of the llms files) must not be readable either
+  rmSync(join(projectDir, "public"), { recursive: true, force: true });
+  const emptyCwd = mkdtempSync(join(tmpdir(), "w2agent-integration-nuxt-cwd-"));
+  return startServer(emptyCwd, "node", [join(outputRoot, ".output/server/index.mjs")], port, {
+    PORT: String(port),
+    HOST: "localhost",
+  });
+}
+
+async function expectNuxtServesContent(server: ServerHandle, expected: string) {
+  const indexMd = await fetch(`${server.url}/index.md`);
+  expect(indexMd.status).toBe(200);
+  expect(indexMd.headers.get("content-type")).toContain("text/markdown");
+  expect(await indexMd.text()).toBe(expected);
+
+  const llms = await fetch(`${server.url}/llms.txt`);
+  expect(llms.status).toBe(200);
+  expect(await llms.text()).toBe(expected);
+}
+
+function describeNuxtEmitted(label: string, fixtureName: string) {
+  // "nuxt" stays in the name: the CI matrix selects this job's tests with `-t nuxt`
+  describe(`integration: Nuxt ${label} (emitted files, platform nuxt)`, {
+    timeout: 180_000,
+  }, () => {
+    let fixtureDir: string;
+    let files: GeneratedFile[];
+    let server: ServerHandle | undefined;
+    let report: AuditReport;
+
+    beforeAll(async () => {
+      const result = loadFixture("nuxt", fixtureName);
+      fixtureDir = result.dir;
+      files = result.files;
+
+      writeGeneratedFiles(fixtureDir, files, "nuxt");
+
+      const { success, output } = npmInstallAndBuild(fixtureDir);
+      if (!success) throw new Error(`Nuxt build failed: ${output}`);
+
+      const port = await getFreePort();
+      server = startNuxtOutputServer(fixtureDir, port);
+      await waitForServer(`http://localhost:${port}`);
+
+      report = await auditServer(`http://localhost:${port}`);
+    });
+
+    afterAll(() => server?.kill());
+
+    it("audit ran checks", () => {
+      expect(totalChecksRan(report)).toBeGreaterThan(0);
+    });
+
+    it("builds successfully", () => {
+      expect(existsSync(join(fixtureDir, ".output/server/index.mjs"))).toBe(true);
+    });
+
+    it("serves the emitted llms.txt content from a copied .output", async () => {
+      const emitted = files.find((f) => f.filename === "nuxt/public/llms.txt")?.content;
+      expect(emitted).toBeDefined();
+      expect(emitted).toContain("# Example");
+      await expectNuxtServesContent(server as ServerHandle, emitted as string);
+    });
+
+    it("audit: llms.txt exists and is found", () => {
+      const check = getCheckResult(report, "llms-txt-exists");
+      expect(check).toBeDefined();
+      expect(check?.status).toBe("pass");
+    });
+
+    it("audit: agent-card.json is discoverable", () => {
+      const check = getCheckResult(report, "well-known-agent-card");
+      expect(check).toBeDefined();
+      expect(check?.status).toBe("pass");
+    });
+
+    it("audit: no error status codes", () => {
+      const check = getCheckResult(report, "status-codes");
+      expect(check).toBeDefined();
+      expect(check?.status).toBe("pass");
+    });
+  });
+}
+
+describeNuxtEmitted("3", "nuxt-app");
+describeNuxtEmitted("4", "nuxt4-app");
+
+// The published module, packed from packages/nuxt (built first) and installed by file: into a
+// Nuxt 4 project with a plain npm install (no --legacy-peer-deps).
+describe("integration: Nuxt 4 module (@w2agent/nuxt)", { timeout: 180_000 }, () => {
+  const SEEDED = "# Module Seed\n\n> Seeded in public/llms.txt before the build\n";
   let server: ServerHandle | undefined;
-  let report: AuditReport;
+  let buildOutput: string;
 
   beforeAll(async () => {
-    const result = loadFixture("nuxt", "nuxt-app");
-    fixtureDir = result.dir;
-    files = result.files;
+    const nuxtPkgDir = resolve(__dirname, "../../nuxt");
+    if (!existsSync(join(nuxtPkgDir, "dist/module.js"))) {
+      throw new Error("packages/nuxt is not built: run `pnpm --filter @w2agent/nuxt build` first");
+    }
+    const packDir = mkdtempSync(join(tmpdir(), "w2agent-integration-nuxt-pack-"));
+    const packed = JSON.parse(
+      execFileSync("npm", ["pack", "--json", "--pack-destination", packDir], {
+        cwd: nuxtPkgDir,
+        encoding: "utf-8",
+      }),
+    ) as { filename: string }[];
+    const tarball = join(packDir, packed[0].filename);
 
-    writeGeneratedFiles(fixtureDir, files, "nuxt");
+    const { dir } = loadFixture("nuxt", "nuxt4-app");
+    const pkgPath = join(dir, "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    pkg.dependencies["@w2agent/nuxt"] = `file:${tarball}`;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    writeFileSync(
+      join(dir, "nuxt.config.ts"),
+      'export default defineNuxtConfig({ modules: ["@w2agent/nuxt"], compatibilityDate: "2025-01-01" });\n',
+    );
+    mkdirSync(join(dir, "public"), { recursive: true });
+    writeFileSync(join(dir, "public/llms.txt"), SEEDED);
 
-    const { success, output } = npmInstallAndBuild(fixtureDir);
-    if (!success) throw new Error(`Nuxt build failed: ${output}`);
+    const { success, output } = npmInstallAndBuild(dir);
+    if (!success) throw new Error(`Nuxt module build failed: ${output}`);
+    buildOutput = output;
 
     const port = await getFreePort();
-    server = startServer(fixtureDir, "node", [".output/server/index.mjs"], port, {
-      PORT: String(port),
-      HOST: "localhost",
-    });
+    server = startNuxtOutputServer(dir, port);
     await waitForServer(`http://localhost:${port}`);
-
-    report = await auditServer(`http://localhost:${port}`);
   });
 
   afterAll(() => server?.kill());
 
-  it("audit ran checks", () => {
-    expect(totalChecksRan(report)).toBeGreaterThan(0);
+  it("builds without the module being disabled for incompatibility", () => {
+    expect(buildOutput).not.toContain("disabled due to incompatibility");
   });
 
-  it("builds successfully", () => {
-    expect(existsSync(join(fixtureDir, ".output/server/index.mjs"))).toBe(true);
-  });
-
-  it("audit: llms.txt exists and is found", () => {
-    const check = getCheckResult(report, "llms-txt-exists");
-    expect(check).toBeDefined();
-    expect(check?.status).toBe("pass");
-  });
-
-  it("audit: agent-card.json is discoverable", () => {
-    const check = getCheckResult(report, "well-known-agent-card");
-    expect(check).toBeDefined();
-    expect(check?.status).toBe("pass");
-  });
-
-  it("audit: no error status codes", () => {
-    const check = getCheckResult(report, "status-codes");
-    expect(check).toBeDefined();
-    expect(check?.status).toBe("pass");
+  it("serves the seeded llms.txt as /index.md and /llms.txt from a copied .output", async () => {
+    await expectNuxtServesContent(server as ServerHandle, SEEDED);
   });
 });
 

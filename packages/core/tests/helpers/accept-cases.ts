@@ -86,3 +86,26 @@ export const ACCEPT_CASES: AcceptCase[] = [
   },
   { name: "text/markdown on /about", accept: "text/markdown", path: "/about", branch: "untouched" },
 ];
+
+// Nitro mounts the app under app.baseURL, and h3 strips the mount prefix from event.path by plain
+// slicing ("/docs?x=1" -> "?x=1", "/docsx" -> "x"); every request below carries
+// Accept: text/markdown.
+export const BASE_URL = "/docs";
+
+// app.baseURL as useRuntimeConfig() reports it; Nuxt normalises to a trailing slash, the
+// middleware must not depend on it.
+export const RUNTIME_BASE_URLS = ["/docs/", "/docs"];
+
+export const BASE_URL_ACCEPTS = [
+  { accept: "text/markdown", file: "index.md" },
+  { accept: "text/plain", file: "llms.txt" },
+];
+
+export const BASE_URL_CASES: { path: string; branch: "markdown" | "untouched" }[] = [
+  { path: "/docs?x=1", branch: "markdown" },
+  { path: "/docs", branch: "markdown" },
+  { path: "/docs/", branch: "markdown" },
+  { path: "/docs/?utm=1", branch: "markdown" },
+  { path: "/docsx", branch: "untouched" },
+  { path: "/docs/about", branch: "untouched" },
+];

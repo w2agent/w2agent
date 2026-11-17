@@ -5,11 +5,17 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { createApp, defineEventHandler, type EventHandler, toWebHandler } from "h3";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { nuxtAdapter } from "../src/adapters/nuxt/index.js";
 import { HOME_VARIANT_SOURCE } from "../src/adapters/shared/accept-negotiation.js";
 import type { GenerateContext } from "../src/generate/types.js";
-import { ACCEPT_CASES } from "./helpers/accept-cases.js";
+import {
+  ACCEPT_CASES,
+  BASE_URL,
+  BASE_URL_ACCEPTS,
+  BASE_URL_CASES,
+  RUNTIME_BASE_URLS,
+} from "./helpers/accept-cases.js";
 
 const require = createRequire(import.meta.url);
 
@@ -25,6 +31,8 @@ const emitted = nuxtAdapter
   .generateIntegration(ctx, [])
   .find((f) => f.filename === "nuxt/server/middleware/content-negotiation.ts")?.content;
 
+let runtimeBase = "/";
+
 function loadMiddleware(source: string): EventHandler {
   const out = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -36,6 +44,7 @@ function loadMiddleware(source: string): EventHandler {
     exports: {},
     require: (id: string) => {
       if (id === "h3") return require("h3");
+      if (id === "#imports") return { useRuntimeConfig: () => ({ app: { baseURL: runtimeBase } }) };
       throw new Error(`unexpected require ${id}`);
     },
   };
@@ -44,7 +53,7 @@ function loadMiddleware(source: string): EventHandler {
   return (sandbox.exports as { default: EventHandler }).default;
 }
 
-const TARGETS = { markdown: "index.md", plain: "llms.txt" } as const;
+const TARGETS = { markdown: "/index.md", plain: "/llms.txt" } as const;
 
 describe("Nuxt middleware Accept negotiation (NU-4), emitted file in real h3", () => {
   it("is emitted", () => {
@@ -76,6 +85,43 @@ describe("Nuxt middleware Accept negotiation (NU-4), emitted file in real h3", (
       expect(res.headers.get("location")).toBe(TARGETS[c.branch]);
     });
   }
+
+  describe("under app.baseURL (Nitro strips the base by prefix)", () => {
+    const inner = createApp();
+    inner.use(loadMiddleware(emitted ?? ""));
+    inner.use(defineEventHandler(() => "<!doctype html><html><body>page</body></html>"));
+    const baseApp = createApp();
+    baseApp.use(BASE_URL, inner.handler);
+    const baseWeb = toWebHandler(baseApp);
+
+    afterEach(() => {
+      runtimeBase = "/";
+    });
+
+    for (const configured of RUNTIME_BASE_URLS) {
+      for (const c of BASE_URL_CASES.flatMap((row) =>
+        BASE_URL_ACCEPTS.map((a) => ({ ...row, ...a })),
+      )) {
+        it(`baseURL ${configured}: ${c.path} with Accept: ${c.accept} -> ${c.branch}`, async () => {
+          runtimeBase = configured;
+          const res = await baseWeb(
+            new Request(`${BASE}${c.path}`, {
+              headers: { accept: c.accept },
+              redirect: "manual",
+            }),
+          );
+          if (c.branch === "untouched") {
+            expect(res.status).toBe(200);
+            expect(res.headers.get("vary")).toBeNull();
+            return;
+          }
+          expect(res.status).toBe(302);
+          expect(res.headers.get("location")).toBe(`${BASE_URL}/${c.file}`);
+          expect(res.headers.get("vary") ?? "").toMatch(/Accept/i);
+        });
+      }
+    }
+  });
 
   it("appends to an existing Vary instead of replacing it", async () => {
     const appWithVary = createApp();

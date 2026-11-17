@@ -43,6 +43,11 @@ const SOURCES: Record<string, string> = {
   ),
 };
 
+const NITRO_IMPORTS_DTS = `declare module "#imports" {
+  export function useRuntimeConfig(): { app: { baseURL: string } };
+}
+`;
+
 function typecheck(source: string): string[] {
   const options: ts.CompilerOptions = {
     strict: true,
@@ -57,15 +62,22 @@ function typecheck(source: string): string[] {
     types: ["node"],
   };
   const virtual = join(here, "__virtual__", "generated.ts");
+  const imports = join(here, "__virtual__", "nitro-imports.d.ts");
+  const files = new Map([
+    [virtual, source],
+    [imports, NITRO_IMPORTS_DTS],
+  ]);
   const host = ts.createCompilerHost(options);
   const { getSourceFile, fileExists, readFile } = host;
-  host.getSourceFile = (name, lang, ...rest) =>
-    name === virtual
-      ? ts.createSourceFile(name, source, lang)
-      : getSourceFile.call(host, name, lang, ...rest);
-  host.fileExists = (name) => name === virtual || fileExists.call(host, name);
-  host.readFile = (name) => (name === virtual ? source : readFile.call(host, name));
-  const program = ts.createProgram([virtual], options, host);
+  host.getSourceFile = (name, lang, ...rest) => {
+    const virtualSource = files.get(name);
+    return virtualSource === undefined
+      ? getSourceFile.call(host, name, lang, ...rest)
+      : ts.createSourceFile(name, virtualSource, lang);
+  };
+  host.fileExists = (name) => files.has(name) || fileExists.call(host, name);
+  host.readFile = (name) => files.get(name) ?? readFile.call(host, name);
+  const program = ts.createProgram([virtual, imports], options, host);
   return ts
     .getPreEmitDiagnostics(program)
     .filter((d) => d.file?.fileName === virtual)
