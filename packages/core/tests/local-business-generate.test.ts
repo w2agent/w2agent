@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import type { FetchedPage } from "../src/audit/types.js";
 import {
@@ -305,6 +306,29 @@ describe("generateLocalBusinessToolHandlers", () => {
     expect(code).toContain("getMenu");
     expect(code).toContain("getServices");
     expect(code).toContain("bookAppointment");
+  });
+
+  const load = (js: string) =>
+    new Function(`${js}\nreturn { getHours, getMenu, getServices, bookAppointment };`)();
+  const business = {
+    hours: [{ days: ["Mon", "Tue"], opens: "08:00", closes: "17:00" }],
+    bookingUrl: "https://example.com/book",
+  };
+
+  it("default output is plain JS that runs", () => {
+    const h = load(generateLocalBusinessToolHandlers());
+    expect(h.getHours(business)).toBe("Mon/Tue: 08:00–17:00");
+    expect(h.getMenu(business)).toBe("Menu not available.");
+  });
+
+  it("ts output is annotated, transpiles and behaves like the JS form", () => {
+    const code = generateLocalBusinessToolHandlers("ts");
+    expect(code).toContain("business: any");
+    const out = ts.transpileModule(code, { reportDiagnostics: true });
+    expect(out.diagnostics).toHaveLength(0);
+    const h = load(out.outputText);
+    expect(h.getHours(business)).toBe("Mon/Tue: 08:00–17:00");
+    expect(h.bookAppointment(business).url).toBe("https://example.com/book");
   });
 });
 

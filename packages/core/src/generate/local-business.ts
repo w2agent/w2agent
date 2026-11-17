@@ -406,25 +406,28 @@ export function generateBusinessInfoTable(business: ExtractedLocalBusiness): str
   );
 }
 
-export function generateLocalBusinessToolHandlers(): string {
-  return `function getHours(business) {
+export function generateLocalBusinessToolHandlers(lang: "js" | "ts" = "js"): string {
+  const ts = lang === "ts";
+  const b = ts ? ": any" : "";
+  const h = ts ? ": any" : "";
+  return `function getHours(business${b}) {
   if (!business.hours || business.hours.length === 0) return 'Hours not available.';
   return business.hours
-    .map(h => \`\${h.days.join('/')}: \${h.opens}–\${h.closes}\`)
+    .map((h${h}) => \`\${h.days.join('/')}: \${h.opens}–\${h.closes}\`)
     .join('\\n');
 }
 
-function getMenu(business) {
+function getMenu(business${b}) {
   if (!business.menu) return 'Menu not available.';
   return { url: business.menu };
 }
 
-function getServices(business) {
+function getServices(business${b}) {
   if (!business.services) return 'Services page not available.';
   return { url: business.services };
 }
 
-function bookAppointment(business) {
+function bookAppointment(business${b}) {
   if (!business.bookingUrl) return 'Online booking not available.';
   return { url: business.bookingUrl, instructions: 'Visit the booking URL to schedule an appointment.' };
 }`;

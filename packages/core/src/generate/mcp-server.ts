@@ -913,7 +913,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // Commerce tools
   if (detected.hasProducts) {
     lines.push(`// E-commerce tool handlers`);
-    lines.push(generateCommerceToolHandlers());
+    lines.push(generateCommerceToolHandlers("ts"));
     lines.push(``);
 
     toolLines.push(`// Tool: search-products`);
@@ -976,7 +976,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   // Local business tool handlers
   if (detected.hasLocalBusiness) {
     lines.push(`// Local business tool handlers`);
-    lines.push(generateLocalBusinessToolHandlers());
+    lines.push(generateLocalBusinessToolHandlers("ts"));
     lines.push(``);
 
     toolLines.push(`// Tool: get-hours`);
@@ -1306,7 +1306,7 @@ ${
 }${
   detected.hasProducts
     ? `
-${generateCommerceToolHandlers()}
+${generateCommerceToolHandlers("ts")}
 
   server.tool("search-products", "Search products by name, category, or description", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
     const results = searchProducts(query, products as any);
@@ -1337,7 +1337,7 @@ ${generateCommerceToolHandlers()}
 ${
   detected.hasLocalBusiness
     ? `
-${generateLocalBusinessToolHandlers()}
+${generateLocalBusinessToolHandlers("ts")}
 ${localBusinessToolRegistrations(detected)}`
     : ""
 }
@@ -1570,12 +1570,11 @@ ${kvKeys.map((k) => `npx wrangler kv key put --binding MCP_DATA "${k}" --path da
         "setup-data": "bash setup.sh",
       },
       dependencies: {
-        "@modelcontextprotocol/sdk": "^1.12.0",
+        "@modelcontextprotocol/sdk": "^1.25.0",
         zod: "^3.24.0",
       },
       devDependencies: {
         wrangler: "^4.0.0",
-        "@cloudflare/workers-types": "^4.0.0",
       },
     },
     null,

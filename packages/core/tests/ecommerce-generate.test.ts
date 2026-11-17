@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import type { FetchedPage } from "../src/audit/types.js";
 import {
@@ -223,6 +224,26 @@ describe("generateCommerceToolHandlers", () => {
     expect(code).toContain("getProduct");
     expect(code).toContain("checkInventory");
     expect(code).toContain("getReviews");
+  });
+
+  const load = (js: string) =>
+    new Function(`${js}\nreturn { searchProducts, getProduct, checkInventory, getReviews };`)();
+  const products = [{ productId: "p_1", name: "Blue Widget", price: 5, url: "u", rating: 4 }];
+
+  it("default output is plain JS that runs", () => {
+    const h = load(generateCommerceToolHandlers());
+    expect(h.searchProducts("widget", products)).toHaveLength(1);
+    expect(h.getReviews("p_1", products).rating).toBe(4);
+  });
+
+  it("ts output is annotated, transpiles and behaves like the JS form", () => {
+    const code = generateCommerceToolHandlers("ts");
+    expect(code).toContain("products: any[]");
+    const out = ts.transpileModule(code, { reportDiagnostics: true });
+    expect(out.diagnostics).toHaveLength(0);
+    const h = load(out.outputText);
+    expect(h.getProduct("blue", products)?.productId).toBe("p_1");
+    expect(h.checkInventory("zzz", products)).toBeNull();
   });
 });
 

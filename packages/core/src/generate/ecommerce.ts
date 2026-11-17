@@ -310,32 +310,37 @@ export function generateProductCatalog(products: ExtractedProduct[]): string {
   ].join("\n");
 }
 
-export function generateCommerceToolHandlers(): string {
-  return `function searchProducts(query, products) {
+export function generateCommerceToolHandlers(lang: "js" | "ts" = "js"): string {
+  const ts = lang === "ts";
+  const q = ts ? ": string" : "";
+  const id = ts ? ": any" : "";
+  const prods = ts ? ": any[]" : "";
+  const p = ts ? ": any" : "";
+  return `function searchProducts(query${q}, products${prods}) {
   const q = query.toLowerCase();
   return products
-    .filter(p =>
+    .filter((p${p}) =>
       p.name.toLowerCase().includes(q) ||
       (p.category && p.category.toLowerCase().includes(q)) ||
       (p.description && p.description.toLowerCase().includes(q))
     )
-    .map(p => ({ productId: p.productId, name: p.name, price: p.price, url: p.url }));
+    .map((p${p}) => ({ productId: p.productId, name: p.name, price: p.price, url: p.url }));
 }
 
-function getProduct(productId, products) {
+function getProduct(productId${id}, products${prods}) {
   if (typeof productId !== 'string' || !productId.trim()) return null;
-  return products.find(p => p.productId === productId) ||
-    products.find(p => p.name.toLowerCase().includes(productId.toLowerCase())) ||
+  return products.find((p${p}) => p.productId === productId) ||
+    products.find((p${p}) => p.name.toLowerCase().includes(productId.toLowerCase())) ||
     null;
 }
 
-function checkInventory(productId, products) {
+function checkInventory(productId${id}, products${prods}) {
   const p = getProduct(productId, products);
   if (!p) return null;
   return { productId: p.productId, name: p.name, availability: p.availability, price: p.price };
 }
 
-function getReviews(productId, products) {
+function getReviews(productId${id}, products${prods}) {
   const p = getProduct(productId, products);
   if (!p) return null;
   return { productId: p.productId, name: p.name, rating: p.rating, reviewCount: p.reviewCount, bestRating: p.bestRating };
