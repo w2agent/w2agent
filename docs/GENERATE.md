@@ -73,7 +73,7 @@ A2A v1.0 agent card at `/.well-known/agent-card.json`: `name`, `description`, `v
 
 #### faq.json
 
-Extracted FAQ content in FAQPage schema format.
+Extracted FAQ content in FAQPage schema format. Sources, first match per page wins: existing `FAQPage` JSON-LD (found on any page, including inside `@graph`, top-level arrays and `@type` arrays); then, on pages with FAQ wording, `<details>`/`<summary>`; `<dt>`/`<dd>` pairs whose term ends with `?`; and headings ending with `?` (needs at least two on the page). Answer text is entity-decoded plain text.
 
 #### Per-page Markdown
 
