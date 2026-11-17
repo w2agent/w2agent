@@ -8,22 +8,34 @@ export const nextjsWellKnownCheck: Check = {
   weight: 1,
   severity: "warning",
   run(_pages: FetchedPage[], metadata: SiteMetadata) {
-    const hasAgentCard = isAgentCard(metadata.wellKnown["agent-card.json"]);
-    const hasAny = hasAgentCard;
-
-    return {
+    const raw = metadata.wellKnown["agent-card.json"];
+    const base = {
       id: this.id,
       name: this.name,
       category: this.category,
       weight: this.weight,
       severity: this.severity,
-      status: hasAny ? "pass" : "fail",
-      score: hasAny ? 100 : 0,
       maxScore: 100,
-      message: hasAny
+    };
+
+    if (raw === undefined) {
+      return {
+        ...base,
+        status: "skip",
+        score: 100,
+        message: "No A2A agent card is published, which is fine for sites without an A2A agent",
+      };
+    }
+
+    const hasAgentCard = isAgentCard(raw);
+    return {
+      ...base,
+      status: hasAgentCard ? "pass" : "fail",
+      score: hasAgentCard ? 100 : 0,
+      message: hasAgentCard
         ? ".well-known/ directory serves agent discovery files correctly"
         : ".well-known/ agent discovery files not found — Next.js needs route handlers or public/ files for these",
-      details: hasAny
+      details: hasAgentCard
         ? undefined
         : "Add files to public/.well-known/ or create route handlers in app/.well-known/",
     };

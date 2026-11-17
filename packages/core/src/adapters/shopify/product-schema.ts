@@ -36,7 +36,7 @@ function jsonHasProductType(root: unknown): boolean {
   return walk(root, 0);
 }
 
-function htmlHasProductSchema(html: string): boolean {
+export function pageHasProductSchema(html: string): boolean {
   const $ = cheerio.load(html);
   let found = false;
   $("script[type]").each((_, el) => {
@@ -59,5 +59,5 @@ function htmlHasProductSchema(html: string): boolean {
 export function detectProductSchema(rawPages: FetchedPage[]): ProductSchemaState {
   const productPages = rawPages.filter(isProductPage);
   if (productPages.length === 0) return "unknown";
-  return productPages.some((p) => htmlHasProductSchema(p.html)) ? "present" : "absent";
+  return productPages.some((p) => pageHasProductSchema(p.html)) ? "present" : "absent";
 }

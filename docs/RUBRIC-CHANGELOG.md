@@ -15,6 +15,56 @@
 - **Adding a tracked check does not bump the version.** A check that enters at weight 0 and `tracked: true` is excluded from category renormalization, so it moves no score and no weight — the major-bump row above covers promotion and demotion (tracked ↔ scored), not arrival. Such a check is logged under the current version's "tracked additions" heading, with the same rationale a scored entry owes; it becomes a version event when it is promoted.
 - Every entry states the expected median score delta. Before cutover, it also records the measured delta.
 
+## 3.2 — 2026-11-17
+
+Minor. Detection and applicability fixes found by auditing the platform integrations. No check id, weight, category or tracked status changes, so the major row of the rules does not apply, and nothing is added or retired. `allChecks` stays at 57, of which 7 are tracked (50 scored), read from the registry. Every scored weight, every category intra-weight sum and `CATEGORY_CONFIG` are as in 3.1.
+
+The methodology spec is revised to v1.2 to match (same filename, `docs/spec/agent-readiness-spec-v1.0.md`).
+
+### Changed checks
+
+All weights are unchanged.
+
+| Check | Category | Weight | Action | Rationale (old → new) | Expected direction |
+|-------|----------|--------|--------|-----------------------|--------------------|
+| `nextjs-well-known-served` | agent-discovery | 1 | fix (applicability) | Failed (0) every Next.js site without `/.well-known/agent-card.json`, although an A2A agent card is only for sites that operate an A2A agent → skip (not applicable) when the metadata probe credited no agent card; fail 0 only when a credited file is not an agent card; pass 100 for a valid card | Up: Agent Discovery rises on Next.js sites without a card (the result leaves the denominator). Unchanged for sites with a valid card or a credited non-card body |
+| `shopify-product-schema` | structured-data | 1 | fix (detection) | Ratio of `/products/` pages whose HTML contained the string `"@type":"Product"` or `"@type": "Product"` → ratio of those pages with Product or ProductGroup schema by the Shopify generator's predicate: a `script` of type `application/ld+json` that parses and has a `Product` or `ProductGroup` `@type` (string or array, any depth, `@graph` included), or a schema.org Product or ProductGroup `itemtype`. Page selection and the 0.8 pass / partial / fail thresholds are unchanged. The message says "JSON-LD or microdata" to match what is credited | Up: ProductGroup-only pages, array `@type`, other spacing and microdata now pass. Down: a Product string in a non-JSON-LD script, in an HTML comment or in invalid JSON-LD no longer counts |
+| `ai-agent-access` | bot-accessibility | 2 | fixSnippet text only | The snippet told owners to delete a named agent's group and re-add it in an Allow group → it appends Allow groups only for agents blocked solely by the `*` group and lists named blocked agents in a comment, leaving their block alone. Status, score, severity, message and details are unchanged | None. A patch-level change that rides this bump |
+
+### Engine-level changes
+
+| Change | Effect |
+|--------|--------|
+| Platform detection | Which adapter's checks a site gets can change. Markers are bound to markup, not substrings: Next.js `__NEXT_DATA__` must be `script#__NEXT_DATA__` (1.0), `/_next/static/` only in `script[src]` or `link[href]`, `/_next/image` only in same-host or relative `img[src]` or `srcset` (0.95); WordPress needs a `generator` meta starting with "WordPress" (1.0), `/wp-content/` or `/wp-includes/` in `script[src]` or `link[href]` (0.95 on the page host, 0.5 on another host), or a `https://api.w.org/` link or `Link` header (0.85), and raw `wp-json` text in HTML no longer counts; Shopify's `cdn.shopify.com` only in `script[src]` or `link[href]` (no longer `img`), `myshopify.com` on the page host, `Shopify.theme` only in a code script; Nuxt `__NUXT__` only in a code script, `script#__NUXT_DATA__` or `/_nuxt/` in `script[src]` or `link[href]`; Astro `astro-island` elements, `data-astro-cid-*` attributes or `/_astro/` assets; Docusaurus class tokens on `<html>`, `#__docusaurus` or `theme-doc-*` classes. Detection reads the homepage alone, and all crawled pages only if the homepage matches no adapter. Ties go to Next.js, Nuxt, Astro, Docusaurus, Shopify, WordPress in that order, not registration order. Spec §6.11 has the rules |
+
+Situations where the detected adapter changes: a headless Next.js, Nuxt or Astro site with WordPress or Shopify assets now gets the framework's checks, not the CMS's (this includes the old WordPress-wins tie); a docs or blog site that quotes Next.js or WordPress markers in prose or code samples loses the wrong adapter's checks and gets none or the right one; a Next.js homepage with a WordPress blog page no longer takes WordPress from the blog page. Single-platform sites with real markers keep their adapter.
+
+### Why minor
+
+The questions the checks ask are unchanged: is an agent card served, does a product page carry Product schema, which platform is this. The `nextjs-well-known-served` change is an applicability gate, like 3.1's `well-known-ucp`: it stops scoring a Next.js site on a standard it does not have to address, and a card that is served is still read the same way. `shopify-product-schema` reads the same signal with the generator's parser instead of two literal strings. Detection changes which adapter checks run; it adds no check and changes no weight. The fixSnippet change is patch-level and rides this bump.
+
+The §7.3 exception for adapter checks (carried from 2.0 without a §7 review) is **not** discharged by 3.2. Neither changed check was reviewed against §7.1.
+
+### Not changed
+
+- Adapter checks still re-measure core facts at weight 1.0 (`shopify-product-schema` with `ecommerce-product-schema`, `nextjs-well-known-served` with `well-known-agent-card` where a card is published, `nuxt-schema-org` with `schema-org-present`, the robots checks with `ai-agent-access`), so on those platforms the fact counts twice. The overlap is disclosed in spec §6.11 and left.
+- Adapter checks were not reviewed against §7.1.
+- `astro-sitemap-integration` and `nuxt-llms-module` still read well-known keys the probe never records (spec §6.11 limitations).
+- Forced `--platform` runs do not use detection.
+
+### Expected median delta
+
+This is reasoning, not a measurement.
+
+- Next.js sites without an A2A agent card: `nextjs-well-known-served` leaves the denominator, so Agent Discovery **up**.
+- Shopify stores whose pages carry ProductGroup, an array `@type` or microdata: Structured Data **up**. Stores that matched only on a Product string in a non-JSON-LD script, a comment or invalid JSON-LD: Structured Data **down**.
+- Sites whose detected platform changes: the adapter checks swap, so category scores move in either direction. Sites that lose an adapter drop its checks from the denominators.
+- Overall median: expected near zero, because adapter checks run only on detected platforms and the changes move in both directions.
+
+### Measured delta
+
+Pending. It is measured from production rows before cutover, which this repository cannot do. No dual-run or production comparison has been made for 3.2.
+
 ## 3.1 — 2026-10-16
 
 Minor. Detection and accuracy fixes found by self-auditing w2agent.dev. No check id, weight, category or tracked status changes, so the major row of the rules does not apply, and nothing is added or retired. Each fix changes pass rates without changing what its check is meant to measure, which is the minor row. `allChecks` stays at 57, of which 7 are tracked, read from the registry. Every scored weight, every category intra-weight sum and `CATEGORY_CONFIG` are as in 3.0, so the delta can be attributed to the detection changes alone.

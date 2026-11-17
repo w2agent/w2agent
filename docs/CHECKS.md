@@ -1,6 +1,6 @@
 # w2agent Check Reference
 
-57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.1; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento markers in `script[src]`, `link[href]`, `img[src]`, `a[href]`, `form[action]`, the checkout meta tag, body classes and `data-mage-init`, or code tokens in code scripts), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a button inside a form or tied to one by its `form` attribute, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
+57 core checks (`allChecks`; 7 of them tracked at weight 0) across 7 categories + 19 platform-specific checks (76 total). Rubric 3.2; see `RUBRIC-CHANGELOG.md`. The 6 site-type checks (ecommerce, local-business) added only when that site type is detected are not listed here. An ecommerce site is detected from platform markup (Shopify, WooCommerce, BigCommerce and Magento markers in `script[src]`, `link[href]`, `img[src]`, `a[href]`, `form[action]`, the checkout meta tag, body classes and `data-mage-init`, or code tokens in code scripts), Product JSON-LD, `og:type=product`, commerce URL paths, price microdata and cart/checkout controls (a button inside a form or tied to one by its `form` attribute, or a link to a `/cart` or `/checkout` path); words in page prose or in data payloads such as Next.js flight data do not count.
 
 **Visible text.** Checks marked "visible text" below read the body text with `script`, `style`, `noscript` and `template` content removed, whitespace-collapsed. `no-js-dependency` measures the no-JS view and also counts the words inside `noscript` (parsed as an HTML fragment: entities decoded, `template`, `script` and `style` skipped).
 
@@ -123,7 +123,7 @@ These checks run automatically when a platform is detected.
 
 | Check | ID | What it measures |
 |-------|----|-----------------|
-| .well-known Serving | `nextjs-well-known-served` | Does Next.js serve `.well-known/` correctly? |
+| .well-known Serving | `nextjs-well-known-served` | Does the site serve an A2A `.well-known/agent-card.json`? Skipped (not applicable) when none is published; fails only when a credited file is not an agent card |
 | Static Generation | `nextjs-static-generation` | Are most pages statically generated (fast for AI crawlers)? Each sampled page is classed dynamic (`cache-control` `private` or `no-store`; `__NEXT_DATA__` `gssp` or `gip` true, unless `nextExport` is true; `appGip` true without `gsp` or `nextExport`; flags read only at the top level of the parsed JSON), static (`x-nextjs-prerender`; `x-nextjs-cache` or `x-vercel-cache` of HIT, STALE, PRERENDER or REVALIDATED; `cache-control` `s-maxage` or `public`; `__NEXT_DATA__` `gsp`, `nextExport` or `autoExport` true) or no evidence; dynamic wins. 100 when at least half of the pages with evidence are static; else 60 (also when no page has evidence) |
 | Metadata API | `nextjs-metadata-api` | Is `generateMetadata` used for consistent SEO? |
 
@@ -132,7 +132,7 @@ These checks run automatically when a platform is detected.
 | Check | ID | What it measures |
 |-------|----|-----------------|
 | Robots.txt Customizable | `shopify-robots-editable` | Does the store use `robots.txt.liquid` (Shopify 2.0+)? |
-| Product Schema | `shopify-product-schema` | Do product pages have Product JSON-LD with price/availability? |
+| Product Schema | `shopify-product-schema` | Do product pages (crawled URLs containing `/products/`) carry Product or ProductGroup schema, as JSON-LD or microdata? The same predicate the Shopify generator uses to decide whether to emit schema. Fields are not checked |
 | Theme App Blocks | `shopify-theme-app-blocks` | Does the theme support Online Store 2.0 app blocks? |
 
 ### Nuxt (4 checks)

@@ -439,7 +439,7 @@ describe("Next.js checks", () => {
       ...baseMeta,
       wellKnown: { "ai-plugin.json": '{"schema_version":"v1"}' },
     });
-    expect(pluginOnly?.status).toBe("fail");
+    expect(pluginOnly?.status).toBe("skip");
     const namelessJson = await check?.run([page], {
       ...baseMeta,
       wellKnown: { "agent-card.json": '{"error":"not found"}' },

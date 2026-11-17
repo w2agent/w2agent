@@ -1,4 +1,5 @@
 import type { Check, FetchedPage, SiteMetadata } from "../../audit/types.js";
+import { pageHasProductSchema } from "./product-schema.js";
 
 export const shopifyRobotsEditableCheck: Check = {
   id: "shopify-robots-editable",
@@ -47,9 +48,7 @@ export const shopifyProductSchemaCheck: Check = {
     for (const page of pages) {
       if (page.url.includes("/products/")) {
         productPages++;
-        const hasProductSchema =
-          page.html.includes('"@type":"Product"') || page.html.includes('"@type": "Product"');
-        if (hasProductSchema) withSchema++;
+        if (pageHasProductSchema(page.html)) withSchema++;
       }
     }
 
@@ -79,8 +78,8 @@ export const shopifyProductSchemaCheck: Check = {
       maxScore: 100,
       message:
         ratio >= 0.8
-          ? `${withSchema}/${productPages} product pages have Product JSON-LD schema`
-          : `Only ${withSchema}/${productPages} product pages have Product JSON-LD. AI agents need structured product data.`,
+          ? `${withSchema}/${productPages} product pages have Product schema (JSON-LD or microdata)`
+          : `Only ${withSchema}/${productPages} product pages have Product schema (JSON-LD or microdata). AI agents need structured product data.`,
       details:
         ratio < 0.8
           ? "Ensure your Shopify theme includes Product structured data with price, availability, and reviews."

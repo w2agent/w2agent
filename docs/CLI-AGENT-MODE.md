@@ -43,7 +43,7 @@ w2agent audit http://127.0.0.1:<port> --json
   "pagesScanned": 3,
   "overallScore": 27,
   "grade": "F",
-  "rubricVersion": "3.1",
+  "rubricVersion": "3.2",
   "categories": [ "…" ]
 }
 ```
