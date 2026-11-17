@@ -38,7 +38,7 @@ Run from the repo root.
 
 `pnpm lint:fix` and `pnpm format` run Biome with `--write` over everything Biome sees, including untracked directories. Prefer `pnpm exec biome check --write <paths>` on the files you changed.
 
-CI runs `pnpm lint` and `pnpm test` on Node 22.
+CI runs `pnpm lint`, `pnpm test` and `pnpm test:agent-surfaces` on Node 22.
 
 ## Tests
 

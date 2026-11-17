@@ -10,7 +10,8 @@
     "format": "biome format --write .",
     "clean": "turbo clean",
     "eval:agents": "node evals/agent-onboarding/run.mjs",
-    "test:evals": "node --test 'evals/agent-onboarding/test/*.test.mjs'"
+    "test:evals": "node --test 'evals/agent-onboarding/test/*.test.mjs'",
+    "test:agent-surfaces": "node --test scripts/agent-surfaces.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",
