@@ -13,7 +13,8 @@ npx w2agent generate <url> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
-| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `skill-md`, `webmcp`, `openclaw`, `all` |
+| `-f, --format <fmt>` | `all` | Output formats, comma-separated or repeated (`-f llms-txt,full` or `-f llms-txt -f full`). `all` = `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `webmcp`. Opt-in only: `mcp-server`, `skill-md`, `openclaw`, `agents-md` (combine, e.g. `all,agents-md`). Unknown values exit with an error |
+| `--no-platform` | off | Do not write platform integration files (`nextjs/`, `nuxt/`, ...) |
 | `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
 | `--a2a-endpoint <url>` | none | Your live A2A agent endpoint; `agent-card` is skipped without it (also on `integrate`) |
@@ -126,14 +127,14 @@ w2agent agent update <slug>                    # Re-crawl hosted deployment
 
 ### Platform Integration Files (auto-detected)
 
-When a platform is detected, additional integration files are generated:
+When a platform is detected, additional integration files are generated (omitted with `--no-platform`):
 
 | Platform | Files Generated |
 |----------|----------------|
 | **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt generation, admin page, robots.txt filter, `wordpress/data/` seed files, `wordpress/INSTALL.md` |
-| **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation, `nextjs/w2agent-build.mjs` — CI/CD build script, `nextjs/INSTALL.md` |
+| **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation (`--install` writes `proxy.ts` on Next.js 16), `nextjs/w2agent-build.mjs` — build script, run as `prebuild`, `nextjs/INSTALL.md` |
 | **Nuxt** | `nuxt/server/routes/llms.txt.ts` — Nitro server route, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/INSTALL.md` |
-| **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/middleware.ts` — content negotiation, `astro/INSTALL.md` |
+| **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/pages/llms.txt.ts` and `astro/src/pages/.well-known/agent-card.json.ts` — SSR endpoints, `astro/w2agent-integration.mjs`, `astro/w2agent-build.mjs`, `astro/INSTALL.md` |
 | **Shopify** | `shopify/snippets/w2agent-head.liquid` — head snippet with Product JSON-LD, `shopify/templates/robots.txt.liquid`, `shopify/INSTALL.md` |
 | **Docusaurus** | `docusaurus/w2agent-plugin.js` — build plugin that generates llms.txt from docs directory, `docusaurus/INSTALL.md` |
 
@@ -199,7 +200,7 @@ Behavior:
 - Skips non-project files (`INSTALL.md`)
 - Detects existing files and skips with warnings instead of overwriting
 - Existing middleware with w2agent code → skipped; without → saved as `.w2agent.ts` for manual merge
-- Prints post-install steps (e.g., "add postbuild script", "activate plugin")
+- Prints post-install steps (e.g., "add prebuild script", "activate plugin")
 - Use `--dry-run` to preview the install plan without writing anything
 
 ## Page Discovery
@@ -230,7 +231,7 @@ npx w2agent generate https://docs.example.com
 npx w2agent generate https://example.com --format llms-txt
 
 # Only docs and blog sections, output to public/
-npx w2agent generate https://example.com --sections docs,blog --output ./public/
+npx w2agent generate https://example.com --sections docs,blog --format llms-txt,full --no-platform --output ./public/
 
 # Crawl up to 100 pages
 npx w2agent generate https://large-site.com --max-pages 100

@@ -30,6 +30,8 @@ export interface GenerateOptions {
   allowedOffOriginHosts?: string[];
   /** Gate applied to every crawl fetch target and redirect hop (see AuditOptions). */
   isAllowedTarget?: AuditOptions["isAllowedTarget"];
+  /** Append detected-platform integration files (nextjs/, nuxt/, ...) to the output. Default true. */
+  platformFiles?: boolean;
 }
 
 export type GenerateFormat =
@@ -57,6 +59,8 @@ export interface GenerateResult {
   url: string;
   duration: number;
   pagesProcessed: number;
+  /** Distinct pages fetched with status 200 and HTML, before markdown conversion and section filtering */
+  pagesFetched: number;
   /** Total pages discovered (sitemap + links) before applying maxPages limit */
   totalPagesFound: number;
   files: GeneratedFile[];

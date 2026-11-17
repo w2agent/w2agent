@@ -62,28 +62,39 @@ export const GET: APIRoute = async () => {
  *   export default defineConfig({ integrations: [w2agent()] });
  *
  * Regenerates llms.txt and llms-full.txt after each build.
+ *
+ * Requires the w2agent CLI installed in this project. It is not published on npm
+ * yet: build it from the w2agent repo, then run
+ *   npm install -D <path-to-w2agent>/packages/cli
+ * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 export default function w2agentIntegration() {
   return {
     name: "w2agent",
     hooks: {
       "astro:build:done": async ({ dir, logger }) => {
-        const siteUrl = process.env.SITE_URL || "${siteUrl}";
-        const outDir = dir.pathname;
+        const siteUrl = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
+        const outDir = fileURLToPath(dir);
 
         logger.info("Regenerating AI content for " + siteUrl + "...");
 
         try {
           execFileSync(
             "npx",
-            ["w2agent", "generate", siteUrl, "--format", "llms-txt", "--format", "full", "--output", outDir],
+            ["--no", "--", "w2agent", "generate", siteUrl, "--format", "llms-txt,full", "--no-platform", "--output", outDir],
             { stdio: "inherit" }
           );
           logger.info("Done. Files written to " + outDir);
         } catch (err) {
-          logger.warn("Generation failed — static fallback files will be used");
+          logger.warn(
+            "Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
+            "Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
+            "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
+            "or the crawl of " + siteUrl + " failed. Static fallback files will be used."
+          );
         }
       },
     },
@@ -93,29 +104,42 @@ export default function w2agentIntegration() {
 
   const buildScript = `#!/usr/bin/env node
 /**
- * w2agent build script — run during CI/CD or as a postbuild hook
+ * w2agent build script — run during CI/CD or as a prebuild hook
  *
  * Usage:
  *   node w2agent-build.mjs
  *
  * Or add to package.json:
- *   "scripts": { "postbuild": "node w2agent-build.mjs" }
+ *   "scripts": { "prebuild": "node w2agent-build.mjs" }
+ *
+ * It must run before the build: Astro copies public/ into dist/ during the
+ * build, so a postbuild refresh would not reach the deployed output.
+ *
+ * Requires the w2agent CLI installed in this project. It is not published on npm
+ * yet: build it from the w2agent repo, then run
+ *   npm install -D <path-to-w2agent>/packages/cli
+ * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
 
-const SITE_URL = process.env.SITE_URL || "${siteUrl}";
+const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
 
 console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 
 try {
   execFileSync(
     "npx",
-    ["w2agent", "generate", SITE_URL, "--format", "llms-txt", "--format", "full", "--output", "./public/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./public/"],
     { stdio: "inherit" }
   );
   console.log("[w2agent] Done. Files written to public/");
 } catch (err) {
-  console.warn("[w2agent] Generation failed — static files will be used as fallback");
+  console.warn(
+    "[w2agent] Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
+    "[w2agent] Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
+    "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
+    "or the crawl of " + SITE_URL + " failed. Static files will be used as fallback."
+  );
 }
 `;
 
@@ -149,7 +173,7 @@ Astro's static-first approach is ideal for AI content. This integration provides
 \`\`\`
 Build time:
   -> w2agent integration runs at astro:build:done
-  -> Writes llms.txt, llms-full.txt to output directory
+  -> Writes llms.txt, llms-full.txt to output directory (needs the w2agent CLI installed in your project)
 
 Runtime (static):
   -> Serve directly from public/ (zero overhead)
@@ -182,7 +206,13 @@ export default defineConfig({
 });
 \`\`\`
 
-### 3. (Optional) Add SSR endpoints
+### Alternative: prebuild script
+\`\`\`bash
+cp astro/w2agent-build.mjs your-astro-app/
+\`\`\`
+
+Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build.
+\n### 3. (Optional) Add SSR endpoints
 If using \`output: "server"\` or \`"hybrid"\`:
 \`\`\`bash
 cp astro/src/pages/llms.txt.ts your-astro-app/src/pages/
@@ -194,7 +224,7 @@ cp -r astro/src/pages/.well-known/ your-astro-app/src/pages/.well-known/
 \`\`\`
 your-astro-app/
   w2agent-integration.mjs                             <- Build integration plugin
-  w2agent-build.mjs                                   <- CI/CD build script
+  w2agent-build.mjs                                   <- CI/CD build script (run as "prebuild")
   public/
     llms.txt                                          <- Static file (primary)
     llms-full.txt                                     <- Static file
@@ -209,11 +239,14 @@ your-astro-app/
 ## Regenerating
 
 \`\`\`bash
-# Manual
-npx w2agent generate ${siteUrl} --output ./public/
+# Manual (needs the w2agent CLI installed in this project)
+npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./public/
 
 # Or just deploy — the build integration handles it
 \`\`\`
+
+The CLI is not published on npm yet. Build it from the w2agent repo, then run
+\`npm install -D <path-to-w2agent>/packages/cli\` in your app.
 `;
 
   // Static files first (Astro's strength)

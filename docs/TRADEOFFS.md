@@ -79,7 +79,7 @@ Initial metadata fetches (`robots.txt`, `sitemap.xml`, `llms.txt`, OpenAPI probe
 
 ### Format selection via `--format`
 
-Each generator is independent — `--format llms-txt` runs only that generator. `--format all` runs everything including WebMCP. This keeps generation fast for users who only need one format, while `all` provides the comprehensive output.
+Each generator is independent — `--format llms-txt` runs only that generator, and `--format` takes a comma list or repeats. `all` runs the standard set (llms.txt, llms-full.txt, markdown, robots.txt, schema.org, agent card, FAQ, WebMCP), not the opt-in generators (`mcp-server`, `skill-md`, `openclaw`, `agents-md`); name those explicitly. This keeps generation fast for users who only need one format, while `all` provides the comprehensive output.
 
 ### Standalone MCP server project
 

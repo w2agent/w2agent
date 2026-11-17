@@ -661,14 +661,6 @@ describe("Next.js integration generation", () => {
     expect(route).not.toContain("WebSite");
   });
 
-  it("generates middleware with content negotiation", () => {
-    const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    const mw = files.find((f) => f.filename === "nextjs/middleware.ts");
-    expect(mw).toBeDefined();
-    expect(mw?.content).toContain("text/markdown");
-    expect(mw?.content).toContain("NextResponse.rewrite");
-  });
-
   it("generates build script for CI/CD", () => {
     const files = nextjsAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const build = files.find((f) => f.filename === "nextjs/w2agent-build.mjs");
@@ -759,15 +751,6 @@ describe("Nuxt integration generation", () => {
     expect(llmsRoute?.content).toContain("maxAge: 3600");
   });
 
-  it("generates content negotiation middleware", () => {
-    const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    const mw = files.find((f) => f.filename === "nuxt/server/middleware/content-negotiation.ts");
-    expect(mw).toBeDefined();
-    expect(mw?.content).toContain("defineEventHandler");
-    expect(mw?.content).toContain("text/markdown");
-    expect(mw?.content).toContain("sendRedirect");
-  });
-
   it("includes static fallback files", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const filenames = files.map((f) => f.filename);
@@ -819,6 +802,7 @@ describe("Astro integration generation", () => {
     const install = files.find((f) => f.filename === "astro/INSTALL.md");
     expect(install).toBeDefined();
     expect(install?.content).toContain("static-first");
+    expect(install?.content).toContain("Use one of the two, not both");
   });
 });
 

@@ -2,7 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveWordPressInstall } from "../src/adapters/wordpress/install.js";
+import {
+  detectWordPressLayout,
+  resolveWordPressInstall,
+} from "../src/adapters/wordpress/install.js";
 import type { GeneratedFile } from "../src/generate/types.js";
 
 function makeFile(filename: string, content = "test content"): GeneratedFile {
@@ -105,5 +108,163 @@ describe("WordPress install resolver", () => {
     const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
     expect(plan.actions.length).toBe(0);
     expect(plan.postInstallSteps.length).toBe(0);
+  });
+
+  describe("WP_PLUGIN_DIR handling", () => {
+    function setConfig(body: string) {
+      writeFileSync(join(tempDir, "wp-config.php"), `<?php\n${body}\n`, "utf-8");
+    }
+
+    function expectDefaultDir(plan: ReturnType<typeof resolveWordPressInstall>) {
+      const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+      expect(dests.length).toBeGreaterThan(0);
+      expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent/"))).toBe(true);
+    }
+
+    function expectRefused(plan: ReturnType<typeof resolveWordPressInstall>) {
+      expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+      const manual = plan.actions.find((a) => a.type === "manual");
+      expect(manual?.reason).toContain("outside the project directory");
+      expect(manual?.reason).toContain("--output");
+      expect(plan.warnings.some((w) => w.includes("outside the project directory"))).toBe(true);
+      expect(plan.postInstallSteps).toEqual([]);
+    }
+
+    it("refuses an absolute WP_PLUGIN_DIR outside the project", () => {
+      const outside = mkdtempSync(join(tmpdir(), "w2agent-wp-outside-"));
+      try {
+        setConfig(`define('WP_PLUGIN_DIR', '${outside}');`);
+        expectRefused(resolveWordPressInstall(makeWpFiles(), tempDir));
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it("converts an absolute WP_PLUGIN_DIR inside the project to a relative path", () => {
+      const abs = join(tempDir, "abs-plugins");
+      setConfig(`define('WP_PLUGIN_DIR', "${abs}");`);
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+      expect(dests.length).toBeGreaterThan(0);
+      expect(dests.every((d) => d.startsWith("abs-plugins/w2agent/"))).toBe(true);
+    });
+
+    it("refuses a relative WP_PLUGIN_DIR that escapes the project", () => {
+      setConfig("define('WP_PLUGIN_DIR', '../outside');");
+      expectRefused(resolveWordPressInstall(makeWpFiles(), tempDir));
+    });
+
+    it("ignores a commented-out WP_PLUGIN_DIR", () => {
+      setConfig(
+        [
+          "// define('WP_PLUGIN_DIR', '../outside');",
+          "# define('WP_PLUGIN_DIR', '/etc');",
+          "/* define('WP_PLUGIN_DIR', 'custom'); */",
+        ].join("\n"),
+      );
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      expectDefaultDir(plan);
+      expect(plan.warnings).toEqual([]);
+    });
+
+    it("does not treat // inside a string as a comment", () => {
+      setConfig("define('WP_HOME', 'http://example.test'); define('WP_PLUGIN_DIR', 'custom');");
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+      expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+    });
+
+    it("falls back to the default and warns on an expression value", () => {
+      for (const value of [
+        "dirname(__FILE__) . '/plugins'",
+        "'a' . '/b'",
+        "ABSPATH . 'plugins'",
+        "SOME_CONSTANT",
+        '"$base/plugins"',
+      ]) {
+        setConfig(`define('WP_PLUGIN_DIR', ${value});`);
+        const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+        expectDefaultDir(plan);
+        expect(plan.warnings.some((w) => w.includes("WP_PLUGIN_DIR") && w.includes("read"))).toBe(
+          true,
+        );
+      }
+    });
+
+    it("checks for an existing plugin in the resolved custom directory", () => {
+      setConfig("define('WP_PLUGIN_DIR', 'custom');");
+      mkdirSync(join(tempDir, "custom", "w2agent"), { recursive: true });
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      expect(plan.actions).toEqual([]);
+      expect(plan.warnings.some((w) => w.includes("already exists"))).toBe(true);
+    });
+
+    it("reads define() and const forms case-insensitively and refuses outside values", () => {
+      for (const body of [
+        `DEFINE("WP_PLUGIN_DIR", "/etc/outside");`,
+        `Define('WP_PLUGIN_DIR', '../outside');`,
+        `const WP_PLUGIN_DIR = "/etc/outside";`,
+      ]) {
+        setConfig(body);
+        expectRefused(resolveWordPressInstall(makeWpFiles(), tempDir));
+      }
+    });
+
+    it("reads a const literal inside the project", () => {
+      setConfig("const WP_PLUGIN_DIR = 'custom';");
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+      expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+    });
+
+    it("warns on non-literal const and uppercase DEFINE forms", () => {
+      for (const body of [
+        `const WP_PLUGIN_DIR = ABSPATH . 'p';`,
+        `DEFINE('WP_PLUGIN_DIR', FOO);`,
+      ]) {
+        setConfig(body);
+        const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+        expectDefaultDir(plan);
+        expect(plan.warnings.some((w) => w.includes("WP_PLUGIN_DIR") && w.includes("read"))).toBe(
+          true,
+        );
+      }
+    });
+
+    it("does not match a different function name ending in define", () => {
+      setConfig("my_define('WP_PLUGIN_DIR', '../outside');");
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      expectDefaultDir(plan);
+      expect(plan.warnings).toEqual([]);
+    });
+
+    it("ends // and # comments at ?> so a live define after it is honoured", () => {
+      setConfig("// note ?><?php define('WP_PLUGIN_DIR', '../outside');");
+      expectRefused(resolveWordPressInstall(makeWpFiles(), tempDir));
+      setConfig("# note ?><?php define('WP_PLUGIN_DIR', '/etc/outside');");
+      expectRefused(resolveWordPressInstall(makeWpFiles(), tempDir));
+    });
+
+    it("skips heredoc and nowdoc bodies so an apostrophe does not flip string state", () => {
+      for (const open of ["<<<EOT", '<<<"EOT"', "<<<'EOT'"]) {
+        setConfig(`$x = ${open}\nit's\nEOT;\n// define('WP_PLUGIN_DIR', 'custom/plugins');\n`);
+        const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+        expectDefaultDir(plan);
+        expect(plan.warnings).toEqual([]);
+      }
+    });
+
+    it("ignores a define that only appears inside a heredoc body", () => {
+      setConfig("$x = <<<EOT\ndefine('WP_PLUGIN_DIR', 'custom');\nEOT;\n");
+      expectDefaultDir(resolveWordPressInstall(makeWpFiles(), tempDir));
+    });
+
+    it("keeps detectWordPressLayout fields and reports the outside state", () => {
+      setConfig("define('WP_PLUGIN_DIR', '../outside');");
+      const layout = detectWordPressLayout(tempDir);
+      expect(layout.isWpRoot).toBe(true);
+      expect(layout.pluginDirOutside).toBe(true);
+      expect(layout.hasExistingPlugin).toBe(false);
+    });
   });
 });

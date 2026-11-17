@@ -135,6 +135,29 @@ export async function probeOpenAPIPaths(
   return null;
 }
 
+export function resolveOpenapiServerUrl(
+  serverUrl: string,
+  baseUrl: string,
+  allowedHosts?: string[],
+): string | null {
+  let resolved: URL;
+  let baseOrigin: string;
+  try {
+    resolved = new URL(serverUrl, baseUrl);
+    baseOrigin = new URL(baseUrl).origin;
+  } catch {
+    return null;
+  }
+  if (resolved.origin !== baseOrigin && !isOriginAllowed(resolved.href, baseOrigin, allowedHosts)) {
+    return null;
+  }
+  resolved.username = "";
+  resolved.password = "";
+  resolved.search = "";
+  resolved.hash = "";
+  return resolved.href.replace(/\/+$/, "");
+}
+
 export function parseOpenAPISpec(
   json: unknown,
   specUrl: string,
@@ -153,23 +176,13 @@ export function parseOpenAPISpec(
     ? (obj.basePath as string | undefined) || undefined
     : (obj.servers as Array<{ url: string }> | undefined)?.[0]?.url || undefined;
 
-  // Origin policy: reject specs whose absolute serverUrl would steer the
-  // generated MCP server to off-origin / private-IP hosts that the operator
-  // didn't allowlist. Relative serverUrl values always resolve against baseUrl
-  // and are therefore safe.
+  // Origin policy: resolve serverUrl against the site base exactly as the
+  // generator will, and reject specs whose resolved URL would steer the
+  // generated MCP server off-origin or to a private IP the operator didn't
+  // allowlist. Validating the resolved URL (not the raw string) closes
+  // parser-differential forms such as " http://host", "http:\\host", "http:host".
   if (policy?.baseUrl && serverUrl) {
-    let resolved: URL | null = null;
-    try {
-      resolved = new URL(serverUrl, policy.baseUrl);
-    } catch {
-      // fall through — treat unparseable as safe-but-useless
-    }
-    const isAbsolute = /^https?:\/\//i.test(serverUrl);
-    if (resolved && isAbsolute) {
-      if (!isOriginAllowed(resolved.href, policy.baseUrl, policy.allowedHosts)) {
-        return null;
-      }
-    }
+    if (!resolveOpenapiServerUrl(serverUrl, policy.baseUrl, policy.allowedHosts)) return null;
   }
 
   const endpoints: OpenAPIEndpoint[] = [];
@@ -177,6 +190,7 @@ export function parseOpenAPISpec(
 
   for (const [path, pathItem] of Object.entries(paths as Record<string, unknown>)) {
     if (!pathItem || typeof pathItem !== "object") continue;
+    if (!path.startsWith("/")) continue;
     for (const method of methods) {
       const operation = (pathItem as Record<string, unknown>)[method];
       if (!operation) continue;

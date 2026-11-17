@@ -1,4 +1,5 @@
 import type { GeneratedFile } from "../../generate/types.js";
+import { HOME_VARIANT_SOURCE } from "../shared/accept-negotiation.js";
 
 export function generateNuxtIntegration(
   llmsTxtContent: string,
@@ -42,7 +43,7 @@ export default defineCachedEventHandler(
     if (fs.existsSync(filePath)) {
       return fs.readFileSync(filePath, "utf-8");
     }
-    return "# No content generated yet\\n\\nRun: npx w2agent generate ${siteUrl}\\n";
+    return "# No content generated yet\\n\\nRun: npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./public/\\n";
   },
   { swr: true, maxAge: 3600 },
 );
@@ -81,49 +82,61 @@ export default defineCachedEventHandler(
 );
 `;
 
-  const contentNegotiationMiddleware = `import { defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader } from "h3";
+  const contentNegotiationMiddleware = `import { appendResponseHeader, defineEventHandler, getRequestHeader, sendRedirect } from "h3";
+
+${HOME_VARIANT_SOURCE}
 
 export default defineEventHandler((event) => {
-  const url = event.path;
-  const accept = getRequestHeader(event, "accept") || "";
+  // event.path includes the query string; negotiate on the pathname only
+  if (event.path.split("?")[0] !== "/") return;
 
-  // Content negotiation: AI agents requesting markdown at root get /index.md, plain text gets llms.txt
-  if (url === "/" && accept.includes("text/markdown")) {
-    // The redirect depends on Accept — caches must not send browsers to markdown
-    setResponseHeader(event, "Vary", "Accept");
-    return sendRedirect(event, "/index.md", 302);
-  }
-  if (url === "/" && accept.includes("text/plain")) {
-    return sendRedirect(event, "/llms.txt", 302);
-  }
+  // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
+  const variant = homeVariant(getRequestHeader(event, "accept") ?? null);
+  // "/" depends on Accept in every branch: caches must not mix the variants
+  appendResponseHeader(event, "Vary", "Accept");
+  if (variant === "markdown") return sendRedirect(event, "index.md", 302);
+  if (variant === "plain") return sendRedirect(event, "llms.txt", 302);
 });
 `;
 
   const buildScript = `#!/usr/bin/env node
 /**
- * w2agent build script — run during CI/CD or as a postbuild hook
+ * w2agent build script — run during CI/CD or as a prebuild hook
  *
  * Usage:
  *   node w2agent-build.mjs
  *
  * Or add to package.json:
- *   "scripts": { "postbuild": "node w2agent-build.mjs" }
+ *   "scripts": { "prebuild": "node w2agent-build.mjs" }
+ *
+ * It must run before the build: Nuxt copies public/ into .output/public during
+ * the build, so a postbuild refresh would not reach the deployed output.
+ *
+ * Requires the w2agent CLI installed in this project. It is not published on npm
+ * yet: build it from the w2agent repo, then run
+ *   npm install -D <path-to-w2agent>/packages/cli
+ * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
 
-const SITE_URL = process.env.SITE_URL || "${siteUrl}";
+const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
 
 console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 
 try {
   execFileSync(
     "npx",
-    ["w2agent", "generate", SITE_URL, "--format", "llms-txt", "--format", "full", "--output", "./public/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./public/"],
     { stdio: "inherit" }
   );
   console.log("[w2agent] Done. Files written to public/");
 } catch (err) {
-  console.warn("[w2agent] Generation failed — Nitro routes will use fallback content");
+  console.warn(
+    "[w2agent] Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
+    "[w2agent] Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
+    "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
+    "or the crawl of " + SITE_URL + " failed. Nitro routes will use fallback content."
+  );
 }
 `;
 
@@ -185,10 +198,14 @@ Then add to \`package.json\`:
 \`\`\`json
 {
   "scripts": {
-    "postbuild": "node w2agent-build.mjs"
+    "prebuild": "node w2agent-build.mjs"
   }
 }
 \`\`\`
+
+It runs as \`prebuild\` so the files land in \`public/\` before Nuxt copies it into the build output.
+It needs the w2agent CLI installed in your project. The CLI is not published on npm yet: build it
+from the w2agent repo, then run \`npm install -D <path-to-w2agent>/packages/cli\`.
 
 ## File Structure
 
@@ -211,17 +228,17 @@ your-nuxt-app/
 ## How It Works
 
 1. **Nitro handlers** serve content with 1hr cache + stale-while-revalidate
-2. **Build script** regenerates \`public/\` files on deploy via \`npx w2agent generate\`
-3. **Middleware** redirects \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (302 with \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
+2. **Build script** regenerates \`public/\` files before each build via \`npx --no -- w2agent generate\`
+3. **Middleware** redirects \`/\` (with \`Vary: Accept\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page
 4. **Fallback** — if static files are missing, handlers generate minimal content
 
 ## Regenerating
 
 \`\`\`bash
 # Manual
-npx w2agent generate ${siteUrl} --output ./public/
+npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./public/
 
-# Or just deploy — the postbuild script handles it
+# Or just build — the prebuild script handles it
 \`\`\`
 `;
 

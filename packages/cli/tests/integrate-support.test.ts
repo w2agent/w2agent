@@ -28,18 +28,11 @@ describe("mapPlanChanges", () => {
         { type: "write", dest: "public/llms.txt", content: "x" },
         { type: "skip", dest: "a.txt", reason: "already there" },
         { type: "manual", dest: "b.txt" },
-        { type: "delete", dest: "public/llms.txt" },
       ],
     };
     const changes = mapPlanChanges(plan, dir);
-    expect(changes.map((c) => c.action)).toEqual(["create", "modify", "skip", "manual", "delete"]);
-    expect(changes.map((c) => c.path)).toEqual([
-      "app/new.ts",
-      "public/llms.txt",
-      "a.txt",
-      "b.txt",
-      "public/llms.txt",
-    ]);
+    expect(changes.map((c) => c.action)).toEqual(["create", "modify", "skip", "manual"]);
+    expect(changes.map((c) => c.path)).toEqual(["app/new.ts", "public/llms.txt", "a.txt", "b.txt"]);
     expect(changes[2].reason).toBe("already there");
     for (const c of changes) expect(typeof c.reason).toBe("string");
     expect(changes.every((c) => c.reason.length > 0)).toBe(true);

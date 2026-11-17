@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,6 +32,8 @@ describe("Next.js install resolver", () => {
     tempDir = mkdtempSync(join(tmpdir(), "w2agent-nextjs-install-"));
     // Create a basic Next.js app-router project
     mkdirSync(join(tempDir, "app"), { recursive: true });
+    writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"next":"15.0.0"}}', "utf-8");
+    writeFileSync(join(tempDir, "tsconfig.json"), "{}", "utf-8");
   });
 
   afterEach(() => {
@@ -54,7 +56,8 @@ describe("Next.js install resolver", () => {
     expect(dests).toContain("w2agent-build.mjs");
     expect(plan.warnings.length).toBe(0);
     expect(plan.postInstallSteps.length).toBeGreaterThan(0);
-    expect(plan.postInstallSteps[0]).toContain("postbuild");
+    expect(plan.postInstallSteps[0]).toContain("prebuild");
+    expect(plan.postInstallSteps[0]).toContain("npm install -D <path-to-w2agent>/packages/cli");
   });
 
   it("adjusts paths for src/app/ layout", () => {
@@ -144,7 +147,7 @@ describe("Next.js install resolver", () => {
     const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-build.mjs");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toBe("already exists");
-    // No postbuild step since build script wasn't written
+    // No prebuild step since build script wasn't written
     expect(plan.postInstallSteps.length).toBe(0);
   });
 
@@ -179,7 +182,7 @@ describe("Next.js install resolver", () => {
     writeFileSync(join(tempDir, "src", "middleware.ts"), "// auth", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
-    const mergeAction = plan.actions.find((a) => a.dest === "middleware.w2agent.ts");
+    const mergeAction = plan.actions.find((a) => a.dest === "src/middleware.w2agent.ts");
     expect(mergeAction).toBeDefined();
   });
 
@@ -196,44 +199,138 @@ describe("Next.js install resolver", () => {
     expect(skipped[0].dest).toBe("src/app/llms.txt/route.ts");
   });
 
-  it("prepends delete action for conflicting public/llms.txt", () => {
+  it("never deletes: skips the route and adds a manual action for a conflicting public/llms.txt", () => {
     mkdirSync(join(tempDir, "public"), { recursive: true });
     writeFileSync(join(tempDir, "public", "llms.txt"), "# static llms", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteIdx = plan.actions.findIndex(
-      (a) => a.type === "delete" && a.dest === "public/llms.txt",
+    expect(plan.actions.some((a) => (a.type as string) === "delete")).toBe(false);
+    expect(plan.actions.some((a) => a.type === "write" && a.dest === "app/llms.txt/route.ts")).toBe(
+      false,
     );
-    const writeIdx = plan.actions.findIndex(
-      (a) => a.type === "write" && a.dest === "app/llms.txt/route.ts",
-    );
-    expect(deleteIdx).toBeGreaterThanOrEqual(0);
-    expect(writeIdx).toBeGreaterThanOrEqual(0);
-    expect(deleteIdx).toBeLessThan(writeIdx);
+    const skip = plan.actions.find((a) => a.type === "skip" && a.dest === "app/llms.txt/route.ts");
+    expect(skip?.reason).toContain("public/llms.txt");
+    const manual = plan.actions.find((a) => a.type === "manual" && a.dest === "public/llms.txt");
+    expect(manual?.reason).toContain("Remove or rename");
+    expect(manual?.reason).toContain("re-run");
+    expect(manual?.reason).toContain("Next.js");
+    // The unrelated llms-full route is still planned
+    expect(
+      plan.actions.some((a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(true);
   });
 
-  it("prepends delete action for conflicting public/llms-full.txt", () => {
+  it("never deletes: skips the route and adds a manual action for public/llms-full.txt", () => {
     mkdirSync(join(tempDir, "public"), { recursive: true });
     writeFileSync(join(tempDir, "public", "llms-full.txt"), "# static llms full", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteIdx = plan.actions.findIndex(
-      (a) => a.type === "delete" && a.dest === "public/llms-full.txt",
+    expect(plan.actions.some((a) => (a.type as string) === "delete")).toBe(false);
+    expect(
+      plan.actions.some((a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(false);
+    expect(
+      plan.actions.some((a) => a.type === "skip" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(true);
+    expect(plan.actions.some((a) => a.type === "manual" && a.dest === "public/llms-full.txt")).toBe(
+      true,
     );
-    const writeIdx = plan.actions.findIndex(
-      (a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts",
-    );
-    expect(deleteIdx).toBeGreaterThanOrEqual(0);
-    expect(writeIdx).toBeGreaterThanOrEqual(0);
-    expect(deleteIdx).toBeLessThan(writeIdx);
   });
 
-  it("does not add delete action when public/llms.txt is absent", () => {
+  it("adds no skip or manual action when public/llms.txt is absent", () => {
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteAction = plan.actions.find((a) => a.type === "delete");
-    expect(deleteAction).toBeUndefined();
+    expect(plan.actions.some((a) => a.type === "skip" || a.type === "manual")).toBe(false);
+  });
+
+  it("uses the src/app route path when public/llms.txt conflicts", () => {
+    mkdirSync(join(tempDir, "src", "app"), { recursive: true });
+    mkdirSync(join(tempDir, "public"), { recursive: true });
+    writeFileSync(join(tempDir, "public", "llms.txt"), "# static llms", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    expect(
+      plan.actions.some((a) => a.type === "skip" && a.dest === "src/app/llms.txt/route.ts"),
+    ).toBe(true);
+  });
+  it("skips the route and adds a manual action for any public file on the route path", () => {
+    mkdirSync(join(tempDir, "public", ".well-known"), { recursive: true });
+    writeFileSync(join(tempDir, "public", ".well-known", "agent-card.json"), "{}", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    expect(
+      plan.actions.some(
+        (a) => a.type === "write" && a.dest === "app/.well-known/agent-card.json/route.ts",
+      ),
+    ).toBe(false);
+    expect(
+      plan.actions.some(
+        (a) => a.type === "skip" && a.dest === "app/.well-known/agent-card.json/route.ts",
+      ),
+    ).toBe(true);
+    const manual = plan.actions.find(
+      (a) => a.type === "manual" && a.dest === "public/.well-known/agent-card.json",
+    );
+    expect(manual?.reason).toContain("/.well-known/agent-card.json");
+    expect(readFileSync(join(tempDir, "public", ".well-known", "agent-card.json"), "utf-8")).toBe(
+      "{}",
+    );
+  });
+
+  describe("project check", () => {
+    function expectNotNext(plan: ReturnType<typeof resolveNextjsInstall>) {
+      expect(plan.actions).toHaveLength(0);
+      expect(plan.postInstallSteps).toHaveLength(0);
+      expect(plan.warnings).toHaveLength(1);
+      expect(plan.warnings[0]).toContain(tempDir);
+      expect(plan.warnings[0]).toContain("not a Next.js project");
+      expect(plan.warnings[0]).toContain("--project-dir");
+    }
+
+    it("refuses an empty directory", () => {
+      rmSync(join(tempDir, "app"), { recursive: true });
+      rmSync(join(tempDir, "package.json"));
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("refuses a package.json without next, even with an app/ dir", () => {
+      writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"react":"19.0.0"}}', "utf-8");
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("refuses an unreadable package.json", () => {
+      writeFileSync(join(tempDir, "package.json"), "{not json", "utf-8");
+      expectNotNext(resolveNextjsInstall(makeNextjsFiles(), tempDir));
+    });
+
+    it("accepts next.config.mjs without a package.json", () => {
+      rmSync(join(tempDir, "package.json"));
+      writeFileSync(join(tempDir, "next.config.mjs"), "export default {};", "utf-8");
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions.some((a) => a.type === "write")).toBe(true);
+      expect(plan.warnings).toHaveLength(0);
+    });
+
+    it("accepts next in devDependencies", () => {
+      writeFileSync(
+        join(tempDir, "package.json"),
+        '{"devDependencies":{"next":"15.0.0"}}',
+        "utf-8",
+      );
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions.some((a) => a.type === "write")).toBe(true);
+    });
+
+    it("keeps the Pages Router refusal for a Next.js project", () => {
+      rmSync(join(tempDir, "app"), { recursive: true });
+      mkdirSync(join(tempDir, "pages"), { recursive: true });
+      const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+      expect(plan.actions).toHaveLength(0);
+      expect(plan.warnings[0]).toContain("App Router required");
+    });
   });
 });

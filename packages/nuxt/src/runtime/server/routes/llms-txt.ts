@@ -9,5 +9,5 @@ export default defineEventHandler((event) => {
   if (existsSync(filePath)) {
     return readFileSync(filePath, "utf-8");
   }
-  return "# AI Content Index\n\n> Run: npx w2agent generate <your-site-url> --output ./public/\n";
+  return "# AI Content Index\n\n> Run: npx w2agent generate <your-site-url> --format llms-txt,full --no-platform --output ./public/\n";
 });

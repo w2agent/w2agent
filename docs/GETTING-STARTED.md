@@ -58,14 +58,15 @@ w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all (default: all)
+  -f, --format <format>    Comma-separated or repeated: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, webmcp, all (default: all); opt-in: mcp-server, skill-md, openclaw, agents-md
+  --no-platform            Do not write platform integration files (nextjs/, nuxt/, ...)
   --from-audit             Run audit first, generate fixes for failed checks only
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only these URL sections (comma-separated)
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
-When a platform is detected, integration files are automatically included in the output.
+When a platform is detected, integration files are automatically included in the output unless you pass `--no-platform`.
 
 ### `integrate` — Platform-specific integration
 
@@ -138,8 +139,11 @@ The typical workflow is: audit → see issues → generate fixes → deploy.
 # 1. Audit your site
 npx w2agent audit https://your-site.com
 
-# 2. Generate llms.txt and friends (platform integration files auto-included)
-npx w2agent generate https://your-site.com --output ./public/
+# 2. Generate llms.txt and llms-full.txt into the served dir (--no-platform skips the platform integration tree)
+npx w2agent generate https://your-site.com --format llms-txt,full --no-platform --output ./public/
+
+# 2b. Generate the platform integration files that step 3 deploys (WordPress, Next.js, Shopify, Docusaurus)
+npx w2agent integrate https://your-site.com
 
 # 3. Deploy the generated files to your site
 #    - WordPress: upload plugin to /wp-content/plugins/
@@ -162,7 +166,7 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 | Platform | What gets generated | How it stays fresh |
 |----------|--------------------|--------------------|
 | **WordPress** | PHP plugin with admin page | Dynamically generates llms.txt from WP database on each request |
-| **Next.js** | Route handlers + middleware | ISR revalidation (1h) + build script for CI/CD |
+| **Next.js** | Route handlers + middleware | Routes revalidate hourly (ISR) but re-read the same deployed file, so new content arrives only with the next build; a `prebuild` script refreshes the content from the live site before each build (the previous deploy; the first deploy serves the install-time seed) |
 | **Nuxt** | Nitro server routes + middleware | Server routes generate llms.txt dynamically per request |
 | **Astro** | Static files + middleware | Static output at build time, middleware for content negotiation |
 | **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |

@@ -2,6 +2,10 @@
 
 Last run: 2026-03-04
 
+> Note (2026-11-17): the Next.js resolver now refuses a directory that has no `next` dependency and no `next.config.*`. Monorepo roots counted as "Clean install" below now get a warning and an empty plan; pass `--project-dir <app package>`. The table below is the original survey and is not updated.
+
+> Note (2026-11-17): the Next.js resolver now handles `proxy.ts` on Next 16 (middleware on 15 and earlier), `src/` placement of the middleware or proxy and the component, JavaScript-only projects (`.js`/`.jsx`), `cacheComponents` (no `revalidate` export), `output: "export"` (no middleware), the generated robots rules staged at `.w2agent/robots.txt`, and a `prebuild` build-script step (a postbuild refresh is not served). These are covered by unit tests and are not reflected in the survey below, which was not re-run.
+
 ## Summary
 
 Tested install resolvers against **42 real-world repos** (planning step only — conflict detection, layout detection, path rewriting). Zero failures.

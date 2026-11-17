@@ -1,26 +1,46 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { checkDestination, describeDestProblem } from "./guard.js";
 import type { InstallPlan } from "./types.js";
 
 export interface ExecuteResult {
   installed: string[];
   skipped: string[];
   manual: string[];
-  deleted: string[];
+  failed: string[];
 }
 
 export function executeInstallPlan(plan: InstallPlan, projectDir: string): ExecuteResult {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
-  const deleted: string[] = [];
+  const failed: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
       case "write": {
+        const problem = checkDestination(projectDir, action.dest);
+        if (problem) {
+          skipped.push(`${action.dest} (${describeDestProblem(problem)}, not written)`);
+          failed.push(action.dest);
+          break;
+        }
         const destPath = resolve(projectDir, action.dest);
-        mkdirSync(dirname(destPath), { recursive: true });
-        writeFileSync(destPath, action.content ?? "", "utf-8");
+        try {
+          mkdirSync(dirname(destPath), { recursive: true });
+          writeFileSync(destPath, action.content ?? "", { encoding: "utf-8", flag: "wx" });
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "EEXIST") {
+            skipped.push(`${action.dest} (already exists, not overwritten)`);
+          } else {
+            skipped.push(
+              `${action.dest} (could not be written: ${code ?? (err as Error).message})`,
+            );
+            failed.push(action.dest);
+          }
+          break;
+        }
         installed.push(action.dest);
         break;
       }
@@ -34,16 +54,10 @@ export function executeInstallPlan(plan: InstallPlan, projectDir: string): Execu
         manual.push(msg);
         break;
       }
-      case "delete": {
-        const destPath = resolve(projectDir, action.dest);
-        rmSync(destPath, { force: true });
-        deleted.push(action.dest);
-        break;
-      }
     }
   }
 
-  return { installed, skipped, manual, deleted };
+  return { installed, skipped, manual, failed };
 }
 
 export function formatInstallSummary(
@@ -72,14 +86,6 @@ export function formatInstallSummary(
     }
   }
 
-  if (result.deleted.length > 0) {
-    lines.push("");
-    lines.push(dryRun ? "  Will delete:" : "  Deleted:");
-    for (const f of result.deleted) {
-      lines.push(`  ✗ ${f}`);
-    }
-  }
-
   if (result.skipped.length > 0) {
     lines.push("");
     lines.push("  Skipped:");
@@ -102,6 +108,13 @@ export function formatInstallSummary(
     for (const w of plan.warnings) {
       lines.push(`  ⚠ ${w}`);
     }
+  }
+
+  if (result.failed.length > 0) {
+    lines.push("");
+    lines.push(
+      `  Some files could not be written (${result.failed.join(", ")}). Post-install steps that name those files do not apply.`,
+    );
   }
 
   if (plan.postInstallSteps.length > 0) {

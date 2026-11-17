@@ -2,9 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PlatformAdapter, PlatformId } from "../adapters/types.js";
 import type { GeneratedFile } from "../generate/types.js";
+import { guardInstallActions } from "./guard.js";
 import type { InstallAction, InstallPlan } from "./types.js";
 
 const SKIP_ON_INSTALL = ["INSTALL.md"];
+
+const OWN_ROBOTS_PLATFORMS = new Set<PlatformId>(["wordpress", "shopify"]);
 
 const MERGE_FILES = ["middleware.ts"];
 
@@ -13,13 +16,31 @@ export function planInstall(
   generatedFiles: GeneratedFile[],
   projectDir: string,
 ): InstallPlan {
-  // If adapter has a custom resolver, use it
-  if (adapter.resolveInstall) {
-    return adapter.resolveInstall(generatedFiles, projectDir);
-  }
+  // Custom resolver if the adapter has one, otherwise the fallback plan
+  const plan = adapter.resolveInstall
+    ? adapter.resolveInstall(generatedFiles, projectDir)
+    : planInstallFallback(adapter.id, generatedFiles, projectDir);
 
-  // Fallback: replicate current behavior as an InstallPlan
-  return planInstallFallback(adapter.id, generatedFiles, projectDir);
+  const guarded = guardInstallActions(plan.actions, projectDir);
+  const actions = guarded.actions;
+  if (
+    actions.length > 0 &&
+    generatedFiles.some((f) => f.filename === "robots.txt") &&
+    !OWN_ROBOTS_PLATFORMS.has(adapter.id) &&
+    !actions.some((a) => (a.dest.split("/").pop() ?? "").startsWith("robots."))
+  ) {
+    actions.push({
+      type: "manual",
+      dest: "robots.txt",
+      reason:
+        "AI-crawler rules were generated but not installed. Review them and merge them into your site's robots.txt; `w2agent integrate <url> --output <dir>` writes the generated file.",
+    });
+  }
+  return {
+    ...plan,
+    actions,
+    warnings: [...plan.warnings, ...guarded.warnings],
+  };
 }
 
 function planInstallFallback(

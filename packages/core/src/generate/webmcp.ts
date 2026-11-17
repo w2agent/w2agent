@@ -90,7 +90,7 @@ function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string
     const desc = toolDescription(name, form.method);
     const visibleFields = form.fields.filter((f) => f.type?.toLowerCase() !== "hidden");
 
-    lines.push(`<!-- Form: ${name} (from ${escapeAttr(form.action)}) -->`);
+    lines.push(`<!-- Form: ${escapeAttr(name)} (from ${escapeAttr(form.action)}) -->`);
 
     const autosubmit = isGet ? " toolautosubmit" : "";
     lines.push(
@@ -115,6 +115,16 @@ function generateDeclarativeHtml(forms: FormWithPage[], names: string[]): string
   }
 
   return lines.join("\n");
+}
+
+function toScriptSafeJson(value: unknown, space?: number): string {
+  return JSON.stringify(value, null, space)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")
+    .replace(/\{(?=[{%])/g, "\\u007b");
 }
 
 function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: string): string {
@@ -160,22 +170,20 @@ function generateImperativeJs(forms: FormWithPage[], names: string[], baseUrl: s
     if (required.length > 0) schemaObj.required = required;
 
     lines.push(`  mc.registerTool({`);
-    lines.push(`    name: ${JSON.stringify(name)},`);
-    lines.push(`    description: ${JSON.stringify(desc)},`);
-    lines.push(
-      `    inputSchema: ${JSON.stringify(schemaObj, null, 2).split("\n").join("\n    ")},`,
-    );
+    lines.push(`    name: ${toScriptSafeJson(name)},`);
+    lines.push(`    description: ${toScriptSafeJson(desc)},`);
+    lines.push(`    inputSchema: ${toScriptSafeJson(schemaObj, 2).split("\n").join("\n    ")},`);
     lines.push(`    annotations: { readOnlyHint: ${isGet}, destructiveHint: ${!isGet} },`);
     lines.push(`    async execute(params) {`);
     lines.push(
-      `      const form = document.querySelector('form[action=' + CSS.escape(${JSON.stringify(actionSelector)}) + ']');`,
+      `      const form = document.querySelector('form[action=' + CSS.escape(${toScriptSafeJson(actionSelector)}) + ']');`,
     );
     lines.push(`      if (!form) return { type: "text", text: "Form not found" };`);
 
     for (const field of visibleFields) {
       const schema = fieldToJsonSchema(field);
       if (!schema) continue;
-      const n = JSON.stringify(field.name);
+      const n = toScriptSafeJson(field.name);
       lines.push(
         `      { const _f = form.querySelector('[name=' + CSS.escape(${n}) + ']'); if (_f) _f.value = params[${n}]; }`,
       );

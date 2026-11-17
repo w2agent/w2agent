@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
+import { guardInstallActions, hasWrittenCopy, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
 
 interface ShopifyLayout {
@@ -50,7 +51,6 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
-      postInstallSteps.push("Add {% render 'w2agent-head' %} to your theme.liquid <head> section.");
       continue;
     }
 
@@ -62,9 +62,6 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
           dest: relPath,
           reason: "existing robots.txt.liquid — merge w2agent rules manually",
         });
-        postInstallSteps.push(
-          "Merge w2agent rules from data/robots-txt-additions.txt into your existing templates/robots.txt.liquid.",
-        );
         continue;
       }
       actions.push({ type: "write", dest: relPath, content: file.content });
@@ -75,5 +72,19 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
     actions.push({ type: "write", dest: relPath, content: file.content });
   }
 
-  return { platform: "shopify", actions, warnings, postInstallSteps };
+  const guarded = guardInstallActions(actions, projectDir);
+  warnings.push(...guarded.warnings);
+  if (willWrite(guarded.actions, "snippets/w2agent-head.liquid")) {
+    postInstallSteps.push("Add {% render 'w2agent-head' %} to your theme.liquid <head> section.");
+  }
+  if (
+    guarded.actions.some((a) => a.type === "skip" && a.dest === "templates/robots.txt.liquid") &&
+    hasWrittenCopy(guarded.actions, "data/robots-txt-additions.txt")
+  ) {
+    postInstallSteps.push(
+      "Merge w2agent rules from data/robots-txt-additions.txt into your existing templates/robots.txt.liquid.",
+    );
+  }
+
+  return { platform: "shopify", actions: guarded.actions, warnings, postInstallSteps };
 }

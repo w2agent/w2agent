@@ -16,9 +16,7 @@ function makeCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
     rawPages: overrides.rawPages ?? [],
     metadata: overrides.metadata ?? { baseUrl: "https://example.com", wellKnown: {} },
     baseUrl: overrides.baseUrl ?? "https://example.com",
-    ...(overrides.allowedOffOriginHosts
-      ? { allowedOffOriginHosts: overrides.allowedOffOriginHosts }
-      : {}),
+    allowedOffOriginHosts: overrides.allowedOffOriginHosts ?? ["api.example.com"],
   };
 }
 

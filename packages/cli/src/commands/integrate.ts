@@ -76,7 +76,10 @@ export function registerIntegrateCommand(program: Command): void {
     )
     .argument("<url>", "URL to generate integration for")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
-    .option("-p, --platform <platform>", "Force platform: wordpress, nextjs, shopify, docusaurus")
+    .option(
+      "-p, --platform <platform>",
+      "Force platform: wordpress, nextjs, shopify, docusaurus, nuxt, astro",
+    )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .option(
@@ -238,21 +241,20 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(chalk.yellow("  Could not auto-detect platform."));
           console.log("");
           console.log("  Specify manually with --platform:");
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform shopify`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform docusaurus`)}`);
+          for (const id of VALID_PLATFORMS) {
+            console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform ${id}`)}`);
+          }
           console.log("");
-          process.exitCode = REASONS.no_platform_detected.exitCode;
-          if (opts.dryRun) {
-            console.log(chalk.gray("  Dry run: nothing was written."));
+
+          if (opts.install || opts.dryRun) {
+            console.log(
+              `  Nothing was written. Re-run with ${chalk.cyan("--platform <id> --install --project-dir <dir>")}.`,
+            );
+            process.exitCode = REASONS.no_platform_detected.exitCode;
             return;
           }
-          console.log(
-            chalk.gray(
-              "  Core files were still generated in the output directory, but the exit code is 1: no platform was detected.",
-            ),
-          );
+
+          console.log(chalk.gray("  Core files were still generated in the output directory."));
 
           const outputDir = resolve(opts.output);
           const siteFiles = siteOrigin ? rewriteOrigin(result.files, url, siteOrigin) : undefined;
@@ -351,6 +353,12 @@ export function registerIntegrateCommand(program: Command): void {
             }
             const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
+            const upToDate = plan.actions.some(
+              (a) => a.type === "skip" && a.reason === "already up to date",
+            );
+            if (execResult.failed.length > 0 || (execResult.installed.length === 0 && !upToDate)) {
+              process.exitCode = 1;
+            }
           }
         } else {
           // Default mode: write to output directory
@@ -464,7 +472,7 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
-  const deleted: string[] = [];
+  const failed: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
@@ -481,13 +489,10 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
         manual.push(msg);
         break;
       }
-      case "delete":
-        deleted.push(action.dest);
-        break;
     }
   }
 
-  return { installed, skipped, manual, deleted };
+  return { installed, skipped, manual, failed };
 }
 
 function formatSize(bytes: number): string {

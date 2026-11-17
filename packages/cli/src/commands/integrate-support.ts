@@ -13,7 +13,7 @@ export const VALID_PLATFORMS: readonly PlatformId[] = [
 
 export const JS_PLATFORMS: readonly PlatformId[] = ["nextjs", "nuxt", "astro", "docusaurus"];
 
-export type ChangeAction = "create" | "modify" | "skip" | "manual" | "delete";
+export type ChangeAction = "create" | "modify" | "skip" | "manual";
 
 export interface PlannedChange {
   action: ChangeAction;
@@ -38,8 +38,6 @@ export function mapPlanChanges(plan: InstallPlan, projectDir: string): PlannedCh
         return { action: "skip", path, reason: a.reason ?? "not needed" };
       case "manual":
         return { action: "manual", path, reason: a.reason ?? "manual step required" };
-      default:
-        return { action: "delete", path, reason: a.reason ?? "file will be deleted" };
     }
   });
 }

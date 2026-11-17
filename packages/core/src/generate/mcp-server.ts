@@ -1,5 +1,6 @@
-import type { OpenAPIEndpoint } from "../audit/types.js";
+import type { OpenAPIEndpoint, OpenAPIParameter } from "../audit/types.js";
 import { parseHTML } from "../shared/html-parser.js";
+import { resolveOpenapiServerUrl } from "../shared/openapi.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
 import { generateCommerceToolHandlers } from "./ecommerce.js";
@@ -78,6 +79,51 @@ export function generateMcpServer(
 
 // --- Tool Detection ---
 
+const BUILTIN_TOOL_NAMES = [
+  "list-pages",
+  "get-page",
+  "search-site",
+  "search-faq",
+  "site-search",
+  "search-products",
+  "get-product",
+  "check-inventory",
+  "get-reviews",
+  "get-hours",
+  "get-menu",
+  "get-services",
+  "book-appointment",
+];
+
+// A spec path key is untrusted: concatenated onto the server URL it must not be
+// able to rewrite the authority ("@host", ".evil.test", "{id}" at the start).
+function isEndpointOnOrigin(serverUrl: string, path: string): boolean {
+  if (typeof path !== "string" || !path.startsWith("/")) return false;
+  // "#", "?", "\\" and control/whitespace chars are rewritten or dropped by the URL parser,
+  // which would hide a dot segment from the runtime path check.
+  for (const ch of path) {
+    const code = ch.charCodeAt(0);
+    if (ch === "#" || ch === "?" || ch === "\\" || code <= 0x20 || code === 0x7f) return false;
+  }
+  try {
+    return new URL(serverUrl + path).origin === new URL(serverUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function isTakenName(name: string, usedNames: Set<string>): boolean {
+  return usedNames.has(name) || name in Object.prototype;
+}
+
+function claimName(base: string, usedNames: Set<string>): string {
+  let name = base;
+  let counter = 2;
+  while (isTakenName(name, usedNames)) name = `${base}-${counter++}`;
+  usedNames.add(name);
+  return name;
+}
+
 function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<string>): string {
   let base: string | undefined;
 
@@ -94,31 +140,20 @@ function inferFormToolName(form: DetectedForm, index: number, usedNames: Set<str
     if (segment) base = segment;
   }
 
-  if (!base) {
-    const name = `submit-form-${index}`;
-    usedNames.add(name);
-    return name;
-  }
+  const slugged = base
+    ? base
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 45)
+    : "";
+  const sanitized = slugged ? `submit-${slugged}` : `submit-form-${index}`;
 
-  const sanitized = `submit-${base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 45)}`;
-
-  if (!usedNames.has(sanitized)) {
-    usedNames.add(sanitized);
-    return sanitized;
-  }
-  let counter = 2;
-  while (usedNames.has(`${sanitized}-${counter}`)) counter++;
-  const deduped = `${sanitized}-${counter}`;
-  usedNames.add(deduped);
-  return deduped;
+  return claimName(sanitized, usedNames);
 }
 
 function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): string {
-  const base = ep.operationId
+  const fromOperationId = ep.operationId
     ? ep.operationId
         .replace(/([a-z])([A-Z])/g, "$1-$2")
         .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
@@ -126,21 +161,19 @@ function inferOpenapiToolName(ep: OpenAPIEndpoint, usedNames: Set<string>): stri
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 50)
-    : `${ep.method.toLowerCase()}-${ep.path
+    : "";
+  const base =
+    fromOperationId ||
+    `${ep.method.toLowerCase().replace(/[^a-z0-9]+/g, "") || "call"}-${
+      ep.path
         .replace(/[{}]/g, "")
+        .toLowerCase()
         .replace(/[^a-z0-9/]+/g, "-")
         .replace(/\/+/g, "-")
         .replace(/^-|-$/g, "")
-        .slice(0, 45)}`;
-  if (!usedNames.has(base)) {
-    usedNames.add(base);
-    return base;
-  }
-  let counter = 2;
-  while (usedNames.has(`${base}-${counter}`)) counter++;
-  const deduped = `${base}-${counter}`;
-  usedNames.add(deduped);
-  return deduped;
+        .slice(0, 45) || "root"
+    }`;
+  return claimName(base, usedNames);
 }
 
 export function detectTools(
@@ -302,10 +335,24 @@ export function detectTools(
   // OpenAPI endpoint tools (cap at 20)
   let hasOpenapi = false;
   const openapiEndpoints: OpenAPIEndpoint[] = [];
-  if (ctx.metadata.openapi && ctx.metadata.openapi.endpoints.length > 0) {
+  let openapiServerUrl: string | undefined;
+  const rawServerUrl = ctx.metadata.openapi?.serverUrl;
+  const resolvedServerUrl = rawServerUrl
+    ? resolveOpenapiServerUrl(rawServerUrl, ctx.baseUrl, ctx.allowedOffOriginHosts)
+    : ctx.baseUrl;
+  // An unresolvable or policy-rejected server URL drops the OpenAPI tools
+  // rather than falling back to the site origin, which would silently send
+  // calls to a host the spec never named.
+  const safeEndpoints = resolvedServerUrl
+    ? (ctx.metadata.openapi?.endpoints ?? []).filter((ep) =>
+        isEndpointOnOrigin(resolvedServerUrl, ep.path),
+      )
+    : [];
+  if (safeEndpoints.length > 0 && resolvedServerUrl) {
     hasOpenapi = true;
-    const usedOpenapiNames = new Set<string>();
-    const capped = ctx.metadata.openapi.endpoints.slice(0, 20);
+    openapiServerUrl = resolvedServerUrl;
+    const usedOpenapiNames = new Set<string>([...BUILTIN_TOOL_NAMES, ...tools.map((t) => t.name)]);
+    const capped = safeEndpoints.slice(0, 20);
     for (const ep of capped) {
       openapiEndpoints.push(ep);
       const toolName = inferOpenapiToolName(ep, usedOpenapiNames);
@@ -322,7 +369,7 @@ export function detectTools(
     hasLocalBusiness,
     hasOpenapi,
     openapiEndpoints,
-    openapiServerUrl: ctx.metadata.openapi?.serverUrl,
+    openapiServerUrl,
     forms,
   };
 }
@@ -383,29 +430,78 @@ export function generateDataFiles(
 
 // --- OpenAPI Tool Handler Generation ---
 
-function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: string): string[] {
+function reservedToolNames(detected: McpDetectedTools): string[] {
+  return [
+    ...BUILTIN_TOOL_NAMES,
+    ...detected.tools.filter((t) => t.condition !== "hasOpenapi").map((t) => t.name),
+  ];
+}
+
+interface AllocatedInputs {
+  path: Array<{ p: OpenAPIParameter; key: string }>;
+  query: Array<{ p: OpenAPIParameter; key: string }>;
+  body: Array<{ name: string; def: { type?: string; description?: string }; key: string }>;
+}
+
+// One tool-input key per wire parameter. Path, query and body share one flat input object, so
+// the first claimant of a raw name (path, then query, then body) keeps it and every later
+// duplicate gets "<name>_<location>" (then "_2", "_3", ...) that no raw name already uses.
+function allocateInputKeys(ep: OpenAPIEndpoint): AllocatedInputs {
+  const path = ep.parameters.filter((p) => p.in === "path").map((p) => ({ p, key: "" }));
+  const query = ep.parameters.filter((p) => p.in === "query").map((p) => ({ p, key: "" }));
+  const body = (ep.requestBody ? Object.entries(ep.requestBody.properties) : []).map(
+    ([name, def]) => ({ name, def, key: "" }),
+  );
+  const entries: Array<{ loc: string; name: string; item: { key: string } }> = [
+    ...path.map((item) => ({ loc: "path", name: item.p.name, item })),
+    ...query.map((item) => ({ loc: "query", name: item.p.name, item })),
+    ...body.map((item) => ({ loc: "body", name: item.name, item })),
+  ];
+  const claimed = new Set<string>();
+  for (const e of entries) {
+    if (!claimed.has(e.name) && !(e.name in Object.prototype)) {
+      claimed.add(e.name);
+      e.item.key = e.name;
+    }
+  }
+  for (const e of entries) {
+    if (e.item.key !== "") continue;
+    const base = `${e.name}_${e.loc}`;
+    let candidate = base;
+    for (let n = 2; claimed.has(candidate); n++) candidate = `${base}_${n}`;
+    claimed.add(candidate);
+    e.item.key = candidate;
+  }
+  return { path, query, body };
+}
+
+function generateOpenapiToolHandlers(
+  endpoints: OpenAPIEndpoint[],
+  serverUrl: string,
+  reservedNames: string[],
+): string[] {
   const lines: string[] = [];
-  const usedNames = new Set<string>();
+  const usedNames = new Set<string>(reservedNames);
 
   for (const ep of endpoints) {
     const toolName = inferOpenapiToolName(ep, usedNames);
     const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
-    const pathParams = ep.parameters.filter((p) => p.in === "path");
-    const queryParams = ep.parameters.filter((p) => p.in === "query");
-    const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+    const inputs = allocateInputKeys(ep);
+    const pathParams = inputs.path;
+    const queryParams = inputs.query;
+    const bodyProps = inputs.body;
 
     const schemaLines: string[] = [];
-    for (const p of [...pathParams, ...queryParams]) {
+    for (const { p, key } of [...pathParams, ...queryParams]) {
       const zodType = p.type === "integer" || p.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  [${JSON.stringify(p.name)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
+        `  [${JSON.stringify(key)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
       );
     }
-    for (const [propName, propDef] of bodyProps) {
-      const zodType =
-        propDef.type === "integer" || propDef.type === "number" ? "z.number()" : "z.string()";
+    for (const { name, def, key } of bodyProps) {
+      const zodType = def.type === "integer" || def.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  [${JSON.stringify(propName)}]: ${zodType}.optional().describe(${JSON.stringify(propDef.description || propName)})`,
+        `  [${JSON.stringify(key)}]: ${zodType}.optional().describe(${JSON.stringify(def.description || name)})`,
       );
     }
 
@@ -419,16 +515,19 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
     if (schemaLines.length > 0) lines.push(schemaLines.join(",\n"));
     lines.push(`}, ${hints}, async (params) => {`);
 
-    let urlExpr = JSON.stringify(serverUrl + ep.path);
-    for (const p of pathParams) {
-      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(params[${JSON.stringify(p.name)}]))`;
+    let pathExpr = JSON.stringify(ep.path);
+    for (const { p, key } of pathParams) {
+      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(params[${JSON.stringify(key)}])))`;
     }
-    lines.push(`  let _url = ${urlExpr};`);
+    lines.push(`  try {`);
+    lines.push(`  const _path = ${pathExpr};`);
+    lines.push(`  assertSafePath(_path);`);
+    lines.push(`  let _url = ${JSON.stringify(serverUrl)} + _path;`);
 
     if (queryParams.length > 0) {
       lines.push(`  const _query = new URLSearchParams();`);
-      for (const p of queryParams) {
-        const access = `params[${JSON.stringify(p.name)}]`;
+      for (const { p, key } of queryParams) {
+        const access = `params[${JSON.stringify(key)}]`;
         if (p.required) {
           lines.push(`  _query.set(${JSON.stringify(p.name)}, String(${access}));`);
         } else {
@@ -440,33 +539,21 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
       lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
     }
 
-    lines.push(`  const _controller = new AbortController();`);
-    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
-    lines.push(`  try {`);
+    let initExpr: string;
     if (bodyProps.length > 0) {
-      lines.push(`    const _body: Record<string, unknown> = {};`);
-      for (const [propName] of bodyProps) {
-        const access = `params[${JSON.stringify(propName)}]`;
-        lines.push(
-          `    if (${access} !== undefined) _body[${JSON.stringify(propName)}] = ${access};`,
-        );
+      lines.push(`    const _body: Record<string, unknown> = Object.create(null);`);
+      for (const { name, key } of bodyProps) {
+        const access = `params[${JSON.stringify(key)}]`;
+        lines.push(`    if (${access} !== undefined) _body[${JSON.stringify(name)}] = ${access};`);
       }
-      lines.push(
-        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body), signal: _controller.signal });`,
-      );
+      initExpr = `{ method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body) }`;
     } else {
-      lines.push(
-        `    const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Accept": "application/json" }, signal: _controller.signal });`,
-      );
+      initExpr = `{ method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Accept": "application/json" } }`;
     }
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(`    const _text = await _res.text();`);
-    lines.push(`    const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;`);
     lines.push(
-      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };`,
+      `    return { content: [{ type: "text", text: await outboundFetch(_url, ${initExpr}, 3000) }] };`,
     );
     lines.push(`  } catch (err) {`);
-    lines.push(`    clearTimeout(_timer);`);
     lines.push(
       `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
     );
@@ -479,8 +566,74 @@ function generateOpenapiToolHandlers(endpoints: OpenAPIEndpoint[], serverUrl: st
 
 // --- Server Template ---
 
+// Runtime-neutral (Node and Workers): no Buffer, no node: imports. Emitted verbatim into every variant.
+export const OUTBOUND_HELPER_SOURCE = String.raw`const OUTBOUND_TIMEOUT_MS = 10000;
+const OUTBOUND_MAX_BYTES = 1048576;
+
+function assertSafePath(path: string): void {
+  const segments = path
+    .replace(/[\t\r\n]/g, "")
+    .replace(/\\/g, "/")
+    .split(/[?#]/)[0]
+    .split("/");
+  if (segments.some((s) => /^(?:\.|%2e){1,2}$/i.test(s))) {
+    throw new Error("Refusing to fetch: a path segment resolved to . or ..");
+  }
+}
+
+async function outboundFetch(url: string, init: RequestInit, maxChars: number): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+  const drop = (target: { cancel(): Promise<unknown> } | null | undefined) => {
+    try {
+      Promise.resolve(target?.cancel()).catch(() => {});
+    } catch {}
+  };
+  let res: Response | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let finished = false;
+  try {
+    res = await fetch(url, { ...init, redirect: "manual", signal: controller.signal });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      return "Status: " + res.status + "\n\nRedirect not followed. " + (location ? "Location: " + location : "Location header missing.");
+    }
+    let text = "";
+    let truncated = false;
+    if (res.body) {
+      reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const room = OUTBOUND_MAX_BYTES - total;
+        if (value.byteLength >= room) {
+          text += decoder.decode(value.subarray(0, room));
+          truncated = true;
+          break;
+        }
+        total += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+      }
+      if (!truncated) text += decoder.decode();
+    }
+    finished = !truncated;
+    const out = text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
+    return "Status: " + res.status + "\n\n" + out + (truncated ? "\n\n[response truncated at " + OUTBOUND_MAX_BYTES + " bytes]" : "");
+  } finally {
+    clearTimeout(timer);
+    if (!finished) {
+      drop(reader ?? res?.body);
+      controller.abort();
+    }
+  }
+}
+`;
+
 function generateServerTs(siteName: string, baseUrl: string, detected: McpDetectedTools): string {
   const lines: string[] = [];
+  const toolLines: string[] = [];
 
   lines.push(`import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";`);
   lines.push(
@@ -494,6 +647,7 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   lines.push(``);
   lines.push(`const __dirname = dirname(fileURLToPath(import.meta.url));`);
   lines.push(``);
+  lines.push(OUTBOUND_HELPER_SOURCE);
   lines.push(`// Load data`);
   lines.push(
     `const pages = JSON.parse(readFileSync(resolve(__dirname, "data/pages.json"), "utf-8"));`,
@@ -518,104 +672,106 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
   }
 
   lines.push(``);
-  lines.push(`// Create MCP server`);
+  lines.push(`// Build a fresh MCP server per request (stateless transport)`);
+  lines.push(`function createServer() {`);
   lines.push(`const server = new McpServer({`);
   lines.push(`  name: ${JSON.stringify(siteName)},`);
   lines.push(`  version: "1.0.0",`);
   lines.push(`});`);
   lines.push(``);
-
   // list-pages tool
-  lines.push(`// Tool: list-pages`);
-  lines.push(
+  toolLines.push(`// Tool: list-pages`);
+  toolLines.push(
     `server.tool("list-pages", "List all pages on the site with titles and URLs", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
   );
-  lines.push(`  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`);
-  lines.push(`  return { content: [{ type: "text", text: listing }] };`);
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(
+    `  const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");`,
+  );
+  toolLines.push(`  return { content: [{ type: "text", text: listing }] };`);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // get-page tool
-  lines.push(`// Tool: get-page`);
-  lines.push(
+  toolLines.push(`// Tool: get-page`);
+  toolLines.push(
     `server.tool("get-page", "Get the full markdown content of a page", { url: z.string().describe("Page URL or slug to retrieve") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url }) => {`,
   );
-  lines.push(
+  toolLines.push(
     `  const page = pages.find((p: any) => p.url === url || p.url.endsWith("/" + url) || p.url.includes(url));`,
   );
-  lines.push(`  if (!page) return { content: [{ type: "text", text: "Page not found" }] };`);
-  lines.push(
+  toolLines.push(`  if (!page) return { content: [{ type: "text", text: "Page not found" }] };`);
+  toolLines.push(
     `  return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };`,
   );
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // search-site tool
-  lines.push(`// Tool: search-site`);
-  lines.push(
+  toolLines.push(`// Tool: search-site`);
+  toolLines.push(
     `server.tool("search-site", "Search site content by keywords", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
   );
-  lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
-  lines.push(`  const scored = pages.map((p: any) => {`);
-  lines.push(`    let score = 0;`);
-  lines.push(`    for (const term of terms) {`);
-  lines.push(`      if (p.title?.toLowerCase().includes(term)) score += 3;`);
-  lines.push(`      if (p.description?.toLowerCase().includes(term)) score += 2;`);
-  lines.push(`      if (p.markdown?.toLowerCase().includes(term)) score += 1;`);
-  lines.push(`    }`);
-  lines.push(`    return { ...p, score };`);
-  lines.push(
+  toolLines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
+  toolLines.push(`  const scored = pages.map((p: any) => {`);
+  toolLines.push(`    let score = 0;`);
+  toolLines.push(`    for (const term of terms) {`);
+  toolLines.push(`      if (p.title?.toLowerCase().includes(term)) score += 3;`);
+  toolLines.push(`      if (p.description?.toLowerCase().includes(term)) score += 2;`);
+  toolLines.push(`      if (p.markdown?.toLowerCase().includes(term)) score += 1;`);
+  toolLines.push(`    }`);
+  toolLines.push(`    return { ...p, score };`);
+  toolLines.push(
     `  }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);`,
   );
-  lines.push(``);
-  lines.push(
+  toolLines.push(``);
+  toolLines.push(
     `  if (scored.length === 0) return { content: [{ type: "text", text: "No results found" }] };`,
   );
-  lines.push(`  const results = scored.map((p: any) => {`);
-  lines.push(`    const snippet = p.markdown?.slice(0, 3000) || "";`);
-  lines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
-  lines.push(`  }).join("\\n\\n");`);
-  lines.push(`  return { content: [{ type: "text", text: results }] };`);
-  lines.push(`});`);
-  lines.push(``);
+  toolLines.push(`  const results = scored.map((p: any) => {`);
+  toolLines.push(`    const snippet = p.markdown?.slice(0, 3000) || "";`);
+  toolLines.push(`    return \`**\${p.title}** (\${p.url})\\n\${snippet}...\`;`);
+  toolLines.push(`  }).join("\\n\\n");`);
+  toolLines.push(`  return { content: [{ type: "text", text: results }] };`);
+  toolLines.push(`});`);
+  toolLines.push(``);
 
   // search-faq tool
   if (detected.hasFaq) {
-    lines.push(`// Tool: search-faq`);
-    lines.push(
+    toolLines.push(`// Tool: search-faq`);
+    toolLines.push(
       `server.tool("search-faq", "Search FAQ question/answer pairs", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
-    lines.push(`  const entries = faq.mainEntity || [];`);
-    lines.push(`  const matches = entries.filter((e: any) => {`);
-    lines.push(`    const text = (e.name + " " + e.acceptedAnswer?.text).toLowerCase();`);
-    lines.push(`    return terms.some((t: string) => text.includes(t));`);
-    lines.push(`  });`);
-    lines.push(
+    toolLines.push(`  const terms = query.toLowerCase().split(/\\s+/);`);
+    toolLines.push(`  const entries = faq.mainEntity || [];`);
+    toolLines.push(`  const matches = entries.filter((e: any) => {`);
+    toolLines.push(`    const text = (e.name + " " + e.acceptedAnswer?.text).toLowerCase();`);
+    toolLines.push(`    return terms.some((t: string) => text.includes(t));`);
+    toolLines.push(`  });`);
+    toolLines.push(
       `  if (matches.length === 0) return { content: [{ type: "text", text: "No FAQ matches found" }] };`,
     );
-    lines.push(
+    toolLines.push(
       `  const result = matches.map((e: any) => \`**Q:** \${e.name}\\n**A:** \${e.acceptedAnswer?.text}\`).join("\\n\\n");`,
     );
-    lines.push(`  return { content: [{ type: "text", text: result }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  return { content: [{ type: "text", text: result }] };`);
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // site-search tool (SearchAction stub)
   if (detected.hasSearchAction) {
-    lines.push(`// Tool: site-search (via SearchAction)`);
-    lines.push(
+    toolLines.push(`// Tool: site-search (via SearchAction)`);
+    toolLines.push(
       `server.tool("site-search", "Search using the site's native search", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(
+    toolLines.push(
       `  const searchUrl = ${JSON.stringify(`${baseUrl}/search?q=`)} + encodeURIComponent(query);`,
     );
-    lines.push(
+    toolLines.push(
       `  return { content: [{ type: "text", text: \`Search URL: \${searchUrl}\\n\\nNote: This returns the search URL. For full results, use search-site instead.\` }] };`,
     );
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // Form submission tools
@@ -628,40 +784,26 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
       return `    [${JSON.stringify(f.name)}]: ${zodType}${f.required ? "" : ".optional()"}.describe(${JSON.stringify(desc)})`;
     });
 
-    lines.push(`// Tool: ${toolName}`);
-    lines.push(
+    toolLines.push(`// Tool: ${toolName}`);
+    toolLines.push(
       `server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {`,
     );
-    lines.push(fieldSchemas.join(",\n"));
-    lines.push(
+    toolLines.push(fieldSchemas.join(",\n"));
+    toolLines.push(
       `}, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {`,
     );
     const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
-    lines.push(`  const _controller = new AbortController();`);
-    lines.push(`  const _timer = setTimeout(() => _controller.abort(), 10000);`);
-    lines.push(`  try {`);
-    lines.push(`    const _res = await fetch(${actionUrl}, {`);
-    lines.push(`      method: "POST",`);
-    lines.push(`      headers: { "Content-Type": "application/x-www-form-urlencoded" },`);
-    lines.push(
-      `      body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),`,
+    toolLines.push(`  try {`);
+    toolLines.push(
+      `    return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };`,
     );
-    lines.push(`      signal: _controller.signal,`);
-    lines.push(`    });`);
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(`    const _text = await _res.text();`);
-    lines.push(`    const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;`);
-    lines.push(
-      `    return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };`,
-    );
-    lines.push(`  } catch (err) {`);
-    lines.push(`    clearTimeout(_timer);`);
-    lines.push(
+    toolLines.push(`  } catch (err) {`);
+    toolLines.push(
       `    return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };`,
     );
-    lines.push(`  }`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  }`);
+    toolLines.push(`});`);
+    toolLines.push(``);
   });
 
   // Commerce tools
@@ -670,49 +812,61 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(generateCommerceToolHandlers());
     lines.push(``);
 
-    lines.push(`// Tool: search-products`);
-    lines.push(
+    toolLines.push(`// Tool: search-products`);
+    toolLines.push(
       `server.tool("search-products", "Search products by name, category, or description", { query: z.string().describe("Search query") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {`,
     );
-    lines.push(`  const results = searchProducts(query, products);`);
-    lines.push(
+    toolLines.push(`  const results = searchProducts(query, products);`);
+    toolLines.push(
       `  if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };`,
     );
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: get-product`);
-    lines.push(
+    toolLines.push(`// Tool: get-product`);
+    toolLines.push(
       `server.tool("get-product", "Get full product details by product ID", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const product = getProduct(productId, products);`);
-    lines.push(
+    toolLines.push(`  const product = getProduct(productId, products);`);
+    toolLines.push(
       `  if (!product) return { content: [{ type: "text", text: "Product not found" }] };`,
     );
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: check-inventory`);
-    lines.push(
+    toolLines.push(`// Tool: check-inventory`);
+    toolLines.push(
       `server.tool("check-inventory", "Check product availability and price", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const result = checkInventory(productId, products);`);
-    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  const result = checkInventory(productId, products);`);
+    toolLines.push(
+      `  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`,
+    );
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    lines.push(`// Tool: get-reviews`);
-    lines.push(
+    toolLines.push(`// Tool: get-reviews`);
+    toolLines.push(
       `server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string().describe("Product ID or name") }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {`,
     );
-    lines.push(`  const result = getReviews(productId, products);`);
-    lines.push(`  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`);
-    lines.push(`  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`);
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`  const result = getReviews(productId, products);`);
+    toolLines.push(
+      `  if (!result) return { content: [{ type: "text", text: "Product not found" }] };`,
+    );
+    toolLines.push(
+      `  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };`,
+    );
+    toolLines.push(`});`);
+    toolLines.push(``);
   }
 
   // Local business tool handlers
@@ -721,99 +875,164 @@ function generateServerTs(siteName: string, baseUrl: string, detected: McpDetect
     lines.push(generateLocalBusinessToolHandlers());
     lines.push(``);
 
-    lines.push(`// Tool: get-hours`);
-    lines.push(
+    toolLines.push(`// Tool: get-hours`);
+    toolLines.push(
       `server.tool("get-hours", "Get business hours and opening times", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
     );
-    lines.push(`  const result = getHours(business);`);
-    lines.push(
+    toolLines.push(`  const result = getHours(business);`);
+    toolLines.push(
       `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
     );
-    lines.push(`});`);
-    lines.push(``);
+    toolLines.push(`});`);
+    toolLines.push(``);
 
-    const menuTool = detected.tools.find((t) => t.name === "get-menu");
+    const menuTool = detected.tools.find(
+      (t) => t.name === "get-menu" && t.condition === "hasLocalBusiness",
+    );
     if (menuTool) {
-      lines.push(`// Tool: get-menu`);
-      lines.push(
+      toolLines.push(`// Tool: get-menu`);
+      toolLines.push(
         `server.tool("get-menu", "Get the menu URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = getMenu(business);`);
-      lines.push(
+      toolLines.push(`  const result = getMenu(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
 
-    const servicesTool = detected.tools.find((t) => t.name === "get-services");
+    const servicesTool = detected.tools.find(
+      (t) => t.name === "get-services" && t.condition === "hasLocalBusiness",
+    );
     if (servicesTool) {
-      lines.push(`// Tool: get-services`);
-      lines.push(
+      toolLines.push(`// Tool: get-services`);
+      toolLines.push(
         `server.tool("get-services", "Get the services page URL for this business", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = getServices(business);`);
-      lines.push(
+      toolLines.push(`  const result = getServices(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
 
-    const bookingTool = detected.tools.find((t) => t.name === "book-appointment");
+    const bookingTool = detected.tools.find(
+      (t) => t.name === "book-appointment" && t.condition === "hasLocalBusiness",
+    );
     if (bookingTool) {
-      lines.push(`// Tool: book-appointment`);
-      lines.push(
+      toolLines.push(`// Tool: book-appointment`);
+      toolLines.push(
         `server.tool("book-appointment", "Get booking URL and instructions for scheduling", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {`,
       );
-      lines.push(`  const result = bookAppointment(business);`);
-      lines.push(
+      toolLines.push(`  const result = bookAppointment(business);`);
+      toolLines.push(
         `  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };`,
       );
-      lines.push(`});`);
-      lines.push(``);
+      toolLines.push(`});`);
+      toolLines.push(``);
     }
   }
 
   // OpenAPI endpoint tools
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
     const apiBase = detected.openapiServerUrl || baseUrl;
-    lines.push(`// OpenAPI endpoint tools`);
-    lines.push(...generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase));
+    toolLines.push(`// OpenAPI endpoint tools`);
+    toolLines.push(
+      ...generateOpenapiToolHandlers(
+        detected.openapiEndpoints,
+        apiBase,
+        reservedToolNames(detected),
+      ),
+    );
   }
 
   // Page resources
-  lines.push(`// Resources: expose pages as MCP resources`);
-  lines.push(`for (const page of pages) {`);
-  lines.push(`  server.resource(page.url, page.url, async (uri) => ({`);
-  lines.push(`    contents: [{ uri: uri.href, mimeType: "text/markdown", text: page.markdown }],`);
-  lines.push(`  }));`);
-  lines.push(`}`);
-  lines.push(``);
+  toolLines.push(`// Resources: expose pages as MCP resources`);
+  toolLines.push(`for (const page of pages) {`);
+  toolLines.push(`  server.resource(page.url, page.url, async (uri) => ({`);
+  toolLines.push(
+    `    contents: [{ uri: uri.href, mimeType: "text/markdown", text: page.markdown }],`,
+  );
+  toolLines.push(`  }));`);
+  toolLines.push(`}`);
+  toolLines.push(``);
 
   // HTTP server
+  lines.push(...toolLines);
+  lines.push(`return server;`);
+  lines.push(`}`);
+  lines.push(``);
   lines.push(`// Start HTTP server with Streamable HTTP transport`);
   lines.push(`const app = express();`);
   lines.push(`app.use(express.json());`);
   lines.push(``);
-  lines.push(`app.all("/mcp", async (req, res) => {`);
-  lines.push(
-    `  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`,
-  );
-  lines.push(`  res.on("close", () => transport.close());`);
-  lines.push(`  await server.connect(transport);`);
-  lines.push(`  await transport.handleRequest(req, res);`);
+  lines.push(`const jsonRpcError = (code: number, message: string, id: unknown = null) => ({`);
+  lines.push(`  jsonrpc: "2.0" as const,`);
+  lines.push(`  error: { code, message },`);
+  lines.push(`  id,`);
   lines.push(`});`);
+  lines.push(``);
+  lines.push(`app.post("/mcp", async (req, res) => {`);
+  lines.push(`  try {`);
+  lines.push(`    const server = createServer();`);
+  lines.push(
+    `    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`,
+  );
+  lines.push(`    res.on("close", () => {`);
+  lines.push(`      transport.close().catch(() => {});`);
+  lines.push(`      server.close().catch(() => {});`);
+  lines.push(`    });`);
+  lines.push(`    await server.connect(transport);`);
+  lines.push(`    await transport.handleRequest(req, res, req.body);`);
+  lines.push(`  } catch (error) {`);
+  lines.push(`    console.error("Error handling MCP request:", error);`);
+  lines.push(`    if (!res.headersSent) {`);
+  lines.push(
+    `      res.status(500).json(jsonRpcError(-32603, "Internal server error", req.body?.id ?? null));`,
+  );
+  lines.push(`    }`);
+  lines.push(`  }`);
+  lines.push(`});`);
+  lines.push(``);
+  lines.push(`const methodNotAllowed = (_req: express.Request, res: express.Response) => {`);
+  lines.push(
+    `  res.status(405).set("Allow", "POST").json(jsonRpcError(-32000, "Method not allowed."));`,
+  );
+  lines.push(`};`);
+  lines.push(`app.get("/mcp", methodNotAllowed);`);
+  lines.push(`app.delete("/mcp", methodNotAllowed);`);
   lines.push(``);
   lines.push(`// .well-known/mcp discovery endpoint`);
   lines.push(`app.get("/.well-known/mcp", (_req, res) => {`);
   lines.push(`  res.redirect(307, "/mcp");`);
   lines.push(`});`);
   lines.push(``);
+  lines.push(
+    `app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {`,
+  );
+  lines.push(`  if (res.headersSent) return next(err);`);
+  lines.push(`  const status = err?.status ?? err?.statusCode;`);
+  lines.push(`  if (typeof status === "number" && status >= 400 && status < 500) {`);
+  lines.push(
+    `    const parseFailure = err?.type === "entity.parse.failed" || err instanceof SyntaxError;`,
+  );
+  lines.push(
+    `    return res.status(status).json(parseFailure ? jsonRpcError(-32700, "Parse error") : jsonRpcError(-32600, "Invalid request"));`,
+  );
+  lines.push(`  }`);
+  lines.push(`  console.error(err);`);
+  lines.push(`  res.status(500).json(jsonRpcError(-32603, "Internal server error"));`);
+  lines.push(`});`);
+  lines.push(``);
+  lines.push(`// Fail at startup (not per request) if the data set cannot be registered`);
+  lines.push(`createServer().close().catch(() => {});`);
+  lines.push(``);
   lines.push(`const PORT = process.env.PORT || 3100;`);
   lines.push(`app.listen(PORT, () => {`);
   lines.push(
-    `  console.log(\`Agent server for ${siteName} running at http://localhost:\${PORT}/mcp\`);`,
+    `  console.log(${JSON.stringify(`Agent server for ${siteName} running at http://localhost:`)} + PORT + "/mcp");`,
   );
   lines.push(`});`);
 
@@ -868,16 +1087,30 @@ function generateTsConfig(): string {
 
 // --- README ---
 
+function mdText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\`*_[\]<>|]/g, "\\$&");
+}
+
+function mdUrl(value: string): string {
+  return value
+    .replace(/\s/g, (c) => encodeURIComponent(c))
+    .replace(/[()<>]/g, (c) => encodeURIComponent(c));
+}
+
 function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: string): string {
   const lines: string[] = [];
-  lines.push(`# ${siteName} Agent Server`);
+  const title = mdText(siteName);
+  lines.push(`# ${title} Agent Server`);
   lines.push(``);
-  lines.push(`Auto-generated agent server for [${siteName}](${baseUrl}).`);
+  lines.push(`Auto-generated agent server for [${title}](${mdUrl(baseUrl)}).`);
   lines.push(``);
   lines.push(`## Tools`);
   lines.push(``);
   for (const tool of detected.tools) {
-    lines.push(`- **${tool.name}**: ${tool.description}`);
+    lines.push(`- **${mdText(tool.name)}**: ${mdText(tool.description)}`);
   }
   lines.push(``);
   lines.push(`## Setup`);
@@ -935,6 +1168,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import pages from "../data/pages.json" with { type: "json" };
 ${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}
+${OUTBOUND_HELPER_SOURCE}
 function createServer() {
   const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
 
@@ -1027,21 +1261,9 @@ ${
   server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
 ${fieldSchemas.join(",\n")}
   }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
-    const _controller = new AbortController();
-    const _timer = setTimeout(() => _controller.abort(), 10000);
     try {
-      const _res = await fetch(${actionUrl}, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
-        signal: _controller.signal,
-      });
-      clearTimeout(_timer);
-      const _text = await _res.text();
-      const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-      return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+      return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
     } catch (err) {
-      clearTimeout(_timer);
       return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
     }
   });`;
@@ -1051,7 +1273,11 @@ ${fieldSchemas.join(",\n")}
 }${
   detected.hasOpenapi && detected.openapiEndpoints.length > 0
     ? "\n" +
-      generateOpenapiToolHandlers(detected.openapiEndpoints, detected.openapiServerUrl || baseUrl)
+      generateOpenapiToolHandlers(
+        detected.openapiEndpoints,
+        detected.openapiServerUrl || baseUrl,
+        reservedToolNames(detected),
+      )
         .map((l) => (l ? `  ${l}` : l))
         .join("\n")
     : ""
@@ -1064,7 +1290,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => transport.close());
   await server.connect(transport);
-  await transport.handleRequest(req, res);
+  await transport.handleRequest(req, res, req.body);
 }
 `;
 
@@ -1113,11 +1339,19 @@ function generateCloudflareTemplate(
     .replace(/^-|-$/g, "");
 
   const apiBase = detected.openapiServerUrl || baseUrl;
-  const openapiTools: Array<{ toolName: string; ep: (typeof detected.openapiEndpoints)[0] }> = [];
+  const openapiTools: Array<{
+    toolName: string;
+    ep: (typeof detected.openapiEndpoints)[0];
+    inputs: AllocatedInputs;
+  }> = [];
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
-    const usedNames = new Set<string>();
+    const usedNames = new Set<string>(reservedToolNames(detected));
     for (const ep of detected.openapiEndpoints) {
-      openapiTools.push({ toolName: inferOpenapiToolName(ep, usedNames), ep });
+      openapiTools.push({
+        toolName: inferOpenapiToolName(ep, usedNames),
+        ep,
+        inputs: allocateInputKeys(ep),
+      });
     }
   }
 
@@ -1133,6 +1367,7 @@ id = "" # Run: npx wrangler kv namespace create MCP_DATA
   const workerTs = `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+${OUTBOUND_HELPER_SOURCE}
 interface Env {
   MCP_DATA: KVNamespace;
 }
@@ -1239,21 +1474,9 @@ ${
     server.tool(${JSON.stringify(toolName)}, ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, {
 ${fieldSchemas.join(",\n")}
     }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, async (params) => {
-      const _controller = new AbortController();
-      const _timer = setTimeout(() => _controller.abort(), 10000);
       try {
-        const _res = await fetch(${actionUrl}, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString(),
-          signal: _controller.signal,
-        });
-        clearTimeout(_timer);
-        const _text = await _res.text();
-        const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-        return { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+        return { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
       } catch (err) {
-        clearTimeout(_timer);
         return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
       }
     });`;
@@ -1264,7 +1487,7 @@ ${fieldSchemas.join(",\n")}
 ${
   openapiTools.length > 0
     ? "\n" +
-      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase)
+      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase, reservedToolNames(detected))
         .map((l) => (l ? `    ${l}` : l))
         .join("\n")
     : ""
@@ -1310,7 +1533,7 @@ ${
             form.fields.map((f) => [f.name, { type: f.type === "number" ? "number" : "string" }]),
           );
           const required = form.fields.filter((f) => f.required).map((f) => f.name);
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(`Submit form: ${form.method} ${form.action}`)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } },`;
         })
         .join("\n")
     : ""
@@ -1318,31 +1541,26 @@ ${
 ${
   openapiTools.length > 0
     ? openapiTools
-        .map(({ toolName, ep }) => {
-          const pathParams = ep.parameters.filter((p) => p.in === "path");
-          const queryParams = ep.parameters.filter((p) => p.in === "query");
-          const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
-          const properties: Record<string, { type: string }> = {};
-          for (const p of [...pathParams, ...queryParams]) {
-            properties[p.name] = {
-              type: p.type === "integer" || p.type === "number" ? "number" : "string",
-            };
-          }
-          for (const [name, def] of bodyProps) {
-            properties[name] = {
-              type: def.type === "integer" || def.type === "number" ? "number" : "string",
-            };
-          }
-          const required = [
-            ...pathParams.filter((p) => p.required),
-            ...queryParams.filter((p) => p.required),
-          ].map((p) => p.name);
+        .map(({ toolName, ep, inputs }) => {
+          const properties = Object.fromEntries([
+            ...[...inputs.path, ...inputs.query].map(({ p, key }) => [
+              key,
+              { type: p.type === "integer" || p.type === "number" ? "number" : "string" },
+            ]),
+            ...inputs.body.map(({ def, key }) => [
+              key,
+              { type: def.type === "integer" || def.type === "number" ? "number" : "string" },
+            ]),
+          ]);
+          const required = [...inputs.path, ...inputs.query]
+            .filter(({ p }) => p.required)
+            .map(({ key }) => key);
           const isReadOnly = ep.method.toLowerCase() === "get";
           const annotations = isReadOnly
             ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
             : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
           const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${JSON.stringify(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
+          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
         })
         .join("\n")
     : ""
@@ -1412,21 +1630,9 @@ ${
                 const toolName = formTools[i]?.name ?? `submit-form-${i}`;
                 const actionUrl = JSON.stringify(new URL(form.action, form.pageUrl).href);
                 return ` else if (toolName === ${JSON.stringify(toolName)}) {
-        const _controller = new AbortController();
-        const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
-          const _res = await fetch(${actionUrl}, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString(),
-            signal: _controller.signal,
-          });
-          clearTimeout(_timer);
-          const _text = await _res.text();
-          const _body = _text.length > 2000 ? _text.slice(0, 2000) + "..." : _text;
-          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_body}\` }] };
+          result = { content: [{ type: "text", text: await outboundFetch(${actionUrl}, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])).toString() }, 2000) }] };
         } catch (err) {
-          clearTimeout(_timer);
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
@@ -1436,27 +1642,26 @@ ${
       }${
         openapiTools.length > 0
           ? openapiTools
-              .map(({ toolName, ep }) => {
-                const pathParams = ep.parameters.filter((p) => p.in === "path");
-                const queryParams = ep.parameters.filter((p) => p.in === "query");
-                const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+              .map(({ toolName, ep, inputs }) => {
+                const queryParams = inputs.query;
+                const bodyProps = inputs.body;
 
-                let urlExpr = JSON.stringify(apiBase + ep.path);
-                for (const p of pathParams) {
-                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, String(args.${p.name}))`;
+                let pathExpr = JSON.stringify(ep.path);
+                for (const { p, key } of inputs.path) {
+                  pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(args[${JSON.stringify(key)}])))`;
                 }
 
                 const queryLines: string[] = [];
                 if (queryParams.length > 0) {
                   queryLines.push(`          const _query = new URLSearchParams();`);
-                  for (const p of queryParams) {
+                  for (const { p, key } of queryParams) {
                     if (p.required) {
                       queryLines.push(
-                        `          _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                        `          _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
                       );
                     } else {
                       queryLines.push(
-                        `          if (args.${p.name} !== undefined) _query.set(${JSON.stringify(p.name)}, String(args.${p.name}));`,
+                        `          if (args[${JSON.stringify(key)}] !== undefined) _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
                       );
                     }
                   }
@@ -1468,10 +1673,12 @@ ${
                 const bodyLines: string[] = [];
                 let fetchExtra: string;
                 if (bodyProps.length > 0) {
-                  bodyLines.push(`          const _body: Record<string, unknown> = {};`);
-                  for (const [propName] of bodyProps) {
+                  bodyLines.push(
+                    `          const _body: Record<string, unknown> = Object.create(null);`,
+                  );
+                  for (const { name, key } of bodyProps) {
                     bodyLines.push(
-                      `          if (args.${propName} !== undefined) _body[${JSON.stringify(propName)}] = args.${propName};`,
+                      `          if (args[${JSON.stringify(key)}] !== undefined) _body[${JSON.stringify(name)}] = args[${JSON.stringify(key)}];`,
                     );
                   }
                   fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
@@ -1482,17 +1689,12 @@ ${
                 const innerLines = [...queryLines, ...bodyLines].join("\n");
 
                 return ` else if (toolName === ${JSON.stringify(toolName)}) {
-        const _controller = new AbortController();
-        const _timer = setTimeout(() => _controller.abort(), 10000);
         try {
-          let _url = ${urlExpr};
-${innerLines ? `${innerLines}\n` : ""}          const _res = await fetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra}, signal: _controller.signal });
-          clearTimeout(_timer);
-          const _text = await _res.text();
-          const _out = _text.length > 3000 ? _text.slice(0, 3000) + "..." : _text;
-          result = { content: [{ type: "text", text: \`Status: \${_res.status}\\n\\n\${_out}\` }] };
+          const _path = ${pathExpr};
+          assertSafePath(_path);
+          let _url = ${JSON.stringify(apiBase)} + _path;
+${innerLines ? `${innerLines}\n` : ""}          result = { content: [{ type: "text", text: await outboundFetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra} }, 3000) }] };
         } catch (err) {
-          clearTimeout(_timer);
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
         }
       }`;
@@ -1563,6 +1765,12 @@ ${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path dat
 }
 
 // --- Helpers ---
+
+// An object literal with a "__proto__" key sets the prototype instead of an own
+// property, so emit crawled-key objects through JSON.parse.
+function jsonObjectLiteral(value: unknown): string {
+  return `JSON.parse(${JSON.stringify(JSON.stringify(value))})`;
+}
 
 function makeFile(filename: string, content: string): GeneratedFile {
   return {

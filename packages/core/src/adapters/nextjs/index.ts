@@ -3,7 +3,11 @@ import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { nextjsChecks } from "./checks.js";
 import { resolveNextjsInstall } from "./install.js";
-import { generateNextjsIntegration } from "./templates.js";
+import {
+  generateNextjsIntegration,
+  nextjsWebhookRouteSource,
+  WEBHOOK_ROUTE_PATH,
+} from "./templates.js";
 
 export const nextjsAdapter: PlatformAdapter = {
   id: "nextjs",
@@ -57,57 +61,9 @@ export const nextjsAdapter: PlatformAdapter = {
     const files = generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
 
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
-      const webhookRoute = `import { NextResponse } from "next/server";
-
-/**
- * w2agent MCP Webhook — Next.js Integration
- *
- * Place at: app/api/w2agent-mcp-webhook/route.ts
- * Triggers a re-crawl when content changes.
- *
- * Requires W2AGENT_INBOUND_TOKEN; callers must present it as a Bearer token.
- * Without this check the route is a confused deputy — unauthenticated callers
- * would otherwise receive authenticated upstream webhook calls for free.
- */
-
-const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
-const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
-
-export async function POST(request: Request) {
-  const expected = process.env.W2AGENT_INBOUND_TOKEN;
-  if (!expected) {
-    return NextResponse.json(
-      { error: "W2AGENT_INBOUND_TOKEN not configured" },
-      { status: 401 },
-    );
-  }
-  const header = request.headers.get("authorization") ?? "";
-  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (presented !== expected) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
-  try {
-    const body = await request.json();
-
-    // Notify w2agent MCP server of content change
-    await fetch(WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: \`Bearer \${WEBHOOK_TOKEN}\`,
-      },
-      body: JSON.stringify({ trigger: "nextjs", ...body }),
-    });
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
-}
-`;
+      const webhookRoute = nextjsWebhookRouteSource("ts");
       files.push({
-        filename: "nextjs/app/api/w2agent-mcp-webhook/route.ts",
+        filename: WEBHOOK_ROUTE_PATH,
         content: webhookRoute,
         size: new TextEncoder().encode(webhookRoute).length,
       });
@@ -120,10 +76,11 @@ export async function POST(request: Request) {
 
 import Script from "next/script";
 
+// Add to your root layout: import WebMcpScript from "<path to this file>"; then render <WebMcpScript /> inside <body>.
 export default function WebMcpScript() {
   return (
     <Script id="w2agent-webmcp" strategy="lazyOnload">
-      {\`${webmcpJs.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`}
+      {${JSON.stringify(webmcpJs)}}
     </Script>
   );
 }

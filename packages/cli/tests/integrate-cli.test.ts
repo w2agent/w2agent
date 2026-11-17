@@ -87,7 +87,10 @@ function files(dir: string): string[] {
 
 function projectDir(): string {
   const dir = tmp("project");
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "site", version: "1.0.0" }));
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "site", version: "1.0.0", dependencies: { next: "15" } }),
+  );
   mkdirSync(join(dir, "app"));
   mkdirSync(join(dir, "public"));
   writeFileSync(join(dir, "public", "llms.txt"), "stale");
@@ -151,13 +154,13 @@ describe("built CLI: integrate agent mode", () => {
     expect(doc.platform).toBe("nextjs");
     expect(doc.changes.length).toBeGreaterThan(0);
     for (const c of doc.changes) {
-      expect(["create", "modify", "skip", "manual", "delete"]).toContain(c.action);
+      expect(["create", "modify", "skip", "manual"]).toContain(c.action);
       expect(typeof c.reason).toBe("string");
       expect(c.path.startsWith("/")).toBe(false);
     }
     expect(doc.changes.some((c: { action: string }) => c.action === "create")).toBe(true);
     expect(doc.changes).toContainEqual(
-      expect.objectContaining({ action: "delete", path: "public/llms.txt" }),
+      expect.objectContaining({ action: "manual", path: "public/llms.txt" }),
     );
     expect(doc.next).toHaveLength(1);
     expect(doc.next[0]).toContain("--install");
@@ -202,7 +205,7 @@ describe("built CLI: integrate agent mode", () => {
       if (text.includes("acme.example")) mentionsSite = true;
     }
     expect(mentionsSite).toBe(true);
-    expect(doc.warnings).toEqual([]);
+    expect(doc.warnings).toEqual([expect.stringContaining("public/llms.txt")]);
   });
 
   it("default output-dir mode with --json lists the files and respects --site-url", async () => {
@@ -251,11 +254,11 @@ describe("built CLI: integrate agent mode", () => {
     expect(readdirSync(cwd)).toEqual([]);
   });
 
-  it("no platform detected in human mode exits 1 like --json and says core files were written", async () => {
+  it("no platform detected in human mode writes core files and exits 0", async () => {
     const out = join(tmp("out"), "gen");
     const r = await run(["integrate", plainOrigin, "--output", out], tmp("cwd"));
-    expect(r.code).toBe(1);
-    expect(r.stdout).toContain("exit code is 1");
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("exit code is 1");
     expect(existsSync(join(out, "llms.txt"))).toBe(true);
   });
 
@@ -563,7 +566,7 @@ describe("built CLI: integrate agent mode", () => {
       expect(r.code).toBe(0);
       const doc = JSON.parse(r.stdout);
       expect(doc.outcome).toBe("installed");
-      expect(doc.warnings).toEqual([]);
+      expect(doc.warnings).toEqual([expect.stringContaining("public/llms.txt")]);
       let sawHeading = false;
       for (const p of files(project).filter((f) => !f.endsWith("package.json"))) {
         const text = readFileSync(p, "utf-8");

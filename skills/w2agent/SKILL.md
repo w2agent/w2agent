@@ -47,7 +47,7 @@ Add `--json` to `audit`, `integrate` and `login`. Stdout is then one JSON docume
 - `error.next` and the success `next` are lists of argv arrays. Each starts with `"w2agent"`. Run one by substituting your runner for that first element. Never put a real secret in one: a `<api-key>` placeholder must be replaced by the owner's key.
 - Common reasons: `unreachable`, `blocked`, `auth_gated`, `rate_limited`, `timeout`, `invalid_url`, `invalid_argument`, `no_platform_detected`, `not_a_project`, `below_threshold`.
 - `audit <url> --json` has no `ok` field. It prints the report (`overallScore`, `grade`, `categories` with `checks`). Success is exit code 0.
-- `integrate --json` success has `ok: true`, `outcome` (`planned` for `--dry-run`, `installed` for `--install`), `changes` (each `{action, path, reason}`, `path` relative to `--project-dir`; actions `create`, `modify`, `skip`, `manual`, `delete`), `warnings`, `postInstallSteps` and `next`. For `skip` and `manual`, read `reason` and act by hand.
+- `integrate --json` success has `ok: true`, `outcome` (`planned` for `--dry-run`, `installed` for `--install`), `changes` (each `{action, path, reason}`, `path` relative to `--project-dir`; actions `create`, `modify`, `skip`, `manual`), `warnings`, `postInstallSteps` and `next`. For `skip` and `manual`, read `reason` and act by hand.
 
 Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE.md
 

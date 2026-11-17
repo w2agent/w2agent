@@ -1,4 +1,101 @@
 import type { GeneratedFile } from "../../generate/types.js";
+import { homeVariantSource, type SourceLang } from "../shared/accept-negotiation.js";
+
+export type { SourceLang };
+
+// The one segment config the routes carry. The resolver removes this exact
+// text when the project turns on cacheComponents (Next rejects `revalidate`
+// there), so the template and the removal cannot drift.
+export const ROUTE_REVALIDATE_SEGMENT =
+  "// ISR: regenerate every hour\nexport const revalidate = 3600;\n\n";
+
+// The file name and exported function Next reads: `middleware` before Next 16, `proxy` from 16.
+export type NextjsEdgeFn = "middleware" | "proxy";
+
+export function nextjsMiddlewareSource({ lang, fn }: { lang: SourceLang; fn: NextjsEdgeFn }) {
+  const ts = lang === "ts";
+  return `/* eslint-disable */
+import { ${ts ? "NextRequest, " : ""}NextResponse } from "next/server";
+
+${homeVariantSource(lang)}
+
+export function ${fn}(request${ts ? ": NextRequest" : ""}) {
+  if (request.nextUrl.pathname !== "/") return NextResponse.next();
+
+  // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
+  const variant = homeVariant(request.headers.get("accept"));
+  let response = NextResponse.next();
+  if (variant !== "html") {
+    // clone() keeps basePath and the query string
+    const target = request.nextUrl.clone();
+    target.pathname = variant === "markdown" ? "/index.md" : "/llms.txt";
+    response = NextResponse.rewrite(target);
+  }
+  // "/" depends on Accept in every branch: caches must not mix the variants
+  response.headers.append("Vary", "Accept");
+  return response;
+}
+
+export const config = {
+  matcher: ["/"],
+};
+`;
+}
+
+export const WEBHOOK_ROUTE_PATH = "nextjs/app/api/w2agent-mcp-webhook/route.ts";
+
+export function nextjsWebhookRouteSource(lang: SourceLang) {
+  const ts = lang === "ts";
+  return `import { NextResponse } from "next/server";
+
+/**
+ * w2agent MCP Webhook — Next.js Integration
+ *
+ * Place at: app/api/w2agent-mcp-webhook/route.${ts ? "ts" : "js"}
+ * Triggers a re-crawl when content changes.
+ *
+ * Requires W2AGENT_INBOUND_TOKEN; callers must present it as a Bearer token.
+ * Without this check the route is a confused deputy — unauthenticated callers
+ * would otherwise receive authenticated upstream webhook calls for free.
+ */
+
+const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
+const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+
+export async function POST(request${ts ? ": Request" : ""}) {
+  const expected = process.env.W2AGENT_INBOUND_TOKEN;
+  if (!expected) {
+    return NextResponse.json(
+      { error: "W2AGENT_INBOUND_TOKEN not configured" },
+      { status: 401 },
+    );
+  }
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (presented !== expected) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+
+    // Notify w2agent MCP server of content change
+    await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: \`Bearer \${WEBHOOK_TOKEN}\`,
+      },
+      body: JSON.stringify({ trigger: "nextjs", ...body }),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: ${ts ? "(err as Error).message" : "err.message"} }, { status: 500 });
+  }
+}
+`;
+}
 
 export function generateNextjsIntegration(
   llmsTxtContent: string,
@@ -8,31 +105,7 @@ export function generateNextjsIntegration(
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
-  const middlewareTs = `/* eslint-disable */
-import { NextRequest, NextResponse } from "next/server";
-
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Content negotiation: AI agents requesting markdown get /index.md, plain text gets /llms.txt
-  const accept = request.headers.get("accept") || "";
-  if (pathname === "/" && accept.includes("text/markdown")) {
-    const response = NextResponse.rewrite(new URL("/index.md", request.url));
-    // "/" now depends on Accept — caches must not serve this markdown to browsers
-    response.headers.set("Vary", "Accept");
-    return response;
-  }
-  if (pathname === "/" && accept.includes("text/plain")) {
-    return NextResponse.rewrite(new URL("/llms.txt", request.url));
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ["/"],
-};
-`;
+  const middlewareTs = nextjsMiddlewareSource({ lang: "ts", fn: "middleware" });
 
   // Dynamic route handler for /llms.txt — ISR, regenerates every hour
   const llmsTxtRoute = `/* eslint-disable */
@@ -40,10 +113,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-// ISR: regenerate every hour
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   // Read from generated file (updated by build script or CI)
   const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
   if (fs.existsSync(filePath)) {
@@ -67,7 +137,7 @@ export async function GET() {
   });
 }
 
-function generateLlmsTxtFromPages(): string {
+function generateLlmsTxtFromPages() {
   // TODO: Replace with your actual page data source
   // Examples:
   //   - Read from a CMS API
@@ -85,9 +155,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   // Same content as /llms.txt: the generated file, or a minimal fallback
   const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
   const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
@@ -111,9 +179,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   const filePath = path.join(process.cwd(), ".w2agent", "llms-full.txt");
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf-8");
@@ -125,7 +191,7 @@ export async function GET() {
     });
   }
 
-  return new NextResponse("# No content generated yet\\n\\nRun: npx w2agent generate ${siteUrl}\\n", {
+  return new NextResponse("# No content generated yet\\n\\nRun: npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./.w2agent/\\n", {
     status: 404,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -137,9 +203,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   const filePath = path.join(process.cwd(), ".w2agent", "agent-card.json");
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf-8");
@@ -158,33 +222,46 @@ export async function GET() {
   // Build script for CI/CD regeneration — uses execFileSync to avoid shell injection
   const buildScript = `#!/usr/bin/env node
 /**
- * w2agent build script — run during CI/CD or as a postbuild hook
+ * w2agent build script — run during CI/CD or as a prebuild hook
  *
  * Usage:
  *   node w2agent-build.mjs
  *
  * Or add to package.json:
- *   "scripts": { "postbuild": "node w2agent-build.mjs" }
+ *   "scripts": { "prebuild": "node w2agent-build.mjs" }
  *
- * This regenerates llms.txt and llms-full.txt from your live site,
- * so your route handlers always serve fresh content.
+ * It must run before the build: the routes are prerendered during next build,
+ * so a postbuild refresh would not be served.
+ *
+ * This crawls your live site and refreshes llms.txt and llms-full.txt, so the
+ * next build serves what the live site showed (the previous deploy).
+ *
+ * Requires the w2agent CLI installed in this project. It is not published on npm
+ * yet: build it from the w2agent repo, then run
+ *   npm install -D <path-to-w2agent>/packages/cli
+ * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
 
-const SITE_URL = process.env.SITE_URL || "${siteUrl}";
+const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
 
 console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 
 try {
   execFileSync(
     "npx",
-    ["w2agent", "generate", SITE_URL, "--format", "llms-txt", "--format", "full", "--output", "./.w2agent/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./.w2agent/"],
     { stdio: "inherit" }
   );
   console.log("[w2agent] Done. Files written to .w2agent/");
 } catch (err) {
-  console.warn("[w2agent] Generation failed — route handlers will use fallback content");
   // Non-fatal: the route handlers have fallback logic
+  console.warn(
+    "[w2agent] Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
+    "[w2agent] Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
+    "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
+    "or the crawl of " + SITE_URL + " failed. Route handlers will use fallback content."
+  );
 }
 `;
 
@@ -192,28 +269,39 @@ try {
 
 ## Architecture
 
-This integration uses **dynamic route handlers** with ISR (Incremental Static Regeneration),
-not just static files. Your AI content stays fresh automatically.
+This integration uses **dynamic route handlers** that read \`.w2agent/llms.txt\` and \`.w2agent/llms-full.txt\`.
+Content freshness depends on the build script (step 3), not on the routes alone.
 
 \`\`\`
 Request for /llms.txt
-  -> Route handler reads .w2agent/llms.txt (generated by build script)
-  -> Returns with Cache-Control + ISR revalidation
+  -> Route handler reads .w2agent/llms.txt (seed, or refreshed by the build script)
+  -> Returns with Cache-Control (routes revalidate hourly with ISR, which re-reads the same deployed file: new content arrives with the next build)
   -> If file missing, generates minimal fallback from page data
 \`\`\`
 
+\`npx w2agent integrate <url> --install\` applies the conventions below for you.
+These steps are for copying the files by hand.
+
 ## Setup
 
-### 1. Copy route handlers
+### 1. Copy route handlers and middleware
 \`\`\`bash
 cp -r nextjs/app/ your-app/app/
 cp nextjs/middleware.ts your-app/
 \`\`\`
 
+- **\`src/app\` projects**: put the routes in \`src/app/\`, the middleware in \`src/\` and the component in \`src/components/\`.
+- **Next.js 16**: the file is \`proxy.ts\` and the function is \`export function proxy\`. Rename \`middleware.ts\` and its function when copying by hand. Next.js 15 and earlier keep \`middleware.ts\`.
+- **JavaScript projects (no \`tsconfig.json\`)**: \`--install\` writes \`.js\` and \`.jsx\` files. By hand, rename each \`route.ts\` to \`route.js\` and the component to \`.jsx\`, except \`app/api/w2agent-mcp-webhook/route.ts\` (only present when an MCP server was generated) and \`middleware.ts\`: both have type annotations, so use the \`.js\` files that \`--install\` writes.
+- **\`cacheComponents: true\`**: remove \`export const revalidate\` from the routes (Next.js rejects it there). \`--install\` does this. The routes then have no segment config and are prerendered at build.
+- **\`output: "export"\`**: middleware does not run in a static export, so skip it. \`/llms.txt\`, \`/llms-full.txt\` and \`/index.md\` are exported as static files. There is no Accept negotiation on \`/\`. Keep \`export const revalidate\` on the routes: a static export requires it. If \`cacheComponents\` is also on, Next.js rejects it, so the routes need a manual change in that combination.
+
 ### 2. Copy seed files (immediate content)
 \`\`\`bash
 cp -r nextjs/.w2agent/ your-app/.w2agent/
 \`\`\`
+
+The first deploy serves this seed.
 
 ### 3. Add build script for CI/CD (recommended)
 \`\`\`bash
@@ -224,18 +312,26 @@ Then add to \`package.json\`:
 \`\`\`json
 {
   "scripts": {
-    "postbuild": "node w2agent-build.mjs"
+    "prebuild": "node w2agent-build.mjs"
   }
 }
 \`\`\`
 
-This regenerates your AI content on every deploy.
+Use \`prebuild\`, not \`postbuild\`: the routes are prerendered during \`next build\`, so a postbuild refresh is not served.
+The script crawls your **live** site before each build. The deployed routes serve what the live site showed at build time, which is the previous deploy.
+
+### 4. Mount the WebMCP script (only if \`nextjs/components/WebMcpScript.tsx\` was generated)
+Copy \`nextjs/components/WebMcpScript.tsx\` into your app, import it in your root layout
+(\`app/layout.tsx\` or \`src/app/layout.tsx\`), and render \`<WebMcpScript />\` inside \`<body>\`.
+
+### 5. robots.txt
+\`--install\` stages the generated rules at \`.w2agent/robots.txt\`. That file is not served. Review it and merge it into \`public/robots.txt\` or your \`app/robots.ts\`.
 
 ## File Structure
 
 \`\`\`
 your-nextjs-app/
-  middleware.ts                              <- Content negotiation for AI bots
+  middleware.ts                              <- Content negotiation for AI bots (proxy.ts on Next.js 16; under src/ for src/app projects)
   w2agent-build.mjs                         <- Build-time regeneration script
   .w2agent/
     llms.txt                                <- Generated content (read by route handler)
@@ -250,9 +346,9 @@ your-nextjs-app/
 
 ## How It Works
 
-1. **Route handlers** serve content with ISR (revalidates every hour)
-2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx w2agent generate\`
-3. **Middleware** rewrites \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (text/markdown, \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
+1. **Route handlers** serve content with ISR (revalidates every hour, but re-reads the same deployed file, so new content arrives with the next build; no revalidation under \`cacheComponents\`)
+2. **Build script** refreshes \`.w2agent/llms.txt\` before each build via \`npx --no -- w2agent generate\` from the live site (the CLI must be installed in your project)
+3. **Middleware** (or \`proxy\` on Next.js 16) rewrites \`/\` (also under \`basePath\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page. The rewritten \`/index.md\` and \`/llms.txt\` responses carry \`Vary: Accept\`, but Next.js overwrites \`Vary\` on the HTML page (neither middleware nor \`next.config\` \`headers()\` can add it), so a cache in front of Next must key \`/\` on \`Accept\` itself
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
 
 ## Customization
@@ -263,11 +359,14 @@ For example, read from your CMS, scan your \`app/\` directory, or query a databa
 ## Regenerating
 
 \`\`\`bash
-# Manual regeneration
-npx w2agent generate ${siteUrl} --output ./.w2agent/
+# Manual regeneration (needs the w2agent CLI installed in this project)
+npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./.w2agent/
 
-# Or just deploy — the postbuild script handles it
+# Or just build — the prebuild script handles it (the crawl sees the live site, so the previous deploy)
 \`\`\`
+
+The CLI is not published on npm yet. Build it from the w2agent repo, then run
+\`npm install -D <path-to-w2agent>/packages/cli\` in your app.
 `;
 
   files.push(makeFile("nextjs/middleware.ts", middlewareTs));

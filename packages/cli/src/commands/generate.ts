@@ -25,8 +25,8 @@ export function registerGenerateCommand(program: Command): void {
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
     .option(
       "-f, --format <format>",
-      "Output format: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all",
-      "all",
+      "Output format, comma-separated or repeated: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, webmcp, mcp-server, skill-md, openclaw, agents-md, all (default: all)",
+      (value: string, acc: string[] = []) => acc.concat(value),
     )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("-s, --sections <sections>", "Only include these URL sections (comma-separated)")
@@ -42,13 +42,20 @@ export function registerGenerateCommand(program: Command): void {
       (value: string, acc: string[] = []) => acc.concat(value),
       [] as string[],
     )
+    .option("--no-platform", "Do not write platform integration files (nextjs/, nuxt/, ...)")
     .option("--from-audit", "Run audit first, then generate fixes for failed checks only")
     .action(async (url: string, opts) => {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
       }
 
-      const formats = parseFormats(opts.format);
+      let formats: GenerateFormat[];
+      try {
+        formats = parseFormats(opts.format);
+      } catch (err) {
+        console.error(chalk.red(`  ${(err as Error).message}`));
+        process.exit(1);
+      }
       const sections = opts.sections
         ? opts.sections.split(",").map((s: string) => s.trim())
         : undefined;
@@ -61,6 +68,7 @@ export function registerGenerateCommand(program: Command): void {
         maxPages: parseInt(opts.maxPages, 10),
         timeout: parseInt(opts.timeout, 10),
         formats,
+        platformFiles: opts.platform !== false,
         sections,
         mcpEndpoint: opts.mcpEndpoint,
         a2aEndpoint: opts.a2aEndpoint,
@@ -124,7 +132,20 @@ export function registerGenerateCommand(program: Command): void {
           spinner.text = status;
         });
 
+        if (result.pagesFetched === 0) {
+          spinner.fail(`No pages could be crawled from ${url} (nothing written)`);
+          process.exit(1);
+        }
+
         spinner.stop();
+
+        if (result.pagesProcessed === 0) {
+          console.log(
+            chalk.yellow(
+              "  ⚠ No page had extractable content (or matched --sections); output may be empty.",
+            ),
+          );
+        }
 
         // Write files to disk
         const outputDir = resolve(opts.output);
@@ -172,6 +193,8 @@ export function registerGenerateCommand(program: Command): void {
             console.log(`  ${chalk.green("✓")} agent-card.json    (${size})`);
           } else if (file.filename === "faq.json") {
             console.log(`  ${chalk.green("✓")} faq.json           (${size})`);
+          } else if (file.filename === "agents.md") {
+            console.log(`  ${chalk.green("✓")} agents.md          (${size})`);
           } else if (file.filename === "skill.md") {
             console.log(`  ${chalk.green("✓")} skill.md           (${size})`);
           } else if (file.filename === "openclaw/SKILL.md") {
@@ -254,32 +277,35 @@ export function registerGenerateCommand(program: Command): void {
     });
 }
 
-export function parseFormats(format: string): GenerateFormat[] {
-  if (format === "all")
-    return [
-      "llms-txt",
-      "full",
-      "markdown",
-      "robots-txt",
-      "schema-org",
-      "agent-card",
-      "faq",
-      "webmcp",
-    ];
-  const map: Record<string, GenerateFormat> = {
-    "llms-txt": "llms-txt",
-    full: "full",
-    markdown: "markdown",
-    "robots-txt": "robots-txt",
-    "schema-org": "schema-org",
-    "agent-card": "agent-card",
-    faq: "faq",
-    "mcp-server": "mcp-server",
-    "skill-md": "skill-md",
-    webmcp: "webmcp",
-    openclaw: "openclaw",
-  };
-  return [map[format] || "llms-txt"];
+const ALL_FORMATS: GenerateFormat[] = [
+  "llms-txt",
+  "full",
+  "markdown",
+  "robots-txt",
+  "schema-org",
+  "agent-card",
+  "faq",
+  "webmcp",
+];
+
+const OPT_IN_FORMATS: GenerateFormat[] = ["mcp-server", "skill-md", "openclaw", "agents-md"];
+
+export function parseFormats(values?: string | string[]): GenerateFormat[] {
+  const raw = values === undefined ? ["all"] : Array.isArray(values) ? values : [values];
+  const tokens = raw.length === 0 ? ["all"] : raw.flatMap((v) => v.split(",").map((t) => t.trim()));
+  const valid = ["all", ...ALL_FORMATS, ...OPT_IN_FORMATS];
+  const bad = tokens.filter((t) => !valid.includes(t));
+  if (bad.length > 0) {
+    const shown = bad.map((t) => (t === "" ? "(empty)" : `"${t}"`)).join(", ");
+    throw new Error(`Unknown --format value(s): ${shown}. Valid formats: ${valid.join(", ")}`);
+  }
+  const out: GenerateFormat[] = [];
+  for (const t of tokens) {
+    for (const f of t === "all" ? ALL_FORMATS : [t as GenerateFormat]) {
+      if (!out.includes(f)) out.push(f);
+    }
+  }
+  return out;
 }
 
 function formatSize(bytes: number): string {

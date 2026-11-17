@@ -262,14 +262,22 @@ export async function runGenerate(
   // Generate SKILL.md
   if (options.formats.includes("skill-md")) {
     onProgress?.("Generating skill.md...");
-    const skillMd = generateSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    const skillMd = generateSkillMd(ctx, {
+      mcpEndpoint: options.mcpEndpoint,
+      artifacts: ecommerceArtifacts,
+      localBusinessArtifacts,
+    });
     files.push(makeFile("skill.md", skillMd));
   }
 
   // Generate OpenClaw SKILL.md
   if (options.formats.includes("openclaw")) {
     onProgress?.("Generating OpenClaw SKILL.md...");
-    const openClawSkillMd = generateOpenClawSkillMd(ctx, { mcpEndpoint: options.mcpEndpoint });
+    const openClawSkillMd = generateOpenClawSkillMd(ctx, {
+      mcpEndpoint: options.mcpEndpoint,
+      artifacts: ecommerceArtifacts,
+      localBusinessArtifacts,
+    });
     files.push(makeFile("openclaw/SKILL.md", openClawSkillMd));
   }
 
@@ -286,7 +294,7 @@ export async function runGenerate(
     onProgress?.(
       `Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`,
     );
-    const adapter = getAdapter(detected.platform);
+    const adapter = options.platformFiles === false ? undefined : getAdapter(detected.platform);
     if (adapter) {
       onProgress?.(`Generating ${detected.platform} integration files...`);
       const integrationFiles = adapter.generateIntegration(ctx, files);
@@ -300,6 +308,7 @@ export async function runGenerate(
     url,
     duration,
     pagesProcessed: filteredPages.length,
+    pagesFetched: seenUrls.size,
     totalPagesFound,
     files,
     sections: sectionNames,

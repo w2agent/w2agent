@@ -25,14 +25,16 @@ export default defineNuxtConfig({
 
 ## Generate content files
 
+> `w2agent` is not published on npm yet. Build it from this repo (see [Development](../../README.md#development)), then run `npm install -D <path-to-w2agent>/packages/cli` in your project so `npx w2agent` resolves.
+
 ```bash
-npx w2agent generate https://your-site.com --output ./public/
+npx w2agent generate https://your-site.com --format llms-txt,full --no-platform --output ./public/
 ```
 
 This populates `public/llms.txt` and `public/llms-full.txt`. Only if your site runs an A2A agent, add `public/.well-known/agent-card.json`:
 
 ```bash
-npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --output ./public/.well-known/
+npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --no-platform --output ./public/.well-known/
 ```
 
 ## Routes registered
@@ -45,7 +47,7 @@ npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint ht
 | `GET /.well-known/agent-card.json` | A2A agent card from `public/.well-known/agent-card.json`; 404 when absent |
 | `POST /api/w2agent-webhook` | Re-crawl trigger (opt-out via `webhookEnabled: false`) |
 
-Content-negotiation middleware is also added: at `/`, `Accept: text/markdown` is redirected to `/index.md` (with `Vary: Accept`) and `Accept: text/plain` to `/llms.txt`.
+Content-negotiation middleware is also added: `/` (with `Vary: Accept`) redirects to `/index.md` when the request lists `text/markdown` at equal or higher q than `text/html`, and to `/llms.txt` when it lists `text/plain` at strictly higher q; browsers, `*/*` and `application/json, text/plain, */*` keep the HTML page.
 
 ## Environment variables
 

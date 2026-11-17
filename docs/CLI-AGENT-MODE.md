@@ -60,7 +60,7 @@ Every success document has `ok: true`, an `outcome` and the `platform`. `warning
 | `installed` | `--install` | `changes`, `postInstallSteps` |
 | `generated` | Default mode, files written to `--output` | `outputDir`, `files` |
 
-Each entry in `changes` is `{ "action", "path", "reason" }`. `path` is relative to `--project-dir`. `action` is one of `create`, `modify`, `skip`, `manual` or `delete`. `skip` and `manual` entries need no write; read `reason` for what to do by hand.
+Each entry in `changes` is `{ "action", "path", "reason" }`. `path` is relative to `--project-dir`. `action` is one of `create`, `modify`, `skip` or `manual`. w2agent never deletes a file. `skip` and `manual` entries need no write; read `reason` for what to do by hand.
 
 ```bash
 w2agent integrate http://127.0.0.1:<port> --dry-run --json \
@@ -134,7 +134,7 @@ On failure, with `--json`, stdout holds:
 | `unknown_failure` | 1 | no | no | Read `message`. Includes a page that returned nothing readable. |
 | `invalid_url` | 2 | no | no | Fix the URL (also raised for a bad `--site-url`). |
 | `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
-| `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode also exits 1 here, and in default output mode it still writes the core files to `--output` (`--dry-run` writes nothing). |
+| `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode with `--install` or `--dry-run` also exits 1 and writes nothing. Without them it writes the core files to `--output` and exits 0. |
 | `not_a_project` | 1 | yes | no | `--project-dir` is missing or is not a project root for this platform. Pass the right `--project-dir`. |
 | `auth_required` | 1 | yes | no | Login needs an API key. See [login in agent environments](#login-in-agent-environments). |
 | `below_threshold` | 1 | no | no | `audit --ci --json` scored under `--threshold`. This is a result, not a crash: fix the site, then audit again. |

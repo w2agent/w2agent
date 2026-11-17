@@ -55,14 +55,16 @@ w2agent({
 
 ## Generate agent files
 
-Use the w2agent CLI to generate `llms.txt` from a live site:
+> `w2agent` is not published on npm yet. Build it from this repo (see [Development](../../README.md#development)), then run `npm install -D <path-to-w2agent>/packages/cli` in your project so `npx w2agent` resolves.
+
+Generate `llms.txt` and `llms-full.txt` from a live site:
 
 ```bash
-npx w2agent generate https://your-site.com --output ./public/
+npx w2agent generate https://your-site.com --format llms-txt,full --no-platform --output ./public/
 ```
 
 Only if your site runs an A2A agent, generate `agent-card.json` pointing at that agent's endpoint:
 
 ```bash
-npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --output ./public/.well-known/
+npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --no-platform --output ./public/.well-known/
 ```

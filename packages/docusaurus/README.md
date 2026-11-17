@@ -21,16 +21,18 @@ module.exports = {
 
 ## Generate content files
 
+> `w2agent` is not published on npm yet. Build it from this repo (see [Development](../../README.md#development)), then run `npm install -D <path-to-w2agent>/packages/cli` in your project so `npx w2agent` resolves.
+
 Run this once to seed the static fallback:
 
 ```bash
-npx w2agent generate https://your-site.com --output ./static/
+npx w2agent generate https://your-site.com --format llms-txt --no-platform --output ./static/
 ```
 
 This populates `static/llms.txt` (fallback). Only if your site runs an A2A agent, generate `static/.well-known/agent-card.json`:
 
 ```bash
-npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --output ./static/.well-known/
+npx w2agent generate https://your-site.com --format agent-card --a2a-endpoint https://your-site.com/a2a --no-platform --output ./static/.well-known/
 ```
 
 ## How it works
