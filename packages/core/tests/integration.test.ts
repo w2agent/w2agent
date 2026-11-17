@@ -109,7 +109,7 @@ function writeGeneratedFiles(dir: string, files: GeneratedFile[], prefix: string
 function npmInstallAndBuild(dir: string): { success: boolean; output: string } {
   try {
     // Run install and build as separate steps so failures are distinguishable
-    execSync("npm install --ignore-scripts 2>&1", {
+    execSync("npm install --ignore-scripts --include=dev 2>&1", {
       cwd: dir,
       timeout: 60_000,
       encoding: "utf-8",
