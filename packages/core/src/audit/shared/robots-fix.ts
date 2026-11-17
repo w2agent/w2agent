@@ -15,15 +15,17 @@ export function findBlockedTokens(
   return blocked;
 }
 
-export interface RobotsRule {
+interface RobotsRule {
   directive: "Allow" | "Disallow";
   value: string;
 }
 
-export interface RobotsGroup {
+interface RobotsGroup {
   agentLines: Array<{ agent: string }>;
   rules: RobotsRule[];
   crawlDelay?: string;
+  /** robots-parser creates an agent's rule set only for a group with an Allow, Disallow or Crawl-delay line (any value). */
+  hasRuleLine?: boolean;
 }
 
 export interface RobotsAccessFix {
@@ -67,8 +69,10 @@ export function parseGroups(robotsTxt: string): RobotsGroup[] {
     if (!current) continue;
     if (key === "allow" || key === "disallow") {
       current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value });
-    } else if (key === "crawl-delay" && value) {
-      current.crawlDelay = value;
+      current.hasRuleLine = true;
+    } else if (key === "crawl-delay") {
+      current.hasRuleLine = true;
+      if (value) current.crawlDelay = value;
     }
   }
 

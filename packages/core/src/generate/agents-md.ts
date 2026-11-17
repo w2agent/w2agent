@@ -67,7 +67,7 @@ export function generateAgentsMd(ctx: GenerateContext): string {
       lines.push("## AI Bot Permissions");
       lines.push("");
       lines.push(
-        "From robots.txt. Blocked: may not crawl the site root `/`. Partly restricted: some paths disallowed.",
+        "From robots.txt. Blocked: may not crawl the site root `/`. Partly restricted: a Disallow rule applies and no Allow rule for the same path cancels it.",
       );
       lines.push("");
       for (const row of rows) {
@@ -92,58 +92,27 @@ export function generateAgentsMd(ctx: GenerateContext): string {
 
 type Access = "Blocked" | "Partly restricted" | "Allowed";
 
-/** Distinct Disallow values probed per applicable rule set; more than this reads as Partly restricted. */
-export const MAX_DISALLOW_PROBES = 50;
-
 function aiBotAccess(robotsTxt: string, baseUrl: string): Array<{ label: string; access: Access }> {
   const origin = new URL(baseUrl).origin;
   const robots = robotsParser(`${origin}/robots.txt`, robotsTxt);
   const groups = parseGroups(robotsTxt);
   const named = new Set(groups.flatMap((g) => g.agentLines.map((a) => a.agent)));
 
-  const cache = new Map<string, Access>();
-  const accessFor = (token: string): Access => {
-    const agent = normalizeAgent(token);
-    let applicable = groups.flatMap((g, i) =>
-      g.agentLines.some((a) => a.agent === agent) ? [i] : [],
-    );
-    if (applicable.length === 0) {
-      applicable = groups.flatMap((g, i) => (g.agentLines.some((a) => a.agent === "*") ? [i] : []));
-    }
-    const key = applicable.join(",");
-    const cached = cache.get(key);
-    if (cached) return cached;
+  const rulesFor = (agent: string) => {
+    const own = groups.filter((g) => g.hasRuleLine && g.agentLines.some((a) => a.agent === agent));
+    const applicable =
+      own.length > 0
+        ? own
+        : groups.filter((g) => g.hasRuleLine && g.agentLines.some((a) => a.agent === "*"));
+    return applicable.flatMap((g) => g.rules);
+  };
 
-    let access: Access = "Allowed";
-    if (robots.isAllowed(`${origin}/`, token) === false) {
-      access = "Blocked";
-    } else {
-      const values = new Set<string>();
-      for (const i of applicable) {
-        for (const rule of groups[i].rules) {
-          if (rule.directive === "Disallow" && rule.value) values.add(rule.value);
-        }
-      }
-      let probed = 0;
-      for (const value of values) {
-        if (probed === MAX_DISALLOW_PROBES) {
-          access = "Partly restricted";
-          break;
-        }
-        probed++;
-        const path = value.replace(/[*$]/g, "");
-        const url = `${origin}${path.startsWith("/") ? "" : "/"}${path}`;
-        if (
-          robots.isAllowed(url, token) === false ||
-          robots.isAllowed(`${url}x`, token) === false
-        ) {
-          access = "Partly restricted";
-          break;
-        }
-      }
-    }
-    cache.set(key, access);
-    return access;
+  const accessFor = (token: string): Access => {
+    if (robots.isAllowed(`${origin}/`, token) === false) return "Blocked";
+    const rules = rulesFor(normalizeAgent(token));
+    const allows = new Set(rules.filter((r) => r.directive === "Allow").map((r) => r.value));
+    const open = rules.some((r) => r.directive === "Disallow" && r.value && !allows.has(r.value));
+    return open ? "Partly restricted" : "Allowed";
   };
 
   const rows: Array<{ label: string; access: Access }> = [];

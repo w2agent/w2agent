@@ -122,7 +122,7 @@ describe("agents.md AI bot permissions", () => {
   it("explains the three values in one line under the heading", () => {
     const md = generateAgentsMd(ctxWith("User-agent: GPTBot\nDisallow: /"));
     expect(md).toContain(
-      "## AI Bot Permissions\n\nFrom robots.txt. Blocked: may not crawl the site root `/`. Partly restricted: some paths disallowed.\n\n- **GPTBot**: Blocked",
+      "## AI Bot Permissions\n\nFrom robots.txt. Blocked: may not crawl the site root `/`. Partly restricted: a Disallow rule applies and no Allow rule for the same path cancels it.\n\n- **GPTBot**: Blocked",
     );
   });
 
