@@ -52,7 +52,7 @@ describe("Next.js install gate fixes (round 1)", () => {
       expect(skips(plan).map((a) => a.dest)).toContain("middleware.ts");
       expect(skips(plan).map((a) => a.dest)).not.toContain("src/middleware.ts");
       expect(plan.warnings.join("\n")).toMatch(
-        /Next\.js 15 and earlier ignore a root middleware\.ts in a src\/app project; move it to src\/middleware\.ts/,
+        /Next\.js 15, and Next\.js 16 with webpack, ignore a root middleware\.ts in a src\/app project; move it to src\/middleware\.ts/,
       );
     });
 
@@ -84,7 +84,7 @@ describe("Next.js install gate fixes (round 1)", () => {
       expect(manuals(plan).map((a) => a.dest)).toContain("src/middleware.ts");
       const w = plan.warnings.join("\n");
       expect(w).toContain(
-        "middleware.ts at the project root is ignored by Next.js 15 and earlier in a src/app project; remove it once src/middleware.ts has the w2agent code.",
+        "middleware.ts at the project root can be ignored by Next.js in a src/app project; remove it once src/middleware.ts has the w2agent code.",
       );
       expect(w).not.toMatch(/move it to/);
     });

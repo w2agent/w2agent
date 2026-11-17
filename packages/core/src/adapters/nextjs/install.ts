@@ -325,7 +325,7 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
         const isProxy = root.startsWith("proxy.");
         if (live?.startsWith("src/")) {
           warnings.push(
-            `${root} at the project root is ignored by Next.js${isProxy ? "" : " 15 and earlier"} in a src/app project; remove it once ${live} has the w2agent code.`,
+            `${root} at the project root ${isProxy ? "is" : "can be"} ignored by Next.js in a src/app project; remove it once ${live} has the w2agent code.`,
           );
         } else if (isProxy) {
           warnings.push(
@@ -333,7 +333,7 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
           );
         } else {
           warnings.push(
-            `Next.js 15 and earlier ignore a root ${root} in a src/app project; move it to src/${root}.`,
+            `Next.js 15, and Next.js 16 with webpack, ignore a root ${root} in a src/app project; move it to src/${root}.`,
           );
         }
       };
