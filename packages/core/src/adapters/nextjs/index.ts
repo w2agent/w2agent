@@ -123,7 +123,7 @@ import Script from "next/script";
 export default function WebMcpScript() {
   return (
     <Script id="w2agent-webmcp" strategy="lazyOnload">
-      {\`${webmcpJs.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`}
+      {${JSON.stringify(webmcpJs)}}
     </Script>
   );
 }

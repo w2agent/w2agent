@@ -196,5 +196,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     );
   }
 
+  const webmcpWrite = actions.find(
+    (a) => a.type === "write" && a.dest.endsWith("/WebMcpScript.tsx"),
+  );
+  if (webmcpWrite) {
+    const layoutPath = `${appPrefix}/layout.tsx`;
+    postInstallSteps.push(
+      `Import WebMcpScript from ${webmcpWrite.dest} in ${layoutPath} and render <WebMcpScript /> inside <body> so the WebMCP tools register on every page.`,
+    );
+  }
+
   return { platform: "nextjs", actions, warnings, postInstallSteps };
 }
