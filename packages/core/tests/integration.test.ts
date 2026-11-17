@@ -605,14 +605,14 @@ describe("integration: WordPress", () => {
     const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("/llms.txt");
     expect(plugin.content).toContain("text/plain");
-    expect(plugin.content).toContain("w2agent_generate_llms_txt");
+    expect(plugin.content).toContain("w2agent_site_generate_llms_txt");
   });
 
   it("plugin serves /.well-known/agent-card.json endpoint", () => {
     const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("/.well-known/agent-card.json");
     expect(plugin.content).toContain("application/json");
-    expect(plugin.content).toContain("w2agent_generate_agent_card");
+    expect(plugin.content).not.toContain("agent_card(");
   });
 
   it("plugin adds discovery <link> tag", () => {
@@ -620,7 +620,7 @@ describe("integration: WordPress", () => {
     expect(plugin.content).toContain("wp_head");
     expect(plugin.content).toContain('rel="alternate"');
     expect(plugin.content).toContain('type="text/markdown"');
-    expect(plugin.content).toContain('href="/llms.txt"');
+    expect(plugin.content).toContain("esc_url(home_url('/llms.txt'))");
   });
 
   it("plugin hooks into robots.txt", () => {
@@ -632,7 +632,7 @@ describe("integration: WordPress", () => {
   it("plugin auto-regenerates on content changes", () => {
     const plugin = files.find((f) => f.filename.endsWith(".php"))!;
     expect(plugin.content).toContain("save_post");
-    expect(plugin.content).toContain("wp_cache_delete");
+    expect(plugin.content).toContain("delete_transient");
   });
 
   // Fix for Issue #8: skip with message instead of silently passing with 0 assertions

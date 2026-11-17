@@ -11,9 +11,12 @@ interface WordPressLayout {
   pluginDirUnreadable: boolean;
   pluginDirWarnings: string[];
   hasExistingPlugin: boolean;
+  hasLegacyGeneratedPlugin: boolean;
 }
 
 const DEFAULT_PLUGIN_DIR = "wp-content/plugins";
+const GENERATED_PLUGIN_FOLDER = "w2agent-site";
+const LEGACY_GENERATED_MARKERS = ["W2AGENT_PLUGIN_DIR", "AI Readiness"];
 
 const TOKEN = "\u0001";
 
@@ -248,7 +251,20 @@ export function detectWordPressLayout(projectDir: string): WordPressLayout {
   }
 
   const hasExistingPlugin =
-    !pluginDirOutside && !pluginDirUnreadable && existsSync(join(projectDir, pluginDir, "w2agent"));
+    !pluginDirOutside &&
+    !pluginDirUnreadable &&
+    existsSync(join(projectDir, pluginDir, GENERATED_PLUGIN_FOLDER));
+
+  let hasLegacyGeneratedPlugin = false;
+  if (!pluginDirOutside && !pluginDirUnreadable) {
+    try {
+      const legacy = readFileSync(
+        join(projectDir, pluginDir, "w2agent", "w2agent-plugin.php"),
+        "utf-8",
+      );
+      hasLegacyGeneratedPlugin = LEGACY_GENERATED_MARKERS.some((m) => legacy.includes(m));
+    } catch {}
+  }
 
   return {
     isWpRoot,
@@ -257,6 +273,7 @@ export function detectWordPressLayout(projectDir: string): WordPressLayout {
     pluginDirUnreadable,
     pluginDirWarnings,
     hasExistingPlugin,
+    hasLegacyGeneratedPlugin,
   };
 }
 
@@ -301,9 +318,18 @@ export function resolveWordPressInstall(files: GeneratedFile[], projectDir: stri
     return { platform: "wordpress", actions, warnings, postInstallSteps };
   }
 
+  if (layout.hasLegacyGeneratedPlugin) {
+    warnings.push(
+      `An older generated w2agent plugin is installed in ${layout.pluginDir ? `${layout.pluginDir}/` : ""}w2agent/. Remove that older copy first, then re-run --install (the plugin now installs to ${GENERATED_PLUGIN_FOLDER}/).`,
+    );
+    return { platform: "wordpress", actions, warnings, postInstallSteps };
+  }
+
   const prefix = "wordpress/";
   const platformFiles = files.filter((f) => f.filename.startsWith(prefix));
-  const targetDir = layout.pluginDir ? `${layout.pluginDir}/w2agent` : "w2agent";
+  const targetDir = layout.pluginDir
+    ? `${layout.pluginDir}/${GENERATED_PLUGIN_FOLDER}`
+    : GENERATED_PLUGIN_FOLDER;
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);

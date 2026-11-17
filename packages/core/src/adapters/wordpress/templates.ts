@@ -5,6 +5,7 @@ export function generateWpPlugin(
   agentCardContent: string | undefined,
   robotsRules: string,
   siteUrl: string,
+  llmsFullContent?: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
@@ -19,98 +20,185 @@ export function generateWpPlugin(
 
 if (!defined('ABSPATH')) exit;
 
-define('W2AGENT_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('W2AGENT_DATA_DIR', W2AGENT_PLUGIN_DIR . 'data/');
+// Marks this site-specific plugin as active. The standalone w2agent plugin checks it
+// and leaves the front end to this one when both are active.
+define('W2AGENT_SITE_PLUGIN', true);
+define('W2AGENT_SITE_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('W2AGENT_SITE_DATA_DIR', W2AGENT_SITE_PLUGIN_DIR . 'data/');
 
-// ─── Dynamic llms.txt generation from WP content ───────────────
+// ─── Helpers ────────────────────────────────────────────────────
 
-function w2agent_generate_llms_txt() {
+// The data/ files describe the crawled site: on multisite only the main site serves them.
+function w2agent_site_serves_data_files() {
+    return !is_multisite() || is_main_site();
+}
+
+// Path of a root-relative endpoint under this site's home URL (handles subdirectory installs).
+function w2agent_site_route_path($path) {
+    $route = wp_parse_url(home_url($path), PHP_URL_PATH);
+    return is_string($route) ? $route : $path;
+}
+
+function w2agent_site_plain_text($html) {
+    return trim(wp_strip_all_tags(strip_shortcodes((string) $html)));
+}
+
+function w2agent_site_seed($name) {
+    if (!w2agent_site_serves_data_files()) return '';
+    $file = W2AGENT_SITE_DATA_DIR . $name;
+    if (!file_exists($file)) return '';
+    $text = file_get_contents($file);
+    return is_string($text) ? $text : '';
+}
+
+// ─── Content selection ──────────────────────────────────────────
+
+// Pages, posts, and searchable public custom types. Owners can add or remove types
+// with the w2agent_site_post_types filter (array of post type names).
+function w2agent_site_post_types() {
+    $types = ['page', 'post'];
+    $custom = get_post_types(['public' => true, '_builtin' => false, 'exclude_from_search' => false], 'objects');
+    foreach ($custom as $cpt) {
+        if (is_post_type_viewable($cpt)) {
+            $types[] = $cpt->name;
+        }
+    }
+
+    $filtered = apply_filters('w2agent_site_post_types', $types);
+    if (is_array($filtered)) {
+        $types = $filtered;
+    }
+    return array_values(array_unique(array_filter($types, 'post_type_exists')));
+}
+
+// Sections of listable items. Owners and membership plugins can drop items with the
+// w2agent_site_include_post filter (bool, WP_Post; default true).
+function w2agent_site_sections() {
+    $sections = [];
+
+    foreach (w2agent_site_post_types() as $type) {
+        $args = [
+            'post_type' => $type,
+            'post_status' => 'publish',
+            'has_password' => false,
+            'numberposts' => in_array($type, ['page', 'post'], true) ? 100 : 50,
+        ];
+        if ($type === 'page') {
+            $args['orderby'] = 'menu_order title';
+            $args['order'] = 'ASC';
+        } else {
+            $args['orderby'] = 'date';
+            $args['order'] = 'DESC';
+        }
+
+        $posts = [];
+        foreach (get_posts($args) as $item) {
+            if (is_post_publicly_viewable($item) && apply_filters('w2agent_site_include_post', true, $item)) {
+                $posts[] = $item;
+            }
+        }
+        if (empty($posts)) continue;
+
+        if ($type === 'page') {
+            $name = 'Pages';
+        } elseif ($type === 'post') {
+            $name = 'Posts';
+        } else {
+            $object = get_post_type_object($type);
+            $name = $object ? $object->label : $type;
+        }
+        $sections[] = ['name' => $name, 'posts' => $posts];
+    }
+
+    return $sections;
+}
+
+// ─── Dynamic llms.txt generation ────────────────────────────────
+
+function w2agent_site_render($sections) {
     $site_name = get_bloginfo('name');
     $site_desc = get_bloginfo('description');
-    $site_url = home_url();
 
     $output = "# $site_name\\n\\n";
     if ($site_desc) {
         $output .= "> $site_desc\\n\\n";
     }
 
-    // Group published posts/pages by type
-    $post_types = ['page', 'post'];
-    $sections = [];
-
-    foreach ($post_types as $type) {
-        $items = get_posts([
-            'post_type' => $type,
-            'post_status' => 'publish',
-            'numberposts' => 100,
-            'orderby' => 'menu_order date',
-            'order' => 'ASC',
-        ]);
-        if (empty($items)) continue;
-
-        $section_name = $type === 'page' ? 'Pages' : 'Posts';
+    foreach ($sections as $section) {
         $lines = [];
-        foreach ($items as $item) {
+        foreach ($section['posts'] as $item) {
             $url = get_permalink($item);
             $title = $item->post_title;
-            $excerpt = $item->post_excerpt ?: wp_trim_words(strip_tags($item->post_content), 25, '...');
+            $excerpt = trim(preg_replace('/\\s+/', ' ', w2agent_site_plain_text($item->post_excerpt)));
+            if ($excerpt === '') {
+                $excerpt = wp_trim_words(w2agent_site_plain_text($item->post_content), 25, '...');
+            }
             $lines[] = "- [$title]($url): $excerpt";
         }
-        $sections[$section_name] = $lines;
+        $output .= '## ' . $section['name'] . "\\n\\n" . implode("\\n", $lines) . "\\n\\n";
     }
 
-    // Custom post types
-    $custom_types = get_post_types(['public' => true, '_builtin' => false], 'objects');
-    foreach ($custom_types as $cpt) {
-        $items = get_posts([
-            'post_type' => $cpt->name,
-            'post_status' => 'publish',
-            'numberposts' => 50,
-        ]);
-        if (empty($items)) continue;
+    return $output;
+}
 
-        $lines = [];
-        foreach ($items as $item) {
-            $url = get_permalink($item);
-            $title = $item->post_title;
-            $excerpt = wp_trim_words(strip_tags($item->post_content), 25, '...');
-            $lines[] = "- [$title]($url): $excerpt";
-        }
-        $sections[$cpt->label] = $lines;
+// One transient holds a small map of home URL hash => text, so a different host or language
+// home URL gets its own entry and the cache stays bounded (newest 8 kept).
+function w2agent_site_generate_llms_txt() {
+    $key = md5(home_url('/'));
+    $cache = get_transient('w2agent_site_llms_txt');
+    if (!is_array($cache)) {
+        $cache = [];
+    }
+    if (isset($cache[$key]) && is_string($cache[$key])) {
+        return $cache[$key];
     }
 
-    foreach ($sections as $name => $lines) {
-        $output .= "## $name\\n\\n" . implode("\\n", $lines) . "\\n\\n";
+    $sections = w2agent_site_sections();
+    $output = '';
+    // No published content yet: serve the crawl-time seed file when there is one.
+    if (empty($sections)) {
+        $output = w2agent_site_seed('llms.txt');
+    }
+    if ($output === '') {
+        $output = w2agent_site_render($sections);
     }
 
+    unset($cache[$key]);
+    $cache[$key] = $output;
+    $cache = array_slice($cache, -8, null, true);
+    set_transient('w2agent_site_llms_txt', $cache, HOUR_IN_SECONDS);
     return $output;
 }
 
 // ─── Serve endpoints ────────────────────────────────────────────
 
 add_action('template_redirect', function() {
-    $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    $uri = isset($_SERVER['REQUEST_URI']) ? parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) : '';
 
-    if ($uri === '/llms.txt') {
+    if ($uri === w2agent_site_route_path('/llms.txt')) {
         http_response_code(200);
         header('Content-Type: text/plain; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
+        echo w2agent_site_generate_llms_txt();
+        exit;
+    }
 
-        // Prefer dynamic generation; fall back to static file
-        if (function_exists('get_posts')) {
-            echo w2agent_generate_llms_txt();
-        } else {
-            readfile(W2AGENT_DATA_DIR . 'llms.txt');
-        }
+    // llms-full.txt is the anonymous crawl snapshot from the last integrate run, never built from
+    // post content here (membership plugins gate bodies in ways a query cannot see). 404 when absent.
+    if ($uri === w2agent_site_route_path('/llms-full.txt') && w2agent_site_serves_data_files() && file_exists(W2AGENT_SITE_DATA_DIR . 'llms-full.txt')) {
+        http_response_code(200);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: public, max-age=3600');
+        readfile(W2AGENT_SITE_DATA_DIR . 'llms-full.txt');
         exit;
     }
 
     // Only an operator-provided A2A card is served; without data/agent-card.json WordPress 404s.
-    if ($uri === '/.well-known/agent-card.json' && file_exists(W2AGENT_DATA_DIR . 'agent-card.json')) {
+    if ($uri === w2agent_site_route_path('/.well-known/agent-card.json') && w2agent_site_serves_data_files() && file_exists(W2AGENT_SITE_DATA_DIR . 'agent-card.json')) {
         http_response_code(200);
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: public, max-age=3600');
-        readfile(W2AGENT_DATA_DIR . 'agent-card.json');
+        readfile(W2AGENT_SITE_DATA_DIR . 'agent-card.json');
         exit;
     }
 });
@@ -118,13 +206,14 @@ add_action('template_redirect', function() {
 // ─── Discovery tags ─────────────────────────────────────────────
 
 add_action('wp_head', function() {
-    echo '<link rel="alternate" type="text/markdown" href="/llms.txt" title="LLMs.txt">' . "\\n";
+    echo '<link rel="alternate" type="text/markdown" href="' . esc_url(home_url('/llms.txt')) . '" title="LLMs.txt">' . "\\n";
 });
 
 // ─── Robots.txt integration ─────────────────────────────────────
 
 add_filter('robots_txt', function($output, $public) {
-    $rules_file = W2AGENT_DATA_DIR . 'robots-rules.txt';
+    if (!w2agent_site_serves_data_files()) return $output;
+    $rules_file = W2AGENT_SITE_DATA_DIR . 'robots-rules.txt';
     if (file_exists($rules_file)) {
         $rules = file_get_contents($rules_file);
         if ($rules) {
@@ -134,29 +223,31 @@ add_filter('robots_txt', function($output, $public) {
     return $output;
 }, 10, 2);
 
-// ─── Auto-regenerate on content changes ─────────────────────────
+// ─── Cache invalidation ─────────────────────────────────────────
 
-// Invalidate cache when posts are created/updated/deleted
-add_action('save_post', function($post_id) {
-    if (wp_is_post_revision($post_id)) return;
-    // Clear any object cache for llms.txt
-    wp_cache_delete('w2agent_llms_txt');
-});
+// The generated text is cached for an hour; any post change clears it.
+function w2agent_site_flush_cache() {
+    delete_transient('w2agent_site_llms_txt');
+}
+
+foreach (['save_post', 'deleted_post', 'trashed_post', 'untrashed_post', 'update_option_blogname', 'update_option_blogdescription'] as $w2agent_site_hook) {
+    add_action($w2agent_site_hook, 'w2agent_site_flush_cache');
+}
 
 // ─── Admin settings page ────────────────────────────────────────
 
 add_action('admin_menu', function() {
     add_options_page(
-        'w2agent Settings',
-        'w2agent',
+        'w2agent Site Settings',
+        'w2agent Site',
         'manage_options',
-        'w2agent',
-        'w2agent_settings_page'
+        'w2agent-site',
+        'w2agent_site_settings_page'
     );
 });
 
-function w2agent_settings_page() {
-    $site_url = home_url();
+function w2agent_site_settings_page() {
+    if (!current_user_can('manage_options')) return;
     ?>
     <div class="wrap">
         <h1>w2agent — AI Readiness</h1>
@@ -164,22 +255,28 @@ function w2agent_settings_page() {
 
         <h2>Active Endpoints</h2>
         <table class="widefat" style="max-width: 600px;">
-            <tr><td><strong>/llms.txt</strong></td><td><a href="<?php echo $site_url; ?>/llms.txt" target="_blank">View</a></td><td>Generated from posts &amp; pages</td></tr>
-            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo $site_url; ?>/.well-known/agent-card.json" target="_blank">View</a></td><td>Served from data/agent-card.json, if present</td></tr>
-            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo $site_url; ?>/robots.txt" target="_blank">View</a></td><td>AI bot rules merged</td></tr>
+            <tr><td><strong>/llms.txt</strong></td><td><a href="<?php echo esc_url(home_url('/llms.txt')); ?>" target="_blank">View</a></td><td>Published, public posts &amp; pages</td></tr>
+            <?php if (w2agent_site_serves_data_files() && file_exists(W2AGENT_SITE_DATA_DIR . 'llms-full.txt')) : ?>
+            <tr><td><strong>/llms-full.txt</strong></td><td><a href="<?php echo esc_url(home_url('/llms-full.txt')); ?>" target="_blank">View</a></td><td>Served from data/llms-full.txt (crawl snapshot)</td></tr>
+            <?php endif; ?>
+            <?php if (w2agent_site_serves_data_files() && file_exists(W2AGENT_SITE_DATA_DIR . 'agent-card.json')) : ?>
+            <tr><td><strong>/.well-known/agent-card.json</strong></td><td><a href="<?php echo esc_url(home_url('/.well-known/agent-card.json')); ?>" target="_blank">View</a></td><td>Served from data/agent-card.json</td></tr>
+            <?php endif; ?>
+            <tr><td><strong>robots.txt</strong></td><td><a href="<?php echo esc_url(home_url('/robots.txt')); ?>" target="_blank">View</a></td><td>AI bot rules merged<?php echo w2agent_site_serves_data_files() ? '' : ' (main site only)'; ?></td></tr>
         </table>
 
         <h2>How It Works</h2>
         <ul>
-            <li><code>/llms.txt</code> is generated dynamically from your published posts and pages</li>
+            <li><code>/llms.txt</code> is generated from your published, public pages, posts, and searchable custom post types; password-protected and non-public items are left out. The <code>w2agent_site_include_post</code> filter can drop further items</li>
+            <li>The result is cached for up to one hour and cleared when you publish, edit, trash, or delete a post or change the site title or tagline</li>
+            <li><code>/llms-full.txt</code> is the crawl snapshot in <code>data/llms-full.txt</code> from the last <code>w2agent integrate</code> run (re-run it to refresh); it is never built from post content</li>
             <li><code>agent-card.json</code> is served only if <code>data/agent-card.json</code> exists (generate it with <code>--a2a-endpoint</code> when your site runs an A2A agent)</li>
-            <li>Content auto-updates when you publish, edit, or delete posts</li>
-            <li>Static fallback files in <code>data/</code> are used as seed data</li>
+            <li>Files in <code>data/</code> are crawl-time seeds: <code>llms.txt</code> is served only while the site has no published content</li>
         </ul>
 
         <h2>Re-audit Your Site</h2>
         <p>Run from your terminal to check your AI readiness score:</p>
-        <code style="background: #f1f1f1; padding: 8px 12px; display: inline-block;">npx w2agent audit <?php echo $site_url; ?></code>
+        <code style="background: #f1f1f1; padding: 8px 12px; display: inline-block;">npx w2agent audit <?php echo esc_html(home_url()); ?></code>
     </div>
     <?php
 }
@@ -189,40 +286,56 @@ function w2agent_settings_page() {
 
 ## Quick Install
 
-1. Upload the \`wordpress/\` folder to \`/wp-content/plugins/w2agent/\`
+1. Upload the \`wordpress/\` folder to \`/wp-content/plugins/w2agent-site/\` (\`w2agent integrate --install\` does this for you)
 2. Activate the plugin in **Plugins → Installed Plugins**
 3. Verify: visit \`${siteUrl}/llms.txt\`
 
 ## What It Does
 
-- **\`/llms.txt\`** — **Dynamically generated** from your published posts and pages
+- **\`/llms.txt\`** — **Dynamically generated** from your published, public pages, posts, and searchable custom post types
+- **\`/llms-full.txt\`** — Served from \`data/llms-full.txt\`, the anonymous crawl snapshot from the last \`w2agent integrate\` run (re-run it to refresh). It is never built from post content, so gated content cannot leak; the path 404s when the file is absent
 - **\`/.well-known/agent-card.json\`** — Served from \`data/agent-card.json\` only if present. Generate it with \`w2agent generate ${siteUrl} --format agent-card --a2a-endpoint <url>\` when your site runs an A2A agent
 - **\`<link>\` tag** — Adds AI discovery link to all pages
 - **robots.txt** — Merges AI-friendly bot rules via WordPress filter
-- **Auto-updates** — Content regenerates when you publish, edit, or delete posts
 
 ## How Content Generation Works
 
 The plugin generates llms.txt **dynamically from your WordPress database**:
-- Queries all published posts, pages, and custom post types
-- Groups them by type (Pages, Posts, Products, etc.)
-- Generates the llms.txt format with titles, URLs, and excerpts
-- Caches the result (1 hour) and invalidates on content changes
+- Includes published pages, posts, and public custom post types that WordPress shows in search
+- Leaves out password-protected items and anything not publicly viewable
+- Groups items by type (Pages, Posts, Products, etc.); pages follow their menu order, posts and custom types list the newest first
+- Lists up to 100 pages, 100 posts, and 50 items per custom type
+- Strips tags and shortcodes from excerpts
+- Caches the result per home URL (at most 8 entries in one transient) for up to one hour; saving, trashing, restoring, or deleting any post, or changing the site title or tagline, clears the cache. Direct database edits and changes made through filters or permalink settings show up within the hour
+- Add or remove post types with the \`w2agent_site_post_types\` filter, which receives and returns an array of post type names
+- Drop individual items with the \`w2agent_site_include_post\` filter, which receives \`true\` and the \`WP_Post\` and returns a boolean (membership plugins can use it to hide gated items)
 
 The \`data/\` directory contains **seed files** generated by w2agent as a baseline.
-The plugin prefers dynamic generation but falls back to these static files.
+The plugin serves \`data/llms.txt\` only while the site has no published content to list.
+As soon as there is content, the dynamic output replaces it. \`data/llms-full.txt\` is served as is.
+
+## Multisite and Subdirectory Installs
+
+- The files in \`data/\` describe the site that w2agent crawled. On multisite, only the main site serves them (\`agent-card.json\`, \`robots-rules.txt\`, \`llms-full.txt\`, and the \`llms.txt\` seed). Other sites get dynamic llms.txt only.
+- For a site installed in a subdirectory (for example \`/blog\`), the endpoints are served under that path (\`/blog/llms.txt\`) and the discovery link points there. This needs pretty permalinks (rewrite rules that route through \`index.php\`); \`index.php/llms.txt\` style permalinks are not supported.
+- Limits: with plain permalinks on a server that does not rewrite to \`index.php\`, the request never reaches WordPress, so these paths cannot be served. A subdirectory site cannot serve the origin-root \`robots.txt\` or \`/.well-known/\`; add those at the web-server level.
 
 ## Settings
 
-Go to **Settings → w2agent** to see active endpoints and verify your setup.
+Go to **Settings → w2agent Site** to see active endpoints and verify your setup.
+
+## Using With the Standalone w2agent Plugin
+
+Both plugins can be active: this one lives in \`w2agent-site/\`, the standalone in \`w2agent/\`. This plugin owns the front end (\`/llms.txt\`, the link tag, robots.txt); the standalone plugin keeps its settings page and platform notifications.
 
 ## File Structure
 
 \`\`\`
-w2agent/
+w2agent-site/
   w2agent-plugin.php    ← Main plugin (dynamic generation + serving)
   data/
-    llms.txt            ← Seed content (fallback)
+    llms.txt            ← Seed content (used only while the site has no published content)
+    llms-full.txt       ← Crawl snapshot served at /llms-full.txt (present when generated)
     agent-card.json     ← A2A agent card (only with --a2a-endpoint)
     robots-rules.txt    ← AI bot rules for robots.txt
 \`\`\`
@@ -235,6 +348,9 @@ But since the plugin generates dynamically, you typically don't need to.
 
   files.push(makeFile("wordpress/w2agent-plugin.php", pluginPhp));
   files.push(makeFile("wordpress/data/llms.txt", llmsTxtContent));
+  if (llmsFullContent) {
+    files.push(makeFile("wordpress/data/llms-full.txt", llmsFullContent));
+  }
   if (agentCardContent) {
     files.push(makeFile("wordpress/data/agent-card.json", agentCardContent));
   }

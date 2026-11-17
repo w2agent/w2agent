@@ -592,9 +592,10 @@ describe("Astro checks", () => {
 // ─── Integration File Generation ────────────────────────────────
 
 describe("WordPress integration generation", () => {
-  it("generates 5 files", () => {
+  it("generates 6 files (plugin, 4 data files, INSTALL.md)", () => {
     const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(5);
+    expect(files).toHaveLength(6);
+    expect(files.map((f) => f.filename)).toContain("wordpress/data/llms-full.txt");
   });
 
   it("generates valid PHP plugin", () => {
@@ -603,7 +604,7 @@ describe("WordPress integration generation", () => {
     expect(plugin).toBeDefined();
     expect(plugin?.content).toContain("<?php");
     expect(plugin?.content).toContain("Plugin Name: w2agent");
-    expect(plugin?.content).toContain("w2agent_generate_llms_txt");
+    expect(plugin?.content).toContain("w2agent_site_generate_llms_txt");
     expect(plugin?.content).toContain("template_redirect");
     expect(plugin?.content).toContain("robots_txt");
     expect(plugin?.content).toContain("wp_head");
@@ -613,7 +614,7 @@ describe("WordPress integration generation", () => {
     const files = wordpressAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const plugin = files.find((f) => f.filename === "wordpress/w2agent-plugin.php");
     expect(plugin?.content).toContain("get_posts");
-    expect(plugin?.content).toContain("w2agent_generate_llms_txt");
+    expect(plugin?.content).toContain("w2agent_site_generate_llms_txt");
     expect(plugin?.content).toContain("save_post");
     expect(plugin?.content).toContain("admin_menu");
   });

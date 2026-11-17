@@ -131,7 +131,7 @@ When a platform is detected, additional integration files are generated (omitted
 
 | Platform | Files Generated |
 |----------|----------------|
-| **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt generation, admin page, robots.txt filter, `wordpress/data/` seed files, `wordpress/INSTALL.md` |
+| **WordPress** | `wordpress/w2agent-plugin.php` — PHP plugin with dynamic llms.txt (published, public, non-password items only; cached up to 1 hour), `/llms-full.txt` served from the crawl snapshot `data/llms-full.txt` (refresh by re-running `integrate`; never built from post content), admin page, robots.txt filter, `wordpress/data/` seed files (the `llms.txt` seed is served only while the site has no published content; data files are main site only on multisite), `wordpress/INSTALL.md`. Uses `w2agent_site_*` names and the `w2agent-site/` plugin folder so it can run beside the standalone plugin |
 | **Next.js** | `nextjs/app/llms.txt/route.ts` — ISR route handler, `nextjs/middleware.ts` — content negotiation (`--install` writes `proxy.ts` on Next.js 16), `nextjs/w2agent-build.mjs` — build script, run as `prebuild`, `nextjs/INSTALL.md` |
 | **Nuxt** | `nuxt/server/routes/{llms.txt,llms-full.txt,index.md}.ts` — Nitro server routes, `nuxt/server/middleware/content-negotiation.ts`, `nuxt/modules/w2agent.ts` — bundles the seed files into the server build, `nuxt/public/{llms.txt,llms-full.txt}` seeds, `nuxt/w2agent-build.mjs` — build script, run as `prebuild`, `nuxt/INSTALL.md` |
 | **Astro** | `astro/public/llms.txt` — static file, `astro/public/.well-known/agent-card.json`, `astro/src/pages/llms.txt.ts` and `astro/src/pages/.well-known/agent-card.json.ts` — SSR endpoints, `astro/w2agent-integration.mjs`, `astro/w2agent-build.mjs`, `astro/INSTALL.md` |
@@ -193,7 +193,7 @@ Each platform has a dedicated install resolver that detects your project layout 
 - **Nuxt** — detects Nuxt 2 vs 3, existing server routes and middleware
 - **Astro** — detects static vs server output mode (an Astro 4 `hybrid` setting counts as server), installs SSR endpoints only when applicable; the emitted endpoints answer 404 when the file is missing
 - **Docusaurus** — detects existing plugin config; adds a `clientModules` post-install step when the WebMCP module is written
-- **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent/`
+- **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent-site/`
 - **Shopify** — detects theme directory, never overwrites existing `robots.txt.liquid`
 
 Behavior:

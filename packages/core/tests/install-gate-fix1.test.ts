@@ -60,7 +60,7 @@ describe("gate fix round 1", () => {
       const plan = resolveWordPressInstall(wpFiles, link);
       const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
       expect(dests.length).toBeGreaterThan(0);
-      expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+      expect(dests.every((d) => d.startsWith("custom/w2agent-site/"))).toBe(true);
     } finally {
       rmSync(real, { recursive: true, force: true });
     }
@@ -85,7 +85,7 @@ describe("gate fix round 1", () => {
     setConfig(`$note = 'define("WP_PLUGIN_DIR", "fake")';`);
     const plan = resolveWordPressInstall(wpFiles, dir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
-    expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent/"))).toBe(true);
+    expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent-site/"))).toBe(true);
   });
 
   it("4: a define for another constant is not read as WP_PLUGIN_DIR", () => {
@@ -93,7 +93,7 @@ describe("gate fix round 1", () => {
     const plan = resolveWordPressInstall(wpFiles, dir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
     expect(dests.length).toBeGreaterThan(0);
-    expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent/"))).toBe(true);
+    expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent-site/"))).toBe(true);
   });
 
   it("5: WP_PLUGIN_DIR '.' means the project root", () => {
@@ -101,7 +101,7 @@ describe("gate fix round 1", () => {
     const plan = resolveWordPressInstall(wpFiles, dir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
     expect(dests.length).toBeGreaterThan(0);
-    expect(dests.every((d) => d.startsWith("w2agent/"))).toBe(true);
+    expect(dests.every((d) => d.startsWith("w2agent-site/"))).toBe(true);
   });
 
   it("6: no clientModules step when the WebMCP module write was guarded out", () => {
@@ -180,7 +180,7 @@ describe("gate fix round 1", () => {
     const plan = resolveWordPressInstall(wpFiles, dir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
     expect(dests.length).toBeGreaterThan(0);
-    expect(dests.every((d) => d.startsWith("plugins/w2agent/"))).toBe(true);
+    expect(dests.every((d) => d.startsWith("plugins/w2agent-site/"))).toBe(true);
   });
 
   it("r2-2: interpolation with a nested quote does not end the string early", () => {
@@ -203,7 +203,7 @@ describe("gate fix round 1", () => {
     const plan = resolveWordPressInstall(wpFiles, dir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
     expect(dests.length).toBeGreaterThan(0);
-    expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+    expect(dests.every((d) => d.startsWith("custom/w2agent-site/"))).toBe(true);
   });
 
   it("r2-2: interpolation without WP_PLUGIN_DIR does not block the install", () => {

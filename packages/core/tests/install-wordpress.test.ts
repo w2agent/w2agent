@@ -34,14 +34,14 @@ describe("WordPress install resolver", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("installs plugin files to wp-content/plugins/w2agent/", () => {
+  it("installs plugin files to wp-content/plugins/w2agent-site/", () => {
     const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
 
-    expect(dests).toContain("wp-content/plugins/w2agent/w2agent-plugin.php");
-    expect(dests).toContain("wp-content/plugins/w2agent/data/llms.txt");
-    expect(dests).toContain("wp-content/plugins/w2agent/data/agent-card.json");
-    expect(dests).toContain("wp-content/plugins/w2agent/data/robots-rules.txt");
+    expect(dests).toContain("wp-content/plugins/w2agent-site/w2agent-plugin.php");
+    expect(dests).toContain("wp-content/plugins/w2agent-site/data/llms.txt");
+    expect(dests).toContain("wp-content/plugins/w2agent-site/data/agent-card.json");
+    expect(dests).toContain("wp-content/plugins/w2agent-site/data/robots-rules.txt");
     expect(plan.postInstallSteps.some((s) => s.includes("Activate"))).toBe(true);
   });
 
@@ -59,9 +59,9 @@ describe("WordPress install resolver", () => {
   });
 
   it("skips when plugin already exists", () => {
-    mkdirSync(join(tempDir, "wp-content", "plugins", "w2agent"), { recursive: true });
+    mkdirSync(join(tempDir, "wp-content", "plugins", "w2agent-site"), { recursive: true });
     writeFileSync(
-      join(tempDir, "wp-content", "plugins", "w2agent", "w2agent-plugin.php"),
+      join(tempDir, "wp-content", "plugins", "w2agent-site", "w2agent-plugin.php"),
       "<?php",
       "utf-8",
     );
@@ -69,6 +69,39 @@ describe("WordPress install resolver", () => {
     const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
     expect(plan.actions.length).toBe(0);
     expect(plan.warnings.some((w) => w.includes("already exists"))).toBe(true);
+  });
+
+  function writeFolderPlugin(folder: string, source: string) {
+    const dir = join(tempDir, "wp-content", "plugins", folder);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "w2agent-plugin.php"), source, "utf-8");
+  }
+
+  it("installs beside the standalone plugin that sits in w2agent/", () => {
+    writeFolderPlugin(
+      "w2agent",
+      "<?php\n/**\n * Plugin Name: w2agent — AI Agent Discoverability\n */\n",
+    );
+    const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests.length).toBeGreaterThan(0);
+    expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent-site/"))).toBe(true);
+    expect(plan.warnings.some((w) => w.includes("older generated"))).toBe(false);
+  });
+
+  it("writes nothing and warns when an older generated plugin sits in w2agent/", () => {
+    for (const marker of [
+      "<?php\ndefine('W2AGENT_PLUGIN_DIR', plugin_dir_path(__FILE__));\n",
+      "<?php\n/**\n * Plugin Name: w2agent — AI Readiness\n */\n",
+    ]) {
+      writeFolderPlugin("w2agent", marker);
+      const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
+      expect(plan.actions).toEqual([]);
+      expect(plan.postInstallSteps).toEqual([]);
+      expect(
+        plan.warnings.some((w) => w.includes("older generated") && w.includes("w2agent/")),
+      ).toBe(true);
+    }
   });
 
   it("skips INSTALL.md", () => {
@@ -88,8 +121,8 @@ describe("WordPress install resolver", () => {
     const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
     const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
 
-    expect(dests[0]).toContain("custom-plugins/w2agent/");
-    expect(dests.every((d) => d.startsWith("custom-plugins/w2agent/"))).toBe(true);
+    expect(dests[0]).toContain("custom-plugins/w2agent-site/");
+    expect(dests.every((d) => d.startsWith("custom-plugins/w2agent-site/"))).toBe(true);
   });
 
   it("suggests activating plugin as post-install step", () => {
@@ -98,9 +131,9 @@ describe("WordPress install resolver", () => {
   });
 
   it("returns no actions when plugin already exists", () => {
-    mkdirSync(join(tempDir, "wp-content", "plugins", "w2agent"), { recursive: true });
+    mkdirSync(join(tempDir, "wp-content", "plugins", "w2agent-site"), { recursive: true });
     writeFileSync(
-      join(tempDir, "wp-content", "plugins", "w2agent", "w2agent-plugin.php"),
+      join(tempDir, "wp-content", "plugins", "w2agent-site", "w2agent-plugin.php"),
       "<?php",
       "utf-8",
     );
@@ -118,7 +151,7 @@ describe("WordPress install resolver", () => {
     function expectDefaultDir(plan: ReturnType<typeof resolveWordPressInstall>) {
       const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
       expect(dests.length).toBeGreaterThan(0);
-      expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent/"))).toBe(true);
+      expect(dests.every((d) => d.startsWith("wp-content/plugins/w2agent-site/"))).toBe(true);
     }
 
     function expectRefused(plan: ReturnType<typeof resolveWordPressInstall>) {
@@ -146,7 +179,7 @@ describe("WordPress install resolver", () => {
       const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
       const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
       expect(dests.length).toBeGreaterThan(0);
-      expect(dests.every((d) => d.startsWith("abs-plugins/w2agent/"))).toBe(true);
+      expect(dests.every((d) => d.startsWith("abs-plugins/w2agent-site/"))).toBe(true);
     });
 
     it("refuses a relative WP_PLUGIN_DIR that escapes the project", () => {
@@ -171,7 +204,7 @@ describe("WordPress install resolver", () => {
       setConfig("define('WP_HOME', 'http://example.test'); define('WP_PLUGIN_DIR', 'custom');");
       const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
       const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
-      expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+      expect(dests.every((d) => d.startsWith("custom/w2agent-site/"))).toBe(true);
     });
 
     it("falls back to the default and warns on an expression value", () => {
@@ -193,7 +226,7 @@ describe("WordPress install resolver", () => {
 
     it("checks for an existing plugin in the resolved custom directory", () => {
       setConfig("define('WP_PLUGIN_DIR', 'custom');");
-      mkdirSync(join(tempDir, "custom", "w2agent"), { recursive: true });
+      mkdirSync(join(tempDir, "custom", "w2agent-site"), { recursive: true });
       const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
       expect(plan.actions).toEqual([]);
       expect(plan.warnings.some((w) => w.includes("already exists"))).toBe(true);
@@ -214,7 +247,7 @@ describe("WordPress install resolver", () => {
       setConfig("const WP_PLUGIN_DIR = 'custom';");
       const plan = resolveWordPressInstall(makeWpFiles(), tempDir);
       const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
-      expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
+      expect(dests.every((d) => d.startsWith("custom/w2agent-site/"))).toBe(true);
     });
 
     it("warns on non-literal const and uppercase DEFINE forms", () => {

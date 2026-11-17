@@ -127,13 +127,14 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 | Scenario | Detection | Action |
 |----------|-----------|--------|
-| Standard WP root | `wp-content/plugins/` exists | Install to `wp-content/plugins/w2agent/` |
+| Standard WP root | `wp-content/plugins/` exists | Install to `wp-content/plugins/w2agent-site/` (the standalone plugin keeps `w2agent/`; both can be active) |
 | Custom plugin dir | `define('WP_PLUGIN_DIR', '<string literal>')` or `const WP_PLUGIN_DIR = '<string literal>';` in wp-config.php (comments, strings, heredocs and inline HTML outside `<?php` ignored; single-quoted strings decode `\\` and `\'`, every other backslash is literal; a backslash in the decoded value is a separator only on Windows, elsewhere the value is unreadable and the default is used with a warning; double-quoted strings with a backslash are not read, text before the first `<?php` is ignored) | Use custom path, resolved through real paths (symlinks, then `..`); an absolute path inside the project is made relative; `'.'` means the project root |
 | Plugin dir outside the project | Absolute path elsewhere, relative path that escapes, a symlink inside the project that leads outside, or a Windows path (drive `C:/`, `C:\`, UNC, drive-relative `C:foo`) on a non-Windows host. On Windows a drive or UNC path is walked from its own root and refused when it leaves the project (not verified on a real Windows host) | No writes; manual step + warning to copy the plugin by hand (for example from `--output`) |
 | Unreadable `WP_PLUGIN_DIR` | Expression, concatenation or constant | Use `wp-content/plugins` + warn |
 | Interpolated strings | A `{$...}` or `${...}` block in a double-quoted string or heredoc (`\{$` and `{\$` are not blocks) that is not a simple variable, property or `'key'` path (only word chars, `$ [ ] - > :` and single-quoted keys without `\ { } "`), and wp-config.php mentions `WP_PLUGIN_DIR` anywhere | No writes; manual step + warning (the value cannot be read reliably). Simple blocks such as `{$_SERVER['HTTP_HOST']}` are trusted and a commented `WP_PLUGIN_DIR` is ignored |
 | Not in WP root | Missing markers | Warn + still write files |
-| Existing plugin | `wp-content/plugins/w2agent/` exists | Skip all + warn to remove old version |
+| Existing plugin | `wp-content/plugins/w2agent-site/` exists | Skip all + warn to remove old version |
+| Older generated plugin | `wp-content/plugins/w2agent/w2agent-plugin.php` contains `W2AGENT_PLUGIN_DIR` or `AI Readiness` (the folder name earlier versions used) | Skip all + warn to remove that older copy first. A standalone plugin in `w2agent/` does not block the install |
 
 ### Shopify (`packages/core/src/adapters/shopify/install.ts`)
 
@@ -163,7 +164,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), INSTALL.md wording (7 tests)
 - `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases (22 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note (14 tests)
-- `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
+- `tests/install-wordpress.test.ts` — WP root, existing plugin, older generated plugin, standalone beside it, `WP_PLUGIN_DIR` forms (24 tests)
 - `tests/install-wordpress-reader.test.ts` — wp-config reader: heredoc labels with high bytes, single-quoted escapes, drive and UNC paths (win32 branch via `path.win32`), interpolation blocks, inline HTML, text before the first open tag (44 tests)
 - `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro prebuild step (12 tests)
 - `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus plugin and clientModules steps, executor `failed`, physical `..` resolution, interpolated-string refusal (19 tests)
