@@ -45,6 +45,15 @@ export function isReason(value: string): value is Reason {
   return Object.hasOwn(REASONS, value);
 }
 
+/** An AuditError's kind maps to the same-named reason; anything else is unknown_failure. */
+export function reasonOfError(err: unknown): Reason {
+  const e = err as { kind?: unknown; name?: unknown } | null;
+  const isAuditError = typeof e === "object" && e !== null && e.name === "AuditError";
+  return isAuditError && typeof e.kind === "string" && isReason(e.kind)
+    ? e.kind
+    : "unknown_failure";
+}
+
 export function currentArgv(): string[] {
   return ["w2agent", ...process.argv.slice(2)];
 }

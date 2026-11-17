@@ -1,16 +1,38 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
 import {
+  classifyHomepage,
+  DEFAULT_GENERATE_OPTIONS,
   executeInstallPlan,
+  fetchPage,
   formatInstallSummary,
   getAdapter,
   type PlatformId,
   planInstall,
   runGenerate,
 } from "w2agent-core";
+import {
+  currentArgv,
+  enterJsonMode,
+  failWith,
+  type JsonMode,
+  jsonRequested,
+  type Reason,
+  reasonOfError,
+  sanitizeNext,
+} from "../agent/output.js";
+import { isPlausibleUrl, parsePositiveInt } from "./audit.js";
+import {
+  applyArgv,
+  dryRunArgv,
+  JS_PLATFORMS,
+  mapPlanChanges,
+  rewriteOrigin,
+  VALID_PLATFORMS,
+} from "./integrate-support.js";
 
 const NPM_PACKAGES: Partial<Record<PlatformId, string>> = {
   nuxt: "@w2agent/nuxt",
@@ -26,6 +48,23 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   nuxt: "Nuxt",
   astro: "Astro",
 };
+
+function projectProblem(
+  projectDir: string,
+  platformId: PlatformId | undefined,
+): string | undefined {
+  if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
+    return `Project directory does not exist: ${projectDir}`;
+  }
+  if (
+    platformId &&
+    JS_PLATFORMS.includes(platformId) &&
+    !existsSync(join(projectDir, "package.json"))
+  ) {
+    return `No package.json in ${projectDir}; ${PLATFORM_NAMES[platformId]} needs a JavaScript project root. Pass --project-dir.`;
+  }
+  return undefined;
+}
 
 export function registerIntegrateCommand(program: Command): void {
   program
@@ -51,32 +90,118 @@ export function registerIntegrateCommand(program: Command): void {
     .option("--install", "Install files directly into your project instead of an output directory")
     .option("--project-dir <dir>", "Project root for --install (default: current directory)", ".")
     .option("--dry-run", "Show what --install would do without writing files")
+    .option(
+      "--site-url <url>",
+      "Production URL to put in generated content when crawling another origin (e.g. localhost)",
+    )
+    .option("--json", "Print one JSON document on stdout (the result, or an error envelope)")
     .action(async (url: string, opts) => {
+      const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
+      const argv = currentArgv();
+      const fail = async (
+        failure: Parameters<typeof failWith>[1],
+        human: string = failure.message,
+      ) => failWith(json, failure, argv, chalk.red(human));
+
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
+      }
+
+      if (!isPlausibleUrl(url)) {
+        await fail({
+          reason: "invalid_url",
+          message: `Invalid URL: "${url}". Please provide a full URL like https://example.com.`,
+        });
+        return;
+      }
+
+      if (opts.platform !== undefined && !VALID_PLATFORMS.includes(opts.platform as PlatformId)) {
+        await fail({
+          reason: "invalid_argument",
+          message: `Unknown platform: ${opts.platform}. Valid options: ${VALID_PLATFORMS.join(", ")}`,
+          next: [["w2agent", "schema"]],
+        });
+        return;
+      }
+
+      for (const [flag, value] of [
+        ["max-pages", opts.maxPages],
+        ["timeout", opts.timeout],
+      ]) {
+        if (parsePositiveInt(value) === undefined) {
+          await fail({
+            reason: "invalid_argument",
+            message: `Invalid --${flag} "${value}". Use a positive integer.`,
+            next: [["w2agent", "schema"]],
+          });
+          return;
+        }
+      }
+
+      let siteOrigin: string | undefined;
+      if (opts.siteUrl !== undefined) {
+        let site: URL | undefined;
+        try {
+          site = new URL(opts.siteUrl);
+        } catch {
+          site = undefined;
+        }
+        if (site && (site.username || site.password)) {
+          await fail({
+            reason: "invalid_url",
+            message: "Invalid --site-url: it must not contain credentials.",
+          });
+          return;
+        }
+        if (!site || !/^https?:$/.test(site.protocol) || !isPlausibleUrl(site.href)) {
+          await fail({
+            reason: "invalid_url",
+            message: `Invalid --site-url "${opts.siteUrl}". Use an absolute http(s) URL like https://example.com.`,
+          });
+          return;
+        }
+        siteOrigin = site.origin;
+      }
+
+      const planning = Boolean(opts.install || opts.dryRun);
+      const projectDir = resolve(opts.projectDir);
+      const forcedPlatform = opts.platform as PlatformId | undefined;
+      if (planning) {
+        const problem = projectProblem(projectDir, forcedPlatform);
+        if (problem) {
+          await fail({ reason: "not_a_project", message: problem });
+          return;
+        }
       }
 
       const allowedOffOriginHosts: string[] | undefined =
         Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
 
-      const spinner = ora("Starting integration generation...").start();
+      const timeout = parsePositiveInt(opts.timeout) as number;
+      const spinner = json ? undefined : ora("Starting integration generation...").start();
 
       try {
         const result = await runGenerate(
           url,
           {
-            maxPages: parseInt(opts.maxPages, 10),
-            timeout: parseInt(opts.timeout, 10),
+            maxPages: parsePositiveInt(opts.maxPages) as number,
+            timeout,
             formats: ["llms-txt", "full", "robots-txt", "agent-card", "webmcp"],
             a2aEndpoint: opts.a2aEndpoint,
             ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
           },
           (status) => {
-            spinner.text = status;
+            if (spinner) spinner.text = status;
           },
         );
 
-        spinner.stop();
+        spinner?.stop();
+
+        // The crawler reports an unusable site as zero pages rather than throwing.
+        if (result.pagesProcessed === 0) {
+          await fail(await classifyEmptyCrawl(url, timeout));
+          return;
+        }
 
         if (!opts.a2aEndpoint) {
           console.log(
@@ -86,31 +211,18 @@ export function registerIntegrateCommand(program: Command): void {
           );
         }
 
-        // Determine platform
-        const validPlatforms: PlatformId[] = [
-          "wordpress",
-          "nextjs",
-          "shopify",
-          "docusaurus",
-          "nuxt",
-          "astro",
-        ];
-        let platformId: PlatformId | undefined;
-        if (opts.platform) {
-          if (!validPlatforms.includes(opts.platform as PlatformId)) {
-            console.error(
-              chalk.red(
-                `Unknown platform: ${opts.platform}. Valid options: ${validPlatforms.join(", ")}`,
-              ),
-            );
-            process.exit(1);
-          }
-          platformId = opts.platform as PlatformId;
-        } else if (result.platform) {
-          platformId = result.platform.platform as PlatformId;
-        }
+        const platformId: PlatformId | undefined =
+          forcedPlatform ?? (result.platform?.platform as PlatformId | undefined);
 
         if (!platformId) {
+          if (json) {
+            await fail({
+              reason: "no_platform_detected",
+              message: "Could not auto-detect the platform. Pass --platform.",
+              next: VALID_PLATFORMS.map((id) => [...argv, "--platform", id]),
+            });
+            return;
+          }
           console.log("");
           console.log(chalk.yellow("  Could not auto-detect platform."));
           console.log("");
@@ -120,21 +232,35 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform shopify`)}`);
           console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform docusaurus`)}`);
           console.log("");
+          if (opts.dryRun) {
+            console.log(chalk.gray("  Dry run: nothing was written."));
+            return;
+          }
           console.log(chalk.gray("  Core files were still generated in the output directory."));
 
           const outputDir = resolve(opts.output);
-          for (const file of result.files) {
+          const siteFiles = siteOrigin ? rewriteOrigin(result.files, url, siteOrigin) : undefined;
+          for (const file of siteFiles?.files ?? result.files) {
             const filePath = resolve(outputDir, file.filename);
             mkdirSync(dirname(filePath), { recursive: true });
             writeFileSync(filePath, file.content, "utf-8");
           }
+          for (const w of siteFiles?.warnings ?? []) console.error(chalk.yellow(`  ! ${w}`));
           return;
         }
 
         const adapter = getAdapter(platformId);
         if (!adapter) {
-          console.error(chalk.red(`Unknown platform: ${platformId}`));
-          process.exit(1);
+          await fail({ reason: "invalid_argument", message: `Unknown platform: ${platformId}` });
+          return;
+        }
+
+        if (planning && !forcedPlatform) {
+          const problem = projectProblem(projectDir, platformId);
+          if (problem) {
+            await fail({ reason: "not_a_project", message: problem });
+            return;
+          }
         }
 
         // If platform was forced (not auto-detected), generate integration files manually
@@ -142,27 +268,48 @@ export function registerIntegrateCommand(program: Command): void {
           f.filename.startsWith(`${platformId}/`),
         );
 
+        const baseUrl = siteOrigin ?? new URL(url).origin;
         if (integrationFiles.length === 0) {
           const ctx = {
             pages: [],
             rawPages: [],
-            metadata: { baseUrl: new URL(url).origin, wellKnown: {} },
-            baseUrl: new URL(url).origin,
+            metadata: { baseUrl, wellKnown: {} },
+            baseUrl,
           };
           const coreFiles = result.files;
           const generated = adapter.generateIntegration(ctx, coreFiles);
           result.files.push(...generated);
         }
 
+        const warnings: string[] = [];
+        if (siteOrigin) {
+          const rewritten = rewriteOrigin(result.files, url, siteOrigin);
+          result.files = rewritten.files;
+          warnings.push(...rewritten.warnings);
+          if (!json) for (const w of warnings) console.error(chalk.yellow(`  ! ${w}`));
+        }
+
         const platformFiles = result.files.filter((f) => f.filename.startsWith(`${platformId}/`));
         const platformName = PLATFORM_NAMES[platformId] || platformId;
 
-        if (opts.install || opts.dryRun) {
-          const projectDir = resolve(opts.projectDir);
+        if (planning) {
           const plan = planInstall(adapter, result.files, projectDir);
+          const changes = mapPlanChanges(plan, projectDir);
 
           if (opts.dryRun) {
             // Dry run: simulate result without writing
+            if (json) {
+              await json.emit({
+                ok: true,
+                outcome: "planned",
+                platform: platformId,
+                changes,
+                warnings: [...plan.warnings, ...warnings],
+                postInstallSteps: plan.postInstallSteps,
+                next: sanitizeNext([applyArgv(argv)], argv),
+              });
+              return;
+            }
             const simulated = simulatePlan(plan);
             const summary = formatInstallSummary(
               plan,
@@ -175,6 +322,18 @@ export function registerIntegrateCommand(program: Command): void {
             console.log(summary);
           } else {
             const execResult = executeInstallPlan(plan, projectDir);
+            if (json) {
+              await json.emit({
+                ok: true,
+                outcome: "installed",
+                platform: platformId,
+                changes,
+                warnings: [...plan.warnings, ...warnings],
+                postInstallSteps: plan.postInstallSteps,
+                next: sanitizeNext([["w2agent", "audit", siteOrigin ?? url, "--json"]], argv),
+              });
+              return;
+            }
             const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
           }
@@ -185,6 +344,19 @@ export function registerIntegrateCommand(program: Command): void {
             const filePath = resolve(outputDir, file.filename);
             mkdirSync(dirname(filePath), { recursive: true });
             writeFileSync(filePath, file.content, "utf-8");
+          }
+
+          if (json) {
+            await json.emit({
+              ok: true,
+              outcome: "generated",
+              platform: platformId,
+              outputDir,
+              files: result.files.map((f) => f.filename),
+              warnings,
+              next: sanitizeNext([dryRunArgv(argv)], argv),
+            });
+            return;
           }
 
           console.log("");
@@ -221,7 +393,10 @@ export function registerIntegrateCommand(program: Command): void {
               `  Tip: Use ${chalk.cyan("--install")} to copy files directly into your project:`,
             ),
           );
-          console.log(chalk.gray(`    ${chalk.cyan(`w2agent integrate ${url} --install`)}`));
+          const siteFlag = siteOrigin ? ` --site-url ${siteOrigin}` : "";
+          console.log(
+            chalk.gray(`    ${chalk.cyan(`w2agent integrate ${url}${siteFlag} --install`)}`),
+          );
           console.log("");
 
           const installFile = platformFiles.find((f) => f.filename.endsWith("INSTALL.md"));
@@ -231,10 +406,32 @@ export function registerIntegrateCommand(program: Command): void {
           }
         }
       } catch (err) {
-        spinner.fail(`Integration generation failed: ${(err as Error).message}`);
-        process.exit(1);
+        const message = (err as Error).message;
+        spinner?.fail(`Integration generation failed: ${message}`);
+        if (json) {
+          await failWith(json, { reason: reasonOfError(err), message }, argv);
+        } else {
+          process.exitCode = 1;
+        }
       }
     });
+}
+
+async function classifyEmptyCrawl(
+  url: string,
+  timeout: number,
+): Promise<{ reason: Reason; message: string }> {
+  const page = await fetchPage(url, {
+    timeout,
+    userAgent: DEFAULT_GENERATE_OPTIONS.userAgent,
+  });
+  const failure = classifyHomepage(page, url);
+  if (failure) return { reason: reasonOfError(failure), message: failure.message };
+  const status = page.status > 0 ? ` (HTTP ${page.status})` : "";
+  return {
+    reason: "unknown_failure",
+    message: `No readable pages were found at ${url}${status}.`,
+  };
 }
 
 function simulatePlan(plan: ReturnType<typeof planInstall>) {
