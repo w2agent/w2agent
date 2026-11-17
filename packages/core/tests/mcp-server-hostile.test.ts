@@ -357,7 +357,8 @@ describe("hostile crawl data: Cloudflare worker", () => {
     expect(advertised).toEqual(expect.arrayContaining(EXPECTED_TOOLS));
     expect(new Set(advertised).size).toBe(advertised.length);
     const listPages2 = tools.find((t) => t.name === "list-pages-2");
-    expect(Object.hasOwn(listPages2?.inputSchema.properties, "__proto__")).toBe(true);
+    expect(Object.hasOwn(listPages2?.inputSchema.properties, "__proto___query")).toBe(true);
+    expect(Object.hasOwn(listPages2?.inputSchema.properties, "__proto__")).toBe(false);
     expect((globalThis as any).__INJECTED).toBeUndefined();
   });
 

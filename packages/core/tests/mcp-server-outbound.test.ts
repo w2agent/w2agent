@@ -30,6 +30,8 @@ const CALL_DEADLINE_MS = 6000;
 type Variant = "express" | "cf" | "vercel";
 const VARIANTS: Variant[] = ["express", "cf", "vercel"];
 
+const BAD_PATHS = ["/files/{a}#x", "/files\\{a}", "/files/{a}\t", "/files/{a}?q", "/files/{a}\n"];
+
 const op = (operationId: string, path: string, method = "get", withBody = false) => ({
   path,
   method,
@@ -88,6 +90,20 @@ function buildCtx(): GenerateContext {
           op("endlessGet", "/endless"),
           op("stallGet", "/stall"),
           op("redirSelf", "/redirectSelf"),
+          op("exactCap", "/exactcap"),
+          {
+            path: "/dup/proto",
+            method: "post",
+            operationId: "protoBody",
+            summary: "proto-body",
+            parameters: [],
+            requestBody: {
+              contentType: "application/json",
+              required: false,
+              properties: JSON.parse('{"__proto__":{"type":"string"}}'),
+            },
+          },
+          ...BAD_PATHS.map((path, i) => op(`badPath${i}`, path)),
           {
             path: "/items/{id}",
             method: "get",
@@ -182,6 +198,9 @@ function handleA(req: IncomingMessage, res: ServerResponse) {
   } else if (path.startsWith("/redirect307")) {
     res.writeHead(307, { Location: `http://127.0.0.1:${portB}/landed307` });
     res.end();
+  } else if (path.startsWith("/exactcap")) {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.write(Buffer.alloc(MAX_BYTES, 0x61));
   } else if (path.startsWith("/endless")) {
     endlessWritten = 0;
     let open = true;
@@ -545,6 +564,24 @@ describe.each(VARIANTS)("outbound fetch: %s", (variant) => {
     });
   });
 
+  describe("body of exactly the cap", () => {
+    it("returns the bounded response without waiting for more bytes", async () => {
+      const r = await callTool(rpc, "exact-cap");
+      expect(r.isError).toBe(false);
+      expect(r.text).toContain("Status: 200");
+      expect(r.text).toContain("truncated");
+      expect(r.ms).toBeLessThan(SHRUNK_TIMEOUT_MS * 0.8);
+    });
+  });
+
+  describe("a __proto__ body property (input key is suffixed, wire name is not)", () => {
+    it("is sent as an own JSON key", async () => {
+      const r = await callTool(rpc, "proto-body", { __proto___body: "B" });
+      expect(r.isError).toBe(false);
+      expect(bodiesA).toEqual(['{"__proto__":"B"}']);
+    });
+  });
+
   describe("one deadline covers the body read", () => {
     const cases: Array<{ label: string; tool: () => string; args?: object }> = [
       { label: "OpenAPI tool", tool: () => "stall-get" },
@@ -570,6 +607,29 @@ describe("generated Express server type-checks with same-name params", () => {
       },
     );
   }, 60000);
+});
+
+describe("endpoint paths the URL parser would rewrite", () => {
+  it.each(BAD_PATHS)("generation drops %j", (path) => {
+    const files = generateMcpServer(buildCtx());
+    const server = files.find((f) => f.filename.endsWith("server.ts"))?.content ?? "";
+    const i = BAD_PATHS.indexOf(path);
+    expect(server).not.toContain(`bad-path${i}`);
+    expect(server).toContain("exact-cap");
+  });
+
+  it.each(BAD_PATHS)("runtime assertSafePath rejects a resolved dot segment in %j", async (tpl) => {
+    const js = ts.transpileModule(`${OUTBOUND_HELPER_SOURCE}\nexport { assertSafePath };`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText;
+    const { assertSafePath } = await import(
+      /* @vite-ignore */ `data:text/javascript,${encodeURIComponent(js)}`
+    );
+    expect(() => assertSafePath(tpl.replace("{a}", encodeURIComponent("..")))).toThrow(
+      /path segment/,
+    );
+    expect(() => assertSafePath(tpl.replace("{a}", "abc"))).not.toThrow();
+  });
 });
 
 describe("static guard", () => {

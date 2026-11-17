@@ -99,6 +99,12 @@ const BUILTIN_TOOL_NAMES = [
 // able to rewrite the authority ("@host", ".evil.test", "{id}" at the start).
 function isEndpointOnOrigin(serverUrl: string, path: string): boolean {
   if (typeof path !== "string" || !path.startsWith("/")) return false;
+  // "#", "?", "\\" and control/whitespace chars are rewritten or dropped by the URL parser,
+  // which would hide a dot segment from the runtime path check.
+  for (const ch of path) {
+    const code = ch.charCodeAt(0);
+    if (ch === "#" || ch === "?" || ch === "\\" || code <= 0x20 || code === 0x7f) return false;
+  }
   try {
     return new URL(serverUrl + path).origin === new URL(serverUrl).origin;
   } catch {
@@ -453,7 +459,7 @@ function allocateInputKeys(ep: OpenAPIEndpoint): AllocatedInputs {
   ];
   const claimed = new Set<string>();
   for (const e of entries) {
-    if (!claimed.has(e.name)) {
+    if (!claimed.has(e.name) && !(e.name in Object.prototype)) {
       claimed.add(e.name);
       e.item.key = e.name;
     }
@@ -535,7 +541,7 @@ function generateOpenapiToolHandlers(
 
     let initExpr: string;
     if (bodyProps.length > 0) {
-      lines.push(`    const _body: Record<string, unknown> = {};`);
+      lines.push(`    const _body: Record<string, unknown> = Object.create(null);`);
       for (const { name, key } of bodyProps) {
         const access = `params[${JSON.stringify(key)}]`;
         lines.push(`    if (${access} !== undefined) _body[${JSON.stringify(name)}] = ${access};`);
@@ -565,7 +571,11 @@ export const OUTBOUND_HELPER_SOURCE = String.raw`const OUTBOUND_TIMEOUT_MS = 100
 const OUTBOUND_MAX_BYTES = 1048576;
 
 function assertSafePath(path: string): void {
-  const segments = path.split("?")[0].split("/");
+  const segments = path
+    .replace(/[\t\r\n]/g, "")
+    .replace(/\\/g, "/")
+    .split(/[?#]/)[0]
+    .split("/");
   if (segments.some((s) => /^(?:\.|%2e){1,2}$/i.test(s))) {
     throw new Error("Refusing to fetch: a path segment resolved to . or ..");
   }
@@ -598,7 +608,7 @@ async function outboundFetch(url: string, init: RequestInit, maxChars: number): 
         const { done, value } = await reader.read();
         if (done) break;
         const room = OUTBOUND_MAX_BYTES - total;
-        if (value.byteLength > room) {
+        if (value.byteLength >= room) {
           text += decoder.decode(value.subarray(0, room));
           truncated = true;
           break;
@@ -1663,7 +1673,9 @@ ${
                 const bodyLines: string[] = [];
                 let fetchExtra: string;
                 if (bodyProps.length > 0) {
-                  bodyLines.push(`          const _body: Record<string, unknown> = {};`);
+                  bodyLines.push(
+                    `          const _body: Record<string, unknown> = Object.create(null);`,
+                  );
                   for (const { name, key } of bodyProps) {
                     bodyLines.push(
                       `          if (args[${JSON.stringify(key)}] !== undefined) _body[${JSON.stringify(name)}] = args[${JSON.stringify(key)}];`,
