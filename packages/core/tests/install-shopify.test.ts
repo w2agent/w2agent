@@ -82,6 +82,12 @@ describe("Shopify install resolver", () => {
     );
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toContain("merge");
-    expect(plan.postInstallSteps.some((s) => s.includes("Merge"))).toBe(true);
+    expect(
+      plan.postInstallSteps.some(
+        (s) =>
+          s.includes("robots-txt-additions.txt") &&
+          s.includes("after the robots.default_groups loop"),
+      ),
+    ).toBe(true);
   });
 });

@@ -691,9 +691,9 @@ describe("Next.js integration generation", () => {
 });
 
 describe("Shopify integration generation", () => {
-  it("generates 5 files", () => {
+  it("generates 3 files without a robots template", () => {
     const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(5);
+    expect(files).toHaveLength(3);
   });
 
   it("generates Liquid snippet with dynamic product data", () => {
@@ -705,12 +705,16 @@ describe("Shopify integration generation", () => {
     expect(snippet?.content).toContain("product.available");
   });
 
-  it("generates robots.txt.liquid template", () => {
+  it("generates robots.txt.liquid only when the crawled robots.txt blocks AI agents via *", () => {
     const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    const robots = files.find((f) => f.filename === "shopify/templates/robots.txt.liquid");
-    expect(robots).toBeDefined();
-    expect(robots?.content).toContain("{{ shop.url }}");
-    expect(robots?.content).toContain("Disallow: /checkout");
+    expect(files.some((f) => f.filename.endsWith("robots.txt.liquid"))).toBe(false);
+
+    const ctx = makeCtx();
+    ctx.metadata = { ...ctx.metadata, robotsTxt: "User-agent: *\nDisallow: /\n" };
+    const blocked = shopifyAdapter.generateIntegration(ctx, makeCoreFiles());
+    const robots = blocked.find((f) => f.filename === "shopify/templates/robots.txt.liquid");
+    expect(robots?.content).toContain("robots.default_groups");
+    expect(robots?.content).not.toContain("Disallow: /checkout");
   });
 });
 

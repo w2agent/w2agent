@@ -82,7 +82,7 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
     hasWrittenCopy(guarded.actions, "data/robots-txt-additions.txt")
   ) {
     postInstallSteps.push(
-      "Merge w2agent rules from data/robots-txt-additions.txt into your existing templates/robots.txt.liquid.",
+      "Paste the groups from data/robots-txt-additions.txt into your existing templates/robots.txt.liquid, after the robots.default_groups loop.",
     );
   }
 

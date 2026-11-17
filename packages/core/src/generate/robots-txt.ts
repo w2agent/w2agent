@@ -34,6 +34,16 @@ export function generateRobotsAdditions(ctx: GenerateContext): string {
   return additions.length === 0 ? "" : `${additions.join("\n")}\n`;
 }
 
+/**
+ * The Allow groups w2agent would add to an existing robots.txt (one line array per group),
+ * for AI agents the `*` group blocks and no User-agent line names. Never reverses a block the
+ * owner wrote for a named agent. `[]` when there is no robots.txt or nothing to add.
+ */
+export function robotsAllowGroups(robotsTxt: string | undefined, baseUrl: string): string[][] {
+  if (!robotsTxt) return [];
+  return planRobotsAccessFix(robotsTxt, baseUrl, { namedBlocks: "keep" })?.groups ?? [];
+}
+
 function hasSitemap(sitemapXml: string | undefined): boolean {
   return !!sitemapXml && (sitemapXml.includes("<urlset") || sitemapXml.includes("<sitemapindex"));
 }
@@ -54,9 +64,8 @@ function planAdditions(ctx: GenerateContext): string[] {
 
   const content = existing.toLowerCase();
   const additions: string[] = [];
-  const fix = planRobotsAccessFix(existing, baseUrl, { namedBlocks: "keep" });
 
-  for (const group of fix?.groups ?? []) {
+  for (const group of robotsAllowGroups(existing, baseUrl)) {
     additions.push(...group, "");
   }
   if (found && !content.includes("sitemap:")) additions.push(sitemapLine);

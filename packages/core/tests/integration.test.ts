@@ -664,7 +664,16 @@ describe("integration: Shopify", () => {
 
   beforeAll(() => {
     const result = loadFixture("shopify", "shopify-theme");
-    files = result.files;
+    files = [
+      ...result.files,
+      ...getAdapter("shopify")!.generateIntegration(
+        {
+          ...makeCtx(),
+          metadata: { ...baseMeta, robotsTxt: "User-agent: *\nDisallow: /\n" },
+        },
+        makeCoreFiles(),
+      ),
+    ];
   });
 
   it("generates expected files", () => {
@@ -689,13 +698,12 @@ describe("integration: Shopify", () => {
     expect(head.content).toContain("product.price");
   });
 
-  it("robots.txt template allows AI-relevant paths", () => {
+  it("robots.txt template keeps Shopify defaults and allows AI agents blocked by *", () => {
     const robots = files.find((f) => f.filename.includes("robots.txt.liquid"))!;
-    expect(robots.content).toContain("Allow: /pages/llms-txt");
-    expect(robots.content).toContain("Allow: /collections");
-    expect(robots.content).toContain("Allow: /products");
-    expect(robots.content).toContain("Disallow: /admin");
-    expect(robots.content).toContain("Disallow: /checkout");
+    expect(robots.content).toContain("robots.default_groups");
+    expect(robots.content).toContain("User-agent: ChatGPT-User");
+    expect(robots.content).toContain("Allow: /");
+    expect(robots.content).not.toContain("Sitemap:");
   });
 
   it("generated Liquid templates have valid syntax", () => {

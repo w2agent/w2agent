@@ -1,4 +1,5 @@
 import type { FetchedPage } from "../../audit/types.js";
+import { robotsAllowGroups } from "../../generate/robots-txt.js";
 import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { shopifyChecks } from "./checks.js";
@@ -51,14 +52,9 @@ export const shopifyAdapter: PlatformAdapter = {
 
   generateIntegration(ctx: GenerateContext, coreFiles: GeneratedFile[]): GeneratedFile[] {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
-    const robotsTxt = coreFiles.find((f) => f.filename === "robots.txt")?.content || "";
+    const robotsGroups = robotsAllowGroups(ctx.metadata.robotsTxt, ctx.baseUrl);
 
-    const robotsAdditions = robotsTxt
-      .split("\n")
-      .filter((line) => line.trim() && !line.startsWith("Sitemap:"))
-      .join("\n");
-
-    const files = generateShopifyIntegration(llmsTxt, robotsAdditions, ctx.baseUrl);
+    const files = generateShopifyIntegration(llmsTxt, robotsGroups, ctx.baseUrl);
 
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookInstructions = `# Shopify MCP Webhook Integration
