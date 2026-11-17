@@ -37,9 +37,9 @@ Examples below write `w2agent`. Substitute your runner for it. `next` arrays in 
 4. Plan: `w2agent integrate <local url> --dry-run --json --project-dir <site dir> --site-url <production origin>`. Always pass `--project-dir`. This writes nothing.
 5. Print the plan for the user: `changes`, `warnings`, `postInstallSteps`. Then get [approval](#approval).
 6. Apply: run the argv in `next[0]` (it is the same command with `--install`).
-7. Before you add the `postbuild` step, read the generated build script (for Next.js, `w2agent-build.mjs`). It runs `w2agent` through npx. Run `npm view w2agent@0.1.0 version`.
+7. Before you do the `postInstallSteps`, find the step that wires a generated build script into the site's build: for Next.js the `postbuild` script that runs `w2agent-build.mjs`, for Astro the `integrations` entry for `w2agent-integration.mjs`. That script runs `w2agent` through npx. Run `npm view w2agent@0.1.0 version`.
    - If it succeeds: edit that generated script (a file w2agent just created, not a user file) so the call is pinned, for example `["-y", "w2agent@0.1.0", "generate", ...]`. Then do the `postInstallSteps`, rebuild and restart the local server.
-   - If npm answers 404: do not add the `postbuild` step. The files `integrate` wrote already serve. Report it as a skipped postInstallStep and say why.
+   - If npm answers 404: skip that wiring step (the `postbuild` script or the Astro `integrations` entry) and do the other steps, then rebuild and restart the local server. The files `integrate` wrote already serve. Report it as a skipped postInstallStep and say why.
    - Never point a committed hook at a local checkout path. This applies to every platform: a generated call to `w2agent` through npx is pinned or not wired in.
 8. Verify: run the `next` argv from the installed document (`audit <local url> --json`). Compare with the baseline.
 9. Close remaining gaps (see [Closing gaps](#closing-gaps)). Re-audit after each batch.
@@ -49,7 +49,7 @@ Examples below write `w2agent`. Substitute your runner for it. `next` arrays in 
 
 - If you can pause and ask, show the plan and wait for a yes.
 - If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready counts as approval for the plan exactly as shown, with its `changes` and `postInstallSteps`. Still print the plan first. Anything outside the plan needs explicit approval. Put it in the final report instead of doing it.
-- Exception: a `modify` replaces the whole file. If any `modify` targets a file that a previous w2agent run did not create, the request is not approval. Ask the owner before you apply. In a non-interactive run, do not apply: stop after the dry run and report those paths.
+- Exception: a `modify` replaces the whole file. If any `modify` targets a file that a previous w2agent run did not create, the request is not approval. If you cannot tell who created a file, treat it as the owner's. Ask the owner before you apply. In a non-interactive run, do not apply: stop after the dry run and report those paths.
 
 ### Production origin
 
