@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { main } from "../score.mjs";
-import { finalizeOutputs } from "../scorer-vm.mjs";
+import { evalFiles, finalizeOutputs } from "../scorer-vm.mjs";
 
 const TOKEN = "tok-abcdefghijklmnopqrstuvwxyz0123456789";
 const LOGIN = { claudeAiOauth: { accessToken: TOKEN, refreshToken: "refresh-abcdefghijklmnop" } };
@@ -176,8 +183,9 @@ test("only result.json, summary.md and audit.json are copied out, redacted", asy
     assert.ok(!readFileSync(path.join(r.runDir, f), "utf8").includes(TOKEN), f);
   const res = JSON.parse(readFileSync(path.join(r.runDir, "result.json"), "utf8"));
   assert.deepEqual(res.redaction, {
+    patterns: true,
+    exact: "1 staged values",
     redactions: { "result.json": 1, "summary.md": 1, "audit.json": 1 },
-    secrets: 1,
   });
   assert.equal(res.scorer.cliRef.length, 40);
   assert.equal(res.scorer.inVm, true);
@@ -191,7 +199,7 @@ test("unreadable host login: outputs are still written and the skip is recorded"
   };
   await main(["--run", r.runDir], r.deps);
   const res = JSON.parse(readFileSync(path.join(r.runDir, "result.json"), "utf8"));
-  assert.equal(res.redaction, "skipped: no login");
+  assert.equal(res.redaction.exact, "unavailable: no login");
 });
 
 test("a site that failed before the audit has no audit.json and still scores", async () => {
@@ -264,7 +272,7 @@ test("--baseline scores on a fresh volume, reads from it, and deletes both", asy
     ["w2a-eval-ffff0000-score", "w2a-eval-ffff0000-work"],
   );
   const res = JSON.parse(readFileSync(path.join(out, "result.json"), "utf8"));
-  assert.match(res.redaction, /not needed/);
+  assert.match(res.redaction.exact, /not needed/);
   assert.ok(!names(r).includes("readLogin"));
 });
 
@@ -319,4 +327,141 @@ test("finalizeOutputs redacts every file, counts, and rejects a non-JSON result"
       ),
     /not valid JSON/,
   );
+});
+
+const ROTATED = `sk-ant-oat01-${"Z".repeat(40)}`;
+const JWT = `eyJ${"a".repeat(12)}.${"b".repeat(12)}.${"c".repeat(12)}`;
+
+test("rotated Anthropic tokens and JWTs are redacted with no exact match, in outputs and errors", async () => {
+  const r = rig({
+    files: {
+      "result.json": Buffer.from(JSON.stringify({ site: { tail: ROTATED } })),
+      "summary.md": Buffer.from(`jwt ${JWT}\n`),
+    },
+  });
+  r.deps.credentials.readClaudeLogin = () => {
+    throw new Error("no login");
+  };
+  await main(["--run", r.runDir], r.deps);
+  for (const f of ["result.json", "summary.md"]) {
+    const t = readFileSync(path.join(r.runDir, f), "utf8");
+    assert.ok(!t.includes(ROTATED) && !t.includes(JWT), f);
+  }
+  const res = JSON.parse(readFileSync(path.join(r.runDir, "result.json"), "utf8"));
+  assert.equal(res.redaction.exact, "unavailable: no login");
+  assert.equal(res.redaction.redactions["result.json"], 1);
+
+  const e = rig({
+    guestExit: (argv) => (argv.includes("--in-sandbox") ? 2 : 0),
+  });
+  const orig = e.deps.spawner;
+  e.deps.spawner = (c, a) => {
+    const ch = orig(c, a);
+    ch.stderr.write(`leak ${ROTATED} ${JWT}`);
+    return ch;
+  };
+  await assert.rejects(main(["--run", e.runDir], e.deps), (err) => {
+    assert.ok(!err.message.includes(ROTATED) && !err.message.includes(JWT));
+    assert.match(err.message, /REDACTED/);
+    return true;
+  });
+});
+
+test("VM lifetimes follow the timeouts: scorer sleep covers its deadline", async () => {
+  const r = rig();
+  const starts = [];
+  r.sandbox.startVm = (o) => starts.push(o);
+  await main(["--run", r.runDir, "--timeout", "180"], r.deps);
+  const { vmSeconds } = await import("../sandbox.mjs");
+  assert.equal(starts[0].seconds, vmSeconds(3 * 180 * 60_000 + 20 * 60_000));
+  assert.ok(starts[0].seconds > (3 * 180 + 20) * 60);
+});
+
+test("agent VM sleep exceeds --timeout (dry-run plan)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const out = mkdtempSync(path.join(tmpdir(), "w2agent-life-"));
+  const x = spawnSync(
+    process.execPath,
+    [
+      new URL("../run.mjs", import.meta.url).pathname,
+      "--harness",
+      "claude",
+      "--arm",
+      "tool",
+      "--timeout",
+      "180",
+      "--out",
+      path.join(out, "o"),
+      "--dry-run",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(x.status, 0, x.stderr);
+  const plan = JSON.parse(x.stdout.slice(0, x.stdout.lastIndexOf("}") + 1));
+  assert.ok(Number(plan.vmArgv.at(-1)) >= 180 * 60 + 600);
+});
+
+test("scorer defaults to the scorer checkout HEAD, not the run's w2agentRef; --ref overrides", async () => {
+  const r = rig();
+  const j = JSON.parse(readFileSync(path.join(r.runDir, "run.json"), "utf8"));
+  j.w2agentRef = "0".repeat(40);
+  writeFileSync(path.join(r.runDir, "run.json"), JSON.stringify(j));
+  await main(["--run", r.runDir], r.deps);
+  const res = JSON.parse(readFileSync(path.join(r.runDir, "result.json"), "utf8"));
+  assert.notEqual(res.scorer.cliRef, "0".repeat(40));
+  assert.match(res.scorer.cliRef, /^[0-9a-f]{40}$/);
+});
+
+test("evalFiles copies tracked files only, never test/ or untracked files", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const d = mkdtempSync(path.join(tmpdir(), "w2agent-evalfiles-"));
+  const git = (...a) => execFileSync("git", a, { cwd: d, stdio: "pipe" });
+  git("init", "-q");
+  mkdirSync(path.join(d, "test"));
+  writeFileSync(path.join(d, "score.mjs"), "x");
+  writeFileSync(path.join(d, "test", "t.mjs"), "x");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "i");
+  writeFileSync(path.join(d, "creds.json"), "secret");
+  assert.deepEqual(evalFiles(d), ["./score.mjs"]);
+});
+
+test("an oversize audit.json fails the score instead of vanishing", async () => {
+  const r = rig();
+  const orig = r.sandbox.readOut;
+  r.sandbox.readOut = async (n, p, o) =>
+    p.endsWith("audit.json") ? { data: Buffer.alloc(1), truncated: true } : orig(n, p, o);
+  await assert.rejects(main(["--run", r.runDir], r.deps), /audit.json exceeds/);
+  assert.ok(!existsSync(path.join(r.runDir, "result.json")));
+  assert.ok(!r.log.some((l) => l[0] === "deleteVolume"));
+});
+
+test("a non-object result.json is a clear error, not a TypeError", () => {
+  for (const body of ["null", "[]", "5"])
+    assert.throws(
+      () =>
+        finalizeOutputs(
+          { "result.json": Buffer.from(body), "summary.md": Buffer.from("") },
+          { secrets: null, provenance: {} },
+        ),
+      /not valid: expected a JSON object/,
+    );
+});
+
+test("a run.json still in status starting is refused", async () => {
+  const r = rig();
+  const j = JSON.parse(readFileSync(path.join(r.runDir, "run.json"), "utf8"));
+  j.status = "starting";
+  writeFileSync(path.join(r.runDir, "run.json"), JSON.stringify(j));
+  await assert.rejects(main(["--run", r.runDir], r.deps), /did not finish/);
+  assert.ok(!names(r).includes("startVm"));
+});
+
+test("the agent-VM-still-up message names one VM, not --cleanup", async () => {
+  const r = rig({ agentUp: true });
+  await assert.rejects(main(["--run", r.runDir], r.deps), (e) => {
+    assert.match(e.message, /container delete --force w2a-eval-abcd1234-agent/);
+    assert.ok(!e.message.includes("--cleanup"));
+    return true;
+  });
 });

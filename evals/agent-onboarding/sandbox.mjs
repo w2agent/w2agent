@@ -81,11 +81,27 @@ export function execArgv(name, argv, { user, cwd, env, stdin = false } = {}) {
   return out;
 }
 
-function run(argv, opts = {}) {
-  const r = spawnSync(RUNTIME, argv, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts });
+export const SYNC_TIMEOUT_MS = 120_000;
+export const BUILD_TIMEOUT_MS = 30 * 60_000;
+
+export function vmSeconds(ms, marginMs = 10 * 60_000) {
+  return Math.ceil((ms + marginMs) / 1000);
+}
+
+export function runRuntime(argv, opts = {}, spawnFn = spawnSync) {
+  const r = spawnFn(RUNTIME, argv, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: SYNC_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+    ...opts,
+  });
+  if (r.error?.code === "ETIMEDOUT")
+    throw new Error(`${RUNTIME} ${argv.slice(0, 2).join(" ")} timed out`);
   if (r.error) throw new Error(`${RUNTIME} ${argv[0]} failed to start: ${r.error.message}`);
   return r;
 }
+const run = runRuntime;
 
 function must(argv, opts) {
   const r = run(argv, opts);
@@ -111,6 +127,7 @@ export function ensureImage({
   if (imageExists(tag, runner)) return { tag, built: false };
   const r = runner(buildArgv({ tag, dockerfile, context, buildArgs }), {
     stdio: ["ignore", "inherit", "inherit"],
+    timeout: BUILD_TIMEOUT_MS,
   });
   if (r.status !== 0) throw new Error(`image build failed for ${tag} (exit ${r.status})`);
   return { tag, built: true };

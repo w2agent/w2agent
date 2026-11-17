@@ -31,7 +31,7 @@ const OUT_FILES = [
 const git = (cwd, ...args) => spawnSync("git", args, { cwd, encoding: "utf8" });
 
 export function evalFiles(dir = HERE) {
-  const r = git(dir, "ls-files", "-co", "--exclude-standard", "-z");
+  const r = git(dir, "ls-files", "-c", "-z");
   if (r.status !== 0) throw new Error(`git ls-files failed in ${dir}: ${(r.stderr || "").trim()}`);
   return r.stdout
     .split("\0")
@@ -62,9 +62,7 @@ export function finalizeOutputs(raw, { secrets, skipReason, provenance }) {
   const text = (name) => {
     const body = raw[name];
     if (body === undefined) return undefined;
-    const t = body.toString("utf8");
-    if (!secrets) return t;
-    const r = redact(t, secrets);
+    const r = redact(body.toString("utf8"), secrets ?? []);
     counts[name] = r.count;
     return r.text;
   };
@@ -77,10 +75,15 @@ export function finalizeOutputs(raw, { secrets, skipReason, provenance }) {
   } catch {
     throw new Error("result.json from the scorer VM is not valid JSON");
   }
-  result.scorer = { ...result.scorer, ...provenance, inVm: true };
-  result.redaction = secrets
-    ? { redactions: counts, secrets: secrets.length }
-    : (skipReason ?? "not needed: no agent run");
+  if (!result || typeof result !== "object" || Array.isArray(result))
+    throw new Error("result.json from the scorer VM is not valid: expected a JSON object");
+  const prior = result.scorer && typeof result.scorer === "object" ? result.scorer : {};
+  result.scorer = { ...prior, ...provenance, inVm: true };
+  result.redaction = {
+    patterns: true,
+    exact: secrets ? `${secrets.length} staged values` : (skipReason ?? "not needed: no agent run"),
+    redactions: counts,
+  };
   files["result.json"] = `${JSON.stringify(result, null, 2)}\n`;
   files["summary.md"] = summary;
   if (audit !== undefined) files["audit.json"] = audit;
@@ -117,6 +120,10 @@ export async function scoreInSandbox(opts, deps = {}) {
     const runJson = path.join(runDir, "run.json");
     if (!existsSync(runJson)) throw new Error(`run.json not found in ${runDir}`);
     run = JSON.parse(readFileSync(runJson, "utf8"));
+    if (run.status === "starting")
+      throw new Error(
+        "run.json status is starting: the run did not finish (interrupted or crashed); rerun it with run.mjs",
+      );
     const s = run.sandbox;
     if (!s?.volume)
       throw new Error(
@@ -135,15 +142,17 @@ export async function scoreInSandbox(opts, deps = {}) {
   }
   if (!/^[A-Za-z0-9._-]+$/.test(fixture)) throw new Error("fixture must be a plain name");
   const vm = sb.resourceName(id, "score");
-  const sha = resolveRef(checkout, opts.ref ?? run?.w2agentRef ?? "HEAD");
+  const sha = resolveRef(checkout, opts.ref ?? "HEAD");
 
   const vms = sb.listVms();
   if (run && vms.includes(run.sandbox.vm))
     throw new Error(
-      `agent VM ${run.sandbox.vm} still exists; the volume attaches to one VM at a time. Wait for the run to finish or run \`run.mjs --cleanup\``,
+      `agent VM ${run.sandbox.vm} still exists; the volume attaches to one VM at a time. Wait for the run to finish, or delete only that VM: container delete --force ${run.sandbox.vm}`,
     );
   if (vms.includes(vm))
-    throw new Error(`scorer VM ${vm} already exists; run \`run.mjs --cleanup\``);
+    throw new Error(
+      `scorer VM ${vm} already exists; delete only that VM: container delete --force ${vm}`,
+    );
   const volumes = sb.listVolumes();
   if (run && !volumes.includes(volume))
     throw new Error(`volume ${volume} is gone (already scored, or cleaned up); nothing to score`);
@@ -153,6 +162,7 @@ export async function scoreInSandbox(opts, deps = {}) {
   const guestRunDir = mountPath;
   const guestOut = run ? RUN_OUT : `${mountPath}/out`;
   const guestEnv = buildGuestEnv(GUEST_CACHE);
+  const deadlineMs = 3 * timeoutMs + DEADLINE_EXTRA_MS;
 
   let vmUp = false;
   let volumeUp = false;
@@ -203,14 +213,11 @@ export async function scoreInSandbox(opts, deps = {}) {
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
-  const deadline = setTimeout(
-    () => {
-      deadlineHit = true;
-      killActive();
-      dropVm();
-    },
-    3 * timeoutMs + DEADLINE_EXTRA_MS,
-  );
+  const deadline = setTimeout(() => {
+    deadlineHit = true;
+    killActive();
+    dropVm();
+  }, deadlineMs);
 
   const inVm = (user, argv) => {
     const r = sb.execIn(vm, argv, { user });
@@ -240,7 +247,7 @@ export async function scoreInSandbox(opts, deps = {}) {
       child.stderr.on("data", onData);
       waitForExit(child).then((r) => {
         active = null;
-        resolve({ ...r, tail: clip(buf) });
+        resolve({ ...r, tail: redact(clip(buf), []).text });
       });
     });
   const mustGuest = async (what, argv, o) => {
@@ -262,7 +269,7 @@ export async function scoreInSandbox(opts, deps = {}) {
       volumeUp = true;
     }
     vmUp = true;
-    sb.startVm({ name: vm, image: tag, volume, mountPath });
+    sb.startVm({ name: vm, image: tag, volume, mountPath, seconds: sb.vmSeconds(deadlineMs) });
     log(`scorer VM ${vm} started (volume ${volume})`);
     inVm("root", ["chmod", "0777", mountPath]);
     const fixtureDir = `${SCORER_DIR}/evals/agent-onboarding/fixtures/${fixture}`;
@@ -328,10 +335,14 @@ export async function scoreInSandbox(opts, deps = {}) {
           user: "node",
           spawner,
         });
-        if (r.truncated) throw new Error(`${f.name} exceeds ${OUT_CAP} bytes`);
+        if (r.truncated) {
+          const e = new Error(`${f.name} exceeds ${OUT_CAP} bytes`);
+          e.truncated = true;
+          throw e;
+        }
         raw[f.name] = r.data;
       } catch (e) {
-        if (f.required) throw e;
+        if (f.required || e.truncated) throw e;
       }
     }
     dropVm();
@@ -348,8 +359,10 @@ export async function scoreInSandbox(opts, deps = {}) {
             : cred.readCodexAuth({ file: opts.codexAuth, env });
         secrets = cred.secretValues(login);
       } catch (e) {
-        skipReason = `skipped: ${e.message}`;
-        console.error(`WARNING: output redaction skipped (${e.message})`);
+        skipReason = `unavailable: ${e.message}`;
+        console.error(
+          `WARNING: exact-value redaction unavailable (${e.message}); only token patterns were applied`,
+        );
       }
     }
     const provenance = {
@@ -363,6 +376,9 @@ export async function scoreInSandbox(opts, deps = {}) {
       writeFileSync(path.join(out, name), body, { mode: 0o600 });
     result = JSON.parse(fin.files["result.json"]);
     succeeded = true;
+  } catch (e) {
+    e.message = redact(String(e.message), []).text;
+    throw e;
   } finally {
     clearTimeout(deadline);
     process.off("SIGINT", onSignal);

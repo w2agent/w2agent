@@ -284,3 +284,28 @@ test("delete retries once, then names what survived", () => {
   );
   assert.deepEqual(s, { deleted: [], failed: ["w2a-eval-z-agent"] });
 });
+
+test("runtime calls carry a timeout and a timeout is an error", async () => {
+  const { runRuntime, SYNC_TIMEOUT_MS, deleteVm } = await import("../sandbox.mjs");
+  let seen;
+  runRuntime(["list"], {}, (_c, _a, o) => {
+    seen = o;
+    return { status: 0 };
+  });
+  assert.equal(seen.timeout, SYNC_TIMEOUT_MS);
+  assert.equal(seen.killSignal, "SIGKILL");
+  assert.throws(
+    () =>
+      runRuntime(["delete", "x"], {}, () => ({
+        error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }),
+      })),
+    /timed out/,
+  );
+  assert.throws(
+    () =>
+      deleteVm("w2a-eval-x-agent", () => {
+        throw new Error("container delete --force timed out");
+      }),
+    /timed out/,
+  );
+});

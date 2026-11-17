@@ -23,7 +23,7 @@ const USAGE = `Usage: node score.mjs --run <out-dir> [options]
   --codex-auth <file>  Codex auth.json used only to redact outputs (default: $CODEX_HOME or ~/.codex)
   --baseline           score the pristine fixture with no transcript
   --fixture <name>     fixture for --baseline (default next-static)
-Scoring runs in a credential-free VM. --in-sandbox is set by the host wrapper inside that VM
+Scoring runs in a VM with no staged credentials. --in-sandbox is set by the host wrapper inside that VM
 and runs the stages directly; do not pass it on the host. --cli <path> only works with --in-sandbox.`;
 
 const REPLACED_THRESHOLD = 0.2;
@@ -1157,7 +1157,7 @@ export function renderSummary(r) {
 }
 
 const CODEX_CONTAINMENT_NOTE =
-  "codex sandbox limits writes to the workspace plus /tmp and $TMPDIR; flags are advisory";
+  "codex runs with its own sandbox bypassed (the VM is the boundary); flags are advisory";
 
 const SITE_SKIP = new Set(["node_modules", ".next", "next-env.d.ts"]);
 
@@ -1169,7 +1169,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   if (!opts.inSandbox) return scoreInSandbox(opts, deps);
   const cli = path.resolve(opts.cli);
   if (!existsSync(cli)) {
-    throw new Error(`CLI not found at ${cli}. Build it first (pnpm build) or pass --cli <path>.`);
+    throw new Error(
+      `CLI not found at ${cli}. In the scorer VM it is built from --ref; with --in-sandbox pass --cli <path>.`,
+    );
   }
   const timeoutMs = opts.timeout * 60_000;
 

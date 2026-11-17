@@ -138,9 +138,20 @@ export function secretValues(staged) {
   return out;
 }
 
+const SECRET_PATTERNS = [
+  /sk-ant-[A-Za-z0-9_-]{20,}/g,
+  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+];
+
 export function redact(text, secrets) {
   let count = 0;
   let out = text;
+  for (const re of SECRET_PATTERNS) {
+    out = out.replace(re, () => {
+      count++;
+      return "[REDACTED]";
+    });
+  }
   for (const s of secrets) {
     if (typeof s !== "string" || s.length < MIN_SECRET_LEN) continue;
     const parts = out.split(s);

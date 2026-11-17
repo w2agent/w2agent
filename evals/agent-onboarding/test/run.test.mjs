@@ -610,3 +610,17 @@ test("an unwritable output file does not crash the process and fails the run", a
   assert.equal(JSON.parse(readFileSync(path.join(rig.out, "run.json"), "utf8")).status, "failed");
   assert.ok(rig.log.some((l) => l[0] === "deleteVm"));
 });
+
+test("streaming redaction also catches rotated token shapes with no exact match", async () => {
+  const { redactingSink } = await import("../run.mjs");
+  const f = path.join(mkdtempSync(path.join(tmpdir(), "w2agent-eval-pat-")), "t");
+  const sink = redactingSink(f, [], 1000, () => {});
+  sink.write(
+    Buffer.from(
+      `a sk-ant-oat01-${"Q".repeat(30)} b eyJ${"x".repeat(10)}.${"y".repeat(10)}.${"z".repeat(10)}\n`,
+    ),
+  );
+  const r = await sink.end();
+  assert.equal(r.count, 2);
+  assert.ok(!readFileSync(f, "utf8").includes("sk-ant"));
+});

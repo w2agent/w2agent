@@ -52,7 +52,7 @@ const USAGE = `Usage: node run.mjs --harness claude|codex --arm tool|docs-only [
   --claude-credentials <file>  Claude login JSON (default: Keychain or ~/.claude)
   --codex-auth <file>  Codex auth.json (default: $CODEX_HOME or ~/.codex)
   --dry-run            build the workspace and print the sandbox plan, start nothing
-  --cleanup            delete every leftover w2a-eval-* VM and volume (no other flags)`;
+  --cleanup            delete ALL w2a-eval-* VMs and volumes, even runs in progress or unscored (no other flags)`;
 
 export function parseArgs(argv) {
   const opts = {
@@ -365,6 +365,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       image,
       volume: names.volume,
       mountPath: MOUNT_PATH,
+      seconds: sb.vmSeconds(opts.timeout * 60_000),
     });
     console.log(
       JSON.stringify(
@@ -480,7 +481,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     volumeUp = true;
     sb.createVolume(volume, VOLUME_BYTES);
     vmUp = true;
-    sb.startVm({ name: vm, image: tag, volume, mountPath: MOUNT_PATH });
+    sb.startVm({
+      name: vm,
+      image: tag,
+      volume,
+      mountPath: MOUNT_PATH,
+      seconds: sb.vmSeconds(opts.timeout * 60_000),
+    });
     const inVm = (user, argv2) => {
       const r = sb.execIn(vm, argv2, { user });
       if (r.status !== 0)
