@@ -83,7 +83,9 @@ describe("robots.txt manual action", () => {
       [robots, makeFile("shopify/data/robots-txt-additions.txt", "User-agent: Claude-User\n")],
       dir,
     );
-    expect(plan.actions.some((a) => a.dest === "data/robots-txt-additions.txt")).toBe(true);
+    expect(plan.actions.find((a) => a.dest === "data/robots-txt-additions.txt")?.type).toBe(
+      "manual",
+    );
     expect(plan.actions.some((a) => a.dest === "templates/robots.txt.liquid")).toBe(false);
     expect(robotsManual(plan)).toHaveLength(0);
   });

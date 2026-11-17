@@ -192,18 +192,20 @@ describe("resolver steps follow the guarded actions", () => {
     expect(plan.postInstallSteps.some((s) => s.includes("render"))).toBe(false);
   });
 
-  it("Shopify: no robots merge step when the additions file is not written", () => {
-    mkdirSync(join(tempDir, "templates"), { recursive: true });
-    writeFileSync(join(tempDir, "templates", "robots.txt.liquid"), "mine");
-    symlinkSync(outside, join(tempDir, "data"));
+  it("Shopify: no push step when every snippet write is blocked, even with a webmcp snippet", () => {
+    symlinkSync(outside, join(tempDir, "snippets"));
 
     const plan = planInstall(
       shopifyAdapter,
-      [makeFile("shopify/data/robots-txt-additions.txt", "# additions")],
+      [
+        makeFile("shopify/snippets/w2agent-head.liquid", "{% comment %}x{% endcomment %}"),
+        makeFile("shopify/snippets/w2agent-webmcp.liquid", "<script></script>"),
+      ],
       tempDir,
     );
 
-    expect(plan.postInstallSteps.some((s) => s.includes("robots-txt-additions"))).toBe(false);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+    expect(plan.postInstallSteps).toEqual([]);
   });
 
   it("WordPress: no activate step when nothing is written", () => {

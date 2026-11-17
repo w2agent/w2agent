@@ -114,7 +114,7 @@ run_config() {
           na "Integrate (--install)" "setup failed"
           na "Head snippet" "setup failed"
           na "robots.txt.liquid" "setup failed"
-          na "data/llms.txt" "setup failed"
+          na "theme-only files" "setup failed"
           na "JSON-LD content" "setup failed"
           na "Liquid syntax" "setup failed"
           ROWS+=("$name|$r_setup|$r_integrate|$r_head|$r_robots|$r_llms|$r_jsonld|$r_liquid")
@@ -126,7 +126,7 @@ run_config() {
         na "Integrate (--install)" "setup failed"
         na "Head snippet" "setup failed"
         na "robots.txt.liquid" "setup failed"
-        na "data/llms.txt" "setup failed"
+        na "theme-only files" "setup failed"
         na "JSON-LD content" "setup failed"
         na "Liquid syntax" "setup failed"
         ROWS+=("$name|$r_setup|$r_integrate|$r_head|$r_robots|$r_llms|$r_jsonld|$r_liquid")
@@ -159,7 +159,7 @@ run_config() {
       na "Integrate (--install)" "setup failed"
       na "Head snippet" "setup failed"
       na "robots.txt.liquid" "setup failed"
-      na "data/llms.txt" "setup failed"
+      na "theme-only files" "setup failed"
       na "JSON-LD content" "setup failed"
       na "Liquid syntax" "setup failed"
       ROWS+=("$name|$r_setup|$r_integrate|$r_head|$r_robots|$r_llms|$r_jsonld|$r_liquid")
@@ -178,7 +178,7 @@ run_config() {
     r_integrate="❌"
     na "Head snippet" "integrate failed"
     na "robots.txt.liquid" "integrate failed"
-    na "data/llms.txt" "integrate failed"
+    na "theme-only files" "integrate failed"
     na "JSON-LD content" "integrate failed"
     na "Liquid syntax" "integrate failed"
     ROWS+=("$name|$r_setup|$r_integrate|$r_head|$r_robots|$r_llms|$r_jsonld|$r_liquid")
@@ -229,19 +229,19 @@ run_config() {
       fail "robots.txt.liquid" "templates/robots.txt.liquid must never be written"
       r_robots="❌"
     else
-      pass "robots.txt.liquid" "not written (groups, if any, ship as data/robots-txt-additions.txt)"
+      pass "robots.txt.liquid" "not written (any groups are a manual step, not an install write)"
       r_robots="✅"
     fi
   fi
 
-  # 5. data/llms.txt
-  log "  data/llms.txt..."
-  if [[ -f "$dir/data/llms.txt" ]]; then
-    pass "data/llms.txt" "data/llms.txt written"
-    r_llms="✅"
-  else
-    fail "data/llms.txt" "data/llms.txt not found"
+  # 5. Only theme files are written (no data/, no markdown, no llms.txt template)
+  log "  theme-only files..."
+  if [[ -e "$dir/data" || -e "$dir/W2AGENT-MCP-WEBHOOK.md" || -e "$dir/templates/llms.txt.liquid" ]]; then
+    fail "theme-only files" "data/, W2AGENT-MCP-WEBHOOK.md or templates/llms.txt.liquid was written into the theme"
     r_llms="❌"
+  else
+    pass "theme-only files" "only snippets were written into the theme"
+    r_llms="✅"
   fi
 
   # 6. JSON-LD content (only if head snippet exists)
@@ -333,7 +333,7 @@ done
 # Write summary table
 {
   printf '\n---\n\n## Summary Table\n\n'
-  printf '| Config | Setup | Integrate | Head Snippet | robots.txt.liquid | data/llms.txt | JSON-LD | Liquid |\n'
+  printf '| Config | Setup | Integrate | Head Snippet | robots.txt.liquid | Theme-only   | JSON-LD | Liquid |\n'
   printf '|--------|-------|-----------|--------------|-------------------|---------------|---------|--------|\n'
   for row in "${ROWS[@]}"; do
     IFS='|' read -r rname rsetup rinteg rhead rrobots rllms rjsonld rliquid <<< "$row"

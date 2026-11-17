@@ -140,14 +140,18 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 | Scenario | Detection | Action |
 |----------|-----------|--------|
-| In theme dir | Has `layout/theme.liquid` or `config/settings_schema.json` | Write snippets + templates |
+| In theme dir | Has `layout/theme.liquid` or `config/settings_schema.json` | Write `snippets/w2agent-head.liquid` and, when generated, `snippets/w2agent-webmcp.liquid`; steps: render head, render webmcp before `</body>`, `shopify theme push --only <written files> --only layout/theme.liquid` to a copy of the live theme (never `--live` or `--publish`) |
 | Not in theme dir | Missing markers | Warn + still write |
-| Existing head snippet | File exists | Skip + warn |
-| robots.txt additions | `data/robots-txt-additions.txt` generated (live robots.txt blocks AI agents via `*`) | Write the data file + a step to paste it at the end of the existing `templates/robots.txt.liquid`; no `robots.txt.liquid` is ever written |
+| Existing head or webmcp snippet | File exists | Identical content: skip as "already up to date" (a re-run succeeds). Different content: skip + warn, never overwritten. No render or push step for a skipped snippet |
+| llms.txt template | `templates/llms.txt.liquid` generated | `manual` action, not written: Shopify already serves `/llms.txt`; the template is an optional override |
+| robots.txt additions | `data/robots-txt-additions.txt` generated (live robots.txt blocks AI agents via `*`) | `manual` action, not written: paste it at the end of the existing `templates/robots.txt.liquid`; no `robots.txt.liquid` is ever written |
+| Webhook notes | `W2AGENT-MCP-WEBHOOK.md` generated | `manual` action, not written (not a theme file) |
+
+The manual actions name `w2agent integrate <url> --platform shopify --output <dir>`, which writes those files. Theme folders are `assets`, `blocks`, `config`, `layout`, `locales`, `sections`, `snippets` and `templates`; the install never writes elsewhere.
 
 ## Testing
 
-### Unit tests (345 tests across 19 test files)
+### Unit tests (352 tests across 19 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -168,7 +172,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-wordpress-reader.test.ts` — wp-config reader: heredoc labels with high bytes, single-quoted escapes, drive and UNC paths (win32 branch via `path.win32`), interpolation blocks, inline HTML, text before the first open tag (44 tests)
 - `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro prebuild step (12 tests)
 - `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus plugin and clientModules steps, executor `failed`, physical `..` resolution, interpolated-string refusal (19 tests)
-- `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
+- `tests/install-shopify.test.ts` — snippet-only writes, manual actions, render/push steps, re-run skips (11 tests)
 
 All tests use temp directories with fixture files — fast, no network.
 

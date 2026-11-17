@@ -73,7 +73,7 @@ const PLATFORM_FILES: Record<string, GeneratedFile[]> = {
   ],
   shopify: [
     makeFile("shopify/snippets/w2agent-head.liquid", "{% comment %}w2agent{% endcomment %}"),
-    makeFile("shopify/data/llms.txt", "# LLMs"),
+    makeFile("shopify/templates/llms.txt.liquid", "# LLMs"),
     makeFile("shopify/data/robots-txt-additions.txt", "# additions"),
     makeFile("shopify/INSTALL.md", "# Install"),
   ],

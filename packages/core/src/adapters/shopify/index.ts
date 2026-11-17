@@ -9,7 +9,7 @@ import { generateShopifyIntegration } from "./templates.js";
 export const shopifyAdapter: PlatformAdapter = {
   id: "shopify",
   name: "Shopify",
-  description: "Shopify store — Liquid snippets, robots.txt additions, page-based llms.txt",
+  description: "Shopify store — Liquid snippets, robots.txt additions, optional llms.txt template",
 
   detect(pages: FetchedPage[]): PlatformDetectionResult | null {
     let confidence = 0;
@@ -54,9 +54,14 @@ export const shopifyAdapter: PlatformAdapter = {
     const llmsTxt = coreFiles.find((f) => f.filename === "llms.txt")?.content || "";
     const robotsGroups = robotsAllowGroups(ctx.metadata.robotsTxt, ctx.baseUrl);
 
-    const files = generateShopifyIntegration(llmsTxt, robotsGroups, ctx.baseUrl);
+    const hasMcpServer = coreFiles.some((f) => f.filename.startsWith("mcp-server/"));
+    const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
+    const files = generateShopifyIntegration(llmsTxt, robotsGroups, ctx.baseUrl, {
+      webmcp: webmcpJs !== "",
+      mcpWebhook: hasMcpServer,
+    });
 
-    if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
+    if (hasMcpServer) {
       const webhookInstructions = `# Shopify MCP Webhook Integration
 
 To automatically update your MCP server when content changes, subscribe to Shopify webhooks.
@@ -103,10 +108,8 @@ The webhook endpoint expects a \`Authorization: Bearer <token>\` header.
       });
     }
 
-    if (coreFiles.some((f) => f.filename.startsWith("webmcp/"))) {
-      const webmcpJs = coreFiles.find((f) => f.filename === "webmcp/webmcp.js")?.content || "";
-      if (webmcpJs) {
-        const webmcpLiquid = `{% comment %}
+    if (webmcpJs) {
+      const webmcpLiquid = `{% comment %}
   W2Agent WebMCP Registration
   Include in theme.liquid before </body>: {% render 'w2agent-webmcp' %}
 {% endcomment %}
@@ -114,12 +117,11 @@ The webhook endpoint expects a \`Authorization: Bearer <token>\` header.
 ${webmcpJs}
 </script>
 `;
-        files.push({
-          filename: "shopify/snippets/w2agent-webmcp.liquid",
-          content: webmcpLiquid,
-          size: new TextEncoder().encode(webmcpLiquid).length,
-        });
-      }
+      files.push({
+        filename: "shopify/snippets/w2agent-webmcp.liquid",
+        content: webmcpLiquid,
+        size: new TextEncoder().encode(webmcpLiquid).length,
+      });
     }
 
     return files;

@@ -681,14 +681,16 @@ describe("integration: Shopify", () => {
     expect(filenames).toContain("shopify/snippets/w2agent-head.liquid");
     expect(filenames).toContain("shopify/data/robots-txt-additions.txt");
     expect(filenames).not.toContain("shopify/templates/robots.txt.liquid");
-    expect(filenames).toContain("shopify/data/llms.txt");
+    expect(filenames).toContain("shopify/templates/llms.txt.liquid");
+    expect(filenames).not.toContain("shopify/data/llms.txt");
   });
 
   it("head snippet includes discovery link", () => {
     const head = files.find((f) => f.filename.includes("w2agent-head.liquid"))!;
     expect(head.content).toContain('rel="alternate"');
     expect(head.content).toContain('type="text/markdown"');
-    expect(head.content).toContain('href="/pages/llms-txt"');
+    expect(head.content).toContain('href="/llms.txt"');
+    expect(head.content).not.toContain("/pages/llms-txt");
   });
 
   it("head snippet includes product schema.org", () => {
