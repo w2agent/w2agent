@@ -182,7 +182,7 @@ describe("Next.js install resolver", () => {
     writeFileSync(join(tempDir, "src", "middleware.ts"), "// auth", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
-    const mergeAction = plan.actions.find((a) => a.dest === "middleware.w2agent.ts");
+    const mergeAction = plan.actions.find((a) => a.dest === "src/middleware.w2agent.ts");
     expect(mergeAction).toBeDefined();
   });
 

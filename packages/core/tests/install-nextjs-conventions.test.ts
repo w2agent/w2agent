@@ -197,7 +197,7 @@ describe("Next.js install conventions (NX-3, NX-12, NX-4)", () => {
       mkdirSync(join(dir, "src", "app"), { recursive: true });
       writeFileSync(join(dir, "src", "proxy.ts"), "export function proxy() {}");
       const plan = resolveNextjsInstall(files, dir);
-      expect(dests(plan)).toContain("proxy.w2agent.ts");
+      expect(dests(plan)).toContain("src/proxy.w2agent.ts");
       expect(dests(plan)).not.toContain("proxy.ts");
       expect(dests(plan)).not.toContain("middleware.ts");
       expect(find(plan, "src/proxy.ts")?.type).toBe("manual");

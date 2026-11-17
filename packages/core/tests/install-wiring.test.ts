@@ -32,7 +32,6 @@ describe("robots.txt manual action", () => {
     plan.actions.filter((a) => a.type === "manual" && a.dest === "robots.txt");
 
   const cases: Array<[string, Parameters<typeof planInstall>[0], string]> = [
-    ["nextjs", nextjsAdapter, "nextjs/app/llms.txt/route.ts"],
     ["nuxt", nuxtAdapter, "nuxt/server/routes/llms.txt.ts"],
     ["astro", astroAdapter, "astro/public/llms.txt"],
     ["docusaurus", docusaurusAdapter, "docusaurus/static/llms.txt"],
@@ -51,6 +50,19 @@ describe("robots.txt manual action", () => {
       );
     });
   }
+
+  it("nextjs: its own robots action replaces the generic one (see install-nextjs-placement)", () => {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { next: "15" } }));
+    const plan = planInstall(
+      nextjsAdapter,
+      [robots, makeFile("nextjs/app/llms.txt/route.ts")],
+      dir,
+    );
+    expect(robotsManual(plan)).toHaveLength(0);
+    expect(plan.actions.filter((a) => a.type === "manual" && /robots/.test(a.dest))).toHaveLength(
+      1,
+    );
+  });
 
   it("wordpress: planned robots-rules suppresses the manual action", () => {
     mkdirSync(join(dir, "wp-content"), { recursive: true });

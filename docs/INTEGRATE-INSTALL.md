@@ -43,7 +43,9 @@ The executor re-checks containment and creates files with exclusive-create (`wx`
 
 ### Generated `robots.txt` (manual action)
 
-Next.js, Nuxt, Astro and Docusaurus plans never write a `robots.txt`. When the generated files include one and the platform is not WordPress or Shopify, `planInstall` appends a `manual` action on `robots.txt`: review the generated AI-crawler rules and merge them into the site's robots.txt (`w2agent integrate <url> --output <dir>` writes the generated file). WordPress and Shopify serve their own rules (a plugin `robots_txt` filter, a theme template), so they never get this action; a plan with no actions (refused) gets none either.
+Next.js, Nuxt, Astro and Docusaurus plans never serve a generated `robots.txt`. When the generated files include one and the platform is not WordPress or Shopify, `planInstall` appends a `manual` action on `robots.txt`: review the generated AI-crawler rules and merge them into the site's robots.txt (`w2agent integrate <url> --output <dir>` writes the generated file). `planInstall` skips that generic action when the resolver's plan already has an action on a `robots.*` file. WordPress and Shopify serve their own rules (a plugin `robots_txt` filter, a theme template), so they never get this action; a plan with no actions (refused) gets none either.
+
+The Next.js resolver supplies its own action. It stages the rules unserved as `.w2agent/robots.txt` (a normal guarded write) and adds one `manual` action on the real target: an existing `public/robots.txt` (merge the rules into it), else an existing `app/robots.{ts,js,tsx,jsx}` or `src/app/robots.*` metadata route (add the rules to what it returns), else `public/robots.txt` (review the staged file and copy it to serve it). If the staged copy was not written, the text says so. The generated rules are not served automatically because the generator can reorder an owner's explicit blocks and assert a `Sitemap:` line it has not verified.
 
 ## CLI Flags
 
@@ -67,7 +69,9 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Scenario | Detection | Action |
 |----------|-----------|--------|
 | Not a Next.js project | No `next` in `dependencies`/`devDependencies` and no `next.config.{js,mjs,ts,cjs,mts}` | No actions; warning names the directory and says to pass `--project-dir <your Next.js app>` (in a monorepo, the app package) |
-| `src/app/` layout | `src/app/` dir exists | Adjusts all `app/` paths to `src/app/` |
+| `src/app/` layout | `src/app/` dir exists | Adjusts all `app/` paths to `src/app/`; writes the middleware or proxy to `src/` and the WebMCP component to `src/components/` (Next reads them next to `app/`). Existing `middleware.*` / `proxy.*` are detected at the root and in `src/`; a merge copy goes in the same directory as the existing file |
+| `output: "export"` in `next.config.*` | Text match (the config is never run) | No middleware or proxy and no merge copy (Next disables middleware in a static export); one warning says Accept negotiation on `/` is not installed and `/llms.txt`, `/llms-full.txt`, `/index.md` are exported as static files. Routes and seeds install as usual |
+| Generated `robots.txt` | Existing `public/robots.txt`, else `app/robots.*` or `src/app/robots.*` | Stages `.w2agent/robots.txt` and adds one manual action on the real target (see "Generated `robots.txt`") |
 | Pages Router only | Has `pages/` but no `app/` | Skip all with warning |
 | Existing `app/llms.txt/route.ts` | File exists | Skip + warn |
 | No existing `middleware.*` or `proxy.*` | Next major from `node_modules/next/package.json`, else the `next` range in `package.json` | Next 16 or newer: write `proxy.<ext>` (function `proxy`). Next 15 or older, or an unknown version (`latest`, `canary`, `*`, workspace or git spec): write `middleware.<ext>` (function `middleware`). Next 16 rejects a `middleware` and a `proxy` file together, and Next 15 ignores `proxy.ts`, so an unknown version gets `middleware` |
@@ -140,6 +144,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
 - `tests/install-nextjs.test.ts` — project check, src/app, pages-router, middleware merge, existing files, public/ conflicts (24 tests)
 - `tests/install-nextjs-conventions.test.ts` — proxy vs middleware by Next version, existing proxy, JS-only projects (installed files parsed by Node), `cacheComponents` (41 tests)
+- `tests/install-nextjs-placement.test.ts` — `src/` placement of middleware/proxy/component and merge copies, `output: "export"`, staged robots.txt and its manual action, planner dedupe (24 tests)
 - `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall` (13 tests)
 - `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (10 tests)

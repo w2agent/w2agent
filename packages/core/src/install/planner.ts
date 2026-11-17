@@ -26,7 +26,8 @@ export function planInstall(
   if (
     actions.length > 0 &&
     generatedFiles.some((f) => f.filename === "robots.txt") &&
-    !OWN_ROBOTS_PLATFORMS.has(adapter.id)
+    !OWN_ROBOTS_PLATFORMS.has(adapter.id) &&
+    !actions.some((a) => (a.dest.split("/").pop() ?? "").startsWith("robots."))
   ) {
     actions.push({
       type: "manual",

@@ -12,6 +12,8 @@ import {
   WEBHOOK_ROUTE_PATH,
 } from "./templates.js";
 
+const STAGED_ROBOTS = ".w2agent/robots.txt";
+
 interface NextjsLayout {
   hasSrcDir: boolean;
   hasAppDir: boolean;
@@ -123,6 +125,20 @@ export function usesCacheComponents(projectDir: string): boolean {
   return false;
 }
 
+// Text only, like usesCacheComponents. A comment that quotes `output: "export"` also matches.
+export function usesStaticExport(projectDir: string): boolean {
+  for (const name of NEXT_CONFIG_NAMES) {
+    let text: string;
+    try {
+      text = readFileSync(join(projectDir, name), "utf-8");
+    } catch {
+      continue;
+    }
+    if (/\boutput["']?\s*:\s*(["'`])export\1/.test(text)) return true;
+  }
+  return false;
+}
+
 function pathExists(path: string): boolean {
   try {
     lstatSync(path);
@@ -174,8 +190,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     : layout.hasProxy || (nextMajor !== null && nextMajor >= 16)
       ? "proxy"
       : "middleware";
-  const edgeDir = "";
+  // Next looks for middleware/proxy next to app/, so inside src/ for a src/app project
+  const edgeDir = layout.hasSrcDir ? "src/" : "";
   const dropRevalidate = usesCacheComponents(projectDir);
+  const staticExport = usesStaticExport(projectDir);
+  if (staticExport) {
+    warnings.push(
+      'next.config sets `output: "export"`. Next.js disables middleware in a static export, so Accept negotiation on `/` is not installed, and `/llms.txt`, `/llms-full.txt` and `/index.md` are exported as static files at build time.',
+    );
+  }
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
@@ -246,6 +269,7 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
     // middleware.ts: rendered for the project's language and Next convention, never copied from the input
     if (baseName === "middleware.ts" || baseName === "middleware.js") {
+      if (staticExport) continue;
       const dest = `${edgeDir}${edgeFn}.${ext}`;
       if (layout.hasW2agentRefs) {
         actions.push({
@@ -258,7 +282,8 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
       const content = nextjsMiddlewareSource({ lang, fn: edgeFn });
       if (layout.existingEdgeFile) {
-        const mergedName = `${edgeDir}${edgeFn}.w2agent.${ext}`;
+        const existingDir = layout.existingEdgeFile.includes("/") ? "src/" : "";
+        const mergedName = `${existingDir}${edgeFn}.w2agent.${ext}`;
         actions.push({ type: "write", dest: mergedName, content });
         mergeCopies.push({ dest: mergedName, manualDest: layout.existingEdgeFile });
         continue;
@@ -285,9 +310,16 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     }
 
     // Everything else: write (the one .tsx file, the WebMCP component, has no annotations, so JS is a rename)
-    const dest = lang === "js" ? relPath.replace(/\.tsx$/, ".jsx") : relPath;
+    const renamed = lang === "js" ? relPath.replace(/\.tsx$/, ".jsx") : relPath;
+    const dest = relPath.startsWith("components/")
+      ? `${layout.hasSrcDir ? "src/" : ""}${renamed}`
+      : renamed;
     actions.push({ type: "write", dest, content: file.content });
   }
+
+  // Generated robots rules are staged, never served: the owner merges them (generator review is a later slice)
+  const robots = files.find((f) => f.filename === "robots.txt");
+  if (robots) actions.push({ type: "write", dest: STAGED_ROBOTS, content: robots.content });
 
   // Post-install: suggest adding build script to package.json
   const guarded = guardInstallActions(actions, projectDir);
@@ -308,6 +340,35 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
         reason:
           `Existing ${edgeFn} found, but the w2agent ${edgeFn} was not written (see warnings). ` +
           "Merge it by hand, for example from `w2agent integrate <url> --output <dir>`.",
+      });
+    }
+  }
+
+  if (robots) {
+    const staged = hasWrittenCopy(guarded.actions, STAGED_ROBOTS)
+      ? STAGED_ROBOTS
+      : `the generated AI-crawler rules (${STAGED_ROBOTS} was not written, see warnings; \`w2agent integrate <url> --output <dir>\` writes the file)`;
+    const publicRobots = "public/robots.txt";
+    const metadataRoute = [appPrefix, "app", "src/app"]
+      .flatMap((dir) => ["ts", "js", "tsx", "jsx"].map((e) => `${dir}/robots.${e}`))
+      .find((p) => existsSync(join(projectDir, p)));
+    if (!existsSync(join(projectDir, publicRobots)) && metadataRoute) {
+      guarded.actions.push({
+        type: "manual",
+        dest: metadataRoute,
+        reason: `Add the rules from ${staged} to what the metadata route ${metadataRoute} returns.`,
+      });
+    } else if (existsSync(join(projectDir, publicRobots))) {
+      guarded.actions.push({
+        type: "manual",
+        dest: publicRobots,
+        reason: `Merge the rules from ${staged} into your existing ${publicRobots}.`,
+      });
+    } else {
+      guarded.actions.push({
+        type: "manual",
+        dest: publicRobots,
+        reason: `No robots.txt found. Review ${staged} and copy it to ${publicRobots} to serve it.`,
       });
     }
   }
