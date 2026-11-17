@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,6 +103,40 @@ describe("auth credential module", () => {
     it("creates the config directory if it does not exist", async () => {
       await saveCredentials("w2a_testtoken");
       expect(existsSync(join(tempHome, ".w2agent"))).toBe(true);
+    });
+  });
+
+  describe.skipIf(process.platform === "win32")("saveCredentials permissions", () => {
+    const dir = join(tempHome, ".w2agent");
+
+    it("creates the directory 0700 and the file 0600 with no temp left over", () => {
+      saveCredentials("w2a_testtoken");
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(expectedConfigPath).mode & 0o777).toBe(0o600);
+      expect(readdirSync(dir)).toEqual(["config.json"]);
+    });
+
+    it("tightens an existing 0755 directory and keeps the file 0600 on overwrite", () => {
+      mkdirSync(dir, { recursive: true });
+      chmodSync(dir, 0o755);
+      writeFileSync(expectedConfigPath, "{}", { mode: 0o644 });
+      saveCredentials("w2a_testtoken");
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(expectedConfigPath).mode & 0o777).toBe(0o600);
+      expect(loadCredentials()?.token).toBe("w2a_testtoken");
+    });
+
+    it("a stale temp file from a crash does not block the next save", () => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(`${expectedConfigPath}.1.stale.tmp`, "partial");
+      saveCredentials("w2a_testtoken");
+      expect(loadCredentials()?.token).toBe("w2a_testtoken");
+    });
+
+    it("removes its temp file and keeps the old config when the rename fails", () => {
+      mkdirSync(expectedConfigPath, { recursive: true });
+      expect(() => saveCredentials("w2a_testtoken")).toThrow();
+      expect(readdirSync(dir)).toEqual(["config.json"]);
     });
   });
 

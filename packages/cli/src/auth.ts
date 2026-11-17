@@ -1,5 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { chmod } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -28,14 +36,26 @@ export function loadCredentials(): { token: string; email?: string } | null {
 
 export function saveCredentials(token: string, email?: string): void {
   const configPath = getConfigPath();
-  mkdirSync(dirname(configPath), { recursive: true });
+  const dir = dirname(configPath);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") chmodSync(dir, 0o700);
   const creds: Credentials = {
     token,
     email,
     created: new Date().toISOString(),
   };
-  writeFileSync(configPath, JSON.stringify(creds, null, 2), "utf-8");
-  chmod(configPath, 0o600).catch(() => {});
+  const tmpPath = `${configPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(creds, null, 2), {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    renameSync(tmpPath, configPath);
+  } catch (err) {
+    rmSync(tmpPath, { force: true });
+    throw err;
+  }
 }
 
 export function clearCredentials(): void {

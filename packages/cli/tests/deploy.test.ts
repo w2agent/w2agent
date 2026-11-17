@@ -39,7 +39,7 @@ function buildProgram() {
 
 interface ResultOverrides {
   slug?: string;
-  mcpEndpoint?: string;
+  agentEndpoint?: string;
   pagesIndexed?: number;
   totalPagesFound?: number;
   tools?: Array<{ name: string }>;
@@ -51,7 +51,7 @@ interface ResultOverrides {
 function makeResultData(overrides: ResultOverrides = {}) {
   return {
     slug: "test-site",
-    mcpEndpoint: "https://agent.w2agent.dev/test-site",
+    agentEndpoint: "https://agent.w2agent.dev/test-site",
     pagesIndexed: 10,
     tools: [{ name: "search" }],
     webhookUrl: "https://w2agent.dev/webhooks/test-site",
@@ -66,6 +66,16 @@ function makeSseResponse(events: Array<{ type: string; data: unknown }>): Respon
   const body = new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
+function makeRawResponse(chunks: string[]): Response {
+  const body = new ReadableStream({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
       controller.close();
     },
   });
@@ -96,7 +106,6 @@ describe("deploy command", () => {
     rmSync(testHome, { recursive: true, force: true });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    delete process.env.W2AGENT_API_URL;
   });
 
   // --- Auth header construction ---
@@ -222,6 +231,78 @@ describe("deploy command", () => {
     });
   });
 
+  describe("SSE framing variants (DEP-5)", () => {
+    const result = (extra: object = {}) =>
+      JSON.stringify({ type: "result", data: makeResultData(extra) });
+    const logged = () => logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    const errored = () => errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    const deploy = () =>
+      buildProgram().parseAsync(["node", "w2agent", "deploy", "https://example.com"]);
+
+    it("processes a final event with no trailing newline", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeRawResponse([`data: ${result()}`])));
+      await deploy();
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(logged()).toContain("https://agent.w2agent.dev/test-site");
+      expect(logged()).not.toContain("undefined");
+    });
+
+    it("accepts data: without a space after the colon", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeRawResponse([`data:${result()}\n\n`])));
+      await deploy();
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(logged()).toContain("test-site");
+    });
+
+    it("accepts CRLF line endings, split across chunks", async () => {
+      const text = `data: ${JSON.stringify({ type: "progress", data: "x" })}\r\n\r\ndata: ${result()}\r\n\r\n`;
+      const cut = text.indexOf("\r\n", 10) + 1;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(makeRawResponse([text.slice(0, cut), text.slice(cut)])),
+      );
+      await deploy();
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(logged()).toContain("https://agent.w2agent.dev/test-site");
+    });
+
+    it("prints data.message for an object error event", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            makeSseResponse([{ type: "error", data: { message: "Crawl blocked", code: 7 } }]),
+          ),
+      );
+      await expect(deploy()).rejects.toThrow("process.exit");
+      expect(errored()).toContain("Crawl blocked");
+      expect(errored()).not.toContain('"message"');
+      expect(errored()).not.toContain("[object Object]");
+    });
+
+    it("prints the JSON for an object error event without a message", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(makeSseResponse([{ type: "error", data: { code: 7 } }])),
+      );
+      await expect(deploy()).rejects.toThrow("process.exit");
+      expect(errored()).toContain('{"code":7}');
+    });
+
+    it("treats a result without tools as empty", async () => {
+      const { tools: _tools, ...noTools } = makeResultData();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(makeSseResponse([{ type: "result", data: noTools }])),
+      );
+      await deploy();
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(logged()).toContain("test-site");
+      expect(logged()).not.toContain("Tools");
+    });
+  });
+
   // --- Result formatting ---
 
   describe("result formatting", () => {
@@ -234,7 +315,7 @@ describe("deploy command", () => {
               type: "result",
               data: makeResultData({
                 slug: "my-site",
-                mcpEndpoint: "https://agent.w2agent.dev/my-site",
+                agentEndpoint: "https://agent.w2agent.dev/my-site",
               }),
             },
           ]),
@@ -331,7 +412,28 @@ describe("deploy command", () => {
   // --- HTTP error handling ---
 
   describe("HTTP error handling", () => {
-    it("handles 401 with login prompt", async () => {
+    it("401 with --api-key says the key was rejected, not to log in", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeErrorResponse(401, "Unauthorized")));
+
+      await expect(
+        buildProgram().parseAsync([
+          "node",
+          "w2agent",
+          "deploy",
+          "https://example.com",
+          "--api-key",
+          "w2a_bad",
+        ]),
+      ).rejects.toThrow("process.exit");
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      const allError = errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(allError).toContain("API key passed with --api-key was rejected");
+      expect(allError).not.toContain("w2agent login");
+    });
+
+    it("401 with saved credentials says to run login --force", async () => {
+      saveCredentials("w2a_saved");
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeErrorResponse(401, "Unauthorized")));
 
       await expect(
@@ -340,7 +442,19 @@ describe("deploy command", () => {
 
       expect(exitSpy).toHaveBeenCalledWith(1);
       const allError = errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
-      expect(allError).toContain("w2agent login");
+      expect(allError).toContain("saved credentials were rejected");
+      expect(allError).toContain("w2agent login --force");
+    });
+
+    it("401 when anonymous keeps the login advice", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeErrorResponse(401, "Unauthorized")));
+
+      await expect(
+        buildProgram().parseAsync(["node", "w2agent", "deploy", "https://example.com"]),
+      ).rejects.toThrow("process.exit");
+
+      const allError = errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(allError).toContain("Run `w2agent login` to authenticate");
     });
 
     it("handles 403 with server error message", async () => {

@@ -14,20 +14,23 @@ import {
 } from "../agent/output.js";
 import { clearCredentials, getApiUrl, loadCredentials, saveCredentials } from "../auth.js";
 
-function openBrowser(url: string): void {
-  const plat = platform();
+export function openBrowser(
+  url: string,
+  plat: string = platform(),
+  exec: typeof execFile = execFile,
+): void {
   if (plat === "darwin") {
-    execFile("open", [url], (err) => {
+    exec("open", [url], (err) => {
       if (err)
         console.log(chalk.yellow(`  Could not open browser. Open this URL manually:\n  ${url}`));
     });
   } else if (plat === "win32") {
-    execFile("cmd", ["/c", "start", url], (err) => {
+    exec("rundll32", ["url.dll,FileProtocolHandler", url], (err) => {
       if (err)
         console.log(chalk.yellow(`  Could not open browser. Open this URL manually:\n  ${url}`));
     });
   } else {
-    execFile("xdg-open", [url], (err) => {
+    exec("xdg-open", [url], (err) => {
       if (err)
         console.log(chalk.yellow(`  Could not open browser. Open this URL manually:\n  ${url}`));
     });
@@ -63,8 +66,44 @@ export function registerLoginCommand(program: Command): void {
           );
           return;
         }
+        let email: string | undefined;
         try {
-          saveCredentials(key);
+          const res = await fetch(`${getApiUrl()}/api/cli/whoami`, {
+            headers: { Authorization: `Bearer ${key}` },
+            redirect: "manual",
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (res.status === 401 || res.status === 403) {
+            await failWith(
+              json,
+              {
+                reason: "auth_required",
+                message: "The server rejected this API key. Nothing was saved.",
+              },
+              undefined,
+              chalk.red("The server rejected this API key. Nothing was saved."),
+            );
+            return;
+          }
+          if (res.status === 200) {
+            const data = (await res.json().catch(() => ({}))) as { email?: unknown };
+            if (typeof data.email === "string") email = data.email;
+          } else {
+            console.error(
+              chalk.yellow(
+                `Warning: could not verify the API key (server returned ${res.status}). Saved it anyway.`,
+              ),
+            );
+          }
+        } catch (err) {
+          console.error(
+            chalk.yellow(
+              `Warning: could not verify the API key (${(err as Error).message}). Saved it anyway.`,
+            ),
+          );
+        }
+        try {
+          saveCredentials(key, email);
         } catch (err) {
           await failWith(json, {
             reason: "unknown_failure",

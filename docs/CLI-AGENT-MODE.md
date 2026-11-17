@@ -100,6 +100,8 @@ If `--platform` is forced and the crawl found no readable pages, `integrate` sti
 
 `outcome` is `authenticated` after a login and `already_authenticated` when credentials already exist (pass `--force` to log in again).
 
+With `--api-key`, the CLI checks the key against the server (`GET /api/cli/whoami`, 15 s timeout) before it saves anything. If the server answers 401 or 403, nothing is saved, an existing config file stays unchanged, and the result is `auth_required` with exit 1. If the check cannot finish (network error, timeout, any other status), the key is saved, a warning goes to stderr, and the result is still `authenticated` with exit 0. Stdout stays one JSON document.
+
 ## Error envelope
 
 On failure, with `--json`, stdout holds:
@@ -137,7 +139,7 @@ On failure, with `--json`, stdout holds:
 | `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
 | `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode with `--install` or `--dry-run` also exits 1 and writes nothing. Without them it writes the core files to `--output` and exits 0. |
 | `not_a_project` | 1 | yes | no | `--project-dir` is missing, is not a project root for this platform, or the platform refused it (for example a Pages Router app). `--install` and `--dry-run` write nothing. Pass the right `--project-dir`. |
-| `auth_required` | 1 | yes | no | Login needs an API key. See [login in agent environments](#login-in-agent-environments). |
+| `auth_required` | 1 | yes | no | Login needs an API key (see [login in agent environments](#login-in-agent-environments)), or the server rejected the key you passed to `login --api-key`. Create a new key and retry. |
 | `below_threshold` | 1 | no | no | `audit --ci --json` scored under `--threshold`. This is a result, not a crash: fix the site, then audit again. |
 
 `--install --json` also uses `unknown_failure` (exit 1) when a write failed or when nothing was installed because every path already existed. Human mode exits 1 in the same cases. With a partial failure the message names what was installed and what failed, and `error.changes` and `error.postInstallSteps` hold the executed changes and the steps still to do.

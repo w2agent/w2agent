@@ -5,7 +5,7 @@ import { getApiUrl, getAuthHeaders } from "../auth.js";
 
 interface DeployResult {
   slug: string;
-  mcpEndpoint: string;
+  agentEndpoint: string;
   pagesIndexed: number;
   totalPagesFound?: number;
   tools: Array<{ name: string; description?: string }>;
@@ -61,7 +61,12 @@ async function handleDeployAction(
     } catch {}
 
     if (response.status === 401) {
-      console.error(chalk.red(`✗ Authentication failed. Run \`w2agent login\` to authenticate.`));
+      const hint = opts.apiKey
+        ? "The API key passed with --api-key was rejected."
+        : Object.keys(authHeaders).length > 0
+          ? "The saved credentials were rejected. Run `w2agent login --force` to log in again."
+          : "Authentication failed. Run `w2agent login` to authenticate.";
+      console.error(chalk.red(`✗ ${hint}`));
     } else if (response.status === 403) {
       console.error(chalk.red(`✗ ${errMsg}`));
     } else if (response.status === 400) {
@@ -83,12 +88,33 @@ async function handleDeployAction(
   let buffer = "";
 
   const parseLine = (line: string): SseMessage | null => {
-    if (!line.startsWith("data: ")) return null;
+    if (!line.startsWith("data:")) return null;
+    const payload = line.slice(5);
     try {
-      return JSON.parse(line.slice(6)) as SseMessage;
+      return JSON.parse(payload.startsWith(" ") ? payload.slice(1) : payload) as SseMessage;
     } catch {
       return null;
     }
+  };
+
+  const handleMessage = (msg: SseMessage): boolean => {
+    if (msg.type === "progress") {
+      spinner.text = String(msg.data);
+    } else if (msg.type === "result") {
+      spinner.succeed("Agentize complete");
+      printResult(msg.data as DeployResult, opts.showToken ?? false);
+      return true;
+    } else if (msg.type === "error") {
+      spinner.fail("Agentize failed");
+      console.error(chalk.red(`  ${describeError(msg.data)}`));
+      process.exit(1);
+    }
+    return false;
+  };
+
+  const processLine = (rawLine: string): boolean => {
+    const msg = parseLine(rawLine);
+    return msg ? handleMessage(msg) : false;
   };
 
   while (true) {
@@ -100,22 +126,13 @@ async function handleDeployAction(
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      const msg = parseLine(line.trim());
-      if (!msg) continue;
-
-      if (msg.type === "progress") {
-        spinner.text = String(msg.data);
-      } else if (msg.type === "result") {
-        spinner.succeed("Agentize complete");
-        const result = msg.data as DeployResult;
-        printResult(result, opts.showToken ?? false);
-        return;
-      } else if (msg.type === "error") {
-        spinner.fail("Agentize failed");
-        console.error(chalk.red(`  ${msg.data}`));
-        process.exit(1);
-      }
+      if (processLine(line)) return;
     }
+  }
+
+  buffer += decoder.decode();
+  for (const line of buffer.split("\n")) {
+    if (processLine(line)) return;
   }
 
   spinner.fail("Agentize ended without a result");
@@ -142,6 +159,15 @@ export function registerAgentizeCommand(program: Command): void {
     .action((url, opts) => handleDeployAction(url, opts));
 }
 
+function describeError(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object") {
+    const message = (data as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return JSON.stringify(data) ?? "unknown error";
+}
+
 function maskToken(token: string): string {
   const idx = token.indexOf("_");
   return idx !== -1 ? `${token.slice(0, idx + 1)}****` : "****";
@@ -155,14 +181,15 @@ function printResult(result: DeployResult, showToken: boolean): void {
     console.log(chalk.green("  Agentized") + chalk.gray(` → ${result.slug}`));
   }
   console.log();
-  console.log(`  ${chalk.gray("Agent endpoint")}  ${chalk.white(result.mcpEndpoint)}`);
+  console.log(`  ${chalk.gray("Agent endpoint")}  ${chalk.white(result.agentEndpoint)}`);
   console.log(
     `  ${chalk.gray("Pages")}         ${chalk.white(result.pagesIndexed)}${result.totalPagesFound && result.totalPagesFound > result.pagesIndexed ? chalk.gray(` / ${result.totalPagesFound} found`) : ""}`,
   );
 
-  if (result.tools.length > 0) {
+  const tools = result.tools ?? [];
+  if (tools.length > 0) {
     console.log(
-      `  ${chalk.gray("Tools")}         ${chalk.white(result.tools.map((t) => t.name).join(", "))}`,
+      `  ${chalk.gray("Tools")}         ${chalk.white(tools.map((t) => t.name).join(", "))}`,
     );
   }
 
