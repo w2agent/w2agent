@@ -56,6 +56,7 @@ describe("Next.js install resolver", () => {
     expect(plan.warnings.length).toBe(0);
     expect(plan.postInstallSteps.length).toBeGreaterThan(0);
     expect(plan.postInstallSteps[0]).toContain("postbuild");
+    expect(plan.postInstallSteps[0]).toContain("npm install -D <path-to-w2agent>/packages/cli");
   });
 
   it("adjusts paths for src/app/ layout", () => {

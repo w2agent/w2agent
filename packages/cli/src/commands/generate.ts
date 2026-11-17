@@ -132,6 +132,11 @@ export function registerGenerateCommand(program: Command): void {
           spinner.text = status;
         });
 
+        if (result.pagesProcessed === 0) {
+          spinner.fail(`No pages could be crawled from ${url} (nothing written)`);
+          process.exit(1);
+        }
+
         spinner.stop();
 
         // Write files to disk

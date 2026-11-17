@@ -124,8 +124,11 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
     );
   }
   if (willWrite(guarded.actions, "w2agent-build.mjs")) {
+    const alternative = willWrite(guarded.actions, "w2agent-integration.mjs")
+      ? " This is an alternative to the w2agentIntegration() step above (use one, not both, or the site is crawled twice per build): the plugin is the default and writes into the build output; the script is for CI setups that need the files in public/."
+      : "";
     postInstallSteps.push(
-      'Add `"prebuild": "node w2agent-build.mjs"` to your package.json scripts (it must run before the build so files land in public/). Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run `npm install -D <path-to-w2agent>/packages/cli`.',
+      `Add \`"prebuild": "node w2agent-build.mjs"\` to your package.json scripts (it must run before the build so files land in public/).${alternative} Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run \`npm install -D <path-to-w2agent>/packages/cli\`.`,
     );
   }
   if (willWrite(guarded.actions, "src/components/WebMcpScript.astro")) {

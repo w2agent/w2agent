@@ -819,6 +819,7 @@ describe("Astro integration generation", () => {
     const install = files.find((f) => f.filename === "astro/INSTALL.md");
     expect(install).toBeDefined();
     expect(install?.content).toContain("static-first");
+    expect(install?.content).toContain("Use one of the two, not both");
   });
 });
 

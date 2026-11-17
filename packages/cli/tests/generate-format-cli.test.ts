@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -37,6 +45,14 @@ function tmp(): string {
   const d = mkdtempSync(join(tmpdir(), "w2agent-fmt-"));
   dirs.push(d);
   return d;
+}
+
+async function closedPort(): Promise<string> {
+  const s = createServer();
+  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+  const port = (s.address() as AddressInfo).port;
+  await new Promise<void>((r) => s.close(() => r()));
+  return `http://127.0.0.1:${port}`;
 }
 
 function listFiles(dir: string): string[] {
@@ -177,6 +193,44 @@ describe("generate --format and --no-platform (NX-14, NX-5)", () => {
       expect(requests).toBe(before);
     },
     90000,
+  );
+
+  it.skipIf(skip)(
+    "unreachable URL exits 1, says nothing was written, leaves the output dir untouched",
+    async () => {
+      const dead = await closedPort();
+      const cwd = tmp();
+      const { code, out } = await run(
+        ["generate", dead, "--format", "llms-txt,full", "--no-platform", "-o", "out"],
+        cwd,
+      );
+      expect(code).toBe(1);
+      expect(out).toContain("No pages could be crawled");
+      expect(out).toContain("nothing written");
+      expect(existsSync(join(cwd, "out"))).toBe(false);
+    },
+    90000,
+  );
+
+  it.skipIf(skip)(
+    "unreachable URL keeps an existing llms.txt byte-identical (also with --from-audit)",
+    async () => {
+      const dead = await closedPort();
+      for (const extra of [[], ["--from-audit"]]) {
+        const cwd = tmp();
+        mkdirSync(join(cwd, "out"));
+        writeFileSync(join(cwd, "out", "llms.txt"), "# Good seed\n");
+        const { code, out } = await run(
+          ["generate", dead, "--format", "llms-txt,full", "--no-platform", "-o", "out", ...extra],
+          cwd,
+        );
+        expect(code).toBe(1);
+        expect(out).toMatch(/nothing written|Generation failed/);
+        expect(readFileSync(join(cwd, "out", "llms.txt"), "utf-8")).toBe("# Good seed\n");
+        expect(listFiles(join(cwd, "out"))).toEqual(["llms.txt"]);
+      }
+    },
+    120000,
   );
 
   it.skipIf(skip)(

@@ -206,7 +206,7 @@ export default defineConfig({
 });
 \`\`\`
 
-### 3. (Optional) Add SSR endpoints
+### Alternative: prebuild script\nInstead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build.\n\n### 3. (Optional) Add SSR endpoints
 If using \`output: "server"\` or \`"hybrid"\`:
 \`\`\`bash
 cp astro/src/pages/llms.txt.ts your-astro-app/src/pages/

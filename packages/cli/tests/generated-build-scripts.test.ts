@@ -193,6 +193,39 @@ describe("generated build scripts refresh llms.txt (NX-5, GEN-5)", () => {
     120000,
   );
 
+  for (const { platform, target } of scriptCases) {
+    it.skipIf(skip)(
+      `${platform} w2agent-build.mjs keeps the seed llms.txt and writes nothing when the crawl finds no pages`,
+      async () => {
+        const emitted = await emit(platform, "Marker Dead Site");
+        const project = makeProject(true);
+        writeFileSync(
+          join(project, "w2agent-build.mjs"),
+          readFileSync(join(emitted, "w2agent-build.mjs")),
+        );
+        mkdirSync(join(project, target));
+        writeFileSync(join(project, target, "llms.txt"), STALE);
+        const before = listFiles(project);
+
+        const probe = createServer();
+        await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+        const deadUrl = `http://127.0.0.1:${(probe.address() as AddressInfo).port}`;
+        await new Promise<void>((r) => probe.close(() => r()));
+
+        const { code, out } = await exec(process.execPath, ["w2agent-build.mjs"], project, {
+          SITE_URL: deadUrl,
+        });
+
+        expect(code).toBe(0);
+        expect(out).toContain("Generation failed");
+        expect(out).not.toContain("Done. Files written");
+        expect(readFileSync(join(project, target, "llms.txt"), "utf-8")).toBe(STALE);
+        expect(listFiles(project)).toEqual(before);
+      },
+      120000,
+    );
+  }
+
   const negativeCases = [
     {
       name: "nextjs build script",
@@ -265,6 +298,7 @@ describe("generated build scripts refresh llms.txt (NX-5, GEN-5)", () => {
         }
         const { code, out } = result;
 
+        expect(registryHits).toContain("/w2agent");
         expect(registryHits.filter((u) => u.includes(".tgz"))).toEqual([]);
         expect(code).toBe(0);
         expect(Date.now() - started).toBeLessThan(15000);

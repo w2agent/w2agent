@@ -127,6 +127,9 @@ npx w2agent audit https://your-site.com
 # 2. Generate llms.txt and llms-full.txt into the served dir (--no-platform skips the platform integration tree)
 npx w2agent generate https://your-site.com --format llms-txt,full --no-platform --output ./public/
 
+# 2b. Generate the platform integration files that step 3 deploys (WordPress, Next.js, Shopify, Docusaurus)
+npx w2agent integrate https://your-site.com
+
 # 3. Deploy the generated files to your site
 #    - WordPress: upload plugin to /wp-content/plugins/
 #    - Next.js: copy route handlers + middleware

@@ -113,6 +113,12 @@ describe("Astro install resolver", () => {
     expect(skipped?.reason).toBe("already exists");
   });
 
+  it("tells the user the prebuild script and the integration plugin are alternatives", () => {
+    const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+    const step = plan.postInstallSteps.find((s) => s.includes('"prebuild"')) ?? "";
+    expect(step).toContain("use one, not both");
+  });
+
   it("skips existing integration plugin", () => {
     writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
     writeFileSync(join(tempDir, "w2agent-integration.mjs"), "// existing", "utf-8");
