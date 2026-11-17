@@ -696,13 +696,13 @@ describe("Shopify integration generation", () => {
     expect(files).toHaveLength(3);
   });
 
-  it("generates Liquid snippet with dynamic product data", () => {
+  it("generates a head snippet with the llms.txt link and no hand-built product price or currency", () => {
     const files = shopifyAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const snippet = files.find((f) => f.filename === "shopify/snippets/w2agent-head.liquid");
     expect(snippet).toBeDefined();
-    expect(snippet?.content).toContain("{{ product.title");
-    expect(snippet?.content).toContain("{{ product.price");
-    expect(snippet?.content).toContain("product.available");
+    expect(snippet?.content).toContain('href="/llms.txt"');
+    expect(snippet?.content).not.toContain("product.price");
+    expect(snippet?.content).not.toContain("shop.currency");
   });
 
   it("generates robots additions only when the crawled robots.txt blocks AI agents via *, and never a robots.txt.liquid", () => {

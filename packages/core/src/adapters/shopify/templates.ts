@@ -1,5 +1,6 @@
 import { mdUrl } from "../../generate/markdown-text.js";
 import type { GeneratedFile } from "../../generate/types.js";
+import type { ProductSchemaState } from "./product-schema.js";
 
 export function liquidSafeRobotsLine(line: string): string {
   if (/[\r\n]/.test(line)) throw new Error("robots.txt line contains a line break");
@@ -29,6 +30,28 @@ export function shopifyLlmsTxtLiquid(llmsTxtContent: string, siteUrl: string): s
 export interface ShopifyIntegrationOptions {
   webmcp?: boolean;
   mcpWebhook?: boolean;
+  productSchema?: ProductSchemaState;
+}
+
+const PRODUCT_SCHEMA_BLOCK = `{% if request.page_type == 'product' and product %}
+<script type="application/ld+json">
+  {{ product | structured_data }}
+</script>
+{% endif %}
+`;
+
+function productSchemaNote(state: ProductSchemaState): string {
+  const manual = `Search your theme code for \`structured_data\` first. If there is no match, add this to \`snippets/w2agent-head.liquid\`:
+
+\`\`\`liquid
+${PRODUCT_SCHEMA_BLOCK}\`\`\``;
+  if (state === "present") {
+    return `Your theme already outputs Product schema on the crawled product pages, so the head snippet does not add a second block.\n\n${manual}`;
+  }
+  if (state === "absent") {
+    return `The crawled product pages had no Product schema, so the head snippet adds it with Shopify's \`structured_data\` filter (Product, or ProductGroup when the product has variants). Search your theme code for \`structured_data\` first. If it already outputs the schema, delete the \`{% if request.page_type == 'product' and product %}\` block from \`snippets/w2agent-head.liquid\`.`;
+  }
+  return `No product page was crawled, so w2agent could not tell whether your theme outputs Product schema and did not add one.\n\n${manual}`;
 }
 
 export function generateShopifyIntegration(
@@ -41,35 +64,12 @@ export function generateShopifyIntegration(
   const robotsAdditions = shopifyRobotsAdditions(robotsGroups);
   const hasRobots = robotsAdditions !== "";
 
+  const productSchema = options.productSchema ?? "unknown";
   const headSnippet = `{% comment %}
   w2agent AI Readiness — Add to theme.liquid inside <head>
 {% endcomment %}
 <link rel="alternate" type="text/markdown" href="/llms.txt" title="LLMs.txt">
-
-{% if template contains 'product' %}
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Product",
-  "name": {{ product.title | json }},
-  "description": {{ product.description | strip_html | json }},
-  "url": "{{ shop.url }}{{ product.url }}",
-  "image": "{{ product.featured_image | image_url: width: 1200 }}",
-  "brand": {
-    "@type": "Brand",
-    "name": {{ product.vendor | json }}
-  },
-  "offers": {
-    "@type": "Offer",
-    "price": {{ product.price | money_without_currency | json }},
-    "priceCurrency": {{ shop.currency | json }},
-    "availability": "{% if product.available %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}",
-    "url": "{{ shop.url }}{{ product.url }}"
-  }
-}
-</script>
-{% endif %}
-`;
+${productSchema === "absent" ? `\n${PRODUCT_SCHEMA_BLOCK}` : ""}`;
 
   const pushFiles = ["snippets/w2agent-head.liquid"];
   if (options.webmcp) pushFiles.push("snippets/w2agent-webmcp.liquid");
@@ -142,6 +142,10 @@ ${stepsMd}
 shopify/
 ${refs}
 \`\`\`
+
+## Product schema
+
+${productSchemaNote(productSchema)}
 
 ## Notes
 

@@ -4,6 +4,7 @@ import type { GenerateContext, GeneratedFile } from "../../generate/types.js";
 import type { PlatformAdapter, PlatformDetectionResult } from "../types.js";
 import { shopifyChecks } from "./checks.js";
 import { resolveShopifyInstall } from "./install.js";
+import { detectProductSchema } from "./product-schema.js";
 import { generateShopifyIntegration } from "./templates.js";
 
 export const shopifyAdapter: PlatformAdapter = {
@@ -59,6 +60,7 @@ export const shopifyAdapter: PlatformAdapter = {
     const files = generateShopifyIntegration(llmsTxt, robotsGroups, ctx.baseUrl, {
       webmcp: webmcpJs !== "",
       mcpWebhook: hasMcpServer,
+      productSchema: detectProductSchema(ctx.rawPages),
     });
 
     if (hasMcpServer) {

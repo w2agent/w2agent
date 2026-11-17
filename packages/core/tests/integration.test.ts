@@ -693,12 +693,12 @@ describe("integration: Shopify", () => {
     expect(head.content).not.toContain("/pages/llms-txt");
   });
 
-  it("head snippet includes product schema.org", () => {
+  it("head snippet adds no product schema when no product page was crawled", () => {
     const head = files.find((f) => f.filename.includes("w2agent-head.liquid"))!;
-    expect(head.content).toContain("schema.org");
-    expect(head.content).toContain('"@type": "Product"');
-    expect(head.content).toContain("product.title");
-    expect(head.content).toContain("product.price");
+    expect(head.content).not.toContain("ld+json");
+    expect(head.content).not.toContain("money_without_currency");
+    const install = files.find((f) => f.filename === "shopify/INSTALL.md")!;
+    expect(install.content).toContain("No product page was crawled");
   });
 
   it("robots additions allow AI agents blocked by * and carry no Sitemap", () => {
