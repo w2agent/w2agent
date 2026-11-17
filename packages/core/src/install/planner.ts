@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PlatformAdapter, PlatformId } from "../adapters/types.js";
 import type { GeneratedFile } from "../generate/types.js";
+import { guardInstallActions } from "./guard.js";
 import type { InstallAction, InstallPlan } from "./types.js";
 
 const SKIP_ON_INSTALL = ["INSTALL.md"];
@@ -13,13 +14,17 @@ export function planInstall(
   generatedFiles: GeneratedFile[],
   projectDir: string,
 ): InstallPlan {
-  // If adapter has a custom resolver, use it
-  if (adapter.resolveInstall) {
-    return adapter.resolveInstall(generatedFiles, projectDir);
-  }
+  // Custom resolver if the adapter has one, otherwise the fallback plan
+  const plan = adapter.resolveInstall
+    ? adapter.resolveInstall(generatedFiles, projectDir)
+    : planInstallFallback(adapter.id, generatedFiles, projectDir);
 
-  // Fallback: replicate current behavior as an InstallPlan
-  return planInstallFallback(adapter.id, generatedFiles, projectDir);
+  const guarded = guardInstallActions(plan.actions, projectDir);
+  return {
+    ...plan,
+    actions: guarded.actions,
+    warnings: [...plan.warnings, ...guarded.warnings],
+  };
 }
 
 function planInstallFallback(

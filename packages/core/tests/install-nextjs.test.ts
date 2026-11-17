@@ -196,44 +196,61 @@ describe("Next.js install resolver", () => {
     expect(skipped[0].dest).toBe("src/app/llms.txt/route.ts");
   });
 
-  it("prepends delete action for conflicting public/llms.txt", () => {
+  it("never deletes: skips the route and adds a manual action for a conflicting public/llms.txt", () => {
     mkdirSync(join(tempDir, "public"), { recursive: true });
     writeFileSync(join(tempDir, "public", "llms.txt"), "# static llms", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteIdx = plan.actions.findIndex(
-      (a) => a.type === "delete" && a.dest === "public/llms.txt",
+    expect(plan.actions.some((a) => (a.type as string) === "delete")).toBe(false);
+    expect(plan.actions.some((a) => a.type === "write" && a.dest === "app/llms.txt/route.ts")).toBe(
+      false,
     );
-    const writeIdx = plan.actions.findIndex(
-      (a) => a.type === "write" && a.dest === "app/llms.txt/route.ts",
-    );
-    expect(deleteIdx).toBeGreaterThanOrEqual(0);
-    expect(writeIdx).toBeGreaterThanOrEqual(0);
-    expect(deleteIdx).toBeLessThan(writeIdx);
+    const skip = plan.actions.find((a) => a.type === "skip" && a.dest === "app/llms.txt/route.ts");
+    expect(skip?.reason).toContain("public/llms.txt");
+    const manual = plan.actions.find((a) => a.type === "manual" && a.dest === "public/llms.txt");
+    expect(manual?.reason).toContain("Remove or rename");
+    expect(manual?.reason).toContain("re-run");
+    expect(manual?.reason).toContain("Next.js");
+    // The unrelated llms-full route is still planned
+    expect(
+      plan.actions.some((a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(true);
   });
 
-  it("prepends delete action for conflicting public/llms-full.txt", () => {
+  it("never deletes: skips the route and adds a manual action for public/llms-full.txt", () => {
     mkdirSync(join(tempDir, "public"), { recursive: true });
     writeFileSync(join(tempDir, "public", "llms-full.txt"), "# static llms full", "utf-8");
 
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteIdx = plan.actions.findIndex(
-      (a) => a.type === "delete" && a.dest === "public/llms-full.txt",
+    expect(plan.actions.some((a) => (a.type as string) === "delete")).toBe(false);
+    expect(
+      plan.actions.some((a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(false);
+    expect(
+      plan.actions.some((a) => a.type === "skip" && a.dest === "app/llms-full.txt/route.ts"),
+    ).toBe(true);
+    expect(plan.actions.some((a) => a.type === "manual" && a.dest === "public/llms-full.txt")).toBe(
+      true,
     );
-    const writeIdx = plan.actions.findIndex(
-      (a) => a.type === "write" && a.dest === "app/llms-full.txt/route.ts",
-    );
-    expect(deleteIdx).toBeGreaterThanOrEqual(0);
-    expect(writeIdx).toBeGreaterThanOrEqual(0);
-    expect(deleteIdx).toBeLessThan(writeIdx);
   });
 
-  it("does not add delete action when public/llms.txt is absent", () => {
+  it("adds no skip or manual action when public/llms.txt is absent", () => {
     const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
 
-    const deleteAction = plan.actions.find((a) => a.type === "delete");
-    expect(deleteAction).toBeUndefined();
+    expect(plan.actions.some((a) => a.type === "skip" || a.type === "manual")).toBe(false);
+  });
+
+  it("uses the src/app route path when public/llms.txt conflicts", () => {
+    mkdirSync(join(tempDir, "src", "app"), { recursive: true });
+    mkdirSync(join(tempDir, "public"), { recursive: true });
+    writeFileSync(join(tempDir, "public", "llms.txt"), "# static llms", "utf-8");
+
+    const plan = resolveNextjsInstall(makeNextjsFiles(), tempDir);
+
+    expect(
+      plan.actions.some((a) => a.type === "skip" && a.dest === "src/app/llms.txt/route.ts"),
+    ).toBe(true);
   });
 });

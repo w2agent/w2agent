@@ -5,13 +5,14 @@
 The `--install` mode uses an **InstallPlan framework** that separates planning from execution:
 
 1. **Planner** (`packages/core/src/install/planner.ts`) — analyzes the project directory and generated files, produces an `InstallPlan`
-2. **Executor** (`packages/core/src/install/executor.ts`) — writes files according to the plan, returns a summary
-3. **Per-platform resolvers** — each adapter implements `resolveInstall()` with platform-specific conflict detection
+2. **Guard** (`packages/core/src/install/guard.ts`) — runs on every plan, custom or fallback, so dry-run and real run show the same skips
+3. **Executor** (`packages/core/src/install/executor.ts`) — writes files according to the plan, returns a summary
+4. **Per-platform resolvers** — each adapter implements `resolveInstall()` with platform-specific conflict detection
 
 ```
 integrate command
   → runGenerate() → detect platform → get adapter
-  → planInstall(adapter, files, projectDir) → InstallPlan
+  → planInstall(adapter, files, projectDir) → InstallPlan (guarded)
   → executeInstallPlan(plan, projectDir) → summary
 ```
 
@@ -27,6 +28,16 @@ interface InstallPlan {
 ```
 
 Each action has a `type`, `dest` (relative path), optional `content`, and optional `reason` (for skip/manual).
+
+### Safety rules (all platforms)
+
+Install never overwrites or deletes files, and never writes outside `--project-dir`. The guard turns a `write` into a `skip` (plus a warning) when:
+
+- `dest` is absolute, escapes the project with `..`, or passes through a symlinked directory that points outside the project.
+- `dest` already exists (a dangling symlink counts). An identical file is skipped as "already up to date" without a warning. To replace a file, remove it and re-run.
+- A code file with the same name and another extension sits next to it (for example `route.js` beside a planned `route.ts`).
+
+The executor re-checks containment and creates files with exclusive-create (`wx`), so a file that appears between planning and writing is also skipped, never overwritten.
 
 ## CLI Flags
 
@@ -49,8 +60,10 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Existing `app/llms.txt/route.ts` | File exists | Skip + warn |
 | Existing middleware (with w2agent) | Read file, check content | Skip |
 | Existing middleware (no w2agent) | Read file, check content | Write as `.w2agent.ts` + merge instructions |
-| Existing `public/llms.txt` | File exists | Skip + warn |
+| Existing `public/llms.txt` or `public/llms-full.txt` | File exists | Skip the matching route, manual step to remove or rename the public file (Next.js errors when both exist) and re-run. The file is never deleted |
+| Existing `app/llms.txt/route.js` (or other extension) | Same stem, other extension | Skip + warn |
 | Existing `w2agent-build.mjs` | File exists | Skip + warn |
+| Any other generated file already present | File exists | Skip + warn (guard) |
 
 ### Nuxt (`packages/core/src/adapters/nuxt/install.ts`)
 
@@ -60,6 +73,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Existing server routes | File exists | Skip + warn |
 | Existing middleware (with w2agent) | Read file, check content | Skip |
 | Existing middleware (no w2agent) | Read file | Write as `.w2agent.ts` |
+| Any other generated file already present | File exists | Skip + warn (guard) |
 
 ### Astro (`packages/core/src/adapters/astro/install.ts`)
 
@@ -84,7 +98,9 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Scenario | Detection | Action |
 |----------|-----------|--------|
 | Standard WP root | `wp-content/plugins/` exists | Install to `wp-content/plugins/w2agent/` |
-| Custom plugin dir | `WP_PLUGIN_DIR` in wp-config.php | Use custom path |
+| Custom plugin dir | `define('WP_PLUGIN_DIR', '<string literal>')` or `const WP_PLUGIN_DIR = '<string literal>';` in wp-config.php (comments and heredocs ignored) | Use custom path; an absolute path inside the project is made relative |
+| Plugin dir outside the project | Absolute path elsewhere, or relative path that escapes | No writes; manual step + warning to copy the plugin by hand (for example from `--output`) |
+| Unreadable `WP_PLUGIN_DIR` | Expression, concatenation or constant | Use `wp-content/plugins` + warn |
 | Not in WP root | Missing markers | Warn + still write files |
 | Existing plugin | `wp-content/plugins/w2agent/` exists | Skip all + warn to remove old version |
 
@@ -99,14 +115,15 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (35 tests across 7 test files)
+### Unit tests (117 tests across 8 test files)
 
-- `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (10 tests)
-- `tests/install-nextjs.test.ts` — src/app, pages-router, middleware merge, existing files (9 tests)
-- `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (6 tests)
-- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (6 tests)
-- `tests/install-docusaurus.test.ts` — plugin config, gray-matter (6 tests)
-- `tests/install-wordpress.test.ts` — WP root, existing plugin (4 tests)
+- `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
+- `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
+- `tests/install-nextjs.test.ts` — src/app, pages-router, middleware merge, existing files, public/ conflicts (17 tests)
+- `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
+- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (10 tests)
+- `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
+- `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
 - `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
 
 All tests use temp directories with fixture files — fast, no network.
@@ -123,6 +140,7 @@ w2agent integrate https://example.com --platform nextjs --install --dry-run --pr
 ```
 packages/core/src/install/
 ├── types.ts      # InstallAction, InstallPlan types
+├── guard.ts      # guardInstallActions(): containment, no-overwrite
 ├── planner.ts    # planInstall() + fallback logic
 └── executor.ts   # executeInstallPlan(), formatInstallSummary()
 

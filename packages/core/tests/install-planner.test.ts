@@ -130,7 +130,7 @@ describe("install planner", () => {
       });
 
       const plan = planInstall(adapter, [], tempDir);
-      expect(plan).toBe(customPlan);
+      expect(plan).toEqual(customPlan);
     });
   });
 });
@@ -252,7 +252,6 @@ describe("formatInstallSummary", () => {
       installed: ["middleware.ts", "app/llms.txt/route.ts"],
       skipped: [],
       manual: [],
-      deleted: [],
     };
 
     const output = formatInstallSummary(
@@ -279,7 +278,7 @@ describe("formatInstallSummary", () => {
       warnings: [],
       postInstallSteps: [],
     };
-    const result = { installed: ["middleware.ts"], skipped: [], manual: [], deleted: [] };
+    const result = { installed: ["middleware.ts"], skipped: [], manual: [] };
 
     const output = formatInstallSummary(
       plan,
@@ -306,7 +305,6 @@ describe("formatInstallSummary", () => {
       installed: [],
       skipped: ["middleware.ts (already exists)"],
       manual: [],
-      deleted: [],
     };
 
     const output = formatInstallSummary(plan, result, "/proj", "https://example.com", "Next.js");
@@ -326,7 +324,6 @@ describe("formatInstallSummary", () => {
       installed: [],
       skipped: [],
       manual: ["middleware.ts: merge w2agent content into existing middleware"],
-      deleted: [],
     };
 
     const output = formatInstallSummary(plan, result, "/proj", "https://example.com", "Next.js");
@@ -342,7 +339,7 @@ describe("formatInstallSummary", () => {
       warnings: ["Pages Router only — App Router required"],
       postInstallSteps: [],
     };
-    const result = { installed: [], skipped: [], manual: [], deleted: [] };
+    const result = { installed: [], skipped: [], manual: [] };
 
     const output = formatInstallSummary(plan, result, "/proj", "https://example.com", "Next.js");
 
@@ -360,7 +357,7 @@ describe("formatInstallSummary", () => {
         "Run npm install gray-matter",
       ],
     };
-    const result = { installed: ["w2agent-build.mjs"], skipped: [], manual: [], deleted: [] };
+    const result = { installed: ["w2agent-build.mjs"], skipped: [], manual: [] };
 
     const output = formatInstallSummary(plan, result, "/proj", "https://example.com", "Next.js");
 
@@ -380,7 +377,6 @@ describe("formatInstallSummary", () => {
       installed: ["server/routes/llms.txt.ts"],
       skipped: ["public/llms.txt (already exists)"],
       manual: ["middleware.ts: merge manually"],
-      deleted: [],
     };
 
     const output = formatInstallSummary(plan, result, "/proj", "https://nuxt-site.com", "Nuxt");
