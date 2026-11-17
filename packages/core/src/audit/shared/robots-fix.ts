@@ -15,12 +15,12 @@ export function findBlockedTokens(
   return blocked;
 }
 
-interface RobotsRule {
+export interface RobotsRule {
   directive: "Allow" | "Disallow";
   value: string;
 }
 
-interface RobotsGroup {
+export interface RobotsGroup {
   agentLines: Array<{ agent: string }>;
   rules: RobotsRule[];
   crawlDelay?: string;
@@ -34,13 +34,13 @@ export interface RobotsAccessFix {
 
 const LINE_BREAK = /\r\n|\r|\n/;
 
-function normalizeAgent(agent: string): string {
+export function normalizeAgent(agent: string): string {
   const lower = agent.toLowerCase();
   const slash = lower.indexOf("/");
   return (slash > -1 ? lower.slice(0, slash) : lower).trim();
 }
 
-function parseGroups(robotsTxt: string): RobotsGroup[] {
+export function parseGroups(robotsTxt: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | undefined;
   let lastWasAgent = false;

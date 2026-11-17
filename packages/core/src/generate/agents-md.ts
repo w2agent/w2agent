@@ -1,5 +1,6 @@
 import robotsParser from "robots-parser";
 import { ROBOTS_TOKENS } from "../audit/shared/bot-tokens.js";
+import { normalizeAgent, parseGroups } from "../audit/shared/robots-fix.js";
 import { extractSiteInfo } from "./llms-txt.js";
 import { mdDescription } from "./markdown-text.js";
 import { keyContentLine } from "./skill-md.js";
@@ -91,50 +92,67 @@ export function generateAgentsMd(ctx: GenerateContext): string {
 
 type Access = "Blocked" | "Partly restricted" | "Allowed";
 
-function parseRobotsLines(robotsTxt: string): { agents: Set<string>; disallows: string[] } {
-  const agents = new Set<string>();
-  const disallows: string[] = [];
-  for (const raw of robotsTxt.split(/\r\n|\r|\n/)) {
-    const hash = raw.indexOf("#");
-    const text = hash > -1 ? raw.slice(0, hash) : raw;
-    const colon = text.indexOf(":");
-    if (colon < 0) continue;
-    const key = text.slice(0, colon).trim().toLowerCase();
-    const value = text.slice(colon + 1).trim();
-    if (key === "user-agent") {
-      const lower = value.toLowerCase();
-      const slash = lower.indexOf("/");
-      agents.add((slash > -1 ? lower.slice(0, slash) : lower).trim());
-    } else if (key === "disallow" && value) {
-      disallows.push(value);
-    }
-  }
-  return { agents, disallows };
-}
+/** Distinct Disallow values probed per applicable rule set; more than this reads as Partly restricted. */
+export const MAX_DISALLOW_PROBES = 50;
 
 function aiBotAccess(robotsTxt: string, baseUrl: string): Array<{ label: string; access: Access }> {
   const origin = new URL(baseUrl).origin;
   const robots = robotsParser(`${origin}/robots.txt`, robotsTxt);
-  const { agents, disallows } = parseRobotsLines(robotsTxt);
-  const probes = disallows.flatMap((d) => {
-    const path = d.replace(/[*$]/g, "");
-    const url = `${origin}${path.startsWith("/") ? "" : "/"}${path}`;
-    return [url, `${url}x`];
-  });
+  const groups = parseGroups(robotsTxt);
+  const named = new Set(groups.flatMap((g) => g.agentLines.map((a) => a.agent)));
 
-  const accessFor = (agent: string): Access => {
-    if (robots.isAllowed(`${origin}/`, agent) === false) return "Blocked";
-    if (probes.some((url) => robots.isAllowed(url, agent) === false)) return "Partly restricted";
-    return "Allowed";
+  const cache = new Map<string, Access>();
+  const accessFor = (token: string): Access => {
+    const agent = normalizeAgent(token);
+    let applicable = groups.flatMap((g, i) =>
+      g.agentLines.some((a) => a.agent === agent) ? [i] : [],
+    );
+    if (applicable.length === 0) {
+      applicable = groups.flatMap((g, i) => (g.agentLines.some((a) => a.agent === "*") ? [i] : []));
+    }
+    const key = applicable.join(",");
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    let access: Access = "Allowed";
+    if (robots.isAllowed(`${origin}/`, token) === false) {
+      access = "Blocked";
+    } else {
+      const values = new Set<string>();
+      for (const i of applicable) {
+        for (const rule of groups[i].rules) {
+          if (rule.directive === "Disallow" && rule.value) values.add(rule.value);
+        }
+      }
+      let probed = 0;
+      for (const value of values) {
+        if (probed === MAX_DISALLOW_PROBES) {
+          access = "Partly restricted";
+          break;
+        }
+        probed++;
+        const path = value.replace(/[*$]/g, "");
+        const url = `${origin}${path.startsWith("/") ? "" : "/"}${path}`;
+        if (
+          robots.isAllowed(url, token) === false ||
+          robots.isAllowed(`${url}x`, token) === false
+        ) {
+          access = "Partly restricted";
+          break;
+        }
+      }
+    }
+    cache.set(key, access);
+    return access;
   };
 
   const rows: Array<{ label: string; access: Access }> = [];
   for (const token of ROBOTS_TOKENS) {
-    if (agents.has(token.toLowerCase())) {
+    if (named.has(normalizeAgent(token))) {
       rows.push({ label: `**${token}**`, access: accessFor(token) });
     }
   }
-  if (agents.has("*")) {
+  if (named.has("*")) {
     rows.push({ label: "**All other agents (`*`)**", access: accessFor("*") });
   }
   return rows;
