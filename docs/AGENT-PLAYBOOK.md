@@ -18,7 +18,9 @@ Pinned version: `w2agent@0.1.0`. The runner is:
 npx -y w2agent@0.1.0 <command>
 ```
 
-If npm answers 404 for `w2agent@0.1.0`:
+Check that the version is on npm before you run it. Run `npm view w2agent@0.1.0 version` first. If it prints `0.1.0`, use the runner above. Do not run `npx` on a version you have not checked.
+
+If `npm view` answers 404 for `w2agent@0.1.0`:
 
 - If a w2agent checkout exists locally (the owner may have cloned it next to the site, not in your cwd), build the CLI from source and run `node <checkout>/packages/cli/dist/index.js <command>`. Narrowest build that works (needs Node 18+ and pnpm):
   ```bash

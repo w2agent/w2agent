@@ -24,7 +24,7 @@ npx w2agent@0.1.0 audit <local url> --json                 # 复审
 
 应用之前，Agent 会先把方案展示给用户。参数、JSON 文档和退出码见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
 
-如果 npm 对 `w2agent@0.1.0` 返回 404：如果本地有 w2agent 仓库（例如克隆在站点旁边），从源码构建（`pnpm install && pnpm --filter w2agent... build`），再运行 `node <checkout>/packages/cli/dist/index.js`；否则停止并告知所有者。不要尝试其他包名。
+首次运行 `npx` 之前，agent 先执行 `npm view w2agent@0.1.0 version` 确认该版本已发布。如果 npm 返回 404：如果本地有 w2agent 仓库（例如克隆在站点旁边），从源码构建（`pnpm install && pnpm --filter w2agent... build`），再运行 `node <checkout>/packages/cli/dist/index.js`；否则停止并告知所有者。不要尝试其他包名。
 
 为你的 Agent 安装该 playbook：
 

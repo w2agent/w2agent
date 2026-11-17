@@ -24,7 +24,7 @@ npx w2agent@0.1.0 audit <local url> --json                 # re-audit
 
 The agent shows the plan to the user before applying. Flags, JSON documents and exit codes: [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md).
 
-If npm answers 404 for `w2agent@0.1.0`: if a w2agent checkout is available locally (for example cloned next to the site), build it from source (`pnpm install && pnpm --filter w2agent... build`) and run `node <checkout>/packages/cli/dist/index.js`. Otherwise stop and tell the owner. Never try other package names.
+The agent checks `npm view w2agent@0.1.0 version` before the first `npx`. If npm answers 404: if a w2agent checkout is available locally (for example cloned next to the site), build it from source (`pnpm install && pnpm --filter w2agent... build`) and run `node <checkout>/packages/cli/dist/index.js`. Otherwise stop and tell the owner. Never try other package names.
 
 Install the playbook for your agent:
 
