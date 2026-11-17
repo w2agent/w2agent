@@ -13,7 +13,7 @@ fixBy: agent
 
 ## Who fixes it
 
-You do (`fixBy: agent`). `integrate` does not create a sitemap on any framework, and on Next.js it does not write a `Sitemap:` line either. Its staged robots rules (`.w2agent/robots.txt`) only repeat the `Sitemap:` line the site already has. Write the sitemap yourself, then leave `robots.txt` alone except for the case below.
+You do (`fixBy: agent`). `integrate` does not create a sitemap on any framework, and on Next.js it does not write a `Sitemap:` line either. Its staged robots rules (`.w2agent/robots.txt`, never served until the owner merges them) add `Sitemap: <origin>/sitemap.xml` when a sitemap exists and `robots.txt` has no `Sitemap:` line, and write one into a new `robots.txt` when none exists. Write the sitemap yourself, then leave `robots.txt` alone except for the case below.
 
 ## Fix (any framework)
 
@@ -59,7 +59,7 @@ Replace `origin` and the paths with the site's real values.
 ## Pitfalls
 
 - Never write placeholder URLs. Every `<loc>` is a real page on the production origin.
-- Do not copy the local server origin into the file. A sitemap with local URLs is wrong for the owner and the audit ignores it.
+- Do not copy the local server origin into the file. A sitemap with local URLs is wrong for the owner. An audit of the local server crawls same-origin URLs only, so it skips production URLs and does not prove them.
 - Do not hand-write `llms.txt` or other files `integrate` generates. A sitemap is a different file.
 - Do not edit or replace an existing `robots.txt`. Add a missing `Sitemap:` line only.
 - Do not move or rewrite page code to make routes easier to list.

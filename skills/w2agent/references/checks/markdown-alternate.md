@@ -15,14 +15,14 @@ fixBy: integrate
 
 Two steps, two owners.
 
-1. `integrate` writes the markdown twin of the home page and wires its content negotiation. Run it first. Never hand-write `/index.md`, `llms.txt` or the middleware.
+1. On frameworks whose section below says so, `integrate` writes the markdown twin of the home page. Run it first. Never hand-write `/index.md`, `llms.txt` or the middleware. If no twin exists after `integrate`, do not hand-write one and do not add the link: report it to the owner.
 2. The `<link>` in the page's `<head>` is an additive edit to an existing user file. `integrate` does not make it. You do.
 
 On Next.js, `integrate` writes `app/index.md/route.ts`, which serves `/index.md`. It writes no markdown file for any inner page. Only the home page has a twin.
 
 ## Fix (any framework)
 
-1. Run `integrate`. Confirm the markdown file or route exists and serves `text/markdown`.
+1. Run `integrate`. Confirm the markdown file or route exists and serves `text/markdown`. If it does not exist, stop here and report it to the owner.
 2. On each page that has a real markdown twin, add `<link rel="alternate" type="text/markdown" href="<twin url>">` to `<head>` through the framework's metadata mechanism.
 3. A page without a twin gets no link. Do not point other pages at the home twin.
 
@@ -30,7 +30,7 @@ On Next.js, `integrate` writes `app/index.md/route.ts`, which serves `/index.md`
 
 `integrate` covers the `/index.md` route. The link needs your edit. Do it in the home page, not the root layout.
 
-1. In `app/page.tsx` (or `src/app/page.tsx`), add `types` under `alternates` in the page's `metadata`. If the page has no `metadata`, add one:
+1. In `app/page.tsx` (or `src/app/page.tsx`), add `types` under `alternates` in the page's `metadata`. If the page has no `metadata`, add one. If the page is a Client Component (`"use client"`), put the metadata in a Server Component `layout` for that route segment instead:
 
 ```ts
 import type { Metadata } from "next";
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
 ```
 
 2. If the page already exports `alternates` (for example `canonical`), add `types` inside it. Do not make a second `alternates` key.
-3. Next.js resolves the relative `href` against `metadataBase`. The root layout needs `metadataBase`; add the production origin if it is missing.
+3. If `next.config` sets `basePath`, include it in the `href` (`/<basePath>/index.md`): Next.js does not apply `basePath` to metadata URLs, and the generated route serves `<basePath>/index.md`. Next.js resolves the relative `href` against `metadataBase`. The root layout needs `metadataBase`; add the production origin if it is missing.
 4. Do not leave `alternates` for `/index.md` in the root layout. Next.js replaces `alternates` as a whole, so a page that sets its own `alternates` (for a canonical) loses the layout's `types`. A layout-level link would also tell every other page that `/index.md` is its twin.
 
 ## Pitfalls

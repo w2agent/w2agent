@@ -25,13 +25,13 @@ Send these on every response:
 - `X-Frame-Options: SAMEORIGIN` (use `DENY` only if you know the site is never framed)
 - `Strict-Transport-Security: max-age=63072000` (the site must be served over HTTPS; leave out `includeSubDomains` and `preload`, which commit the owner's other hosts)
 
-Use the framework's or host's own header mechanism. Add to existing header rules. Never replace them.
+Use the framework's or host's own header mechanism. Set only headers the site does not already send. Never change the value of an existing header: check existing `headers()` rules, middleware and host config first, and skip any header already set there.
 
 ## Next.js (App Router)
 
 `integrate` covers nothing for this check on Next.js. Do not touch the files it generated.
 
-1. Add `headers()` to `next.config.*`. If `headers()` exists, append your entry to the array it returns.
+1. Add `headers()` to `next.config.*`. If `headers()` exists, read its rules first and append an entry for only the headers it does not set. When several rules set the same key, the last one wins, so a catch-all entry would override an existing value (for example `X-Frame-Options: DENY`).
 
 ```ts
 const nextConfig: NextConfig = {

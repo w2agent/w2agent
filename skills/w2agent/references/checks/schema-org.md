@@ -17,7 +17,7 @@ Each audited page is parsed for `<script type="application/ld+json">` blocks. On
 - `schema-org-present`: share of pages with at least one block. 100% passes. Above 0% and below 100% is `partial`. 0% is `fail`. Every audited page needs a block to pass.
 - `schema-org-type`: share of pages where some block has a string `@type` that contains one of `WebPage`, `Article`, `BlogPosting`, `Product`, `LocalBusiness`, `Organization`, `Person`, `FAQPage`, `HowTo`, `Recipe`, `Event`, `Course`, `SoftwareApplication`, `WebSite`, `ItemList`, `BreadcrumbList`. 50% or more passes, more than 0% is `partial`. An array `@type`, or a subtype name alone (for example `Plumber`), does not match.
 - `schema-org-completeness`: for each page with JSON-LD, only its first block counts. The fields are `name`, `description`, `author`, `datePublished`, `dateModified`, `image`, `url` (7). The score is the average share present. 70% or more (5 of 7 fields) passes. Above 0% is `partial`.
-- `schema-org-valid`: among pages that have JSON-LD, share where some block has an `@context` containing `schema.org` and a string `@type`. 100% passes, above 0% is `partial`. It is `skip` when no page has JSON-LD. A block that has `@graph` or a top-level array and no top-level `@type` is not valid for this check.
+- `schema-org-valid`: among pages that have JSON-LD, share where some block has an `@context` containing `schema.org` and some block (possibly another) has a string `@type`. Put both in one block anyway. 100% passes, above 0% is `partial`. It is `skip` when no page has JSON-LD. A block that has `@graph` or a top-level array and no top-level `@type` is not valid for this check.
 
 ## Who fixes it
 
@@ -68,7 +68,7 @@ Put the script in the page, not in the root layout. A layout block repeats on ev
 - Opening hours come from the stated hours only. "Emergency line available 24 hours" is not the business's opening hours.
 - `@type` is one string. `["LocalBusiness", "Plumber"]` and `Plumber` alone do not match the type check.
 - Do not use `@graph`. It leaves the block without a top-level `@type`.
-- Escape `<` as `<` in the serialized JSON, as in the snippet. Never build the string by hand.
+- Escape `<` as `\u003c` in the serialized JSON, as in the snippet. Never build the string by hand.
 - Do not rewrite or move page copy to feed the markup.
 
 ## Verify

@@ -127,6 +127,6 @@ For a deployed public site when you will not run code. Before the first call, te
 - A site that cannot be measured returns 422 `{"error": "audit_failed", "kind": "...", "message": "..."}`. The `kind` values match the `reason` values in [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md#reasons).
 - `POST https://w2agent.dev/api/generate` with `{"url": "<url>"}` returns generated files. It counts against the same limit.
 
-You write the fixes yourself. Read the guide named in a result's `guide` field in the repo (`skills/w2agent/references/checks/<guide>.md`). The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
+You write the fixes yourself from the report's fix hints. The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
 
 Optional and separate: `agentize` runs a hosted agent server. It needs a login or API key. See [AGENTIZE.md](AGENTIZE.md).

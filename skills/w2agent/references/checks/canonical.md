@@ -26,7 +26,7 @@ You do (`fixBy: agent`). `integrate` does not write canonical tags on Next.js or
 `integrate` covers nothing for this check on Next.js.
 
 1. Check that the root layout sets `metadataBase` to the production origin. If it does not, add it as a `new URL("https://...")`. Next.js resolves relative canonical paths against it.
-2. In each `page.tsx` that exports `metadata`, add `alternates: { canonical: "/that-page" }` inside the existing object. In a page that exports none, add `export const metadata = { alternates: { canonical: "/that-page" } };`. The home page uses `"/"`. A page's metadata is merged over the layout's by top-level key, so title and description from the layout stay.
+2. In each `page.tsx` that exports `metadata`, add `alternates: { canonical: "/that-page" }` inside the existing object. In a page that exports none, add `export const metadata = { alternates: { canonical: "/that-page" } };`. The home page uses `"/"`. If the page is a Client Component (`"use client"`), it cannot export `metadata`: put the metadata in a Server Component `layout` for that route segment, or the nearest server file that owns it. A page's metadata is merged over the layout's by top-level key, so title and description from the layout stay.
 3. For dynamic routes, return the canonical from `generateMetadata`, built from the route params.
 
 ```ts
