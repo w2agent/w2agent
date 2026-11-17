@@ -3,6 +3,8 @@ id: robots-access
 checks:
   - ai-agent-access
   - local-business-booking-accessible
+  - astro-robots-txt
+  - wp-robots-default-blocking
 fixBy: owner
 ---
 
@@ -10,10 +12,11 @@ fixBy: owner
 
 ## Passes when
 
-Both checks read the site's existing `robots.txt`. They fail only because of rules in that file (or because the file's own response is broken).
+These checks read the site's existing `robots.txt`. They fail only because of rules in that file (or because the file's own response is broken).
 
 - `ai-agent-access` checks whether the root URL `/` is allowed for each AI crawler token that robots.txt can name. Training crawlers (for example `GPTBot`, `ClaudeBot`, `Google-Extended`, `CCBot`) are listed in the details but not scored. Any user-initiated agent token blocked (for example `ChatGPT-User`, `Claude-User`, `Perplexity-User`) is `fail` (score 0). Otherwise any AI search token blocked (for example `OAI-SearchBot`, `Claude-SearchBot`, `PerplexityBot`) is `partial` (score 50). Neither blocked passes. `Google-Agent` has no robots token and is never counted. With no usable robots.txt (a 404 or other status below 500 except 429, or a 200 that is an HTML page) the check passes. A robots.txt that answers 5xx is `fail` (crawlers must assume a full disallow). A network error or repeated 429 is `error`, which means unmeasured, not a finding.
 - `local-business-booking-accessible` (only runs on sites detected as local businesses) collects same-origin links whose path contains an exact `/book`, `/appointment`, `/reserve` or `/schedule` segment, and links or iframes to a known booking platform (OpenTable, Resy, Calendly, Acuity, Booksy, Vagaro, Mindbody). With none of these it is `skip`. With only external booking it passes. With same-origin booking paths it tests each against robots.txt for the `*` group: all allowed passes, some blocked is `partial` (score is the allowed share), all blocked is `fail`. No robots.txt passes.
+- `astro-robots-txt` (runs only on sites detected as Astro) and `wp-robots-default-blocking` (only on WordPress) test the same rule from the adapter side: they find the user-initiated and AI-search tokens that robots.txt blocks for `/` (training tokens are not counted). `astro-robots-txt` is `fail` (0) when robots.txt is missing or empty, and `fail` when any such token is blocked, otherwise it passes. `wp-robots-default-blocking` passes with no blocked token and with no robots.txt, and otherwise is `fail` with a score of 100 minus 20 per blocked token (never below 0).
 
 ## Who fixes it
 
@@ -32,6 +35,8 @@ For the final report, name:
 
 Leave the file as it is. Report the check as an owner item.
 
+When `astro-robots-txt` fails with "No robots.txt found", there is no rule to respect: the `robots` guide (`robots-txt-exists`) covers creating the file. Once it exists, this check passes unless the file blocks an agent token.
+
 ## Next.js (App Router)
 
 Nothing to change in code. The rules live in `public/robots.txt`, `app/robots.ts` or `app/robots.txt`. `integrate --install` writes the generated rules to `.w2agent/robots.txt` only, never to a served path. Point the owner at that staged file and at the existing file they should merge it into.
@@ -45,4 +50,4 @@ Nothing to change in code. The rules live in `public/robots.txt`, `app/robots.ts
 
 ## Verify
 
-After the owner changes the file, run `audit <local url> --json`. Watch `ai-agent-access` and `local-business-booking-accessible`: expected `pass`. Until then the final report keeps them as owner items with the tokens or paths from the audit details.
+After the owner changes the file, run `audit <local url> --json`. Watch `ai-agent-access` and `local-business-booking-accessible`, and on Astro or WordPress `astro-robots-txt` or `wp-robots-default-blocking`: expected `pass`. Until then the final report keeps them as owner items with the tokens or paths from the audit details.

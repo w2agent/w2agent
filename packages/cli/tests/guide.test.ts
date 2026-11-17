@@ -104,9 +104,14 @@ describe("w2agent guide", () => {
     const guide = schema.commands.find((c: { name: string }) => c.name === "guide");
     expect(guide).toBeDefined();
     expect(guide.arguments[0].choices).toEqual([
+      "agent-auth",
+      "agent-card",
+      "agent-protocols",
       "canonical",
       "content-negotiation",
+      "content-quality",
       "forms-structured",
+      "https",
       "llms-txt",
       "local-business",
       "markdown-alternate",
@@ -116,7 +121,9 @@ describe("w2agent guide", () => {
       "schema-org",
       "security-headers",
       "semantic-html",
+      "server-html",
       "sitemap",
+      "usage-preferences",
     ]);
     expect(guide.options.map((o: { long: string }) => o.long)).toEqual(["--platform", "--json"]);
   });
