@@ -1,4 +1,4 @@
-import type { OpenAPIEndpoint } from "../audit/types.js";
+import type { OpenAPIEndpoint, OpenAPIParameter } from "../audit/types.js";
 import { parseHTML } from "../shared/html-parser.js";
 import { resolveOpenapiServerUrl } from "../shared/openapi.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
@@ -431,6 +431,44 @@ function reservedToolNames(detected: McpDetectedTools): string[] {
   ];
 }
 
+interface AllocatedInputs {
+  path: Array<{ p: OpenAPIParameter; key: string }>;
+  query: Array<{ p: OpenAPIParameter; key: string }>;
+  body: Array<{ name: string; def: { type?: string; description?: string }; key: string }>;
+}
+
+// One tool-input key per wire parameter. Path, query and body share one flat input object, so
+// the first claimant of a raw name (path, then query, then body) keeps it and every later
+// duplicate gets "<name>_<location>" (then "_2", "_3", ...) that no raw name already uses.
+function allocateInputKeys(ep: OpenAPIEndpoint): AllocatedInputs {
+  const path = ep.parameters.filter((p) => p.in === "path").map((p) => ({ p, key: "" }));
+  const query = ep.parameters.filter((p) => p.in === "query").map((p) => ({ p, key: "" }));
+  const body = (ep.requestBody ? Object.entries(ep.requestBody.properties) : []).map(
+    ([name, def]) => ({ name, def, key: "" }),
+  );
+  const entries: Array<{ loc: string; name: string; item: { key: string } }> = [
+    ...path.map((item) => ({ loc: "path", name: item.p.name, item })),
+    ...query.map((item) => ({ loc: "query", name: item.p.name, item })),
+    ...body.map((item) => ({ loc: "body", name: item.name, item })),
+  ];
+  const claimed = new Set<string>();
+  for (const e of entries) {
+    if (!claimed.has(e.name)) {
+      claimed.add(e.name);
+      e.item.key = e.name;
+    }
+  }
+  for (const e of entries) {
+    if (e.item.key !== "") continue;
+    const base = `${e.name}_${e.loc}`;
+    let candidate = base;
+    for (let n = 2; claimed.has(candidate); n++) candidate = `${base}_${n}`;
+    claimed.add(candidate);
+    e.item.key = candidate;
+  }
+  return { path, query, body };
+}
+
 function generateOpenapiToolHandlers(
   endpoints: OpenAPIEndpoint[],
   serverUrl: string,
@@ -442,22 +480,22 @@ function generateOpenapiToolHandlers(
   for (const ep of endpoints) {
     const toolName = inferOpenapiToolName(ep, usedNames);
     const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
-    const pathParams = ep.parameters.filter((p) => p.in === "path");
-    const queryParams = ep.parameters.filter((p) => p.in === "query");
-    const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+    const inputs = allocateInputKeys(ep);
+    const pathParams = inputs.path;
+    const queryParams = inputs.query;
+    const bodyProps = inputs.body;
 
     const schemaLines: string[] = [];
-    for (const p of [...pathParams, ...queryParams]) {
+    for (const { p, key } of [...pathParams, ...queryParams]) {
       const zodType = p.type === "integer" || p.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  [${JSON.stringify(p.name)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
+        `  [${JSON.stringify(key)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
       );
     }
-    for (const [propName, propDef] of bodyProps) {
-      const zodType =
-        propDef.type === "integer" || propDef.type === "number" ? "z.number()" : "z.string()";
+    for (const { name, def, key } of bodyProps) {
+      const zodType = def.type === "integer" || def.type === "number" ? "z.number()" : "z.string()";
       schemaLines.push(
-        `  [${JSON.stringify(propName)}]: ${zodType}.optional().describe(${JSON.stringify(propDef.description || propName)})`,
+        `  [${JSON.stringify(key)}]: ${zodType}.optional().describe(${JSON.stringify(def.description || name)})`,
       );
     }
 
@@ -471,16 +509,19 @@ function generateOpenapiToolHandlers(
     if (schemaLines.length > 0) lines.push(schemaLines.join(",\n"));
     lines.push(`}, ${hints}, async (params) => {`);
 
-    let urlExpr = JSON.stringify(serverUrl + ep.path);
-    for (const p of pathParams) {
-      urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(params[${JSON.stringify(p.name)}])))`;
+    let pathExpr = JSON.stringify(ep.path);
+    for (const { p, key } of pathParams) {
+      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(params[${JSON.stringify(key)}])))`;
     }
-    lines.push(`  let _url = ${urlExpr};`);
+    lines.push(`  try {`);
+    lines.push(`  const _path = ${pathExpr};`);
+    lines.push(`  assertSafePath(_path);`);
+    lines.push(`  let _url = ${JSON.stringify(serverUrl)} + _path;`);
 
     if (queryParams.length > 0) {
       lines.push(`  const _query = new URLSearchParams();`);
-      for (const p of queryParams) {
-        const access = `params[${JSON.stringify(p.name)}]`;
+      for (const { p, key } of queryParams) {
+        const access = `params[${JSON.stringify(key)}]`;
         if (p.required) {
           lines.push(`  _query.set(${JSON.stringify(p.name)}, String(${access}));`);
         } else {
@@ -492,15 +533,12 @@ function generateOpenapiToolHandlers(
       lines.push(`  const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`);
     }
 
-    lines.push(`  try {`);
     let initExpr: string;
     if (bodyProps.length > 0) {
       lines.push(`    const _body: Record<string, unknown> = {};`);
-      for (const [propName] of bodyProps) {
-        const access = `params[${JSON.stringify(propName)}]`;
-        lines.push(
-          `    if (${access} !== undefined) _body[${JSON.stringify(propName)}] = ${access};`,
-        );
+      for (const { name, key } of bodyProps) {
+        const access = `params[${JSON.stringify(key)}]`;
+        lines.push(`    if (${access} !== undefined) _body[${JSON.stringify(name)}] = ${access};`);
       }
       initExpr = `{ method: ${JSON.stringify(ep.method.toUpperCase())}, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body) }`;
     } else {
@@ -525,6 +563,13 @@ function generateOpenapiToolHandlers(
 // Runtime-neutral (Node and Workers): no Buffer, no node: imports. Emitted verbatim into every variant.
 export const OUTBOUND_HELPER_SOURCE = String.raw`const OUTBOUND_TIMEOUT_MS = 10000;
 const OUTBOUND_MAX_BYTES = 1048576;
+
+function assertSafePath(path: string): void {
+  const segments = path.split("?")[0].split("/");
+  if (segments.some((s) => /^(?:\.|%2e){1,2}$/i.test(s))) {
+    throw new Error("Refusing to fetch: a path segment resolved to . or ..");
+  }
+}
 
 async function outboundFetch(url: string, init: RequestInit, maxChars: number): Promise<string> {
   const controller = new AbortController();
@@ -1284,11 +1329,19 @@ function generateCloudflareTemplate(
     .replace(/^-|-$/g, "");
 
   const apiBase = detected.openapiServerUrl || baseUrl;
-  const openapiTools: Array<{ toolName: string; ep: (typeof detected.openapiEndpoints)[0] }> = [];
+  const openapiTools: Array<{
+    toolName: string;
+    ep: (typeof detected.openapiEndpoints)[0];
+    inputs: AllocatedInputs;
+  }> = [];
   if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
     const usedNames = new Set<string>(reservedToolNames(detected));
     for (const ep of detected.openapiEndpoints) {
-      openapiTools.push({ toolName: inferOpenapiToolName(ep, usedNames), ep });
+      openapiTools.push({
+        toolName: inferOpenapiToolName(ep, usedNames),
+        ep,
+        inputs: allocateInputKeys(ep),
+      });
     }
   }
 
@@ -1478,24 +1531,20 @@ ${
 ${
   openapiTools.length > 0
     ? openapiTools
-        .map(({ toolName, ep }) => {
-          const pathParams = ep.parameters.filter((p) => p.in === "path");
-          const queryParams = ep.parameters.filter((p) => p.in === "query");
-          const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+        .map(({ toolName, ep, inputs }) => {
           const properties = Object.fromEntries([
-            ...[...pathParams, ...queryParams].map((p) => [
-              p.name,
+            ...[...inputs.path, ...inputs.query].map(({ p, key }) => [
+              key,
               { type: p.type === "integer" || p.type === "number" ? "number" : "string" },
             ]),
-            ...bodyProps.map(([name, def]) => [
-              name,
+            ...inputs.body.map(({ def, key }) => [
+              key,
               { type: def.type === "integer" || def.type === "number" ? "number" : "string" },
             ]),
           ]);
-          const required = [
-            ...pathParams.filter((p) => p.required),
-            ...queryParams.filter((p) => p.required),
-          ].map((p) => p.name);
+          const required = [...inputs.path, ...inputs.query]
+            .filter(({ p }) => p.required)
+            .map(({ key }) => key);
           const isReadOnly = ep.method.toLowerCase() === "get";
           const annotations = isReadOnly
             ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
@@ -1583,27 +1632,26 @@ ${
       }${
         openapiTools.length > 0
           ? openapiTools
-              .map(({ toolName, ep }) => {
-                const pathParams = ep.parameters.filter((p) => p.in === "path");
-                const queryParams = ep.parameters.filter((p) => p.in === "query");
-                const bodyProps = ep.requestBody ? Object.entries(ep.requestBody.properties) : [];
+              .map(({ toolName, ep, inputs }) => {
+                const queryParams = inputs.query;
+                const bodyProps = inputs.body;
 
-                let urlExpr = JSON.stringify(apiBase + ep.path);
-                for (const p of pathParams) {
-                  urlExpr = `(${urlExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(args[${JSON.stringify(p.name)}])))`;
+                let pathExpr = JSON.stringify(ep.path);
+                for (const { p, key } of inputs.path) {
+                  pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(args[${JSON.stringify(key)}])))`;
                 }
 
                 const queryLines: string[] = [];
                 if (queryParams.length > 0) {
                   queryLines.push(`          const _query = new URLSearchParams();`);
-                  for (const p of queryParams) {
+                  for (const { p, key } of queryParams) {
                     if (p.required) {
                       queryLines.push(
-                        `          _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(p.name)}]));`,
+                        `          _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
                       );
                     } else {
                       queryLines.push(
-                        `          if (args[${JSON.stringify(p.name)}] !== undefined) _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(p.name)}]));`,
+                        `          if (args[${JSON.stringify(key)}] !== undefined) _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
                       );
                     }
                   }
@@ -1616,9 +1664,9 @@ ${
                 let fetchExtra: string;
                 if (bodyProps.length > 0) {
                   bodyLines.push(`          const _body: Record<string, unknown> = {};`);
-                  for (const [propName] of bodyProps) {
+                  for (const { name, key } of bodyProps) {
                     bodyLines.push(
-                      `          if (args[${JSON.stringify(propName)}] !== undefined) _body[${JSON.stringify(propName)}] = args[${JSON.stringify(propName)}];`,
+                      `          if (args[${JSON.stringify(key)}] !== undefined) _body[${JSON.stringify(name)}] = args[${JSON.stringify(key)}];`,
                     );
                   }
                   fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
@@ -1630,7 +1678,9 @@ ${
 
                 return ` else if (toolName === ${JSON.stringify(toolName)}) {
         try {
-          let _url = ${urlExpr};
+          const _path = ${pathExpr};
+          assertSafePath(_path);
+          let _url = ${JSON.stringify(apiBase)} + _path;
 ${innerLines ? `${innerLines}\n` : ""}          result = { content: [{ type: "text", text: await outboundFetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra} }, 3000) }] };
         } catch (err) {
           result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };

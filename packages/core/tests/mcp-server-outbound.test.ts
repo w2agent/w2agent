@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
   createServer as createHttpServer,
@@ -87,6 +87,47 @@ function buildCtx(): GenerateContext {
           op("redirPost", "/redirect307", "post", true),
           op("endlessGet", "/endless"),
           op("stallGet", "/stall"),
+          op("redirSelf", "/redirectSelf"),
+          {
+            path: "/items/{id}",
+            method: "get",
+            operationId: "travItem",
+            summary: "trav-item",
+            parameters: [{ name: "id", in: "path", required: true, type: "string" }],
+          },
+          {
+            path: "/files/{a}{b}",
+            method: "get",
+            operationId: "travCompose",
+            summary: "trav-compose",
+            parameters: [
+              { name: "a", in: "path", required: true, type: "string" },
+              { name: "b", in: "path", required: true, type: "string" },
+            ],
+          },
+          {
+            path: "/files/.{c}",
+            method: "get",
+            operationId: "travLiteral",
+            summary: "trav-literal",
+            parameters: [{ name: "c", in: "path", required: true, type: "string" }],
+          },
+          {
+            path: "/dup/{id}",
+            method: "post",
+            operationId: "dupParams",
+            summary: "dup-params",
+            parameters: [
+              { name: "id", in: "path", required: true, type: "string" },
+              { name: "id", in: "query", required: true, type: "string" },
+              { name: "id_query", in: "query", required: false, type: "string" },
+            ],
+            requestBody: {
+              contentType: "application/json",
+              required: false,
+              properties: { id: { type: "string" } },
+            },
+          },
         ],
       },
     },
@@ -102,6 +143,8 @@ let portA = 0;
 let portB = 0;
 let hitsA: string[] = [];
 let hitsB: string[] = [];
+let bodiesA: string[] = [];
+let expressDir = "";
 let endlessWritten = 0;
 let endlessClosed: Promise<void> = Promise.resolve();
 const sockets = new Set<Socket>();
@@ -121,9 +164,19 @@ function destroyAll() {
 function handleA(req: IncomingMessage, res: ServerResponse) {
   const path = req.url ?? "";
   hitsA.push(`${req.method} ${path}`);
-  req.resume();
   res.setHeader("connection", "close");
-  if (path.startsWith("/redirect302")) {
+  if (/^\/(items|files|dup)\//.test(path)) {
+    void readReqBody(req).then((b) => {
+      bodiesA.push(b);
+      res.end("echo");
+    });
+    return;
+  }
+  req.resume();
+  if (path.startsWith("/redirectSelf")) {
+    res.writeHead(302, { Location: `http://127.0.0.1:${portA}/landedSelf` });
+    res.end();
+  } else if (path.startsWith("/redirect302")) {
     res.writeHead(302, { Location: `http://127.0.0.1:${portB}/landed302` });
     res.end();
   } else if (path.startsWith("/redirect307")) {
@@ -177,6 +230,7 @@ beforeAll(async () => {
 beforeEach(() => {
   hitsA = [];
   hitsB = [];
+  bodiesA = [];
   endlessWritten = 0;
 });
 
@@ -252,6 +306,7 @@ async function boot(variant: Variant): Promise<Rpc> {
   if (variant === "express") {
     writeFiles(generateMcpServer(ctx), root);
     const dir = join(root, "mcp-server");
+    expressDir = dir;
     const port = await freePort();
     const { proc, output } = spawnServer(dir, port);
     closers.push(() => killProc(proc));
@@ -382,6 +437,15 @@ describe.each(VARIANTS)("outbound fetch: %s", (variant) => {
       { label: "OpenAPI POST 307", tool: () => "redir-post", status: 307, args: { note: "x" } },
       { label: "form POST 307", tool: () => formRedirect, status: 307, args: { note: "x" } },
     ];
+    it("same-origin redirect is reported and the landing URL is never fetched", async () => {
+      const r = await callTool(rpc, "redir-self");
+      expect(r.text).toContain("Status: 302");
+      expect(r.text).toContain(`http://127.0.0.1:${portA}/landedSelf`);
+      expect(r.isError).toBe(false);
+      await new Promise((res) => setTimeout(res, 150));
+      expect(hitsA).toEqual(["GET /redirectSelf"]);
+      expect(hitsB).toEqual([]);
+    });
     it.each(cases)("$label", async ({ tool, status, args }) => {
       const r = await callTool(rpc, tool(), args as Record<string, unknown>);
       expect(r.text).toContain(`Status: ${status}`);
@@ -390,6 +454,77 @@ describe.each(VARIANTS)("outbound fetch: %s", (variant) => {
       await new Promise((res) => setTimeout(res, 150));
       expect(hitsA).toHaveLength(1);
       expect(hitsB).toEqual([]);
+    });
+  });
+
+  describe("(b) path params cannot traverse", () => {
+    it.each([["."], [".."]])("rejects %s without fetching", async (id) => {
+      const r = await callTool(rpc, await toolByDescription(rpc, "trav-item"), { id });
+      expect(r.isError).toBe(true);
+      expect(r.text).toMatch(/path segment|path parameter/i);
+      expect(hitsA).toEqual([]);
+    });
+
+    it.each([
+      ["%2e", "/items/%252e"],
+      ["%2E%2e", "/items/%252E%252e"],
+      ["abc", "/items/abc"],
+    ])("sends %s as an encoded segment (not a dot segment)", async (id, wire) => {
+      const r = await callTool(rpc, await toolByDescription(rpc, "trav-item"), { id });
+      expect(r.isError).toBe(false);
+      expect(hitsA).toEqual([`GET ${wire}`]);
+    });
+
+    it("rejects dot segments composed from adjacent placeholders", async () => {
+      const tool = await toolByDescription(rpc, "trav-compose");
+      const r = await callTool(rpc, tool, { a: ".", b: "." });
+      expect(r.isError).toBe(true);
+      expect(hitsA).toEqual([]);
+    });
+
+    it("rejects a dot segment completed by an empty value after a literal dot", async () => {
+      const tool = await toolByDescription(rpc, "trav-literal");
+      const r = await callTool(rpc, tool, { c: "" });
+      expect(r.isError).toBe(true);
+      expect(hitsA).toEqual([]);
+    });
+
+    it("allows a placeholder pair that does not form a dot segment", async () => {
+      const tool = await toolByDescription(rpc, "trav-compose");
+      const r = await callTool(rpc, tool, { a: ".", b: "x" });
+      expect(r.isError).toBe(false);
+      expect(hitsA).toEqual(["GET /files/.x"]);
+    });
+  });
+
+  describe("(d) same-name params keep separate keys", () => {
+    it("allocates distinct keys and routes each value to its own wire place", async () => {
+      const list = await rpc({ jsonrpc: "2.0", id: nextId++, method: "tools/list" });
+      const tool = (
+        list.result.tools as Array<{
+          description: string;
+          name: string;
+          inputSchema: { properties: Record<string, unknown>; required?: string[] };
+        }>
+      ).find((t) => t.description.includes("dup-params"));
+      expect(tool).toBeTruthy();
+      expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "id",
+        "id_body",
+        "id_query",
+        "id_query_2",
+      ]);
+      expect([...(tool?.inputSchema.required ?? [])].sort()).toEqual(["id", "id_query_2"]);
+
+      const r = await callTool(rpc, tool?.name ?? "", {
+        id: "P",
+        id_query_2: "Q1",
+        id_query: "Q2",
+        id_body: "B",
+      });
+      expect(r.isError).toBe(false);
+      expect(hitsA).toEqual(["POST /dup/P?id=Q1&id_query=Q2"]);
+      expect(JSON.parse(bodiesA[0])).toEqual({ id: "B" });
     });
   });
 
@@ -422,6 +557,19 @@ describe.each(VARIANTS)("outbound fetch: %s", (variant) => {
       expect(r.ms).toBeLessThan(SHRUNK_TIMEOUT_MS * 8);
     });
   });
+});
+
+describe("generated Express server type-checks with same-name params", () => {
+  it("tsc --noEmit passes", () => {
+    expect(expressDir).not.toBe("");
+    execFileSync(
+      join(CORE_DIR, "node_modules/.bin/tsc"),
+      ["--noEmit", "-p", join(expressDir, "tsconfig.json")],
+      {
+        stdio: "pipe",
+      },
+    );
+  }, 60000);
 });
 
 describe("static guard", () => {
