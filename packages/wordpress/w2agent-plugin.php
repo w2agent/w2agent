@@ -101,13 +101,47 @@ function w2agent_sections() {
 
 // ─── Dynamic llms.txt generation ─────────────────────────────────
 
+// Markdown escaping, same rules as the w2agent core generator (markdown-text.ts), so a title,
+// excerpt or site name cannot add a heading, link or HTML tag to llms.txt. The whitespace class is
+// the JavaScript \s set (PCRE's \s differs: it matches U+0085 and misses U+FEFF).
+function w2agent_one_line( $value ) {
+    $value = wp_check_invalid_utf8( (string) $value, true );
+    return trim( preg_replace( '/[\x09-\x0D\x20\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u', ' ', $value ), ' ' );
+}
+
+function w2agent_md_escape( $value, $chars ) {
+    $map = [];
+    foreach ( str_split( $chars ) as $char ) {
+        $map[ $char ] = "\x5C" . $char;
+    }
+    return strtr( w2agent_one_line( $value ), $map );
+}
+
+function w2agent_md_text( $value ) {
+    return w2agent_md_escape( $value, "\x5C\x60*_[]<>|&" );
+}
+
+function w2agent_md_description( $value ) {
+    return w2agent_md_escape( $value, "\x5C[]<>" );
+}
+
+function w2agent_md_url( $value ) {
+    return preg_replace_callback(
+        '/[\x09-\x0D\x20\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}()<>]/u',
+        function ( $m ) {
+            return str_replace( [ '(', ')' ], [ '%28', '%29' ], rawurlencode( $m[0] ) );
+        },
+        (string) $value
+    );
+}
+
 function w2agent_render( $sections ) {
     $site_name = get_bloginfo( 'name' );
     $site_desc = get_bloginfo( 'description' );
 
-    $output = "# {$site_name}\n\n";
+    $output = "# " . w2agent_md_description( $site_name ) . "\n\n";
     if ( $site_desc ) {
-        $output .= "> {$site_desc}\n\n";
+        $output .= "> " . w2agent_md_description( $site_desc ) . "\n\n";
     }
 
     foreach ( $sections as $section ) {
@@ -119,9 +153,9 @@ function w2agent_render( $sections ) {
             if ( $excerpt === '' ) {
                 $excerpt = wp_trim_words( w2agent_plain_text( $item->post_content ), 25, '...' );
             }
-            $lines[] = "- [{$title}]({$url}): {$excerpt}";
+            $lines[] = '- [' . w2agent_md_text( $title ) . '](' . w2agent_md_url( $url ) . '): ' . w2agent_md_description( $excerpt );
         }
-        $output .= '## ' . $section['name'] . "\n\n" . implode( "\n", $lines ) . "\n\n";
+        $output .= '## ' . w2agent_md_description( $section['name'] ) . "\n\n" . implode( "\n", $lines ) . "\n\n";
     }
 
     return $output;

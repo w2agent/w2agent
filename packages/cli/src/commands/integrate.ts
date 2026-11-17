@@ -194,6 +194,7 @@ export function registerIntegrateCommand(program: Command): void {
             formats: ["llms-txt", "full", "robots-txt", "agent-card", "webmcp"],
             a2aEndpoint: opts.a2aEndpoint,
             ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
+            ...(forcedPlatform ? { platform: forcedPlatform } : {}),
           },
           (status) => {
             if (spinner) spinner.text = status;
@@ -279,24 +280,6 @@ export function registerIntegrateCommand(program: Command): void {
             await fail({ reason: "not_a_project", message: problem });
             return;
           }
-        }
-
-        // If platform was forced (not auto-detected), generate integration files manually
-        const integrationFiles = result.files.filter((f) =>
-          f.filename.startsWith(`${platformId}/`),
-        );
-
-        const baseUrl = siteOrigin ?? new URL(url).origin;
-        if (integrationFiles.length === 0) {
-          const ctx = {
-            pages: [],
-            rawPages: [],
-            metadata: { baseUrl, wellKnown: {} },
-            baseUrl,
-          };
-          const coreFiles = result.files;
-          const generated = adapter.generateIntegration(ctx, coreFiles);
-          result.files.push(...generated);
         }
 
         if (siteOrigin) {

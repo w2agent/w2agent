@@ -1,4 +1,5 @@
 import { extractSiteInfo } from "./llms-txt.js";
+import { findCrawledSearchAction } from "./search-action.js";
 import type { GenerateContext } from "./types.js";
 
 interface AgentCard {
@@ -13,6 +14,14 @@ interface AgentCard {
   skills: { id: string; name: string; description: string; tags: string[] }[];
 }
 
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
 export function generateAgentCard(
   ctx: GenerateContext,
   options?: { a2aEndpoint?: string },
@@ -21,7 +30,9 @@ export function generateAgentCard(
 
   const { siteName, siteDescription } = extractSiteInfo(ctx.pages, ctx.baseUrl);
 
-  const hasSearchAction = ctx.rawPages.some((page) => page.html?.includes("SearchAction"));
+  const hasSearchAction = Boolean(
+    findCrawledSearchAction(ctx.rawPages, originOf(ctx.baseUrl), ctx.allowedOffOriginHosts),
+  );
   const hasStructuredData = ctx.rawPages.some((page) => page.html?.includes("application/ld+json"));
 
   const skills: AgentCard["skills"] = [];

@@ -1,3 +1,5 @@
+import type { FetchedPage } from "../audit/types.js";
+import { parseHTML } from "../shared/html-parser.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
 
 export interface SearchActionTemplate {
@@ -136,6 +138,20 @@ export function findSearchAction(
         stack.push({ node: children[i], depth: depth + 1 });
       }
     }
+  }
+  return null;
+}
+
+/** First validated SearchAction in the JSON-LD of a status-200 crawled page. */
+export function findCrawledSearchAction(
+  rawPages: FetchedPage[],
+  baseOrigin: string,
+  allowedHosts: string[] | undefined,
+): SearchActionTemplate | null {
+  for (const page of rawPages) {
+    if (page.status !== 200 || !page.html) continue;
+    const found = findSearchAction(parseHTML(page.html).jsonLd, baseOrigin, allowedHosts);
+    if (found) return found;
   }
   return null;
 }

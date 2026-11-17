@@ -75,6 +75,9 @@ chk "WP-10 robots.txt mentions llms.txt at most once" '[ "$(curl -s "$B/robots.t
 . "$E2E_DIR/checks-root.sh"
 cache_context "$RP" w2agent-site w2agent_site_llms_txt
 wpc "$R" plugin activate w2agent w2agent-site >/dev/null 2>&1
+. "$E2E_DIR/checks-escape.sh"
+escape_checks "$RP" w2agent w2agent_llms_txt
+escape_checks "$RP" w2agent-site w2agent_site_llms_txt
 
 echo "=== WP-10 activation orders"
 WPLOG=$SITE/wp-content/debug.log

@@ -277,9 +277,12 @@ export async function runGenerate(
     onProgress?.(
       `Detected platform: ${detected.platform} (${Math.round(detected.confidence * 100)}% confidence)`,
     );
-    const adapter = options.platformFiles === false ? undefined : getAdapter(detected.platform);
+  }
+  const integrationPlatform = options.platform ?? detected?.platform;
+  if (integrationPlatform && options.platformFiles !== false) {
+    const adapter = getAdapter(integrationPlatform);
     if (adapter) {
-      onProgress?.(`Generating ${detected.platform} integration files...`);
+      onProgress?.(`Generating ${integrationPlatform} integration files...`);
       const integrationFiles = adapter.generateIntegration(ctx, files);
       files.push(...integrationFiles);
     }

@@ -585,6 +585,44 @@ describe("Astro checks", () => {
     expect(result.message).toBe("robots.txt blocks AI bots: Claude-User");
   });
 
+  describe("astro-robots-txt details follow the named-block rule", () => {
+    const run = (robotsTxt: string) => {
+      const check = astroAdapter.checks.find((c) => c.id === "astro-robots-txt")!;
+      return check.run([], { ...baseMeta, robotsTxt }) as any;
+    };
+
+    it("a named block is kept: details say so and never advise relaxing the Disallow", () => {
+      const r = run("User-agent: OAI-SearchBot\nDisallow: /\n");
+      expect(r).toMatchObject({ status: "fail", score: 0, severity: "warning" });
+      expect(r.message).toBe("robots.txt blocks AI bots: OAI-SearchBot");
+      expect(r.details).toContain("OAI-SearchBot is blocked by its own User-agent group");
+      expect(r.details).toContain("does not reverse it");
+      expect(r.details).not.toMatch(/Remove or relax/);
+      expect(r.details).not.toContain("need an Allow group");
+    });
+
+    it("a wildcard-only block points at an Allow group", () => {
+      const r = run("User-agent: *\nDisallow: /\n");
+      expect(r.status).toBe("fail");
+      expect(r.details).toContain("blocked only by the User-agent: * group need an Allow group");
+      expect(r.details).not.toContain("own User-agent group");
+      expect(r.details).not.toMatch(/Remove or relax/);
+    });
+
+    it("a mixed block gives both pieces of advice, naming only the named agent as kept", () => {
+      const r = run("User-agent: Claude-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\n");
+      expect(r.details).toContain("need an Allow group");
+      expect(r.details).toContain("Claude-User is blocked by its own User-agent group");
+      expect(r.details).not.toMatch(/(Googlebot|ChatGPT-User) (is|are) blocked by (its|their) own/);
+    });
+
+    it("an open trailing group mentions the Allow-group advice and keeps named agents", () => {
+      const r = run("User-agent: *\nDisallow: /\n\nUser-agent: Googlebot\n");
+      expect(r.status).toBe("fail");
+      expect(r.details).toContain("need an Allow group");
+    });
+  });
+
   it("astro-robots-txt does not treat a path-only disallow as blocking", () => {
     const check = astroAdapter.checks.find((c) => c.id === "astro-robots-txt")!;
     const meta = { ...baseMeta, robotsTxt: "User-agent: ChatGPT-User\nDisallow: /drafts/\n" };

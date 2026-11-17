@@ -1,3 +1,4 @@
+import type { PlatformId } from "../adapters/types.js";
 import type { AuditOptions, FetchedPage, SiteMetadata } from "../audit/types.js";
 import type { SelfHostPlatform } from "./mcp-server.js";
 
@@ -35,6 +36,8 @@ export interface GenerateOptions {
   isAllowedTarget?: AuditOptions["isAllowedTarget"];
   /** Append detected-platform integration files (nextjs/, nuxt/, ...) to the output. Default true. */
   platformFiles?: boolean;
+  /** Generate this platform's integration files instead of the detected platform's (forced platform). */
+  platform?: PlatformId;
 }
 
 export type GenerateFormat =

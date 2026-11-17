@@ -1,4 +1,8 @@
-import { findBlockedTokens } from "../../audit/shared/robots-fix.js";
+import {
+  findBlockedTokens,
+  planRobotsAccessFix,
+  type RobotsAccessFix,
+} from "../../audit/shared/robots-fix.js";
 import type { Check, FetchedPage, SiteMetadata } from "../../audit/types.js";
 
 export const astroSitemapIntegrationCheck: Check = {
@@ -27,6 +31,20 @@ export const astroSitemapIntegrationCheck: Check = {
     };
   },
 };
+
+function robotsBlockDetails(fix: RobotsAccessFix | undefined): string {
+  const keep = (names: string[]) =>
+    `${names.join(", ")} ${names.length === 1 ? "is" : "are"} blocked by ${names.length === 1 ? "its" : "their"} own User-agent group. That is the owner's choice and w2agent does not reverse it; edit the group only if the block is unintended.`;
+  if (!fix) return "Allow the AI crawlers that robots.txt blocks to enable agent discovery.";
+  const parts: string[] = [];
+  if (fix.groups.length > 0 || fix.openGroup) {
+    parts.push(
+      "Agents blocked only by the User-agent: * group need an Allow group of their own (see the ai-agent-access fix snippet).",
+    );
+  }
+  if (fix.named.length > 0) parts.push(keep(fix.named));
+  return parts.join(" ");
+}
 
 export const astroRobotsTxtCheck: Check = {
   id: "astro-robots-txt",
@@ -66,7 +84,7 @@ export const astroRobotsTxtCheck: Check = {
         score: 0,
         maxScore: 100,
         message: `robots.txt blocks AI bots: ${blocked.join(", ")}`,
-        details: "Remove or relax Disallow rules for AI crawlers to enable agent discovery.",
+        details: robotsBlockDetails(planRobotsAccessFix(robotsTxt, metadata.baseUrl)),
       };
     }
 

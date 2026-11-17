@@ -1,5 +1,4 @@
 import type { OpenAPIEndpoint, OpenAPIParameter } from "../audit/types.js";
-import { parseHTML } from "../shared/html-parser.js";
 import { resolveOpenapiServerUrl } from "../shared/openapi.js";
 import { isOriginAllowed } from "../shared/url-policy.js";
 import type { EcommerceArtifacts } from "./ecommerce.js";
@@ -12,7 +11,7 @@ import type { LocalBusinessArtifacts } from "./local-business.js";
 import { generateLocalBusinessToolHandlers } from "./local-business.js";
 import { mdText, mdUrl } from "./markdown-text.js";
 import type { SearchActionTemplate } from "./search-action.js";
-import { findSearchAction } from "./search-action.js";
+import { findCrawledSearchAction } from "./search-action.js";
 import type { ExtractedFormField, GenerateContext, GeneratedFile, PageMarkdown } from "./types.js";
 
 // --- Types ---
@@ -231,26 +230,16 @@ export function detectTools(
   })();
 
   // Check for SearchAction in JSON-LD (the site's own template, never fetched server-side)
-  let searchAction: SearchActionTemplate | undefined;
-  for (const page of ctx.rawPages) {
-    if (page.status !== 200 || !page.html) continue;
-    const found = findSearchAction(
-      parseHTML(page.html).jsonLd,
-      baseOrigin,
-      ctx.allowedOffOriginHosts,
-    );
-    if (found) {
-      searchAction = found;
-      hasSearchAction = true;
-      tools.push({
-        name: "site-search",
-        description: "Get the site's native search URL for a query (via SearchAction)",
-        condition: "hasSearchAction",
-      });
-      break;
-    }
+  const searchAction =
+    findCrawledSearchAction(ctx.rawPages, baseOrigin, ctx.allowedOffOriginHosts) ?? undefined;
+  if (searchAction) {
+    hasSearchAction = true;
+    tools.push({
+      name: "site-search",
+      description: "Get the site's native search URL for a query (via SearchAction)",
+      condition: "hasSearchAction",
+    });
   }
-
   // Collect pre-extracted forms from pages. Filter out forms whose resolved
   // action would steer the generated server off-origin or to a private IP,
   // unless the operator allowlisted the target host. Without this check, a

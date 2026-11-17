@@ -172,9 +172,17 @@ test("keeps the settings page and webhook when yielding", () => {
 test("notifies on publish transitions and published deletes, only for listed types", () => {
   const notify = block("// ─── Platform notifications", "// ─── Settings page");
   assert.doesNotMatch(notify, /'save_post'|'delete_post'/);
-  assert.match(notify, /add_action\( 'transition_post_status', function \( \$new_status, \$old_status, \$post \)/);
-  assert.ok(notify.includes("if ( $new_status !== 'publish' && $old_status !== 'publish' ) return;"));
-  assert.match(notify, /add_action\( 'before_delete_post', function \( \$post_id, \$post = null \)/);
+  assert.match(
+    notify,
+    /add_action\( 'transition_post_status', function \( \$new_status, \$old_status, \$post \)/,
+  );
+  assert.ok(
+    notify.includes("if ( $new_status !== 'publish' && $old_status !== 'publish' ) return;"),
+  );
+  assert.match(
+    notify,
+    /add_action\( 'before_delete_post', function \( \$post_id, \$post = null \)/,
+  );
   assert.ok(notify.includes("$post->post_status !== 'publish'"));
   assert.ok(notify.includes("in_array( $post->post_type, w2agent_post_types(), true )"));
   assert.ok(notify.includes("wp_is_post_revision( $post ) || wp_is_post_autosave( $post )"));
@@ -189,6 +197,31 @@ test("builds the cached llms.txt with no current user and restores it", () => {
   assert.ok(set < gen.indexOf("w2agent_sections()"));
   assert.ok(gen.includes("} finally {\n        wp_set_current_user( $previous_user );"));
   assert.ok(gen.indexOf("wp_set_current_user( $previous_user )") < gen.indexOf("set_transient("));
+});
+
+// GEN-7: title, excerpt, site name and section name reach llms.txt only through the Markdown escapers.
+test("escapes every llms.txt text value like the core generator", () => {
+  const render = block("function w2agent_render( $sections )", "// One transient");
+  assert.ok(render.includes('"# " . w2agent_md_description( $site_name )'));
+  assert.ok(render.includes('"> " . w2agent_md_description( $site_desc )'));
+  assert.ok(
+    render.includes(
+      "'- [' . w2agent_md_text( $title ) . '](' . w2agent_md_url( $url ) . '): ' . w2agent_md_description( $excerpt )",
+    ),
+  );
+  assert.ok(render.includes("'## ' . w2agent_md_description( $section['name'] )"));
+  assert.doesNotMatch(render, /\{\$(title|url|excerpt|site_name|site_desc)\}/);
+  assert.ok(
+    block("function w2agent_md_text(", "function w2agent_md_description").includes(
+      '"\\x5C\\x60*_[]<>|&"',
+    ),
+  );
+  assert.ok(
+    block("function w2agent_md_description(", "function w2agent_md_url").includes('"\\x5C[]<>"'),
+  );
+  const one = block("function w2agent_one_line(", "function w2agent_md_escape");
+  assert.match(one, /\\x\{2028\}\\x\{2029\}.*\\x\{FEFF\}\]\+\/u/);
+  assert.ok(one.includes("wp_check_invalid_utf8"));
 });
 
 test("avoids PHP newer than 7.4 and the placeholder word", () => {

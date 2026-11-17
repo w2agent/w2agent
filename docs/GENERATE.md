@@ -193,7 +193,7 @@ Focused command for platform-specific output only:
 npx w2agent integrate <url> [--platform wordpress|nextjs|nuxt|astro|shopify|docusaurus]
 ```
 
-Auto-detects platform (or use `--platform` to force), generates only integration files, and shows deployment instructions.
+Auto-detects platform (or use `--platform` to force), generates only integration files, and shows deployment instructions. A forced platform runs on the crawled pages like a detected one, and only that platform's files are written.
 
 ### Options
 

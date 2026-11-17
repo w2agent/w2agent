@@ -31,6 +31,35 @@ function between(php: string, start: string, end: string): string {
   return php.slice(from, to);
 }
 
+describe("generateWpPlugin — llms.txt text escaping (GEN-7)", () => {
+  it("routes every interpolated value through the escapers", () => {
+    const php = pluginPhp();
+    const render = between(php, "function w2agent_site_render($sections)", "// One transient");
+    expect(render).toContain('"# " . w2agent_site_md_description($site_name)');
+    expect(render).toContain('"> " . w2agent_site_md_description($site_desc)');
+    expect(render).toContain(
+      "'- [' . w2agent_site_md_text($title) . '](' . w2agent_site_md_url($url) . '): ' . w2agent_site_md_description($excerpt)",
+    );
+    expect(render).toContain("'## ' . w2agent_site_md_description($section['name'])");
+    for (const raw of [
+      '"# $site_name',
+      '"> $site_desc',
+      '"- [$title]($url): $excerpt"',
+      "'## ' . $section['name']",
+    ]) {
+      expect(render).not.toContain(raw);
+    }
+  });
+
+  it("emits the escape character sets and the JS whitespace class with single backslashes", () => {
+    const php = pluginPhp();
+    expect(php).toContain('w2agent_site_md_escape($value, "\\x5C\\x60*_[]<>|&")');
+    expect(php).toContain('w2agent_site_md_escape($value, "\\x5C[]<>")');
+    expect(php).toContain("\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]+/u'");
+    expect(php).not.toContain("\\\\x");
+  });
+});
+
 describe("generateWpPlugin — HTTP status codes", () => {
   it("sets http_response_code(200) for /llms.txt before content-type", () => {
     const php = pluginPhp();

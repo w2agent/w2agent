@@ -384,6 +384,9 @@ function makeCtx(overrides: Partial<GenerateContext> = {}): GenerateContext {
       wellKnown: {},
     },
     baseUrl: overrides.baseUrl ?? "https://example.com",
+    ...(overrides.allowedOffOriginHosts
+      ? { allowedOffOriginHosts: overrides.allowedOffOriginHosts }
+      : {}),
   };
 }
 
@@ -756,7 +759,7 @@ describe("generateAgentCard", () => {
 
   it("with an A2A endpoint the card round-trips through the checker as a passing v1.0 card", () => {
     const html =
-      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head></html>';
+      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction","target":"https://example.com/search?q={search_term_string}","query-input":"required name=search_term_string"}}</script></head></html>';
     const ctx = makeCtx({
       pages: [{ url: "https://example.com/", title: "My Site", description: "D", markdown: "" }],
       rawPages: [makeFetchedPage("https://example.com", html)],
@@ -795,7 +798,7 @@ describe("generateAgentCard", () => {
 
   it("detects SearchAction and structured-data skills", () => {
     const html =
-      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"}}</script></head><body></body></html>';
+      '<html><head><script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction","target":"https://example.com/search?q={search_term_string}","query-input":"required name=search_term_string"}}</script></head><body></body></html>';
     const ctx = makeCtx({
       pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],
       rawPages: [makeFetchedPage("https://example.com", html)],
@@ -804,6 +807,55 @@ describe("generateAgentCard", () => {
     const card = cardWithEndpoint(ctx);
     expect(card.skills.map((s) => s.id)).toEqual(["search", "structured-data"]);
     for (const skill of card.skills) expect(skill.tags.length).toBeGreaterThan(0);
+  });
+
+  describe("search skill is advertised only for a validated SearchAction", () => {
+    const skillIds = (html: string, allowed?: string[]) =>
+      cardWithEndpoint(
+        makeCtx({
+          pages: [{ url: "https://example.com/", title: "My Site", description: "", markdown: "" }],
+          rawPages: [makeFetchedPage("https://example.com", html)],
+          ...(allowed ? { allowedOffOriginHosts: allowed } : {}),
+        }),
+      ).skills.map((s) => s.id);
+    const ld = (target: string) =>
+      `<html><head><script type="application/ld+json">${JSON.stringify({
+        "@type": "WebSite",
+        potentialAction: {
+          "@type": "SearchAction",
+          target,
+          "query-input": "required name=search_term_string",
+        },
+      })}</script></head></html>`;
+
+    it("prose that mentions SearchAction gives no search skill", () => {
+      expect(
+        skillIds("<html><body><p>We use SearchAction markup on some pages.</p></body></html>"),
+      ).toEqual([]);
+    });
+
+    it("an unrelated JSON-LD block that names SearchAction in a string gives no search skill", () => {
+      const html =
+        '<html><head><script type="application/ld+json">{"@type":"Article","headline":"About SearchAction"}</script></head></html>';
+      expect(skillIds(html)).toEqual(["structured-data"]);
+    });
+
+    it("a valid same-origin SearchAction gives the search skill", () => {
+      expect(skillIds(ld("https://example.com/search?q={search_term_string}"))).toEqual([
+        "search",
+        "structured-data",
+      ]);
+    });
+
+    it("an off-origin target gives no search skill unless the host is allowed", () => {
+      const html = ld("https://other.example.net/search?q={search_term_string}");
+      expect(skillIds(html)).toEqual(["structured-data"]);
+      expect(skillIds(html, ["other.example.net"])).toEqual(["search", "structured-data"]);
+    });
+
+    it("a target with no placeholder gives no search skill", () => {
+      expect(skillIds(ld("https://example.com/search"))).toEqual(["structured-data"]);
+    });
   });
 
   it("runGenerate passes options.a2aEndpoint into agent-card.json", async () => {
