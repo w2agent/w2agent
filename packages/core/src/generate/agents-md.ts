@@ -1,15 +1,19 @@
+import robotsParser from "robots-parser";
 import { ROBOTS_TOKENS } from "../audit/shared/bot-tokens.js";
 import { extractSiteInfo } from "./llms-txt.js";
+import { mdDescription } from "./markdown-text.js";
+import { keyContentLine } from "./skill-md.js";
 import type { GenerateContext } from "./types.js";
 
 export function generateAgentsMd(ctx: GenerateContext): string {
   const { siteName, siteDescription } = extractSiteInfo(ctx.pages, ctx.baseUrl);
   const lines: string[] = [];
 
-  lines.push(`# ${siteName}`);
+  lines.push(`# ${mdDescription(siteName)}`);
   lines.push("");
-  if (siteDescription) {
-    lines.push(`> ${siteDescription}`);
+  const description = mdDescription(siteDescription);
+  if (description) {
+    lines.push(`> ${description}`);
     lines.push("");
   }
 
@@ -57,12 +61,16 @@ export function generateAgentsMd(ctx: GenerateContext): string {
 
   const robotsTxt = ctx.metadata.robotsTxt;
   if (robotsTxt) {
-    const aiAgentAllows = parseAiBotPermissions(robotsTxt, ctx.baseUrl);
-    if (aiAgentAllows.length > 0) {
+    const rows = aiBotAccess(robotsTxt, ctx.baseUrl);
+    if (rows.length > 0) {
       lines.push("## AI Bot Permissions");
       lines.push("");
-      for (const entry of aiAgentAllows) {
-        lines.push(`- **${entry.agent}**: ${entry.access}`);
+      lines.push(
+        "From robots.txt. Blocked: may not crawl the site root `/`. Partly restricted: some paths disallowed.",
+      );
+      lines.push("");
+      for (const row of rows) {
+        lines.push(`- ${row.label}: ${row.access}`);
       }
       lines.push("");
     }
@@ -73,9 +81,7 @@ export function generateAgentsMd(ctx: GenerateContext): string {
     lines.push("## Key Pages");
     lines.push("");
     for (const page of keyPages) {
-      const title = page.title || page.url;
-      const desc = page.description ? `: ${page.description}` : "";
-      lines.push(`- [${title}](${page.url})${desc}`);
+      lines.push(keyContentLine(page));
     }
     lines.push("");
   }
@@ -83,60 +89,53 @@ export function generateAgentsMd(ctx: GenerateContext): string {
   return lines.join("\n");
 }
 
-function parseAiBotPermissions(
-  robotsTxt: string,
-  _baseUrl: string,
-): Array<{ agent: string; access: string }> {
-  const results: Array<{ agent: string; access: string }> = [];
-  const lines = robotsTxt.split("\n");
-  let currentAgents: string[] = [];
-  let hasAllow = false;
-  let hasDisallow = false;
+type Access = "Blocked" | "Partly restricted" | "Allowed";
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.toLowerCase().startsWith("user-agent:")) {
-      if (currentAgents.length > 0) {
-        flushBlock(currentAgents, hasAllow, hasDisallow, results);
-      }
-      currentAgents = [trimmed.slice("user-agent:".length).trim()];
-      hasAllow = false;
-      hasDisallow = false;
-    } else if (trimmed.toLowerCase().startsWith("allow:")) {
-      hasAllow = true;
-    } else if (trimmed.toLowerCase().startsWith("disallow:")) {
-      if (trimmed.slice("disallow:".length).trim()) {
-        hasDisallow = true;
-      }
-    } else if (!trimmed) {
-      if (currentAgents.length > 0) {
-        flushBlock(currentAgents, hasAllow, hasDisallow, results);
-        currentAgents = [];
-        hasAllow = false;
-        hasDisallow = false;
-      }
+function parseRobotsLines(robotsTxt: string): { agents: Set<string>; disallows: string[] } {
+  const agents = new Set<string>();
+  const disallows: string[] = [];
+  for (const raw of robotsTxt.split(/\r\n|\r|\n/)) {
+    const hash = raw.indexOf("#");
+    const text = hash > -1 ? raw.slice(0, hash) : raw;
+    const colon = text.indexOf(":");
+    if (colon < 0) continue;
+    const key = text.slice(0, colon).trim().toLowerCase();
+    const value = text.slice(colon + 1).trim();
+    if (key === "user-agent") {
+      const lower = value.toLowerCase();
+      const slash = lower.indexOf("/");
+      agents.add((slash > -1 ? lower.slice(0, slash) : lower).trim());
+    } else if (key === "disallow" && value) {
+      disallows.push(value);
     }
   }
-  if (currentAgents.length > 0) {
-    flushBlock(currentAgents, hasAllow, hasDisallow, results);
-  }
-
-  return results.filter((r) =>
-    ROBOTS_TOKENS.some((b) => r.agent === "*" || r.agent.toLowerCase() === b.toLowerCase()),
-  );
+  return { agents, disallows };
 }
 
-function flushBlock(
-  agents: string[],
-  hasAllow: boolean,
-  hasDisallow: boolean,
-  out: Array<{ agent: string; access: string }>,
-): void {
-  for (const agent of agents) {
-    if (!ROBOTS_TOKENS.some((b) => b.toLowerCase() === agent.toLowerCase()) && agent !== "*") {
-      continue;
+function aiBotAccess(robotsTxt: string, baseUrl: string): Array<{ label: string; access: Access }> {
+  const origin = new URL(baseUrl).origin;
+  const robots = robotsParser(`${origin}/robots.txt`, robotsTxt);
+  const { agents, disallows } = parseRobotsLines(robotsTxt);
+  const probes = disallows.flatMap((d) => {
+    const path = d.replace(/[*$]/g, "");
+    const url = `${origin}${path.startsWith("/") ? "" : "/"}${path}`;
+    return [url, `${url}x`];
+  });
+
+  const accessFor = (agent: string): Access => {
+    if (robots.isAllowed(`${origin}/`, agent) === false) return "Blocked";
+    if (probes.some((url) => robots.isAllowed(url, agent) === false)) return "Partly restricted";
+    return "Allowed";
+  };
+
+  const rows: Array<{ label: string; access: Access }> = [];
+  for (const token of ROBOTS_TOKENS) {
+    if (agents.has(token.toLowerCase())) {
+      rows.push({ label: `**${token}**`, access: accessFor(token) });
     }
-    const access = hasDisallow ? "Restricted" : hasAllow ? "Allowed" : "Allowed (default)";
-    out.push({ agent, access });
   }
+  if (agents.has("*")) {
+    rows.push({ label: "**All other agents (`*`)**", access: accessFor("*") });
+  }
+  return rows;
 }

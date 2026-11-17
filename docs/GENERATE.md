@@ -109,6 +109,18 @@ Agent Skills file describing the site's capabilities, MCP server config, tool li
 
 The frontmatter has exactly two fields, `name` and `description`. `<name>` is `<host>-agent`: the host in lowercase, every run of characters outside `a-z0-9` (dots, underscores, colons, brackets) turned into one hyphen, cut so the whole name stays at most 64 characters (a bare IP address becomes, for example, `192-0-2-1-agent`; an unparseable URL gives `site-agent`). It always matches `^[a-z0-9]+(-[a-z0-9]+)*$`, as the [Agent Skills specification](https://agentskills.io/specification) requires, and equals the directory name. `description` is one line of at most 1024 characters built from the site name and the homepage description; the cut never splits a character. Page titles and descriptions are escaped in the frontmatter and in the Markdown body, so a hostile title cannot add fields or headings. A run of three or more hyphens in a value is written as `\u002d` escapes, so tools that split the frontmatter on `---` still find it.
 
+#### agents.md (`agents-md`)
+
+A public Markdown summary of the site for AI agents that visit it. Serve it at the site root as `/agents.md`, the same path Shopify storefronts use. It is not a repository `AGENTS.md` for coding agents. Opt-in: `--format agents-md`.
+
+It contains an overview (URL, page count), capabilities (llms.txt, OpenAPI, MCP, sitemap), authentication hints, AI bot permissions and key pages. The permissions come from the site's `robots.txt`, read with the same parser the audit uses, so the two cannot disagree. There is one row per known AI agent that a `User-agent` line names, plus one row for `*`. Each row says:
+
+- `Blocked`: the agent may not crawl the site root `/`.
+- `Partly restricted`: the root is open, but some `Disallow` path applies to the agent.
+- `Allowed`: no `Disallow` path applies.
+
+The section is left out when `robots.txt` names none of them. Site name, description, page titles and descriptions are escaped to one line, so they cannot add headings or break links.
+
 #### WebMCP Declarations (`webmcp`)
 
 WebMCP-compatible HTML forms with `toolname` attributes for declarative agent interaction, plus `webmcp.js`, which registers the same forms via `document.modelContext` (falling back to the deprecated `navigator.modelContext`). Generated for each platform adapter.
