@@ -572,18 +572,36 @@ describe("Workflow-command injection", () => {
     it("real CLI success: generate against a loopback site, then commands are live again", {
       skip: !built && "CLI not built",
     }, async () => {
-      const srv = spawn(
-        process.execPath,
-        [
-          "-e",
-          `const s=require("http").createServer((q,r)=>{r.setHeader("content-type","text/html");r.end("<html><head><title>T</title></head><body><h1>Hi</h1><p>x</p></body></html>")});s.listen(0,"127.0.0.1",()=>console.log(s.address().port))`,
-        ],
-        { stdio: ["ignore", "pipe", "ignore"] },
-      );
+      const SERVER = `const s=require("http").createServer((q,r)=>{r.setHeader("content-type","text/html");r.end("<html><head><title>T</title></head><body><h1>Hi</h1><p>x</p></body></html>")});s.listen(0,"127.0.0.1",()=>console.log(s.address().port))`;
+      const TIMEOUT_MS = 30000;
+      const srv = spawn(process.execPath, ["-e", SERVER], { stdio: ["ignore", "pipe", "pipe"] });
+      let child;
+      const timers = [];
+      const guard = (ms, what, kill) =>
+        new Promise((_, rej) => {
+          const t = setTimeout(() => {
+            kill?.();
+            rej(new Error(`timed out after ${ms}ms waiting for ${what}`));
+          }, ms);
+          timers.push(t);
+        });
+      let srvErr = "";
+      srv.stderr.on("data", (d) => {
+        srvErr += d;
+      });
       try {
-        const port = await new Promise((res) =>
-          srv.stdout.once("data", (d) => res(String(d).trim())),
-        );
+        const port = await Promise.race([
+          new Promise((res, rej) => {
+            srv.stdout.once("data", (d) => res(String(d).trim()));
+            srv.once("error", (e) =>
+              rej(new Error(`loopback server failed to start: ${e.message}`)),
+            );
+            srv.once("exit", (c, sig) =>
+              rej(new Error(`loopback server exited (${c ?? sig}) before listening: ${srvErr}`)),
+            );
+          }),
+          guard(TIMEOUT_MS, "the loopback server port"),
+        ]);
         const s = step("Generate agent assets");
         const env = {
           ...s.env,
@@ -592,7 +610,7 @@ describe("Workflow-command injection", () => {
           FORMATS: "llms-txt",
           MAX_PAGES: "2",
         };
-        const child = spawn("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", s.run], {
+        child = spawn("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", s.run], {
           env: { PATH: realCliPath(), ...env },
         });
         let out = "";
@@ -603,14 +621,22 @@ describe("Workflow-command injection", () => {
         child.stderr.on("data", (d) => {
           err += d;
         });
-        const code = await new Promise((res) => child.on("close", res));
-        assert.equal(code, 0, out);
+        const code = await Promise.race([
+          new Promise((res, rej) => {
+            child.once("error", (e) => rej(new Error(`step failed to run: ${e.message}`)));
+            child.once("close", res);
+          }),
+          guard(TIMEOUT_MS, `the step to finish\n${out}${err}`, () => child.kill("SIGKILL")),
+        ]);
+        assert.equal(code, 0, out + err);
         const r = parseStreams(out, err);
         assert.deepEqual(r.commands, ["stop-commands"], out);
         assert.equal(r.live, true);
         assert.match(out, /llms\.txt/);
       } finally {
-        srv.kill();
+        for (const t of timers) clearTimeout(t);
+        if (child && child.exitCode === null) child.kill("SIGKILL");
+        if (srv.exitCode === null) srv.kill("SIGKILL");
       }
     });
 
