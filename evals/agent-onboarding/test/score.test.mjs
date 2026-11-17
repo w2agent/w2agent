@@ -904,3 +904,88 @@ test("rawScan: install forms inside shell substitutions, conditionals and assign
     hits,
   );
 });
+
+test("rawScan: install forms with env prefixes, quoted specs and nested shells", () => {
+  const hits = [
+    "CI=1 npx w2agent",
+    'npx "w2agent@0.1.0" audit x',
+    "container exec x sh -c 'cd /work; npx w2agent@0.1.0 audit .'",
+    "bash /tmp/s.sh 'cd w2agent && npx w2agent audit x'",
+  ];
+  const misses = [
+    "echo run npx w2agent later",
+    "npm view w2agent@0.1.0 version",
+    "node w2agent/packages/cli/dist/index.js audit x",
+  ];
+  const r = S.scanRawTranscript(
+    claudeTranscript([
+      {
+        name: "Write",
+        input: { file_path: "/tmp/a.sh", content: [...hits, ...misses].join("\n") },
+      },
+    ]),
+    "claude",
+  );
+  assert.deepEqual(
+    r.installMentions.map((h) => h.text),
+    hits,
+  );
+});
+
+test("rawScan: 404 in non-tool events counts, as non-authored text", () => {
+  const msg = "npm error code E404 w2agent";
+  const c = S.scanRawTranscript(
+    JSON.stringify({ type: "result", result: msg, note: "npx w2agent" }),
+    "claude",
+  );
+  assert.equal(c.counts.npm404, 1);
+  assert.equal(c.counts.installMentions, 0);
+  for (const ev of [
+    { type: "turn.failed", error: { message: msg } },
+    { type: "error", message: msg },
+  ])
+    assert.equal(S.scanRawTranscript(JSON.stringify(ev), "codex").counts.npm404, 1);
+});
+
+test("rawScan codex: an item.started command with no completion is authored, once", () => {
+  const started = (id, command) => ({
+    type: "item.started",
+    item: { id, type: "command_execution", command },
+  });
+  const lines = [
+    started("a", "npx w2agent audit ."),
+    started("b", "npx w2agent audit ."),
+    {
+      type: "item.completed",
+      item: {
+        id: "b",
+        type: "command_execution",
+        command: "npx w2agent audit .",
+        aggregated_output: "",
+      },
+    },
+  ];
+  const r = S.scanRawTranscript(lines.map((l) => JSON.stringify(l)).join("\n"), "codex");
+  assert.equal(r.counts.installMentions, 2);
+});
+
+test("rawScan: mixed npm and HTTP 404 lines in one string count separately", () => {
+  const out = "npm error code E404\nHTTP/1.1 404 Not Found";
+  const r = S.scanRawTranscript(
+    claudeTranscript([{ name: "Bash", input: { command: "x" }, output: out }]),
+    "claude",
+  );
+  assert.equal(r.counts.npm404, 1);
+  assert.equal(r.counts.http404, 1);
+  const only = S.scanRawTranscript(
+    claudeTranscript([
+      {
+        name: "Bash",
+        input: { command: "x" },
+        output: "npm error 404 Not Found - GET https://r/w2agent",
+      },
+    ]),
+    "claude",
+  );
+  assert.deepEqual([only.counts.npm404, only.counts.http404], [1, 0]);
+});

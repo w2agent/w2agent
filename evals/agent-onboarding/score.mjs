@@ -386,9 +386,14 @@ function* stringsOf(v, path = "") {
 
 // Pieces of one event: { source, text, command?, authored }. Authored text is what the
 // agent wrote (tool inputs, codex commands); results and file contents it read are not.
-function* rawPieces(e, harness, names, seen) {
+function* rawPieces(e, harness, names, seen, done) {
+  const loose = () => stringsOf(e);
   if (harness === "claude") {
-    const blocks = Array.isArray(e.message?.content) ? e.message.content : [];
+    if (!Array.isArray(e.message?.content)) {
+      for (const [k, text] of loose()) yield { source: `${e.type}.${k}`, text, authored: false };
+      return;
+    }
+    const blocks = e.message.content;
     for (const b of blocks) {
       if (b?.type === "tool_use") {
         if (seen.has(b.id)) continue;
@@ -413,8 +418,13 @@ function* rawPieces(e, harness, names, seen) {
     }
     return;
   }
-  if (e.type !== "item.completed" || !e.item) return;
+  const started = e.type === "item.started" && e.item;
+  if (!started && !(e.type === "item.completed" && e.item)) {
+    for (const [k, text] of loose()) yield { source: `${e.type}.${k}`, text, authored: false };
+    return;
+  }
   const it = e.item;
+  if (started && (!it.id || done.has(it.id) || it.type !== "command_execution")) return;
   if (it.id) {
     if (seen.has(it.id)) return;
     seen.add(it.id);
@@ -427,7 +437,7 @@ function* rawPieces(e, harness, names, seen) {
         command: it.command,
         authored: true,
       };
-    if (typeof it.aggregated_output === "string")
+    if (!started && typeof it.aggregated_output === "string")
       yield {
         source: "command_execution.output",
         text: it.aggregated_output,
@@ -439,9 +449,10 @@ function* rawPieces(e, harness, names, seen) {
   for (const [k, text] of stringsOf(it)) yield { source: `${it.type}.${k}`, text, authored: false };
 }
 
-const SHELL_LEAD = /^\s*(?:(?:if|then|elif|else|while|until|do)\s+|!\s+|[A-Za-z_]\w*=)/;
+const SHELL_LEAD = /^\s*(?:(?:if|then|elif|else|while|until|do)\s+|!\s+|[A-Za-z_]\w*=\S*\s*)/;
 const mentionsInstall = (line) =>
-  line.split(/\$\(|`|[()"]/).some((piece) => {
+  isInstallOfW2agentPackage(line) ||
+  line.split(/\$\(|`|[()"']/).some((piece) => {
     let q = piece;
     for (let m = SHELL_LEAD.exec(q); m; m = SHELL_LEAD.exec(q)) q = q.slice(m[0].length);
     return isInstallOfW2agentPackage(q);
@@ -459,18 +470,22 @@ export function scanRawTranscript(text, harness) {
   };
   const names = new Map();
   const seen = new Set();
+  const done = new Set(
+    events.filter((e) => e.type === "item.completed" && e.item?.id).map((e) => e.item.id),
+  );
   events.forEach((e, i) => {
-    for (const p of rawPieces(e, harness, names, seen)) {
+    for (const p of rawPieces(e, harness, names, seen, done)) {
       const base = { line: lineNos[i], source: p.source, command: p.command };
-      for (const [kind, re] of [
-        ["npm404", NPM404_RE],
-        ["http404", HTTP404_RE],
-      ]) {
-        const m = re.exec(p.text);
-        if (!m) continue;
-        if (kind === "http404" && NPM404_RE.test(p.text)) continue;
-        const at = Math.max(0, m.index - 80);
-        add(kind, { ...base, snippet: flat(p.text.slice(at, m.index + m[0].length + 80)) });
+      const snip = (str, m) =>
+        flat(str.slice(Math.max(0, m.index - 80), m.index + m[0].length + 80));
+      const n = NPM404_RE.exec(p.text);
+      if (n) add("npm404", { ...base, snippet: snip(p.text, n) });
+      for (const l of p.text.split("\n")) {
+        const m = HTTP404_RE.exec(l);
+        if (m && !NPM404_RE.test(l)) {
+          add("http404", { ...base, snippet: snip(l, m) });
+          break;
+        }
       }
       if (!p.authored) continue;
       for (const l of p.text.split("\n")) {
