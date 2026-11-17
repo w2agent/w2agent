@@ -26,7 +26,7 @@ const claudeLogin = (expiresAt) => ({
     scopes: ["user:inference"],
     subscriptionType: "max",
   },
-  mcpOAuth: { server: { accessToken: "mcp-secret-0123456789" } },
+  mcpOAuth: { server: { accessToken: "mcp-secret-0123456789" } }, // gitleaks:allow
 });
 
 const jwt = (expSec) =>
@@ -38,7 +38,7 @@ const codexAuth = (expSec, extra = {}) => ({
   tokens: {
     access_token: jwt(expSec),
     id_token: jwt(expSec + 1),
-    refresh_token: "rt-0123456789abcdef",
+    refresh_token: "rt-0123456789abcdef", // gitleaks:allow
     account_id: "acct",
   },
   last_refresh: "2026-01-01T00:00:00Z",
@@ -83,7 +83,7 @@ test("stageCodex blanks refresh_token and drops OPENAI_API_KEY", () => {
   assert.equal(staged.auth_mode, "chatgpt");
   assert.equal(staged.tokens.access_token, input.tokens.access_token);
   assert.equal(staged.tokens.account_id, "acct");
-  assert.equal(input.tokens.refresh_token, "rt-0123456789abcdef");
+  assert.equal(input.tokens.refresh_token, "rt-0123456789abcdef"); // gitleaks:allow
 });
 
 test("stageCodex rejects non-chatgpt, missing token, and near-expiry", () => {
