@@ -273,6 +273,7 @@ Options:
   --ci                     CI mode: exit code 1 if below threshold
   --threshold <score>      Minimum score for CI mode (default: 70)
   --timeout <ms>           Request timeout in ms (default: 10000)
+  --json                   One JSON document on stdout (report or error envelope)
 ```
 
 ```
@@ -297,6 +298,11 @@ Options:
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout in ms (default: 10000)
   --a2a-endpoint <url>     Live A2A agent endpoint (no agent card is integrated without it)
+  --install                Install files directly into your project
+  --project-dir <dir>      Project root for --install (default: .)
+  --dry-run                Show what --install would do; never writes files
+  --site-url <url>         Production origin to write into generated content when crawling another origin (e.g. localhost)
+  --json                   One JSON document on stdout (result or error envelope)
 ```
 
 ```
@@ -306,6 +312,21 @@ Options:
   --api-key <key>    API key (alternative to `w2agent login`)
   --slug <slug>      Custom slug (default: derived from domain)
 ```
+
+```
+w2agent login [options]
+
+Options:
+  --api-key <key>    Authenticate with an API key (required in agent and non-interactive environments)
+  --force            Re-authenticate even if already logged in
+  --json             One JSON document on stdout (result or error envelope)
+```
+
+```
+w2agent schema      Print all commands and options as JSON
+```
+
+Exit codes: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
 
 ```
 w2agent agent deploy <url> [options]

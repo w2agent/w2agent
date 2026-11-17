@@ -46,6 +46,7 @@ Options:
   --ci                     CI mode: exit code based on threshold
   --threshold <score>      Min score for CI mode (default: 70)
   --timeout <ms>           Request timeout (default: 10000)
+  --json                   One JSON document on stdout (report or error envelope)
 ```
 
 Platform-specific checks run automatically when WordPress, Next.js, Shopify, or Docusaurus is detected.
@@ -76,6 +77,11 @@ Options:
   -p, --platform <name>    Force platform: wordpress, nextjs, shopify, docusaurus
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout (default: 10000)
+  --install                Install files directly into your project
+  --project-dir <dir>      Project root for --install (default: .)
+  --dry-run                Show what --install would do; never writes files
+  --site-url <url>         Production origin to write into generated content when crawling another origin
+  --json                   One JSON document on stdout (result or error envelope)
 ```
 
 Focused command that generates only platform-specific files with deployment instructions.
@@ -86,7 +92,16 @@ Focused command that generates only platform-specific files with deployment inst
 w2agent login            # Authenticate with w2agent.dev (required for agentize)
 w2agent logout           # Clear stored credentials
 w2agent whoami           # Show current authenticated user
+w2agent login --api-key <key> [--json]   # Required when AI_AGENT, CLAUDECODE or CODEX_CI is set, or stdin is not a TTY
 ```
+
+### `schema` — Machine-readable command reference
+
+```bash
+w2agent schema           # Print every command and option as JSON
+```
+
+Scripts and AI agents: `--json` on `audit`, `integrate` and `login` prints one JSON document on stdout. Exit codes are 0 (success), 1 (operational error), 2 (usage error). See [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md).
 
 ### `mcp` — Generate and deploy agent servers
 

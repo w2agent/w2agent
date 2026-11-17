@@ -33,8 +33,12 @@ Each action has a `type`, `dest` (relative path), optional `content`, and option
 ```
 --install              Install files directly into your project
 --project-dir <dir>    Project root for --install (default: .)
---dry-run              Show what --install would do without writing files
+--dry-run              Show what would be installed; never writes files (works with or without --install)
+--site-url <url>       Production origin to write into generated content when crawling another origin
+--json                 One JSON document on stdout (result or error envelope)
 ```
+
+See [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md) for the `--json` documents and `--site-url` rules.
 
 ## Per-Platform Install Resolvers
 

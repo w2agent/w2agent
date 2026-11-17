@@ -172,7 +172,9 @@ Auto-detects platform (or use `--platform` to force), generates only integration
 | `--timeout <ms>` | `10000` | Per-request timeout |
 | `--install` | off | Install files directly into your project |
 | `--project-dir <dir>` | `.` | Project root for `--install` |
-| `--dry-run` | off | Show what `--install` would do without writing files |
+| `--dry-run` | off | Show what would be installed; never writes files (works with or without `--install`) |
+| `--site-url <url>` | none | Production origin to write into generated content when crawling another origin (e.g. localhost) |
+| `--json` | off | One JSON document on stdout (result or error envelope); see [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md) |
 
 ### `--install` Mode
 

@@ -269,6 +269,7 @@ w2agent audit <url> [options]
   --ci                     CI 模式：低于阈值时返回退出码 1
   --threshold <score>      CI 模式的最低分数（默认: 70）
   --timeout <ms>           请求超时时间，单位毫秒（默认: 10000）
+  --json                   在 stdout 输出单个 JSON 文档（报告或错误信封）
 ```
 
 ```
@@ -291,6 +292,11 @@ w2agent integrate <url> [options]
   -p, --platform <name>    强制指定平台: wordpress, nextjs, shopify, docusaurus
   -m, --max-pages <n>      最大爬取页面数（默认: 100）
   --timeout <ms>           请求超时时间，单位毫秒（默认: 10000）
+  --install                直接将文件安装到你的项目中
+  --project-dir <dir>      --install 的项目根目录（默认: .）
+  --dry-run                显示 --install 将执行的操作，不写入任何文件
+  --site-url <url>         抓取其他来源（如 localhost）时，写入生成内容的正式站点地址
+  --json                   在 stdout 输出单个 JSON 文档（结果或错误信封）
 ```
 
 ```
@@ -300,6 +306,21 @@ w2agent agentize <url> [options]
   --api-key <key>    API Key（`w2agent login` 的替代方式）
   --slug <slug>      自定义 Slug（默认: 从域名派生）
 ```
+
+```
+w2agent login [options]
+
+选项:
+  --api-key <key>    使用 API Key 登录（智能体和非交互环境必须使用）
+  --force            已登录时仍重新认证
+  --json             在 stdout 输出单个 JSON 文档（结果或错误信封）
+```
+
+```
+w2agent schema      以 JSON 输出所有命令和选项
+```
+
+退出码：0 成功，1 运行错误（包括 `--ci` 低于阈值），2 用法错误。`--json` 约定见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
 
 ```
 w2agent agent deploy <url> [options]

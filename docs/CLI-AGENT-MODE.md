@@ -1,0 +1,186 @@
+# CLI Agent Mode
+
+Contract reference for scripts and AI agents that run `w2agent`. Add `--json` to `audit`, `integrate` and `login` to get one machine-readable document on stdout and a stable exit code.
+
+## When to use `--json`
+
+Use `--json` whenever a program, not a person, reads the output. Under `--json`:
+
+- Stdout holds exactly one JSON document, written once at the end. Nothing else goes to stdout.
+- Progress text, warnings and any other incidental output go to stderr.
+- There is no spinner and there are no colours.
+- Errors are a JSON envelope on stdout (see below). Without `--json`, errors are plain text on stderr.
+
+`--json` is detected from the raw arguments, so even a mistyped command gets an envelope instead of usage text.
+
+## Exit codes
+
+The same codes apply with or without `--json`.
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success (`--help` and `--version` also exit 0) |
+| `1` | Operational error: the site, the project or the login state blocked the command |
+| `2` | Usage error: invalid URL, unknown option, bad option value or missing argument |
+
+`audit --ci` exits `1` when the score is below `--threshold`.
+
+## Success documents
+
+### `audit <url> --json`
+
+The document is the same report as `-f json`. It has no `ok` field. Tell success by exit code 0.
+
+```bash
+w2agent audit http://127.0.0.1:<port> --json
+```
+
+```json
+{
+  "url": "http://127.0.0.1:<port>",
+  "pagesScanned": 3,
+  "overallScore": 27,
+  "grade": "F",
+  "rubricVersion": "3.1",
+  "categories": [ "…" ]
+}
+```
+
+With `--ci --json` and a score under the threshold, the output is the `below_threshold` error envelope instead of the report.
+
+### `integrate <url> --json`
+
+Every success document has `ok: true`, an `outcome` and the `platform`. `warnings` and `next` are always present.
+
+| `outcome` | When | Extra fields |
+|-----------|------|--------------|
+| `planned` | `--dry-run` (with or without `--install`). Nothing is written. | `changes`, `postInstallSteps` |
+| `installed` | `--install` | `changes`, `postInstallSteps` |
+| `generated` | Default mode, files written to `--output` | `outputDir`, `files` |
+
+Each entry in `changes` is `{ "action", "path", "reason" }`. `path` is relative to `--project-dir`. `action` is one of `create`, `modify`, `skip`, `manual` or `delete`. `skip` and `manual` entries need no write; read `reason` for what to do by hand.
+
+```bash
+w2agent integrate http://127.0.0.1:<port> --dry-run --json \
+  --site-url https://acme.example --project-dir ./my-app
+```
+
+```json
+{
+  "ok": true,
+  "outcome": "planned",
+  "platform": "nextjs",
+  "changes": [
+    { "action": "create", "path": "middleware.ts", "reason": "new file" },
+    { "action": "create", "path": "app/llms.txt/route.ts", "reason": "new file" },
+    { "action": "create", "path": ".w2agent/llms.txt", "reason": "new file" }
+  ],
+  "warnings": [],
+  "postInstallSteps": [
+    "Add `\"postbuild\": \"node w2agent-build.mjs\"` to your package.json scripts."
+  ],
+  "next": [
+    ["w2agent", "integrate", "http://127.0.0.1:<port>", "--install", "--json",
+     "--site-url", "https://acme.example", "--project-dir", "./my-app"]
+  ]
+}
+```
+
+(Shortened. A real run lists every change.) After `--install`, `next` is `audit <site origin> --json`, so you can verify the result.
+
+### `login --json`
+
+```json
+{ "ok": true, "outcome": "authenticated" }
+```
+
+`outcome` is `authenticated` after a login and `already_authenticated` when credentials already exist (pass `--force` to log in again).
+
+## Error envelope
+
+On failure, with `--json`, stdout holds:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "reason": "unreachable",
+    "message": "Could not reach 127.0.0.1:<port>. Check the URL or your network connection.",
+    "userActionRequired": false,
+    "retryable": true,
+    "next": []
+  }
+}
+```
+
+- `reason` is a stable code from the table below. Branch on it, not on `message`.
+- `userActionRequired` is `true` when a person must act (for example allow-list a bot or supply a key). Do not retry blindly.
+- `retryable` is `true` when the same command may succeed later.
+- `next` is a list of argv arrays, each starting with `"w2agent"`. They are suggested follow-up commands. It is often empty.
+
+### Reasons
+
+| `reason` | Exit | `userActionRequired` | `retryable` | What to do |
+|----------|------|----------------------|-------------|------------|
+| `unreachable` | 1 | no | yes | The host did not answer. Check the URL, start the site, retry. |
+| `blocked` | 1 | yes | no | The site refuses the crawler (bot protection, firewall). Ask the owner to allow it. |
+| `auth_gated` | 1 | yes | no | The site needs a login. Audit a public URL instead. |
+| `rate_limited` | 1 | no | yes | Wait, then retry. |
+| `timeout` | 1 | no | yes | Retry with a larger `--timeout`. `audit` puts that command in `next`. |
+| `unknown_failure` | 1 | no | no | Read `message`. Includes a page that returned nothing readable. |
+| `invalid_url` | 2 | no | no | Fix the URL (also raised for a bad `--site-url`). |
+| `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
+| `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). |
+| `not_a_project` | 1 | yes | no | `--project-dir` is missing or is not a project root for this platform. Pass the right `--project-dir`. |
+| `auth_required` | 1 | yes | no | Login needs an API key. See [login in agent environments](#login-in-agent-environments). |
+| `below_threshold` | 1 | no | no | `audit --ci --json` scored under `--threshold`. This is a result, not a crash: fix the site, then audit again. |
+
+### `next` rules
+
+- `next` never contains the command that just failed.
+- `next` never contains a secret. The value of `--api-key` (both `--api-key v` and `--api-key=v`) becomes the placeholder `<api-key>`. Replace it with a real key before you run the command.
+
+## Plan, apply, verify
+
+`integrate` can change a project, so show the plan to the user before you apply it.
+
+1. Plan: `w2agent integrate <url> --dry-run --json --project-dir <dir>`. This never writes files.
+2. Show the user `changes`, `warnings` and `postInstallSteps`.
+3. Apply: run the argv in `next[0]`. It is the same command with `--install` and without `--dry-run`.
+4. Verify: run the argv in the `installed` document's `next` (`audit <site> --json`).
+
+## `--site-url`: crawl one origin, write for another
+
+Use `--site-url <origin>` to crawl a local or preview server while the generated files name the production site:
+
+```bash
+w2agent integrate http://127.0.0.1:<port> --install --json \
+  --site-url https://acme.example --project-dir ./my-app
+```
+
+`--site-url` must be an absolute `http` or `https` origin without credentials. It rewrites:
+
+- the crawl origin, in plain, JSON-escaped and percent-encoded form;
+- `host:port` forms of the crawl host;
+- loopback aliases (`localhost`, `127.0.0.1`, `[::1]`) on the same port.
+
+Any other mention of the crawl host, including the bare hostname, is not rewritten. Each one is reported in `warnings` (on stderr in human mode). A warning means generated content still names the crawl host. Check it by hand before you publish.
+
+## `w2agent schema`
+
+`w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It always exits 0.
+
+## Login in agent environments
+
+Browser login needs a person at a terminal. `w2agent login` fails at once, with exit 1 and reason `auth_required`, when any of these is true:
+
+- `AI_AGENT`, `CLAUDECODE` or `CODEX_CI` is set to a non-empty value;
+- stdin is not a TTY.
+
+Create an API key at [w2agent.dev](https://w2agent.dev), then run:
+
+```bash
+w2agent login --api-key <key> --json
+```
+
+A key that does not start with `w2a_` is rejected with `invalid_argument` (exit 2).
