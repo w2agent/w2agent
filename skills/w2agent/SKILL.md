@@ -63,13 +63,13 @@ Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE
    - If it succeeds: add `w2agent@0.1.0` as a devDependency (`npm install -D w2agent@0.1.0`), then do the `postInstallSteps` (including the `prebuild` script), rebuild and restart the local server.
    - If npm answers 404: do not wire the hook (the `prebuild` script or the Astro `integrations` entry) and do not add a devDependency that points at a local checkout path: that path is not portable, so it is not committed. Do the other steps, then rebuild and restart the local server. The files `integrate` wrote already serve. In the final report, list "install w2agent as a devDependency, then add the `prebuild` script" as an owner step, and say why it was skipped.
 8. Verify: run the `next` argv from the installed document (`audit <local url> --json`). Compare with the baseline.
-9. Close remaining gaps (see [Closing gaps](#closing-gaps)). Re-audit after each batch.
+9. Close remaining gaps with the loop in [Closing gaps](#closing-gaps): at most two fix rounds, each followed by a re-audit.
 10. Report (see [Final report](#final-report)).
 
 ### Approval
 
 - If you can pause and ask, show the plan and wait for a yes.
-- If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready counts as approval for the plan exactly as shown, with its `changes` and `postInstallSteps`. Still print the plan first. Anything outside the plan needs explicit approval. Put it in the final report instead of doing it.
+- If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready approves two things: (a) the plan exactly as shown, with its `changes` and `postInstallSteps`; (b) minimal additive edits that a w2agent guide prescribes for a check that is yours to fix (see [Closing gaps](#closing-gaps)). Still print the plan first. Anything else needs approval. Put it in the final report instead of doing it.
 - `integrate` only creates new files and skips paths that already exist; it never overwrites or deletes. Existing files stay as they are.
 
 ### Production origin
@@ -99,7 +99,24 @@ Use what you find and say where it came from. If you find none, ask the owner. I
 
 ### Closing gaps
 
-After the re-audit, read the failing checks and their `fixSnippet` in the audit JSON. Apply only fixes that are true for this site, using its real content: sitemap, JSON-LD with the site's real business data, canonical URLs, security headers. Never fabricate content.
+Fix guides tell you how to fix a check and who acts. They live in the repo at `skills/w2agent/references/checks/<guide>.md`. The CLI prints them: `w2agent guide <guide> --platform <platform id>` (Next.js is `nextjs`; ids are the values in step 3 of [Pick a path](#1-pick-a-path)).
+
+After the re-audit, take every check whose status is `fail` or `partial`:
+
+1. It has no `guide` field: report it. Do not improvise a fix. You may read its `fixSnippet` as context.
+2. It has a `guide` field: run `w2agent guide <guide> --platform <platform id>` and read it first. Decide who acts, in this order:
+   1. A file in the current `integrate` plan: never hand-write it.
+   2. The guide's framework section and its "Who fixes it" part.
+   3. `fixBy` (`agent`, `owner`, `integrate`) only as a platform-blind default, when the guide says nothing for your framework. Never decide from `fixBy` alone. Example: `markdown-alternate` carries `fixBy: integrate`, but on Next.js the guide says `integrate` writes the route and you add the `<link>` afterwards.
+3. The owner acts: put the check in the final report with the guide's owner note. Do not edit for it.
+4. Status `skip` or `error` means the check was not measured. Never edit for it. Report it.
+
+The loop. A non-interactive run has about 25 minutes. Do not re-verify what you already verified.
+
+1. Batch all your fixes into one round. Edits are additive, in the project's style, and use only real site data.
+2. Rebuild, restart the site and re-audit.
+3. Compare each check with the audit before the round, not only the total. A check that passed before and does not pass now is a regression: revert your own edit from this round that caused it (never user content) and report it. A higher total does not excuse a regression.
+4. Run at most two fix rounds. Stop sooner when a round changes no check. Keep time for the final audit and the report.
 
 What not to advertise:
 
@@ -116,7 +133,9 @@ Give the owner:
 - before and after score and grade;
 - files created and modified;
 - `warnings` (especially leftover crawl hosts);
+- what you changed, per check;
 - what you did not do and why;
+- owner items and unmeasured (`skip`, `error`) checks, each with its guide id (checks without a guide: the check id);
 - anything that needs the owner (production origin, approvals, content only they can write).
 
 ## Hosted path
@@ -128,7 +147,7 @@ For a deployed public site when you will not run code. Before the first call, te
 - A site that cannot be measured returns 422 `{"error": "audit_failed", "kind": "...", "message": "..."}`. The `kind` values match the `reason` values above.
 - `POST https://w2agent.dev/api/generate` with `{"url": "<url>"}` returns generated files. It counts against the same limit.
 
-You write the fixes yourself from the report's fix hints. The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
+You write the fixes yourself. Read the guide named in a result's `guide` field in the repo (`skills/w2agent/references/checks/<guide>.md`). The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
 
 Optional and separate: `agentize` runs a hosted agent server. It needs a login or API key. See https://github.com/interskh/w2agent/blob/main/docs/AGENTIZE.md
 
