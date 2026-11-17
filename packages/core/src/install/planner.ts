@@ -7,6 +7,8 @@ import type { InstallAction, InstallPlan } from "./types.js";
 
 const SKIP_ON_INSTALL = ["INSTALL.md"];
 
+const ROBOTS_FILES = new Set(["robots-rules.txt", "robots.txt.liquid"]);
+
 const MERGE_FILES = ["middleware.ts"];
 
 export function planInstall(
@@ -20,9 +22,22 @@ export function planInstall(
     : planInstallFallback(adapter.id, generatedFiles, projectDir);
 
   const guarded = guardInstallActions(plan.actions, projectDir);
+  const actions = guarded.actions;
+  if (
+    actions.length > 0 &&
+    generatedFiles.some((f) => f.filename === "robots.txt") &&
+    !actions.some((a) => ROBOTS_FILES.has(a.dest.split("/").pop() ?? a.dest))
+  ) {
+    actions.push({
+      type: "manual",
+      dest: "robots.txt",
+      reason:
+        "AI-crawler rules were generated but not installed. Review them and merge them into your site's robots.txt; `w2agent integrate <url> --output <dir>` writes the generated file.",
+    });
+  }
   return {
     ...plan,
-    actions: guarded.actions,
+    actions,
     warnings: [...plan.warnings, ...guarded.warnings],
   };
 }

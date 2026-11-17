@@ -35,7 +35,10 @@ export function registerIntegrateCommand(program: Command): void {
     )
     .argument("<url>", "URL to generate integration for")
     .option("-o, --output <dir>", "Output directory", "./w2agent-output")
-    .option("-p, --platform <platform>", "Force platform: wordpress, nextjs, shopify, docusaurus")
+    .option(
+      "-p, --platform <platform>",
+      "Force platform: wordpress, nextjs, shopify, docusaurus, nuxt, astro",
+    )
     .option("-m, --max-pages <number>", "Maximum pages to crawl", "100")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
     .option(
@@ -115,11 +118,19 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(chalk.yellow("  Could not auto-detect platform."));
           console.log("");
           console.log("  Specify manually with --platform:");
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform wordpress`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform nextjs`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform shopify`)}`);
-          console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform docusaurus`)}`);
+          for (const id of validPlatforms) {
+            console.log(`    ${chalk.cyan(`w2agent integrate ${url} --platform ${id}`)}`);
+          }
           console.log("");
+
+          if (opts.install || opts.dryRun) {
+            console.log(
+              `  Nothing was written. Re-run with ${chalk.cyan("--platform <id> --install --project-dir <dir>")}.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+
           console.log(chalk.gray("  Core files were still generated in the output directory."));
 
           const outputDir = resolve(opts.output);
@@ -177,6 +188,7 @@ export function registerIntegrateCommand(program: Command): void {
             const execResult = executeInstallPlan(plan, projectDir);
             const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
+            if (plan.actions.length === 0) process.exitCode = 1;
           }
         } else {
           // Default mode: write to output directory

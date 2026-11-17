@@ -123,6 +123,16 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
       "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
     );
   }
+  if (willWrite(guarded.actions, "w2agent-build.mjs")) {
+    postInstallSteps.push(
+      'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',
+    );
+  }
+  if (willWrite(guarded.actions, "src/components/WebMcpScript.astro")) {
+    postInstallSteps.push(
+      'Import the WebMCP component in your layout (`import WebMcpScript from "../components/WebMcpScript.astro";`, adjust the path to your layout) and render `<WebMcpScript />` inside `<body>`. The file is at src/components/WebMcpScript.astro.',
+    );
+  }
 
   return { platform: "astro", actions: guarded.actions, warnings, postInstallSteps };
 }

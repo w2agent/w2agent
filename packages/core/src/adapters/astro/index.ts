@@ -116,7 +116,7 @@ ${webmcpJs}
 </script>
 `;
         files.push({
-          filename: "astro/components/WebMcpScript.astro",
+          filename: "astro/src/components/WebMcpScript.astro",
           content: webmcpAstro,
           size: new TextEncoder().encode(webmcpAstro).length,
         });

@@ -208,7 +208,7 @@ describe("Shopify host (Liquid snippet)", () => {
 });
 
 describe("Astro host (component script)", () => {
-  const astro = adapterFile(astroAdapter, "astro/components/WebMcpScript.astro");
+  const astro = adapterFile(astroAdapter, "astro/src/components/WebMcpScript.astro");
   const body = astro.slice(astro.indexOf("---", 3) + 3);
 
   it("yields exactly one script that registers the exact values", async () => {

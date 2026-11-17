@@ -2,6 +2,8 @@
 
 Last run: 2026-03-04
 
+> Note (2026-11-17): the Next.js resolver now refuses a directory that has no `next` dependency and no `next.config.*`. Monorepo roots counted as "Clean install" below now get a warning and an empty plan; pass `--project-dir <app package>`. The table below is the original survey and is not updated.
+
 ## Summary
 
 Tested install resolvers against **42 real-world repos** (planning step only — conflict detection, layout detection, path rewriting). Zero failures.

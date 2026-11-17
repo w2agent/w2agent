@@ -41,6 +41,10 @@ Each resolver runs the guard itself before it builds post-install steps and merg
 
 The executor re-checks containment and creates files with exclusive-create (`wx`), so a file that appears between planning and writing is also skipped, never overwritten.
 
+### Generated `robots.txt` (manual action)
+
+Next.js, Nuxt, Astro and Docusaurus plans never write a `robots.txt`. When the generated files include one and the plan has no robots action (WordPress plans `data/robots-rules.txt`, Shopify plans `templates/robots.txt.liquid`), `planInstall` appends a `manual` action on `robots.txt`: review the generated AI-crawler rules and merge them into the site's robots.txt (`w2agent integrate <url> --output <dir>` writes the generated file). A plan with no actions (refused) gets no robots action.
+
 ## CLI Flags
 
 ```
@@ -48,6 +52,11 @@ The executor re-checks containment and creates files with exclusive-create (`wx`
 --project-dir <dir>    Project root for --install (default: .)
 --dry-run              Show what --install would do without writing files
 ```
+
+Exit codes with `--install` / `--dry-run`:
+
+- No platform detected and none forced: nothing is written (no `./w2agent-output` either), the CLI lists every valid `--platform` and exits 1. Re-run with `--platform <id> --install --project-dir <dir>`. Without `--install`/`--dry-run`, the core files are still written to the output directory.
+- `--install` (not dry-run) with a plan of zero actions (for example the Next.js project check or the Pages Router refusal): the summary prints and the CLI exits 1 so scripts notice that nothing was installed.
 
 ## Per-Platform Install Resolvers
 
@@ -86,6 +95,8 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | SSR/hybrid mode | `output: "server"` or `"hybrid"` | Install all files |
 | No config found | Missing `astro.config.*` | Warn + proceed with public/ files |
 | Existing `public/llms.txt` | File exists | Skip + warn |
+| `WebMcpScript.astro` | Generated as `src/components/WebMcpScript.astro` | Install under `src/`; post-install step to import it in a layout and render `<WebMcpScript />` (only when written) |
+| `w2agent-build.mjs` written | Not already present | Post-install step: add `"postbuild": "node w2agent-build.mjs"` |
 
 ### Docusaurus (`packages/core/src/adapters/docusaurus/install.ts`)
 
@@ -118,7 +129,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (137 tests across 9 test files)
+### Unit tests (149 tests across 10 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -128,6 +139,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (10 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
+- `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro postbuild step (12 tests)
 - `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
 
 All tests use temp directories with fixture files — fast, no network.
