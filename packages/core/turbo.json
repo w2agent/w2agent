@@ -5,7 +5,8 @@
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/nuxt/src/runtime/server/middleware/content-negotiation.ts"
+        "$TURBO_ROOT$/packages/nuxt/src/runtime/server/middleware/content-negotiation.ts",
+        "$TURBO_ROOT$/.github/workflows/integration-tests.yml"
       ]
     }
   }

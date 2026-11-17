@@ -8,6 +8,7 @@ on:
       - "packages/core/tests/integration.test.ts"
       - "packages/core/tests/fixtures/platforms/**"
       - "packages/nuxt/**"
+      - ".github/workflows/integration-tests.yml"
   workflow_dispatch:
 
 jobs:
@@ -20,6 +21,19 @@ jobs:
       matrix:
         platform: [nextjs, nuxt, astro, docusaurus, wordpress, shopify]
         node: [20, 22]
+        include:
+          - platform: nextjs
+            pattern: 'integration: Next\.js'
+          - platform: nuxt
+            pattern: "integration: Nuxt"
+          - platform: astro
+            pattern: "integration: (Astro|negative tests)"
+          - platform: docusaurus
+            pattern: "integration: Docusaurus"
+          - platform: wordpress
+            pattern: "integration: WordPress"
+          - platform: shopify
+            pattern: "integration: Shopify"
     steps:
       - uses: actions/checkout@v4
 
@@ -41,12 +55,12 @@ jobs:
 
       - name: Run integration tests
         env:
-          PLATFORM: ${{ matrix.platform }}
+          PATTERN: ${{ matrix.pattern }}
           NODE_ENV: test
-        run: pnpm --filter w2agent-core test:integration -- --reporter=verbose -t "$PLATFORM"
+        run: pnpm --filter w2agent-core test:integration --reporter=verbose -t "$PATTERN"
 
   integration-conformance:
-    name: "Conformance (Node 20)"
+    name: "Conformance (Node 22)"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -69,6 +83,6 @@ jobs:
         run: pnpm --filter @w2agent/nuxt build
 
       - name: Run conformance tests
-        run: pnpm --filter w2agent-core test:integration -- --reporter=verbose -t "conformance"
+        run: 'pnpm --filter w2agent-core test:integration --reporter=verbose -t "integration: conformance"'
         env:
           NODE_ENV: test
