@@ -632,6 +632,31 @@ describe("endpoint paths the URL parser would rewrite", () => {
   });
 });
 
+describe("runtime assertSafePath on raw percent-encoded spec literals", () => {
+  const load = async () => {
+    const js = ts.transpileModule(`${OUTBOUND_HELPER_SOURCE}\nexport { assertSafePath };`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText;
+    return (await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(js)}`))
+      .assertSafePath as (p: string) => void;
+  };
+
+  it.each([
+    "/files/%2e",
+    "/files/%2E%2e",
+    "/files/.%2e",
+    "/files/%2e./x",
+  ])("rejects %s", async (p) => {
+    const assertSafePath = await load();
+    expect(() => assertSafePath(p)).toThrow(/path segment/);
+  });
+
+  it.each(["/files/%2ex", "/files/%252e"])("allows %s", async (p) => {
+    const assertSafePath = await load();
+    expect(() => assertSafePath(p)).not.toThrow();
+  });
+});
+
 describe("static guard", () => {
   const FILES: Array<[string, Variant]> = [
     ["server.ts", "express"],
