@@ -147,9 +147,10 @@ describe("Nuxt install resolver", () => {
     expect(dests).toContain("some-config.json");
   });
 
-  it("adds postbuild step when build script is installed", () => {
+  it("adds prebuild step when build script is installed", () => {
     const plan = resolveNuxtInstall(makeNuxtFiles(), tempDir);
-    expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(true);
+    expect(plan.postInstallSteps.some((s) => s.includes("prebuild"))).toBe(true);
+    expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(false);
   });
 
   it("skips llms-full.txt route when existing routes detected", () => {

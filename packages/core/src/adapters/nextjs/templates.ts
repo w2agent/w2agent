@@ -125,7 +125,7 @@ export async function GET() {
     });
   }
 
-  return new NextResponse("# No content generated yet\\n\\nRun: npx w2agent generate ${siteUrl}\\n", {
+  return new NextResponse("# No content generated yet\\n\\nRun: npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./.w2agent/\\n", {
     status: 404,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
@@ -168,23 +168,33 @@ export async function GET() {
  *
  * This regenerates llms.txt and llms-full.txt from your live site,
  * so your route handlers always serve fresh content.
+ *
+ * Requires the w2agent CLI installed in this project. It is not published on npm
+ * yet: build it from the w2agent repo, then run
+ *   npm install -D <path-to-w2agent>/packages/cli
+ * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
 
-const SITE_URL = process.env.SITE_URL || "${siteUrl}";
+const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
 
 console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 
 try {
   execFileSync(
     "npx",
-    ["w2agent", "generate", SITE_URL, "--format", "llms-txt", "--format", "full", "--output", "./.w2agent/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./.w2agent/"],
     { stdio: "inherit" }
   );
   console.log("[w2agent] Done. Files written to .w2agent/");
 } catch (err) {
-  console.warn("[w2agent] Generation failed — route handlers will use fallback content");
   // Non-fatal: the route handlers have fallback logic
+  console.warn(
+    "[w2agent] Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
+    "[w2agent] Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
+    "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
+    "or the crawl of " + SITE_URL + " failed. Route handlers will use fallback content."
+  );
 }
 `;
 
@@ -255,7 +265,7 @@ your-nextjs-app/
 ## How It Works
 
 1. **Route handlers** serve content with ISR (revalidates every hour)
-2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx w2agent generate\`
+2. **Build script** regenerates \`.w2agent/llms.txt\` on deploy via \`npx --no -- w2agent generate\` (the CLI must be installed in your project)
 3. **Middleware** rewrites \`/\` for AI agents: \`Accept: text/markdown\` → \`/index.md\` (text/markdown, \`Vary: Accept\`), \`Accept: text/plain\` → \`/llms.txt\`
 4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
 
@@ -267,11 +277,14 @@ For example, read from your CMS, scan your \`app/\` directory, or query a databa
 ## Regenerating
 
 \`\`\`bash
-# Manual regeneration
-npx w2agent generate ${siteUrl} --output ./.w2agent/
+# Manual regeneration (needs the w2agent CLI installed in this project)
+npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./.w2agent/
 
 # Or just deploy — the postbuild script handles it
 \`\`\`
+
+The CLI is not published on npm yet. Build it from the w2agent repo, then run
+\`npm install -D <path-to-w2agent>/packages/cli\` in your app.
 `;
 
   files.push(makeFile("nextjs/middleware.ts", middlewareTs));

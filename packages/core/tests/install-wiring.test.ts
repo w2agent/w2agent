@@ -120,10 +120,10 @@ describe("Astro WebMcpScript and build script wiring", () => {
     expect(step).toContain("<WebMcpScript />");
   });
 
-  it("adds the postbuild step when the build script is written", () => {
+  it("adds the prebuild step when the build script is written", () => {
     const plan = planInstall(astroAdapter, files, dir);
     expect(
-      plan.postInstallSteps.some((s) => s.includes('"postbuild": "node w2agent-build.mjs"')),
+      plan.postInstallSteps.some((s) => s.includes('"prebuild": "node w2agent-build.mjs"')),
     ).toBe(true);
   });
 
@@ -134,9 +134,9 @@ describe("Astro WebMcpScript and build script wiring", () => {
     expect(plan.postInstallSteps.some((s) => s.includes("WebMcpScript"))).toBe(false);
   });
 
-  it("no postbuild step when the build script already exists", () => {
+  it("no prebuild step when the build script already exists", () => {
     writeFileSync(join(dir, "w2agent-build.mjs"), "mine");
     const plan = planInstall(astroAdapter, files, dir);
-    expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(false);
+    expect(plan.postInstallSteps.some((s) => s.includes("prebuild"))).toBe(false);
   });
 });

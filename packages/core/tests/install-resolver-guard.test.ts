@@ -125,13 +125,13 @@ describe("resolver steps follow the guarded actions", () => {
     });
   });
 
-  it("Nuxt: no postbuild step when a sibling build script blocks the write", () => {
+  it("Nuxt: no prebuild step when a sibling build script blocks the write", () => {
     writeFileSync(join(tempDir, "w2agent-build.js"), "// mine");
 
     const plan = planInstall(nuxtAdapter, [makeFile("nuxt/w2agent-build.mjs")], tempDir);
 
     expect(plan.actions.some((a) => a.type === "write")).toBe(false);
-    expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(false);
+    expect(plan.postInstallSteps.some((s) => s.includes("prebuild"))).toBe(false);
   });
 
   it("Nuxt: a stale middleware copy is not offered for merging", () => {

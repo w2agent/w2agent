@@ -242,8 +242,12 @@ docusaurus/
 ## Regenerating Static Fallback
 
 \`\`\`bash
-npx w2agent generate ${siteUrl} --format llms-txt --output ./docusaurus/static/
+npx --no -- w2agent generate ${siteUrl} --format llms-txt --no-platform --output ./static/
 \`\`\`
+
+Run it from your Docusaurus project root. It needs the w2agent CLI installed in your project:
+the CLI is not published on npm yet, so build it from the w2agent repo and run
+\`npm install -D <path-to-w2agent>/packages/cli\`.
 `;
 
   files.push(makeFile("docusaurus/w2agent-plugin.js", pluginJs));

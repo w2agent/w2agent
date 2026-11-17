@@ -145,7 +145,7 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
 
   if (willWrite(guarded.actions, "w2agent-build.mjs")) {
     postInstallSteps.push(
-      'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts.',
+      'Add `"prebuild": "node w2agent-build.mjs"` to your package.json scripts (it must run before the build so files land in public/). Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run `npm install -D <path-to-w2agent>/packages/cli`.',
     );
   }
 
