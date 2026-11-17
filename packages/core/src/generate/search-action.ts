@@ -33,11 +33,22 @@ function placeholderName(queryInput: unknown): string {
   return match ? match[1] : DEFAULT_PLACEHOLDER;
 }
 
+// Bounded like the walk itself: a hostile target nested thousands of arrays deep must not
+// overflow the stack.
 function templatesOf(target: unknown): string[] {
-  if (typeof target === "string") return [target];
-  if (Array.isArray(target)) return target.flatMap(templatesOf);
-  if (isRecord(target) && typeof target.urlTemplate === "string") return [target.urlTemplate];
-  return [];
+  const out: string[] = [];
+  const stack: Array<{ node: unknown; depth: number }> = [{ node: target, depth: 0 }];
+  let visited = 0;
+  while (stack.length > 0 && visited < MAX_NODES) {
+    const { node, depth } = stack.pop() as { node: unknown; depth: number };
+    visited++;
+    if (typeof node === "string") out.push(node);
+    else if (Array.isArray(node)) {
+      if (depth < MAX_DEPTH)
+        for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], depth: depth + 1 });
+    } else if (isRecord(node) && typeof node.urlTemplate === "string") out.push(node.urlTemplate);
+  }
+  return out;
 }
 
 // Backslash, whitespace and control characters are parsed differently by URL parsers.

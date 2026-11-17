@@ -37,6 +37,7 @@ function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
     const fields: ExtractedFormField[] = [];
     const byName = new Map<string, ExtractedFormField>();
     let hasPassword = false;
+    let hasRequiredFile = false;
     const controls = "input, select, textarea";
     const formId = $form.attr("id");
     // Controls outside the <form> that point at it with form="id" belong to it too.
@@ -54,6 +55,7 @@ function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
           ($input.is("textarea") ? "textarea" : $input.is("select") ? "select" : "text")
         ).toLowerCase();
         if (type === "password") hasPassword = true;
+        if (type === "file" && $input.attr("required") !== undefined) hasRequiredFile = true;
         if (!name || type === "hidden" || type === "submit") return;
 
         const required = $input.attr("required") !== undefined;
@@ -116,6 +118,11 @@ function extractForms($: CheerioAPI): ExtractedForm[] | undefined {
         byName.set(name, field);
         fields.push(field);
       });
+
+    // A required file control disqualifies the form even when its name repeats or is missing.
+    if (hasRequiredFile && !fields.some((f) => f.type === "file" && f.required)) {
+      fields.push({ name: "", type: "file", required: true });
+    }
 
     if (fields.length > 0 && !hasPassword) {
       const formName = $form.attr("name");

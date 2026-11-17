@@ -194,11 +194,9 @@ const RUNTIME_JS = `  function formGetter(prop) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function hasRequiredFields(elements, fields) {
+  function hasAllFields(elements, fields) {
     for (const f of fields) {
-      if (f.required) {
-        if (controlsNamed(elements, f.name).length === 0) return false;
-      }
+      if (controlsNamed(elements, f.name).length === 0) return false;
     }
     return true;
   }
@@ -226,7 +224,7 @@ const RUNTIME_JS = `  function formGetter(prop) {
         if (url.origin !== location.origin) continue;
         if (url.pathname + url.search !== spec.path) continue;
       }
-      if (hasRequiredFields(getElements.call(form), spec.fields)) return form;
+      if (hasAllFields(getElements.call(form), spec.fields)) return form;
     }
     return null;
   }
@@ -297,6 +295,9 @@ const RUNTIME_JS = `  function formGetter(prop) {
     if (form === null) return textResult("Form not found on this page", true);
     const elements = formGetter("elements").call(form);
     for (const el of elements) {
+      if (el.type === "password") {
+        return textResult("This form has a password field; submission refused", true);
+      }
       if (el.type === "file") {
         const count = el.files ? el.files.length : 0;
         if (count !== 0) {

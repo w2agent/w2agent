@@ -20,7 +20,7 @@ export function generateLlmsTxt(pages: PageMarkdown[], options: LlmsTxtOptions):
   const lines: string[] = [];
 
   // Header
-  lines.push(`# ${oneLine(options.siteName)}`);
+  lines.push(`# ${mdDescription(options.siteName)}`);
   lines.push("");
   const siteDescription = mdDescription(options.siteDescription);
   if (siteDescription) {
@@ -32,7 +32,7 @@ export function generateLlmsTxt(pages: PageMarkdown[], options: LlmsTxtOptions):
   const sections = groupBySection(pages, options.sections);
 
   for (const [sectionName, sectionPages] of sections) {
-    lines.push(`## ${sectionName}`);
+    lines.push(`## ${mdDescription(sectionName)}`);
     lines.push("");
     for (const page of sectionPages) {
       const desc = mdDescription(getDescription(page));
