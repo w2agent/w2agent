@@ -228,6 +228,63 @@ describe("Nuxt install: module and plugin placement (NU-2, NU-3)", () => {
     ).toBe(true);
   });
 
+  it("srcDir followed by a comment and then more expression warns and falls back", () => {
+    for (const cfg of [
+      'export default defineNuxtConfig({ srcDir: "src" // c\n + "/client" })',
+      'export default defineNuxtConfig({ srcDir: "src" // c, d\n + "/client" })',
+    ]) {
+      rmSync(dir, { recursive: true, force: true });
+      dir = mkdtempSync(join(tmpdir(), "w2agent-nuxt-place-"));
+      setup("^4.0.0", cfg);
+      put("app/app.vue");
+      const p = plan();
+      expect(
+        p.warnings.some((w) => w.includes("srcDir")),
+        cfg,
+      ).toBe(true);
+      expect(p.actions.find((a) => a.dest.endsWith("w2agent-webmcp.client.ts"))?.dest).toBe(
+        "app/plugins/w2agent-webmcp.client.ts",
+      );
+    }
+  });
+
+  it("srcDir literal followed by a line comment then a brace stays literal", () => {
+    setup("^3.8.0", 'export default defineNuxtConfig({ srcDir: "src" // c\n})');
+    expect(pluginDest()).toBe("src/plugins/w2agent-webmcp.client.ts");
+    expect(plan().warnings.some((w) => w.includes("srcDir"))).toBe(false);
+  });
+
+  it("an npm: alias range reads the aliased version (no node_modules)", () => {
+    setup("npm:nuxt@4.6.4");
+    put("app/app.vue");
+    expect(pluginDest()).toBe("app/plugins/w2agent-webmcp.client.ts");
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(join(tmpdir(), "w2agent-nuxt-place-"));
+    setup("npm:nuxt@2.18.1");
+    const p = plan();
+    expect(p.actions).toEqual([]);
+    expect(p.warnings.some((w) => w.includes("Nuxt 2"))).toBe(true);
+  });
+
+  it("empty app/ with nitro.output.dir (not a Nuxt dir map) still picks app/ without a warning", () => {
+    setup("^4.0.0", 'export default defineNuxtConfig({ nitro: { output: { dir: "build" } } })');
+    mkdirSync(join(dir, "app"), { recursive: true });
+    const p = plan();
+    expect(p.actions.find((a) => a.dest.endsWith("w2agent-webmcp.client.ts"))?.dest).toBe(
+      "app/plugins/w2agent-webmcp.client.ts",
+    );
+    expect(p.warnings.some((w) => w.includes("dir names"))).toBe(false);
+  });
+
+  it("the Nuxt 3.0-3.2 step does not claim /llms.txt returns 404", () => {
+    setup("^3.0.0");
+    put("node_modules/nuxt/package.json", JSON.stringify({ version: "3.2.0" }));
+    const step = plan().postInstallSteps.find((s) => s.includes("./modules/w2agent")) ?? "";
+    expect(step).toContain("/index.md");
+    expect(step).not.toContain("/llms.txt");
+    expect(step).not.toContain("/llms-full.txt");
+  });
+
   it("empty app/ without a dir key and no root markers still picks app/", () => {
     setup("^4.0.0", "export default defineNuxtConfig({})");
     mkdirSync(join(dir, "app"), { recursive: true });

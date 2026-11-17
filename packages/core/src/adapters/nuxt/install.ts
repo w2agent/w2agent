@@ -29,7 +29,12 @@ function installedNuxtVersion(projectDir: string): { major: number; minor: numbe
 
 // Highest major a manifest range names; an exclusive `<N` bound is not counted.
 function rangeMajor(range: string): number | null {
-  const majors = [...range.replace(/<(?!=)\s*v?\d[^\s|]*/g, "").matchAll(/(?:^|[\s^~>=|v])(\d+)/g)];
+  const majors = [
+    ...range
+      .replace(/npm:(?:@[^/\s]+\/)?[^@\s]+@/g, "")
+      .replace(/<(?!=)\s*v?\d[^\s|]*/g, "")
+      .matchAll(/(?:^|[\s^~>=|v])(\d+)/g),
+  ];
   return majors.length ? Math.max(...majors.map((m) => parseInt(m[1], 10))) : null;
 }
 
@@ -82,7 +87,7 @@ const NUXT_CONFIG_NAMES = [
   "nuxt.config.mts",
 ];
 const SRC_DIR_LITERAL =
-  /\bsrcDir\s*:\s*(?:"([^"\\\n]*)"|'([^'\\\n]*)'|`([^`$\\\n]*)`)(?=\s*(?:[,}]|\/\/|$))/;
+  /\bsrcDir\s*:\s*(?:"([^"\\\n]*)"|'([^'\\\n]*)'|`([^`$\\\n]*)`)(?=(?:\s|\/\/[^\n]*(?=\n|$))*(?:[,}]|$))/;
 
 function readNuxtConfigText(projectDir: string): string {
   for (const name of NUXT_CONFIG_NAMES) {
@@ -132,7 +137,9 @@ export function resolveNuxtSrcDir(
   if (hasContent) return { dir: "app", warning };
   const rootMarkers = ["app.vue", "App.vue", "assets", "layouts", "middleware", "pages", "plugins"];
   if (rootMarkers.some((name) => existsSync(join(projectDir, name)))) return { dir: "", warning };
-  if (/\bdir\s*:/.test(config)) {
+  if (
+    /\bdir\s*:\s*\{[^}]*\b["']?(?:assets|layouts|middleware|pages|plugins)["']?\s*:/.test(config)
+  ) {
     const note =
       "app/ is empty and nuxt.config sets dir names, so Nuxt may be using the project root as srcDir; placing the WebMCP plugin in plugins/w2agent-webmcp.client.ts. Move it to app/plugins/ if your srcDir is app/.";
     return { dir: "", warning: warning ? `${warning} ${note}` : note };
@@ -255,7 +262,7 @@ export function resolveNuxtInstall(files: GeneratedFile[], projectDir: string): 
     willWrite(guarded.actions, "modules/w2agent.ts")
   ) {
     postInstallSteps.push(
-      "Nuxt 3.0 to 3.2 does not auto-register modules/. Add `modules: ['./modules/w2agent']` to nuxt.config, or /index.md, /llms.txt and /llms-full.txt return 404.",
+      "Nuxt 3.0 to 3.2 does not auto-register modules/. Add `modules: ['./modules/w2agent']` to nuxt.config, or /index.md returns 404.",
     );
   }
 
