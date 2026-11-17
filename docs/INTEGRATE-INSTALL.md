@@ -43,7 +43,7 @@ The executor re-checks containment and creates files with exclusive-create (`wx`
 
 ### Generated `robots.txt` (manual action)
 
-Next.js, Nuxt, Astro and Docusaurus plans never write a `robots.txt`. When the generated files include one and the plan has no robots action (WordPress plans `data/robots-rules.txt`, Shopify plans `templates/robots.txt.liquid`), `planInstall` appends a `manual` action on `robots.txt`: review the generated AI-crawler rules and merge them into the site's robots.txt (`w2agent integrate <url> --output <dir>` writes the generated file). A plan with no actions (refused) gets no robots action.
+Next.js, Nuxt, Astro and Docusaurus plans never write a `robots.txt`. When the generated files include one and the platform is not WordPress or Shopify, `planInstall` appends a `manual` action on `robots.txt`: review the generated AI-crawler rules and merge them into the site's robots.txt (`w2agent integrate <url> --output <dir>` writes the generated file). WordPress and Shopify serve their own rules (a plugin `robots_txt` filter, a theme template), so they never get this action; a plan with no actions (refused) gets none either.
 
 ## CLI Flags
 
@@ -56,7 +56,7 @@ Next.js, Nuxt, Astro and Docusaurus plans never write a `robots.txt`. When the g
 Exit codes with `--install` / `--dry-run`:
 
 - No platform detected and none forced: nothing is written (no `./w2agent-output` either), the CLI lists every valid `--platform` and exits 1. Re-run with `--platform <id> --install --project-dir <dir>`. Without `--install`/`--dry-run`, the core files are still written to the output directory.
-- `--install` (not dry-run) with a plan of zero actions (for example the Next.js project check or the Pages Router refusal): the summary prints and the CLI exits 1 so scripts notice that nothing was installed.
+- `--install` (not dry-run) exits 1 when nothing was installed and nothing was already up to date (for example the Next.js project check, the Pages Router refusal, or the WordPress outside-`WP_PLUGIN_DIR` refusal), and when any write failed with a filesystem error. The summary still prints; after a failed write it says that post-install steps naming those files do not apply. A re-run where every file is "already up to date" exits 0.
 
 ## Per-Platform Install Resolvers
 
@@ -129,7 +129,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (149 tests across 10 test files)
+### Unit tests (159 tests across 11 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -140,6 +140,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
 - `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro postbuild step (12 tests)
+- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus gray-matter step, executor `failed` (10 tests)
 - `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
 
 All tests use temp directories with fixture files — fast, no network.

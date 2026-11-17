@@ -188,7 +188,12 @@ export function registerIntegrateCommand(program: Command): void {
             const execResult = executeInstallPlan(plan, projectDir);
             const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
-            if (plan.actions.length === 0) process.exitCode = 1;
+            const upToDate = plan.actions.some(
+              (a) => a.type === "skip" && a.reason === "already up to date",
+            );
+            if (execResult.failed.length > 0 || (execResult.installed.length === 0 && !upToDate)) {
+              process.exitCode = 1;
+            }
           }
         } else {
           // Default mode: write to output directory
@@ -253,6 +258,7 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
+  const failed: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
@@ -272,7 +278,7 @@ function simulatePlan(plan: ReturnType<typeof planInstall>) {
     }
   }
 
-  return { installed, skipped, manual };
+  return { installed, skipped, manual, failed };
 }
 
 function formatSize(bytes: number): string {

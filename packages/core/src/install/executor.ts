@@ -7,12 +7,14 @@ export interface ExecuteResult {
   installed: string[];
   skipped: string[];
   manual: string[];
+  failed: string[];
 }
 
 export function executeInstallPlan(plan: InstallPlan, projectDir: string): ExecuteResult {
   const installed: string[] = [];
   const skipped: string[] = [];
   const manual: string[] = [];
+  const failed: string[] = [];
 
   for (const action of plan.actions) {
     switch (action.type) {
@@ -28,11 +30,14 @@ export function executeInstallPlan(plan: InstallPlan, projectDir: string): Execu
           writeFileSync(destPath, action.content ?? "", { encoding: "utf-8", flag: "wx" });
         } catch (err) {
           const code = (err as NodeJS.ErrnoException).code;
-          skipped.push(
-            code === "EEXIST"
-              ? `${action.dest} (already exists, not overwritten)`
-              : `${action.dest} (could not be written: ${code ?? (err as Error).message})`,
-          );
+          if (code === "EEXIST") {
+            skipped.push(`${action.dest} (already exists, not overwritten)`);
+          } else {
+            skipped.push(
+              `${action.dest} (could not be written: ${code ?? (err as Error).message})`,
+            );
+            failed.push(action.dest);
+          }
           break;
         }
         installed.push(action.dest);
@@ -51,7 +56,7 @@ export function executeInstallPlan(plan: InstallPlan, projectDir: string): Execu
     }
   }
 
-  return { installed, skipped, manual };
+  return { installed, skipped, manual, failed };
 }
 
 export function formatInstallSummary(
@@ -102,6 +107,13 @@ export function formatInstallSummary(
     for (const w of plan.warnings) {
       lines.push(`  ⚠ ${w}`);
     }
+  }
+
+  if (result.failed.length > 0) {
+    lines.push("");
+    lines.push(
+      `  Some files could not be written (${result.failed.join(", ")}). Post-install steps that name those files do not apply.`,
+    );
   }
 
   if (plan.postInstallSteps.length > 0) {

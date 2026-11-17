@@ -105,7 +105,7 @@ export function resolveDocusaurusInstall(files: GeneratedFile[], projectDir: str
     postInstallSteps.push('Add plugin to docusaurus.config.js: plugins: ["./w2agent-plugin.js"]');
   }
 
-  if (!layout.hasGrayMatter) {
+  if (!layout.hasGrayMatter && pluginDest && willWrite(guarded.actions, pluginDest)) {
     postInstallSteps.push("Install gray-matter: npm install gray-matter");
   }
 

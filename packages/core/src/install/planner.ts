@@ -7,7 +7,7 @@ import type { InstallAction, InstallPlan } from "./types.js";
 
 const SKIP_ON_INSTALL = ["INSTALL.md"];
 
-const ROBOTS_FILES = new Set(["robots-rules.txt", "robots.txt.liquid"]);
+const OWN_ROBOTS_PLATFORMS = new Set<PlatformId>(["wordpress", "shopify"]);
 
 const MERGE_FILES = ["middleware.ts"];
 
@@ -26,7 +26,7 @@ export function planInstall(
   if (
     actions.length > 0 &&
     generatedFiles.some((f) => f.filename === "robots.txt") &&
-    !actions.some((a) => ROBOTS_FILES.has(a.dest.split("/").pop() ?? a.dest))
+    !OWN_ROBOTS_PLATFORMS.has(adapter.id)
   ) {
     actions.push({
       type: "manual",

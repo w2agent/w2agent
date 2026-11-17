@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -133,6 +141,100 @@ describe("integrate with no detectable platform (NX-11)", () => {
       expect(code).toBe(0);
       expect(out).toContain("Core files were still generated");
       expect(existsSync(join(cwd, "w2agent-output", "llms.txt"))).toBe(true);
+    },
+    90000,
+  );
+
+  it.skipIf(!existsSync(cliEntry))(
+    "WordPress outside-dir refusal (manual actions only) exits 1",
+    async () => {
+      const cwd = tmp("w2agent-cli-cwd-");
+      const project = tmp("w2agent-cli-proj-");
+      const outside = tmp("w2agent-cli-out-");
+      writeFileSync(
+        join(project, "wp-config.php"),
+        `<?php\ndefine('WP_PLUGIN_DIR', '${outside}');\n`,
+      );
+      const { code } = await run(
+        ["integrate", baseUrl, "--platform", "wordpress", "--install", "--project-dir", project],
+        cwd,
+      );
+      expect(code).toBe(1);
+      expect(readdirSync(outside)).toEqual([]);
+    },
+    90000,
+  );
+
+  it.skipIf(!existsSync(cliEntry))(
+    "an fs write failure exits 1 and withdraws post-install steps",
+    async () => {
+      const cwd = tmp("w2agent-cli-cwd-");
+      const project = tmp("w2agent-cli-proj-");
+      writeFileSync(
+        join(project, "package.json"),
+        JSON.stringify({ dependencies: { next: "15" } }),
+      );
+      chmodSync(project, 0o500);
+      try {
+        const { code, out } = await run(
+          ["integrate", baseUrl, "--platform", "nextjs", "--install", "--project-dir", project],
+          cwd,
+        );
+        expect(code).toBe(1);
+        expect(out).toContain("could not be written");
+        expect(out).toContain("do not apply");
+      } finally {
+        chmodSync(project, 0o700);
+      }
+    },
+    90000,
+  );
+
+  it.skipIf(!existsSync(cliEntry))(
+    "a re-run where everything is already up to date exits 0",
+    async () => {
+      const cwd = tmp("w2agent-cli-cwd-");
+      const project = tmp("w2agent-cli-proj-");
+      const args = [
+        "integrate",
+        baseUrl,
+        "--platform",
+        "astro",
+        "--install",
+        "--project-dir",
+        project,
+      ];
+      const first = await run(args, cwd);
+      expect(first.code).toBe(0);
+      const second = await run(args, cwd);
+      expect(second.out).toContain("already up to date");
+      expect(second.code).toBe(0);
+    },
+    90000,
+  );
+
+  it.skipIf(!existsSync(cliEntry))(
+    "a partial write failure still exits 1 when other files were installed",
+    async () => {
+      const cwd = tmp("w2agent-cli-cwd-");
+      const project = tmp("w2agent-cli-proj-");
+      writeFileSync(
+        join(project, "package.json"),
+        JSON.stringify({ dependencies: { next: "15" } }),
+      );
+      mkdirSync(join(project, "app"));
+      chmodSync(join(project, "app"), 0o500);
+      try {
+        const { code, out } = await run(
+          ["integrate", baseUrl, "--platform", "nextjs", "--install", "--project-dir", project],
+          cwd,
+        );
+        expect(out).toContain("Installed:");
+        expect(out).toContain("could not be written");
+        expect(code).toBe(1);
+      } finally {
+        chmodSync(join(project, "app"), 0o700);
+      }
     },
     90000,
   );

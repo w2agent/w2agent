@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
 import { guardInstallActions } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
@@ -14,7 +14,10 @@ interface WordPressLayout {
 
 const DEFAULT_PLUGIN_DIR = "wp-content/plugins";
 
-function stripPhpComments(source: string): string {
+const TOKEN = "\u0001";
+
+function stripPhpComments(source: string): { code: string; strings: string[] } {
+  const strings: string[] = [];
   let out = "";
   let i = 0;
   while (i < source.length) {
@@ -23,7 +26,8 @@ function stripPhpComments(source: string): string {
     if (ch === "'" || ch === '"') {
       let j = i + 1;
       while (j < source.length && source[j] !== ch) j += source[j] === "\\" ? 2 : 1;
-      out += source.slice(i, j + 1);
+      out += `${TOKEN}${strings.length}${TOKEN}`;
+      strings.push(source.slice(i, j + 1));
       i = j + 1;
     } else if (ch === "/" && next === "*") {
       const end = source.indexOf("*/", i + 2);
@@ -47,27 +51,56 @@ function stripPhpComments(source: string): string {
       i++;
     }
   }
-  return out;
+  return { code: out, strings };
 }
 
 function readPluginDirLiteral(wpConfig: string): { literal: string | null; found: boolean } {
-  const code = stripPhpComments(wpConfig);
-  const value = `(?:'([^'\\\\]*)'|"([^"\\\\$]*)")`;
-  const literal =
-    code.match(
-      new RegExp(
-        `(?<![\\w$>:])define\\s*\\(\\s*['"]WP_PLUGIN_DIR['"]\\s*,\\s*${value}\\s*\\)`,
-        "i",
-      ),
-    ) ?? code.match(new RegExp(`(?<![\\w$>:])const\\s+WP_PLUGIN_DIR\\s*=\\s*${value}\\s*;`, "i"));
-  if (literal) return { literal: literal[1] ?? literal[2], found: true };
+  const { code, strings } = stripPhpComments(wpConfig);
+  const tok = `${TOKEN}(\\d+)${TOKEN}`;
+  const isName = (index: string) => {
+    const raw = strings[Number(index)];
+    return raw.length > 2 && raw.slice(1, -1).toUpperCase() === "WP_PLUGIN_DIR";
+  };
+  const plain = (index: string): string | null => {
+    const raw = strings[Number(index)];
+    const body = raw.slice(1, -1);
+    if (raw.length < 2 || raw[raw.length - 1] !== raw[0]) return null;
+    if (body.includes("\\") || (raw[0] === '"' && body.includes("$"))) return null;
+    return body;
+  };
+  const forms = [
+    new RegExp(`(?<![\\w$>:])define\\s*\\(\\s*${tok}\\s*,\\s*${tok}\\s*\\)`, "gi"),
+    new RegExp(`(?<![\\w$>:])const\\s+WP_PLUGIN_DIR\\s*=\\s*${tok}\\s*;`, "gi"),
+  ];
+  for (const [n, re] of forms.entries()) {
+    for (const m of code.matchAll(re)) {
+      const valueIndex = n === 0 ? m[2] : m[1];
+      if (n === 0 && !isName(m[1])) continue;
+      const value = plain(valueIndex);
+      if (value !== null) return { literal: value, found: true };
+    }
+  }
+  const defineStart = new RegExp(`(?<![\\w$>:])define\\s*\\(\\s*${tok}`, "gi");
+  const found = [...code.matchAll(defineStart)].some((m) => isName(m[1]));
   return {
     literal: null,
-    found:
-      /(?<![\w$>:])define\s*\(\s*['"]WP_PLUGIN_DIR['"]|(?<![\w$>:])const\s+WP_PLUGIN_DIR\b/i.test(
-        code,
-      ),
+    found: found || /(?<![\w$>:])const\s+WP_PLUGIN_DIR\b/i.test(code),
   };
+}
+
+function realWithRemainder(path: string): string {
+  const rest: string[] = [];
+  let cur = path;
+  for (;;) {
+    try {
+      return join(realpathSync(cur), ...rest.reverse());
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return path;
+      rest.push(basename(cur));
+      cur = parent;
+    }
+  }
 }
 
 export function detectWordPressLayout(projectDir: string): WordPressLayout {
@@ -81,14 +114,14 @@ export function detectWordPressLayout(projectDir: string): WordPressLayout {
     try {
       const { literal, found } = readPluginDirLiteral(readFileSync(wpConfigPath, "utf-8"));
       if (literal !== null) {
-        const root = resolve(projectDir);
-        const rel = relative(root, resolve(root, literal));
+        const root = realWithRemainder(resolve(projectDir));
+        const rel = relative(root, realWithRemainder(resolve(root, literal)));
         if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
           pluginDirOutside = true;
           pluginDirWarnings.push(
             `WP_PLUGIN_DIR (${literal}) points outside the project directory. Nothing was written.`,
           );
-        } else if (rel !== "") {
+        } else {
           pluginDir = rel.split(sep).join("/");
         }
       } else if (found) {
@@ -136,7 +169,7 @@ export function resolveWordPressInstall(files: GeneratedFile[], projectDir: stri
 
   const prefix = "wordpress/";
   const platformFiles = files.filter((f) => f.filename.startsWith(prefix));
-  const targetDir = `${layout.pluginDir}/w2agent`;
+  const targetDir = layout.pluginDir ? `${layout.pluginDir}/w2agent` : "w2agent";
 
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
