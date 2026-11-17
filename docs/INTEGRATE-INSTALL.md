@@ -112,9 +112,10 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Scenario | Detection | Action |
 |----------|-----------|--------|
 | Standard WP root | `wp-content/plugins/` exists | Install to `wp-content/plugins/w2agent/` |
-| Custom plugin dir | `define('WP_PLUGIN_DIR', '<string literal>')` or `const WP_PLUGIN_DIR = '<string literal>';` in wp-config.php (comments and heredocs ignored) | Use custom path; an absolute path inside the project is made relative |
-| Plugin dir outside the project | Absolute path elsewhere, or relative path that escapes | No writes; manual step + warning to copy the plugin by hand (for example from `--output`) |
+| Custom plugin dir | `define('WP_PLUGIN_DIR', '<string literal>')` or `const WP_PLUGIN_DIR = '<string literal>';` in wp-config.php (comments, strings and heredocs ignored) | Use custom path, resolved through real paths (symlinks, then `..`); an absolute path inside the project is made relative; `'.'` means the project root |
+| Plugin dir outside the project | Absolute path elsewhere, relative path that escapes, or a symlink inside the project that leads outside | No writes; manual step + warning to copy the plugin by hand (for example from `--output`) |
 | Unreadable `WP_PLUGIN_DIR` | Expression, concatenation or constant | Use `wp-content/plugins` + warn |
+| Interpolated strings | wp-config.php sets `WP_PLUGIN_DIR` and a double-quoted string or heredoc contains `{$` or `${` | No writes; manual step + warning (the value cannot be read reliably) |
 | Not in WP root | Missing markers | Warn + still write files |
 | Existing plugin | `wp-content/plugins/w2agent/` exists | Skip all + warn to remove old version |
 
@@ -129,7 +130,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (159 tests across 11 test files)
+### Unit tests (166 tests across 11 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -140,7 +141,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)
 - `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro postbuild step (12 tests)
-- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus gray-matter step, executor `failed` (10 tests)
+- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus gray-matter step, executor `failed`, physical `..` resolution, interpolated-string refusal (17 tests)
 - `tests/install-shopify.test.ts` — theme dir, robots.txt merge (4 tests)
 
 All tests use temp directories with fixture files — fast, no network.
