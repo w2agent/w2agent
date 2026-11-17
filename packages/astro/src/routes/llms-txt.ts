@@ -4,10 +4,8 @@ import type { APIRoute } from "astro";
 
 export const GET: APIRoute = () => {
   const filePath = join(process.cwd(), "public", "llms.txt");
-  const body = existsSync(filePath)
-    ? readFileSync(filePath, "utf-8")
-    : "# AI Content Index\n\n> Run: npx w2agent generate <your-site-url> --format llms-txt,full --no-platform --output ./public/\n";
-  return new Response(body, {
+  if (!existsSync(filePath)) return new Response("Not Found", { status: 404 });
+  return new Response(readFileSync(filePath, "utf-8"), {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",

@@ -191,7 +191,7 @@ Each platform has a dedicated install resolver that detects your project layout 
 
 - **Next.js** — detects `src/app/` vs `app/`, Pages Router vs App Router, existing middleware/routes
 - **Nuxt** — detects Nuxt 2 vs 3, existing server routes and middleware
-- **Astro** — detects static vs SSR/hybrid output mode, installs SSR endpoints only when applicable
+- **Astro** — detects static vs server output mode (an Astro 4 `hybrid` setting counts as server), installs SSR endpoints only when applicable; the emitted endpoints answer 404 when the file is missing
 - **Docusaurus** — detects existing plugin config; adds a `clientModules` post-install step when the WebMCP module is written
 - **WordPress** — detects WP root, custom plugin dir, installs to `wp-content/plugins/w2agent/`
 - **Shopify** — detects theme directory, never overwrites existing `robots.txt.liquid`

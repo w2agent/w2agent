@@ -90,7 +90,7 @@ export default function w2agentMcpWebhook() {
           });
           logger.info(\`agent webhook: \${res.status}\`);
         } catch (err) {
-          logger.warn("agent webhook failed: " + (err as Error).message);
+          logger.warn("agent webhook failed: " + (err && err.message ? err.message : String(err)));
         }
       },
     },

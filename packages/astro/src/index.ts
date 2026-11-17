@@ -1,43 +1,51 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { join, relative, sep } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AstroIntegration } from "astro";
-import matter from "gray-matter";
 
 export interface W2agentAstroOptions {
-  /** Directory containing content collections (default: 'src/content') */
-  contentDir?: string;
+  /** Write the generated llms.txt over an existing public/llms.txt (default: false) */
+  overwrite?: boolean;
   /** Enable the /api/w2agent-webhook POST route in SSR mode (default: true) */
   webhookEnabled?: boolean;
   /** Log extra info during build (default: false) */
   verbose?: boolean;
 }
 
-interface ContentEntry {
+interface PageEntry {
   title: string;
   description?: string;
   url: string;
+  section: string;
+}
+
+type TrailingSlash = "always" | "never" | "ignore";
+
+interface UrlConfig {
+  site: string;
+  base: string;
+  trailingSlash: TrailingSlash;
 }
 
 export default function w2agentAstro(options: W2agentAstroOptions = {}): AstroIntegration {
-  const { contentDir = "src/content", webhookEnabled = true, verbose = false } = options;
+  const { webhookEnabled = true, verbose = false } = options;
+  const overwrite = options.overwrite === true;
 
   let siteRoot = process.cwd();
-  let siteUrl = "";
+  let publicDir = join(siteRoot, "public");
+  let urlConfig: UrlConfig = { site: "", base: "", trailingSlash: "ignore" };
 
   return {
     name: "@w2agent/astro",
     hooks: {
       "astro:config:setup": ({ config, injectRoute }) => {
         siteRoot = fileURLToPath(config.root);
-        if (config.site) siteUrl = config.site;
+        publicDir = config.publicDir ? toPath(config.publicDir) : join(siteRoot, "public");
+        urlConfig = {
+          site: config.site ? normalizeSite(config.site) : "",
+          base: normalizeBase(config.base),
+          trailingSlash: config.trailingSlash ?? "ignore",
+        };
 
         if (config.output === "server") {
           injectRoute({ pattern: "/llms.txt", entrypoint: "@w2agent/astro/routes/llms-txt" });
@@ -58,28 +66,26 @@ export default function w2agentAstro(options: W2agentAstroOptions = {}): AstroIn
         }
       },
 
-      "astro:build:done": async ({ dir }) => {
+      "astro:build:done": async ({ dir, pages }) => {
         const outDir = fileURLToPath(dir);
 
-        // Generate llms.txt from content collections
-        const contentDirPath = join(siteRoot, contentDir);
-        const llmsTxt = generateFromContent(contentDirPath, siteUrl, verbose);
+        const llmsTxt = generateFromPages(outDir, pages ?? [], urlConfig, verbose);
         if (llmsTxt) {
-          writeFileSync(join(outDir, "llms.txt"), llmsTxt);
-          console.log(`[w2agent] Generated llms.txt (${llmsTxt.length} bytes)`);
-        } else {
-          // Fallback: copy public/llms.txt if it exists
-          const publicLlms = join(siteRoot, "public", "llms.txt");
-          if (existsSync(publicLlms)) {
-            writeFileSync(join(outDir, "llms.txt"), readFileSync(publicLlms, "utf-8"));
-            if (verbose) console.log("[w2agent] Copied public/llms.txt");
+          const existing = join(publicDir, "llms.txt");
+          if (existsSync(existing) && !overwrite) {
+            console.log(
+              `[w2agent] Keeping existing ${relative(siteRoot, existing)}; set overwrite: true to replace it with a generated index`,
+            );
+          } else {
+            writeFileSync(join(outDir, "llms.txt"), llmsTxt);
+            console.log(`[w2agent] Generated llms.txt (${llmsTxt.length} bytes)`);
           }
         }
 
         // Copy agent-card.json
         const wellKnownDir = join(outDir, ".well-known");
         mkdirSync(wellKnownDir, { recursive: true });
-        const agentCardSrc = join(siteRoot, "public", ".well-known", "agent-card.json");
+        const agentCardSrc = join(publicDir, ".well-known", "agent-card.json");
         if (existsSync(agentCardSrc)) {
           copyFileSync(agentCardSrc, join(wellKnownDir, "agent-card.json"));
           if (verbose) console.log("[w2agent] Copied agent-card.json");
@@ -95,70 +101,135 @@ export default function w2agentAstro(options: W2agentAstroOptions = {}): AstroIn
   };
 }
 
-function generateFromContent(contentDir: string, siteUrl: string, verbose: boolean): string | null {
-  if (!existsSync(contentDir)) return null;
+function toPath(dir: URL | string): string {
+  return typeof dir === "string" ? dir : fileURLToPath(dir);
+}
 
-  const sections: Record<string, ContentEntry[]> = {};
+function normalizeSite(site: string): string {
+  return site.replace(/\/+$/, "");
+}
 
-  walkDir(contentDir, (filePath) => {
-    if (!filePath.endsWith(".md") && !filePath.endsWith(".mdx")) return;
+function normalizeBase(base: string | undefined): string {
+  const trimmed = (base ?? "").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  return trimmed ? `/${trimmed}` : "";
+}
 
-    let content: string;
+function applyTrailingSlash(path: string, rule: TrailingSlash, isRoot: boolean): string {
+  if (rule === "always") return path.endsWith("/") ? path : `${path}/`;
+  if (rule === "never" && !isRoot) return path.replace(/\/+$/, "");
+  return path;
+}
+
+function findHtml(outDir: string, pathname: string): string | null {
+  const bare = pathname.replace(/\/+$/, "");
+  const candidates = bare
+    ? [join(outDir, bare, "index.html"), join(outDir, `${bare}.html`)]
+    : [join(outDir, "index.html")];
+  return candidates.find((c) => existsSync(c)) ?? null;
+}
+
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z]+));/g, (match, dec, hex, name) => {
+    if (name) return ENTITIES[name] ?? match;
+    const code = dec ? Number.parseInt(dec, 10) : Number.parseInt(hex, 16);
     try {
-      content = readFileSync(filePath, "utf-8");
+      return String.fromCodePoint(code);
     } catch {
-      return;
+      return match;
     }
-
-    let title: string | undefined;
-    let description: string | undefined;
-
-    try {
-      const parsed = matter(content);
-      title = parsed.data.title as string | undefined;
-      description = parsed.data.description as string | undefined;
-
-      if (!title) {
-        const m = parsed.content.match(/^#\s+(.+)/m);
-        if (m) title = m[1];
-      }
-
-      if (!description) {
-        const lines = parsed.content.split("\n").filter((l) => l.trim() && !l.startsWith("#"));
-        if (lines.length > 0) {
-          description = lines[0].trim().slice(0, 150);
-          if (lines[0].trim().length > 150) description += "...";
-        }
-      }
-    } catch {
-      return;
-    }
-
-    if (!title) return;
-
-    const relativePath = relative(contentDir, filePath);
-    const parts = relativePath.split(sep);
-    const collectionRaw = parts.length > 1 ? parts[0] : "general";
-    const sectionName =
-      collectionRaw.charAt(0).toUpperCase() + collectionRaw.slice(1).replace(/-/g, " ");
-
-    const urlSlug = relativePath
-      .replace(/\.mdx?$/, "")
-      .replace(/\/index$/, "")
-      .replace(/\\/g, "/");
-    const fullUrl = siteUrl ? `${siteUrl.replace(/\/$/, "")}/${urlSlug}` : `/${urlSlug}`;
-
-    if (!sections[sectionName]) sections[sectionName] = [];
-    sections[sectionName].push({ title, description, url: fullUrl });
-
-    if (verbose) console.log(`[w2agent] Indexed: ${title}`);
   });
+}
 
-  if (Object.keys(sections).length === 0) return null;
+function clean(text: string): string {
+  return decodeEntities(text).replace(/\s+/g, " ").trim();
+}
+
+function metaTags(html: string): Array<Record<string, string>> {
+  const tags: Array<Record<string, string>> = [];
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    const attrs: Record<string, string> = {};
+    for (const m of tag.matchAll(/([a-zA-Z_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g)) {
+      attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? "";
+    }
+    tags.push(attrs);
+  }
+  return tags;
+}
+
+function readPage(html: string): { title: string; description?: string; noindex: boolean } | null {
+  const titleMatch = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch ? clean(titleMatch[1]) : "";
+  const tags = metaTags(html);
+  const noindex = tags.some(
+    (t) => t.name?.toLowerCase() === "robots" && /noindex/i.test(t.content ?? ""),
+  );
+  const descTag = tags.find((t) => t.name?.toLowerCase() === "description");
+  const description = descTag?.content ? clean(descTag.content) : undefined;
+  if (!title) return null;
+  return { title, description: description || undefined, noindex };
+}
+
+function generateFromPages(
+  outDir: string,
+  pages: Array<{ pathname: string }>,
+  cfg: UrlConfig,
+  verbose: boolean,
+): string | null {
+  const entries: PageEntry[] = [];
+
+  for (const page of pages) {
+    const pathname = page.pathname ?? "";
+    const bare = pathname.replace(/\/+$/, "");
+    if (bare === "404" || bare === "500") continue;
+
+    const htmlPath = findHtml(outDir, pathname);
+    if (!htmlPath) continue;
+
+    let html: string;
+    try {
+      html = readFileSync(htmlPath, "utf-8");
+    } catch {
+      continue;
+    }
+
+    const info = readPage(html);
+    if (!info || info.noindex) continue;
+
+    const path = applyTrailingSlash(`${cfg.base}/${pathname}`, cfg.trailingSlash, bare === "");
+    const segments = bare.split("/");
+    const sectionRaw = segments.length > 1 ? segments[0] : "";
+    const section = sectionRaw
+      ? sectionRaw.charAt(0).toUpperCase() + sectionRaw.slice(1).replace(/-/g, " ")
+      : "Pages";
+
+    entries.push({
+      title: info.title,
+      description: info.description,
+      url: `${cfg.site}${path}`,
+      section,
+    });
+    if (verbose) console.log(`[w2agent] Indexed: ${info.title}`);
+  }
+
+  if (entries.length === 0) return null;
+
+  const sections = new Map<string, PageEntry[]>();
+  for (const entry of entries) {
+    const list = sections.get(entry.section) ?? [];
+    list.push(entry);
+    sections.set(entry.section, list);
+  }
 
   let output = "# AI Content Index\n\n";
-
-  for (const [section, items] of Object.entries(sections)) {
+  for (const [section, items] of sections) {
     output += `## ${section}\n\n`;
     for (const item of items) {
       output += `- [${item.title}](${item.url})`;
@@ -167,20 +238,7 @@ function generateFromContent(contentDir: string, siteUrl: string, verbose: boole
     }
     output += "\n";
   }
-
   return output;
-}
-
-function walkDir(dir: string, callback: (filePath: string) => void): void {
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkDir(fullPath, callback);
-    } else {
-      callback(fullPath);
-    }
-  }
 }
 
 async function triggerWebhook(url: string, token?: string): Promise<void> {

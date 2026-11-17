@@ -8,7 +8,7 @@ export function generateAstroIntegration(
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
-  // SSR API endpoint for /llms.txt (used when output: "server" or "hybrid")
+  // SSR API endpoint for /llms.txt (used when output: "server")
   const llmsTxtEndpoint = `import type { APIRoute } from "astro";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,20 +16,10 @@ import path from "node:path";
 export const GET: APIRoute = async () => {
   // Read from generated static file
   const filePath = path.join(process.cwd(), "public", "llms.txt");
-  if (fs.existsSync(filePath)) {
-    const content = fs.readFileSync(filePath, "utf-8");
-    return new Response(content, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-      },
-    });
+  if (!fs.existsSync(filePath)) {
+    return new Response("Not Found", { status: 404 });
   }
-
-  // Fallback
-  const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
-  const content = "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
-    "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+  const content = fs.readFileSync(filePath, "utf-8");
   return new Response(content, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
@@ -155,9 +145,11 @@ Then configure in \`astro.config.mjs\`:
 \`\`\`js
 import w2agent from '@w2agent/astro';
 export default defineConfig({
-  integrations: [w2agent({ siteUrl: '${siteUrl}' })],
+  integrations: [w2agent()],
 });
 \`\`\`
+
+In a static build the package lists the built pages in \`llms.txt\`. An existing \`public/llms.txt\` is kept as is; pass \`w2agent({ overwrite: true })\` to replace it with the generated index. \`llms-full.txt\` is only produced by \`w2agent generate\`.
 
 ---
 
@@ -167,7 +159,7 @@ export default defineConfig({
 
 Astro's static-first approach is ideal for AI content. This integration provides:
 - **Static files** in \`public/\` (primary, works with any hosting)
-- **SSR endpoints** for dynamic content (when using \`output: "server"\` or \`"hybrid"\`)
+- **SSR endpoints** for dynamic content (when using \`output: "server"\`)
 - **Build integration** to regenerate content on each deploy
 
 \`\`\`
@@ -180,7 +172,7 @@ Runtime (static):
 
 Runtime (SSR):
   -> API endpoints read from public/ with cache headers
-  -> Fallback generates minimal content if files missing
+  -> Answers 404 when a file is missing
 \`\`\`
 
 ## Setup
@@ -213,7 +205,7 @@ cp astro/w2agent-build.mjs your-astro-app/
 
 Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build.
 \n### 3. (Optional) Add SSR endpoints
-If using \`output: "server"\` or \`"hybrid"\`:
+If using \`output: "server"\`:
 \`\`\`bash
 cp astro/src/pages/llms.txt.ts your-astro-app/src/pages/
 cp -r astro/src/pages/.well-known/ your-astro-app/src/pages/.well-known/

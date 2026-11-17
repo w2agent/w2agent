@@ -146,7 +146,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (338 tests across 18 test files)
+### Unit tests (345 tests across 19 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -160,6 +160,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`) (18 tests)
 - `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording (16 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (11 tests)
+- `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), INSTALL.md wording (7 tests)
 - `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases (22 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note (14 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)

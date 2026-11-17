@@ -1,6 +1,6 @@
 # @w2agent/astro
 
-Astro integration for [w2agent](https://w2agent.dev) — generates `llms.txt` and `llms-full.txt` for AI agent discoverability, and serves `/.well-known/agent-card.json` if you provide one.
+Astro integration for [w2agent](https://w2agent.dev) — generates an `llms.txt` page index from your build for AI agent discoverability, and serves `/.well-known/agent-card.json` if you provide one.
 
 ## Install
 
@@ -26,20 +26,23 @@ export default defineConfig({
 
 ## What it does
 
-**Static/SSG output** (`astro:build:done`):
-- Crawls `src/content/**/*.md` and `*.mdx`, extracts titles and descriptions, writes `llms.txt` to the build output directory
-- Falls back to copying `public/llms.txt` if no content directory exists
+**Static output** (`astro:build:done`):
+- Lists the pages Astro built (title and meta description read from each built HTML file) in `llms.txt` in the build output. URLs use `site`, `base`, `trailingSlash` and the real page path, so content `slug`s and `draft` filtering follow your site. Pages with a robots `noindex` meta, endpoints and the 404/500 pages are left out.
+- An existing `public/llms.txt` (for example one made by `w2agent generate`) is kept as is. Set `overwrite: true` to replace it with the generated index.
 - Copies `public/.well-known/agent-card.json` → `dist/.well-known/agent-card.json` when that file exists (it is generated only with `--a2a-endpoint`)
 - Fires an optional webhook on build complete
 
-**SSR output** (`output: 'server'`, in addition to the above):
-- Injects `/llms.txt`, `/llms-full.txt`, `/.well-known/agent-card.json` (404 when no card file exists), and `/api/w2agent-webhook` as server routes
+**Server output** (`output: 'server'`; Astro 5 has no `hybrid` mode):
+- Astro reports no pages for a server build, so no `llms.txt` is generated; the other build steps above still run.
+- Injects `/llms.txt`, `/llms-full.txt`, `/.well-known/agent-card.json`, and `/api/w2agent-webhook` as server routes. Each file route reads from `public/` in the working directory and answers 404 when the file does not exist.
+
+**`llms-full.txt`** is not produced by this integration in any mode. Generate it with `w2agent generate` into `public/` (see below).
 
 ## Options
 
 ```ts
 w2agent({
-  contentDir: "src/content",  // directory to crawl for content (default: 'src/content')
+  overwrite: false,            // replace an existing public/llms.txt with the generated index (default: false)
   webhookEnabled: true,        // inject /api/w2agent-webhook route in SSR mode (default: true)
   verbose: false,              // log extra info during build (default: false)
 })

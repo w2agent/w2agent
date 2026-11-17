@@ -19,10 +19,6 @@ importers:
         version: 5.9.3
 
   packages/astro:
-    dependencies:
-      gray-matter:
-        specifier: ^4.0.3
-        version: 4.0.3
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
