@@ -31,7 +31,7 @@ export function generateRobotsTxt(ctx: GenerateContext): string {
  */
 export function robotsAllowGroups(robotsTxt: string | undefined, baseUrl: string): string[][] {
   if (!robotsTxt || endsInOpenGroup(robotsTxt)) return [];
-  return planRobotsAccessFix(robotsTxt, baseUrl, { namedBlocks: "keep" })?.groups ?? [];
+  return planRobotsAccessFix(robotsTxt, baseUrl)?.groups ?? [];
 }
 
 const SITEMAP_ROOT = /^<(?:urlset|sitemapindex)[\s>/]/;

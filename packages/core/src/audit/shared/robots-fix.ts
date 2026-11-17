@@ -18,18 +18,16 @@ export function findBlockedTokens(
 interface RobotsRule {
   directive: "Allow" | "Disallow";
   value: string;
-  line: number;
 }
 
 interface RobotsGroup {
-  agentLines: Array<{ agent: string; line: number }>;
+  agentLines: Array<{ agent: string }>;
   rules: RobotsRule[];
   crawlDelay?: string;
-  scopedLines: number[];
 }
 
 export interface RobotsAccessFix {
-  removals: Array<{ line: number; text: string }>;
+  named: string[];
   groups: string[][];
 }
 
@@ -46,34 +44,32 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
   let current: RobotsGroup | undefined;
   let lastWasAgent = false;
 
-  robotsTxt.split(LINE_BREAK).forEach((raw, i) => {
+  for (const raw of robotsTxt.split(LINE_BREAK)) {
     const hash = raw.indexOf("#");
     const text = hash > -1 ? raw.slice(0, hash) : raw;
     const colon = text.indexOf(":");
-    if (colon < 0) return;
+    if (colon < 0) continue;
     const key = text.slice(0, colon).trim().toLowerCase();
     const value = text.slice(colon + 1).trim();
-    if (!key) return;
+    if (!key) continue;
 
     if (key === "user-agent") {
       if (!lastWasAgent || !current) {
-        current = { agentLines: [], rules: [], scopedLines: [] };
+        current = { agentLines: [], rules: [] };
         groups.push(current);
       }
-      if (value) current.agentLines.push({ agent: normalizeAgent(value), line: i + 1 });
+      if (value) current.agentLines.push({ agent: normalizeAgent(value) });
       lastWasAgent = true;
-      return;
+      continue;
     }
     lastWasAgent = false;
-    if (!current) return;
+    if (!current) continue;
     if (key === "allow" || key === "disallow") {
-      current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value, line: i + 1 });
-      current.scopedLines.push(i + 1);
+      current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value });
     } else if (key === "crawl-delay" && value) {
       current.crawlDelay = value;
-      current.scopedLines.push(i + 1);
     }
-  });
+  }
 
   return groups;
 }
@@ -103,74 +99,40 @@ function blocksRoot(rule: RobotsRule, baseUrl: string): boolean {
   return probe.isAllowed(`${baseUrl}/`, "probe") === false;
 }
 
-export interface RobotsAccessFixOptions {
-  namedBlocks?: "move" | "keep";
-}
-
 export function planRobotsAccessFix(
   robotsTxt: string,
   baseUrl: string,
-  options: RobotsAccessFixOptions = {},
 ): RobotsAccessFix | undefined {
   const blocked = findBlockedTokens(robotsTxt, baseUrl);
   const candidates = [...blocked.user, ...blocked.search];
   if (candidates.length === 0) return undefined;
 
   const groups = parseGroups(robotsTxt);
-  const removeLines = new Set<number>();
   const byRules = new Map<string, string[]>();
+  const named: string[] = [];
   const wildcardRules = groups.filter((g) => g.agentLines.some((a) => a.agent === "*"));
+  const wildcardRuleList = wildcardRules.flatMap((g) => g.rules);
+  const wildcardCrawlDelay = wildcardRules.filter((g) => g.crawlDelay).pop()?.crawlDelay;
 
-  const lastCrawlDelay = (from: RobotsGroup[]) =>
-    from.filter((g) => g.crawlDelay).pop()?.crawlDelay;
-
-  const addGroup = (token: string, rules: RobotsRule[], crawlDelay: string | undefined) => {
-    const key = [
-      ...rules
-        .filter((r) => r.value && r.value !== "/" && !blocksRoot(r, baseUrl))
-        .map((r) => `${r.directive}: ${r.value}`),
-      ...(crawlDelay !== undefined ? [`Crawl-delay: ${crawlDelay}`] : []),
-      "Allow: /",
-    ].join("\n");
-    byRules.set(key, [...(byRules.get(key) ?? []), token]);
-  };
+  const key = [
+    ...wildcardRuleList
+      .filter((r) => r.value && r.value !== "/" && !blocksRoot(r, baseUrl))
+      .map((r) => `${r.directive}: ${r.value}`),
+    ...(wildcardCrawlDelay !== undefined ? [`Crawl-delay: ${wildcardCrawlDelay}`] : []),
+    "Allow: /",
+  ].join("\n");
 
   for (const token of candidates) {
     const agent = normalizeAgent(token);
-    const naming = groups.filter((g) => g.agentLines.some((a) => a.agent === agent));
-    if (options.namedBlocks === "keep" && naming.length > 0) continue;
-    const owners = naming.filter((g) => g.rules.length > 0);
-    if (owners.length === 0) {
-      addGroup(
-        token,
-        wildcardRules.flatMap((g) => g.rules),
-        lastCrawlDelay(wildcardRules),
-      );
+    if (groups.some((g) => g.agentLines.some((a) => a.agent === agent))) {
+      named.push(token);
       continue;
     }
-    for (const g of naming) {
-      for (const a of g.agentLines) if (a.agent === agent) removeLines.add(a.line);
-    }
-    addGroup(
-      token,
-      owners.flatMap((g) => g.rules),
-      lastCrawlDelay(naming),
-    );
+    byRules.set(key, [...(byRules.get(key) ?? []), token]);
   }
 
-  for (const g of groups) {
-    if (g.agentLines.length > 0 && g.agentLines.every((a) => removeLines.has(a.line))) {
-      for (const line of g.scopedLines) removeLines.add(line);
-    }
-  }
-
-  if (byRules.size === 0) return undefined;
-
-  const rawLines = robotsTxt.split(LINE_BREAK);
   return {
-    removals: [...removeLines]
-      .sort((a, b) => a - b)
-      .map((line) => ({ line, text: rawLines[line - 1].trim() })),
+    named,
     groups: [...byRules].map(([rules, tokens]) => [
       ...tokens.map((t) => `User-agent: ${t}`),
       ...rules.split("\n"),
@@ -178,17 +140,16 @@ export function planRobotsAccessFix(
   };
 }
 
-export function describeRobotsAccessFixRemovals(fix: RobotsAccessFix): string[] {
-  return fix.removals.map((r) => `#    line ${r.line}: ${r.text}`);
-}
-
 export function robotsAccessFixSnippet(fix: RobotsAccessFix): string {
-  const lines = ["# Allow AI agents and search fetchers in robots.txt:"];
-  if (fix.removals.length > 0) {
+  const lines: string[] = [];
+  if (fix.groups.length > 0) {
     lines.push(
-      "# 1. Delete these lines (only the agents below move out; every other agent keeps its rules):",
-      ...describeRobotsAccessFixRemovals(fix),
-      "# 2. Append:",
+      '# These AI agents are blocked only by the "User-agent: *" group; append these groups to allow them:',
+    );
+  }
+  if (fix.named.length > 0) {
+    lines.push(
+      `# Left as is, blocked by their own named groups (edit those groups only if the block is unintended): ${fix.named.join(", ")}`,
     );
   }
   fix.groups.forEach((g, i) => {

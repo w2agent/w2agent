@@ -18,7 +18,9 @@ import {
   sitemapExists,
   statusCodes,
 } from "../../src/audit/checks/bot-accessibility.js";
+import { findBlockedTokens } from "../../src/audit/shared/robots-fix.js";
 import type { FetchedPage, SiteMetadata } from "../../src/audit/types.js";
+import { robotsAllowGroups } from "../../src/generate/robots-txt.js";
 
 const baseMeta: SiteMetadata = {
   baseUrl: "https://example.com",
@@ -58,30 +60,30 @@ describe("ai-agent-access", () => {
     expect(result.message).toContain("declares intent to block");
   });
 
-  // Appending "User-agent: ChatGPT-User / Allow: /" merges into the owner's group, where the
-  // longer "Disallow: /*" still wins — the old snippet left the check failing after applying it.
-  it("named-group block: the snippet describes the same edit the generator makes (delete the token's lines, append its own group)", () => {
+  const WILDCARD_HEADER =
+    '# These AI agents are blocked only by the "User-agent: *" group; append these groups to allow them:';
+  const NAMED_NOTE = (names: string) =>
+    `# Left as is, blocked by their own named groups (edit those groups only if the block is unintended): ${names}`;
+
+  it("named-only block: the snippet leaves the owner's explicit block alone and never says to delete or move it", () => {
+    const result = run("User-agent: ChatGPT-User\nDisallow: /");
+    expect(result).toMatchObject({ status: "fail", score: 0, severity: "error" });
+    expect(result.fixSnippet).toBe(NAMED_NOTE("ChatGPT-User"));
+    expect(result.fixSnippet).not.toMatch(/delete|move|line \d/i);
+  });
+
+  it("mixed block: applying the snippet unblocks exactly the wildcard-caught agents and leaves the named ones blocked", () => {
     const robotsTxt =
       "User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\n\nUser-agent: *\nDisallow: /";
+    const before = findBlockedTokens(robotsTxt, "https://example.com");
     const snippet = run(robotsTxt).fixSnippet ?? "";
-    expect(
-      snippet.startsWith(
-        [
-          "# Allow AI agents and search fetchers in robots.txt:",
-          "# 1. Delete these lines (only the agents below move out; every other agent keeps its rules):",
-          "#    line 2: User-agent: ChatGPT-User",
-          "# 2. Append:",
-          "User-agent: ChatGPT-User",
-        ].join("\n"),
-      ),
-    ).toBe(true);
+    expect(snippet.startsWith(`${WILDCARD_HEADER}\n${NAMED_NOTE("ChatGPT-User")}\n`)).toBe(true);
+    expect(snippet).not.toContain("User-agent: ChatGPT-User");
 
-    const deleted = robotsTxt
-      .split("\n")
-      .filter((_, i) => i !== 1)
-      .join("\n");
-    const applied = `${deleted}\n\n${snippet}`;
-    expect(run(applied)).toMatchObject({ status: "pass", score: 100 });
+    const applied = `${robotsTxt}\n\n${snippet}`;
+    const after = findBlockedTokens(applied, "https://example.com");
+    expect([...after.user, ...after.search]).toEqual(["ChatGPT-User"]);
+    expect(before.user.length + before.search.length).toBeGreaterThan(1);
     const robots = robotsParser("https://example.com/robots.txt", applied);
     expect(robots.isAllowed("https://example.com/", "GPTBot")).toBe(false);
   });
@@ -102,7 +104,7 @@ describe("ai-agent-access", () => {
     const result = run("User-agent: PerplexityBot\nDisallow: /");
     expect(result).toMatchObject({ status: "partial", score: 50, severity: "warning" });
     expect(result.message).toContain("PerplexityBot");
-    expect(result.fixSnippet).toContain("#    line 1: User-agent: PerplexityBot");
+    expect(result.fixSnippet).toBe(NAMED_NOTE("PerplexityBot"));
   });
 
   it("stays pass 100 when only training crawlers are blocked — opting out of training is neutral (D-2)", () => {
@@ -131,6 +133,95 @@ describe("ai-agent-access", () => {
 
   it("passes when only a path is disallowed — the site root stays reachable", () => {
     expect(run("User-agent: *\nDisallow: /private")).toMatchObject({ status: "pass", score: 100 });
+  });
+
+  const ALL_BLOCKED_USER =
+    "robots.txt declares intent to block user-initiated AI agents: ChatGPT-User, Claude-User, Perplexity-User, Amzn-User, MistralAI-User, Meta-ExternalFetcher";
+  const table: Array<[string, string, string, number, string, string]> = [
+    [
+      "named-only",
+      "User-agent: ChatGPT-User\nDisallow: /",
+      "fail",
+      0,
+      "error",
+      "robots.txt declares intent to block user-initiated AI agents: ChatGPT-User",
+    ],
+    ["wildcard-only", "User-agent: *\nDisallow: /", "fail", 0, "error", ALL_BLOCKED_USER],
+    [
+      "mixed",
+      "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nDisallow: /",
+      "fail",
+      0,
+      "error",
+      ALL_BLOCKED_USER,
+    ],
+    [
+      "search-only",
+      "User-agent: PerplexityBot\nDisallow: /",
+      "partial",
+      50,
+      "warning",
+      "AI search fetchers blocked: PerplexityBot",
+    ],
+    [
+      "wildcard with some user agents named and allowed",
+      "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nUser-agent: Claude-User\nAllow: /",
+      "fail",
+      0,
+      "error",
+      "robots.txt declares intent to block user-initiated AI agents: Perplexity-User, Amzn-User, MistralAI-User, Meta-ExternalFetcher",
+    ],
+    [
+      "training-only",
+      "User-agent: GPTBot\nDisallow: /\n\nUser-agent: CCBot\nDisallow: /",
+      "pass",
+      100,
+      "info",
+      "User-initiated AI agents and AI search fetchers are not blocked",
+    ],
+    [
+      "none",
+      "User-agent: *\nAllow: /",
+      "pass",
+      100,
+      "info",
+      "User-initiated AI agents and AI search fetchers are not blocked",
+    ],
+  ];
+
+  it.each(
+    table,
+  )("verdict is unchanged by the fix advice: %s", (_n, robotsTxt, status, score, severity, message) => {
+    const result = run(robotsTxt);
+    expect({ status: result.status, score: result.score, severity: result.severity }).toEqual({
+      status,
+      score,
+      severity,
+    });
+    expect(result.message).toBe(message);
+    expect(result.fixSnippet === undefined).toBe(status === "pass");
+  });
+
+  it("when every blocked agent is named, the snippet is only the comment and the check still fails", () => {
+    const robotsTxt = "User-agent: PerplexityBot\nUser-agent: ChatGPT-User\nDisallow: /";
+    const result = run(robotsTxt);
+    expect(result.status).toBe("fail");
+    expect(result.fixSnippet).toBe(NAMED_NOTE("ChatGPT-User, PerplexityBot"));
+  });
+
+  it("the snippet's Allow groups equal the groups the generator adds for the same robots.txt", () => {
+    const inputs = [
+      "User-agent: *\nDisallow: /",
+      "User-agent: *\nDisallow: /*\nDisallow: /private/\nCrawl-delay: 5\n\nUser-agent: GPTBot\nDisallow: /",
+      "User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\n\nUser-agent: *\nDisallow: /",
+      "User-agent: PerplexityBot\nDisallow: /",
+    ];
+    for (const robotsTxt of inputs) {
+      const groups = robotsAllowGroups(robotsTxt, "https://example.com");
+      const snippet = run(robotsTxt).fixSnippet ?? "";
+      const allowLines = snippet.split("\n").filter((l) => !l.startsWith("#"));
+      expect(allowLines.join("\n")).toBe(groups.map((g) => g.join("\n")).join("\n\n"));
+    }
   });
 
   const runStatus = (robotsTxtStatus: number | undefined) =>
