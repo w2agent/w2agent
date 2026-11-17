@@ -496,6 +496,20 @@ function allocateInputKeys(ep: OpenAPIEndpoint): AllocatedInputs {
   return { path, query, body };
 }
 
+// OpenAPI types the parser keeps are JSON values: OAS 3.1 allows an array such as ["boolean","null"].
+function openapiZodType(type: unknown): string {
+  let t = type;
+  if (Array.isArray(t)) {
+    const rest = t.filter((x) => x !== "null");
+    t = rest.length === 1 ? rest[0] : undefined;
+  }
+  if (t === "integer" || t === "number") return "z.number()";
+  if (t === "boolean") return "z.boolean()";
+  if (t === "array") return "z.array(z.unknown())";
+  if (t === "object") return "z.record(z.string(), z.unknown())";
+  return "z.string()";
+}
+
 function generateOpenapiToolHandlers(
   endpoints: OpenAPIEndpoint[],
   serverUrl: string,
@@ -514,13 +528,13 @@ function generateOpenapiToolHandlers(
 
     const schemaLines: string[] = [];
     for (const { p, key } of [...pathParams, ...queryParams]) {
-      const zodType = p.type === "integer" || p.type === "number" ? "z.number()" : "z.string()";
+      const zodType = openapiZodType(p.type);
       schemaLines.push(
         `  [${JSON.stringify(key)}]: ${zodType}${p.required ? "" : ".optional()"}.describe(${JSON.stringify(p.description || p.name)})`,
       );
     }
     for (const { name, def, key } of bodyProps) {
-      const zodType = def.type === "integer" || def.type === "number" ? "z.number()" : "z.string()";
+      const zodType = openapiZodType(def.type);
       schemaLines.push(
         `  [${JSON.stringify(key)}]: ${zodType}.optional().describe(${JSON.stringify(def.description || name)})`,
       );
@@ -538,7 +552,7 @@ function generateOpenapiToolHandlers(
 
     let pathExpr = JSON.stringify(ep.path);
     for (const { p, key } of pathParams) {
-      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(params[${JSON.stringify(key)}])))`;
+      pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodePathParam(params[${JSON.stringify(key)}]))`;
     }
     lines.push(`  try {`);
     lines.push(`  const _path = ${pathExpr};`);
@@ -550,10 +564,10 @@ function generateOpenapiToolHandlers(
       for (const { p, key } of queryParams) {
         const access = `params[${JSON.stringify(key)}]`;
         if (p.required) {
-          lines.push(`  _query.set(${JSON.stringify(p.name)}, String(${access}));`);
+          lines.push(`  appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access});`);
         } else {
           lines.push(
-            `  if (${access} !== undefined) _query.set(${JSON.stringify(p.name)}, String(${access}));`,
+            `  if (${access} !== undefined) appendQueryParam(_query, ${JSON.stringify(p.name)}, ${access});`,
           );
         }
       }
@@ -600,6 +614,29 @@ function assertSafePath(path: string): void {
   if (segments.some((s) => /^(?:\.|%2e){1,2}$/i.test(s))) {
     throw new Error("Refusing to fetch: a path segment resolved to . or ..");
   }
+}
+
+function scalarText(v: unknown): string {
+  return typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
+}
+
+function appendQueryParam(query: URLSearchParams, name: string, value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const v of value) query.append(name, scalarText(v));
+  } else if (typeof value === "object" && value !== null) {
+    for (const [k, v] of Object.entries(value)) query.append(k, scalarText(v));
+  } else {
+    query.set(name, scalarText(value));
+  }
+}
+
+function encodePathParam(value: unknown): string {
+  const enc = (v: unknown) => encodeURIComponent(scalarText(v));
+  if (Array.isArray(value)) return value.map(enc).join(",");
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value).flatMap(([k, v]) => [enc(k), enc(v)]).join(",");
+  }
+  return enc(value);
 }
 
 async function outboundFetch(url: string, init: RequestInit, maxChars: number): Promise<string> {

@@ -86,13 +86,16 @@ function fullCtx(): GenerateContext {
         serverUrl: API_HOST,
         endpoints: [
           {
-            path: "/pets/{petId}",
+            path: "/pets/{petId}/{ids}",
             method: "get",
             operationId: "getPet",
             summary: "Get a pet",
             parameters: [
               { name: "petId", in: "path", required: true, type: "string" },
               { name: "verbose", in: "query", required: false, type: "boolean" },
+              { name: "tags", in: "query", required: false, type: "array" },
+              { name: "filter", in: "query", required: true, type: "object" },
+              { name: "ids", in: "path", required: true, type: "array" },
             ],
           },
           {
@@ -104,7 +107,14 @@ function fullCtx(): GenerateContext {
             requestBody: {
               contentType: "application/json",
               required: true,
-              properties: { name: { type: "string" }, age: { type: "number" } },
+              properties: {
+                name: { type: "string" },
+                age: { type: "number" },
+                vaccinated: { type: "boolean" },
+                toys: { type: "array" },
+                traits: { type: "object" },
+                nick: { type: ["string", "null"] as unknown as string },
+              },
             },
           },
         ],
