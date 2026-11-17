@@ -73,6 +73,18 @@ describe("emitted Docusaurus files parse", () => {
   });
 });
 
+describe("emitted Docusaurus files carry no template placeholder words", () => {
+  it("includes the WebMCP module in the checked set", () => {
+    expect(files.some((f) => f.filename === "docusaurus/w2agent-webmcp-module.js")).toBe(true);
+  });
+
+  it.each(
+    files.map((f) => f.filename),
+  )("%s has no undefined substring (the conformance check)", (name) => {
+    expect(emitted(name)).not.toContain("undefined");
+  });
+});
+
 describe("emitted w2agent-plugin.js", () => {
   let dir: string;
   let siteDir: string;

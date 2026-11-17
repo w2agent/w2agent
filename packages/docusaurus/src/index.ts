@@ -67,7 +67,7 @@ function sectionName(sourceDirName: string | undefined): string {
 
 // Same rule as Docusaurus applyTrailingSlash, so links match the emitted routes.
 function applyTrailingSlash(permalink: string, trailingSlash?: boolean, baseUrl?: string): string {
-  if (typeof trailingSlash === "undefined") return permalink;
+  if (trailingSlash == null) return permalink;
   const [pathname] = permalink.split(/[#?]/);
   if (pathname === "/" || pathname === baseUrl) return permalink;
   const next = trailingSlash
