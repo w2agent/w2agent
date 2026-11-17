@@ -147,7 +147,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | robots.txt additions | `data/robots-txt-additions.txt` generated (live robots.txt blocks AI agents via `*`) | `manual` action, not written: paste it at the end of the existing `templates/robots.txt.liquid`; no `robots.txt.liquid` is ever written |
 | Webhook notes | `W2AGENT-MCP-WEBHOOK.md` generated | `manual` action, not written (not a theme file) |
 
-The manual actions name `w2agent integrate <url> --platform shopify --output <dir>`, which writes those files. Theme folders are `assets`, `blocks`, `config`, `layout`, `locales`, `sections`, `snippets` and `templates`; the install never writes elsewhere.
+The template and robots manual actions name `w2agent integrate <url> --platform shopify --output <dir>`, which writes those files. The webhook notes manual action names `w2agent generate <url> --format mcp-server --output <dir>`, which writes `shopify/W2AGENT-MCP-WEBHOOK.md` when the site is detected as Shopify (`integrate` does not request the `mcp-server` format). The push step also tells the owner to add `--only templates/llms.txt.liquid` or `--only templates/robots.txt.liquid` after adding that template or pasting the robots groups. Theme folders are `assets`, `blocks`, `config`, `layout`, `locales`, `sections`, `snippets` and `templates`; the install never writes elsewhere.
 
 ## Testing
 

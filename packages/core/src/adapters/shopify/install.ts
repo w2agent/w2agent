@@ -13,7 +13,7 @@ const OUTPUT_HINT = "`w2agent integrate <url> --platform shopify --output <dir>`
 const MANUAL_REASONS: Record<string, string> = {
   "templates/llms.txt.liquid": `Optional. Shopify already serves /llms.txt. This template would replace the managed content at /llms.txt only (not /agents.md); add it as templates/llms.txt.liquid in your theme only if you want it. ${OUTPUT_HINT}.`,
   "data/robots-txt-additions.txt": `Not a theme file. Paste its groups at the end of your theme's existing templates/robots.txt.liquid (after the robots.default_groups loop and your own rules). If the theme has no robots.txt.liquid, do not create one from these groups alone. ${OUTPUT_HINT}.`,
-  "W2AGENT-MCP-WEBHOOK.md": `Not a theme file. It holds webhook notes for the MCP server. ${OUTPUT_HINT}.`,
+  "W2AGENT-MCP-WEBHOOK.md": `Not a theme file. It holds webhook notes for the MCP server. \`w2agent generate <url> --format mcp-server --output <dir>\` writes it as shopify/W2AGENT-MCP-WEBHOOK.md when the site is detected as Shopify.`,
 };
 
 export function detectShopifyLayout(projectDir: string): ShopifyLayout {
@@ -69,8 +69,20 @@ export function resolveShopifyInstall(files: GeneratedFile[], projectDir: string
   if (written.length > 0) {
     const pushed = headWritten || webmcpWritten ? [...written, "layout/theme.liquid"] : written;
     const only = pushed.map((d) => `--only ${d}`).join(" ");
+    const hasManual = (dest: string) =>
+      guarded.actions.some((a) => a.type === "manual" && a.dest === dest);
+    const extra: string[] = [];
+    if (hasManual("templates/llms.txt.liquid")) {
+      extra.push("add --only templates/llms.txt.liquid if you added that template");
+    }
+    if (hasManual("data/robots-txt-additions.txt")) {
+      extra.push(
+        "add --only templates/robots.txt.liquid if you pasted the robots groups into that file",
+      );
+    }
+    const extraNote = extra.length > 0 ? ` To push your other edits, ${extra.join(", and ")}.` : "";
     postInstallSteps.push(
-      `Push the new files and your edited layout/theme.liquid to a copy of your theme, not the live one: shopify theme push --theme <development-theme-id-or-name> ${only}. Preview it, then publish from the admin.`,
+      `Push the new files and your edited layout/theme.liquid to a copy of your theme, not the live one: shopify theme push --theme <copy-theme-id-or-name> ${only}.${extraNote} Preview it, then publish from the admin.`,
     );
   }
 

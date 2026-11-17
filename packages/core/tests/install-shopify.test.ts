@@ -65,7 +65,7 @@ describe("Shopify install resolver", () => {
       "data/robots-txt-additions.txt",
       "templates/llms.txt.liquid",
     ]);
-    for (const a of manual) {
+    for (const a of manual.filter((m) => m.dest !== "W2AGENT-MCP-WEBHOOK.md")) {
       expect(a.reason).toContain("w2agent integrate <url> --platform shopify --output <dir>");
     }
     const llms = manual.find((a) => a.dest === "templates/llms.txt.liquid");
@@ -108,18 +108,43 @@ describe("Shopify install resolver", () => {
     expect(steps[1]).toContain("{% render 'w2agent-webmcp' %}");
     expect(steps[1]).toContain("before </body>");
     expect(steps[2]).toContain("shopify theme push");
-    const only = [...steps[2].matchAll(/--only (\S+)/g)].map((m) => m[1].replace(/\.$/, ""));
+    const command = steps[2].split(" To push your other edits")[0];
+    const only = [...command.matchAll(/--only (\S+)/g)].map((m) => m[1].replace(/\.$/, ""));
     expect(only.sort()).toEqual([
       "layout/theme.liquid",
       "snippets/w2agent-head.liquid",
       "snippets/w2agent-webmcp.liquid",
     ]);
     expect(steps[2]).not.toMatch(/--live|--publish/);
+    expect(steps[2]).toContain("--theme <copy-theme-id-or-name>");
     for (const s of steps) {
       expect(s).not.toContain("data/");
       expect(s).not.toContain("W2AGENT-MCP-WEBHOOK");
-      expect(s).not.toContain("llms.txt.liquid");
     }
+  });
+
+  it("push step tells the owner which --only to add for a pasted robots file or an added llms template", () => {
+    const steps = resolveShopifyInstall(makeShopifyFiles(), tempDir).postInstallSteps;
+    expect(steps[2]).toContain("add --only templates/robots.txt.liquid");
+    expect(steps[2]).toContain("add --only templates/llms.txt.liquid");
+
+    const noRobots = makeShopifyFiles().filter((f) => !f.filename.includes("robots"));
+    const s1 = resolveShopifyInstall(noRobots, tempDir).postInstallSteps[2];
+    expect(s1).toContain("templates/llms.txt.liquid");
+    expect(s1).not.toContain("robots");
+
+    const noLlms = makeShopifyFiles().filter((f) => !f.filename.includes("llms.txt"));
+    const s2 = resolveShopifyInstall(noLlms, tempDir).postInstallSteps[2];
+    expect(s2).toContain("templates/robots.txt.liquid");
+    expect(s2).not.toContain("llms.txt.liquid");
+  });
+
+  it("webhook notes manual action names the command that writes it", () => {
+    const plan = resolveShopifyInstall(makeShopifyFiles(), tempDir);
+    const hook = plan.actions.find((a) => a.dest === "W2AGENT-MCP-WEBHOOK.md");
+    expect(hook).toMatchObject({ type: "manual" });
+    expect((hook as { reason: string }).reason).toContain("--format mcp-server");
+    expect((hook as { reason: string }).reason).not.toContain("integrate");
   });
 
   it("has no webmcp step and no webmcp push entry when no webmcp snippet is generated", () => {

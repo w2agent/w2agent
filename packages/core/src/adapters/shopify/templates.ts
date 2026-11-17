@@ -41,17 +41,17 @@ const PRODUCT_SCHEMA_BLOCK = `{% if request.page_type == 'product' and product %
 `;
 
 function productSchemaNote(state: ProductSchemaState): string {
-  const manual = `Search your theme code for \`structured_data\` first. If there is no match, add this to \`snippets/w2agent-head.liquid\`:
+  const manual = `Search your theme code for \`structured_data\` and for any \`application/ld+json\` Product script first. If neither outputs Product schema, add this to \`snippets/w2agent-head.liquid\`:
 
 \`\`\`liquid
 ${PRODUCT_SCHEMA_BLOCK}\`\`\``;
   if (state === "present") {
-    return `Your theme already outputs Product schema on the crawled product pages, so the head snippet does not add a second block.\n\n${manual}`;
+    return "Your theme already outputs Product schema on the crawled product pages, so the head snippet does not add a second block. You have nothing to add.";
   }
   if (state === "absent") {
     return `The crawled product pages had no Product schema, so the head snippet adds it with Shopify's \`structured_data\` filter (Product, or ProductGroup when the product has variants). Search your theme code for \`structured_data\` first. If it already outputs the schema, delete the \`{% if request.page_type == 'product' and product %}\` block from \`snippets/w2agent-head.liquid\`.`;
   }
-  return `No product page was crawled, so w2agent could not tell whether your theme outputs Product schema and did not add one.\n\n${manual}`;
+  return `w2agent had no crawled product page to check, so it could not tell whether your theme outputs Product schema and did not add one.\n\n${manual}`;
 }
 
 export function generateShopifyIntegration(
@@ -103,12 +103,13 @@ Your live robots.txt blocks AI agents through \`User-agent: *\`. The groups in \
   }
 
   const pushList = [...pushFiles, "layout/theme.liquid", "templates/llms.txt.liquid"];
+  if (hasRobots) pushList.push("templates/robots.txt.liquid");
   steps.push(`### Push to the copy, then publish
 If you edited locally, push to the copy (not the live theme). \`layout/theme.liquid\` carries the render tags, so push it with the snippets.
 \`\`\`bash
 shopify theme push --theme <copy-theme-id-or-name> ${pushList.map((f) => `--only ${f}`).join(" ")}
 \`\`\`
-Drop \`templates/llms.txt.liquid\` if you keep Shopify's default. Preview the copy, then publish it from the admin.`);
+Drop \`templates/llms.txt.liquid\` if you keep Shopify's default.${hasRobots ? " Drop `templates/robots.txt.liquid` if you did not paste the robots groups." : ""} Preview the copy, then publish it from the admin.`);
 
   const stepsMd = steps.map((s, i) => s.replace(/^### /, `### ${i + 1}. `)).join("\n\n");
 

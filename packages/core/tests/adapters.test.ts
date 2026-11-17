@@ -717,6 +717,26 @@ describe("Shopify integration generation", () => {
     expect(robots?.content).toContain("User-agent: ChatGPT-User");
     expect(robots?.content).not.toContain("Disallow: /checkout");
   });
+
+  it("INSTALL.md push command lists templates/robots.txt.liquid exactly when the robots step is listed", () => {
+    const pushLine = (robotsTxt?: string) => {
+      const ctx = makeCtx();
+      if (robotsTxt) ctx.metadata = { ...ctx.metadata, robotsTxt };
+      const files = shopifyAdapter.generateIntegration(ctx, makeCoreFiles());
+      const install = files.find((f) => f.filename === "shopify/INSTALL.md")?.content ?? "";
+      return {
+        install,
+        line: install.split("\n").find((l) => l.startsWith("shopify theme push")) ?? "",
+      };
+    };
+    const blocked = pushLine("User-agent: *\nDisallow: /\n");
+    expect(blocked.install).toContain("Allow AI agents in robots.txt");
+    expect(blocked.line).toContain("--only templates/robots.txt.liquid");
+    expect(blocked.line).toContain("--theme <copy-theme-id-or-name>");
+    const open = pushLine();
+    expect(open.install).not.toContain("Allow AI agents in robots.txt");
+    expect(open.line).not.toContain("robots.txt.liquid");
+  });
 });
 
 describe("Docusaurus integration generation", () => {

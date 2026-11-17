@@ -2,6 +2,7 @@ import { Liquid } from "liquidjs";
 import { describe, expect, it } from "vitest";
 import { shopifyProductSchemaCheck } from "../src/adapters/shopify/checks.js";
 import { shopifyAdapter } from "../src/adapters/shopify/index.js";
+import { detectProductSchema } from "../src/adapters/shopify/product-schema.js";
 import type { FetchedPage } from "../src/audit/types.js";
 import type { GenerateContext, GeneratedFile } from "../src/generate/types.js";
 
@@ -171,7 +172,7 @@ describe("shopify head snippet generation from crawl evidence", () => {
       page("/", NO_SCHEMA),
     ]);
     expect(file(files, HEAD)).not.toContain("structured_data");
-    expect(file(files, INSTALL)).toContain("No product page was crawled");
+    expect(file(files, INSTALL)).toContain("no crawled product page");
   });
 
   it("omits the block and says so in INSTALL.md when no pages were crawled", () => {
@@ -179,9 +180,16 @@ describe("shopify head snippet generation from crawl evidence", () => {
     expect(file(files, HEAD)).not.toContain("ld+json");
     expect(file(files, HEAD)).toContain('href="/llms.txt"');
     const install = file(files, INSTALL);
-    expect(install).toContain("No product page was crawled");
-    expect(install).toContain("Search your theme code for `structured_data` first");
+    expect(install).toContain("no crawled product page");
+    expect(install).toContain("`structured_data` and for any `application/ld+json` Product script");
     expect(install).toContain("{{ product | structured_data }}");
+  });
+
+  it("tells no owner with existing Product schema to add the block", () => {
+    const install = file(generate([page("/products/a", ld({ "@type": "Product" }))]), INSTALL);
+    expect(install).toContain("nothing to add");
+    expect(install).not.toContain("structured_data");
+    expect(install).not.toContain("add this");
   });
 
   it("emits Liquid that parses under strict filters in every state", async () => {
@@ -194,5 +202,60 @@ describe("shopify head snippet generation from crawl evidence", () => {
         'href="/llms.txt"',
       );
     }
+  });
+});
+
+describe("detectProductSchema on schema forms a theme can already output", () => {
+  const state = (html: string, path = "/products/a") => detectProductSchema([page(path, html)]);
+
+  it("accepts fully qualified @type values, alone or in an array", () => {
+    expect(state(ld({ "@type": "https://schema.org/Product" }))).toBe("present");
+    expect(state(ld({ "@type": "http://schema.org/ProductGroup" }))).toBe("present");
+    expect(state(ld({ "@type": ["Thing", "https://schema.org/Product"] }))).toBe("present");
+    expect(state(ld({ "@type": "https://schema.org/Offer" }))).toBe("absent");
+  });
+
+  it("finds Product nested under any property, not only @graph", () => {
+    expect(state(ld({ "@type": "WebPage", mainEntity: { "@type": "Product" } }))).toBe("present");
+    expect(
+      state(
+        ld({
+          "@type": "ItemList",
+          itemListElement: [{ "@type": "ListItem", item: { "@type": "Product" } }],
+        }),
+      ),
+    ).toBe("present");
+    expect(state(ld({ "@type": "WebPage", mainEntity: { "@type": "Article" } }))).toBe("absent");
+  });
+
+  it("stops at a depth and node budget instead of walking hostile JSON", () => {
+    let deep: Record<string, unknown> = { "@type": "Product" };
+    for (let i = 0; i < 50; i++) deep = { child: deep };
+    expect(state(ld(deep))).toBe("absent");
+    const wide = { items: Array.from({ length: 20000 }, () => ({ "@type": "Thing" })) };
+    const start = Date.now();
+    expect(state(ld({ ...wide, late: { "@type": "Product" } }))).toBe("absent");
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it("accepts microdata itemtype for Product and ProductGroup, quoted or not", () => {
+    expect(state('<div itemscope itemtype="http://schema.org/Product"></div>')).toBe("present");
+    expect(state("<div itemscope itemtype='https://schema.org/ProductGroup'></div>")).toBe(
+      "present",
+    );
+    expect(state("<div itemscope itemtype=https://schema.org/Product></div>")).toBe("present");
+    expect(
+      state('<div itemtype="https://schema.org/Thing https://schema.org/Product"></div>'),
+    ).toBe("present");
+    expect(state('<div itemscope itemtype="https://schema.org/Offer"></div>')).toBe("absent");
+    expect(state('<div itemtype="Product"></div>')).toBe("absent");
+  });
+
+  it("ignores JSON-LD and microdata inside HTML comments", () => {
+    const script = '<script type="application/ld+json">{"@type":"Product"}</script>';
+    expect(state(`<!-- ${script} -->`)).toBe("absent");
+    expect(state('<!-- <div itemtype="https://schema.org/Product"></div> -->')).toBe("absent");
+    expect(state(`<!-- old --> ${script}`)).toBe("present");
+    expect(state(`<!-- never closed ${script}`)).toBe("absent");
   });
 });

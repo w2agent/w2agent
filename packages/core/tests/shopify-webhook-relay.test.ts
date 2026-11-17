@@ -69,6 +69,11 @@ interface Recorded {
 describe("emitted Shopify webhook notes", () => {
   const md = notes();
 
+  it("says the relay must be reachable over HTTPS, not that it serves HTTPS itself", () => {
+    expect(md).toContain("reachable over HTTPS");
+    expect(md).not.toContain("in front of HTTPS");
+  });
+
   it("names only topics from the WebhookSubscriptionTopic doc and no stale advice", () => {
     const named = new Set<string>();
     for (const m of md.matchAll(/\b(?:products|collections|pages|articles|blogs)\/[a-z_]+/g)) {
@@ -103,6 +108,9 @@ describe("emitted Shopify webhook relay (child process)", () => {
   let fake: http.Server;
   let fakeUrl: string;
   let fakeStatus = 200;
+  let fakeLocation: string | undefined;
+  let redirectTarget: http.Server;
+  let redirectHits: http.IncomingHttpHeaders[] = [];
   let received: Recorded[] = [];
   let child: ChildProcess | undefined;
   let relayPort = 0;
@@ -117,10 +125,17 @@ describe("emitted Shopify webhook relay (child process)", () => {
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
         received.push({ headers: req.headers, body: Buffer.concat(chunks).toString() });
-        res.writeHead(fakeStatus);
+        res.writeHead(fakeStatus, fakeLocation ? { Location: fakeLocation } : {});
         res.end("{}");
       });
     });
+    redirectTarget = http.createServer((req, res) => {
+      redirectHits.push(req.headers);
+      req.resume();
+      res.writeHead(200);
+      res.end("{}");
+    });
+    await new Promise<void>((r) => redirectTarget.listen(0, "127.0.0.1", r));
     await new Promise<void>((r) => fake.listen(0, "127.0.0.1", r));
     fakeUrl = `http://127.0.0.1:${(fake.address() as net.AddressInfo).port}/api/agent/webhook/slug`;
   });
@@ -133,11 +148,14 @@ describe("emitted Shopify webhook relay (child process)", () => {
     }
     child = undefined;
     received = [];
+    redirectHits = [];
     fakeStatus = 200;
+    fakeLocation = undefined;
   });
 
   afterAll(async () => {
     await new Promise((r) => fake.close(r));
+    await new Promise((r) => redirectTarget.close(r));
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -333,8 +351,10 @@ describe("emitted Shopify webhook relay (child process)", () => {
   it("does not follow redirects from the w2agent endpoint", async () => {
     await start();
     fakeStatus = 302;
+    fakeLocation = `http://127.0.0.1:${(redirectTarget.address() as net.AddressInfo).port}/leak`;
     expect(await call(signed("products/update"))).toBe(503);
     expect(received).toHaveLength(1);
+    expect(redirectHits).toHaveLength(0);
   });
 
   it("answers 503 when the w2agent endpoint is unreachable", async () => {

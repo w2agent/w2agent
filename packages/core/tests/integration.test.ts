@@ -698,7 +698,7 @@ describe("integration: Shopify", () => {
     expect(head.content).not.toContain("ld+json");
     expect(head.content).not.toContain("money_without_currency");
     const install = files.find((f) => f.filename === "shopify/INSTALL.md")!;
-    expect(install.content).toContain("No product page was crawled");
+    expect(install.content).toContain("no crawled product page");
   });
 
   it("robots additions allow AI agents blocked by * and carry no Sitemap", () => {

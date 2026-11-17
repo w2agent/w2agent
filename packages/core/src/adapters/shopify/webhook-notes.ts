@@ -140,7 +140,7 @@ This prints the webhook URL (\`https://w2agent.dev/api/agent/webhook/YOUR_SLUG\`
 
 ## 2. Run the relay
 
-Save this as \`w2agent-relay.cjs\` and host it anywhere that runs Node 18 or newer, in front of HTTPS. It has no dependencies.
+Save this as \`w2agent-relay.cjs\` and host it anywhere that runs Node 18 or newer, and make it reachable over HTTPS (for example behind a TLS-terminating proxy or host). It has no dependencies.
 
 \`\`\`js
 ${RELAY_SAMPLE}\`\`\`

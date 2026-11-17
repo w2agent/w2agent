@@ -247,16 +247,22 @@ run_config() {
   # 6. JSON-LD content (only if head snippet exists)
   log "  JSON-LD content..."
   if [[ -f "$dir/snippets/w2agent-head.liquid" ]]; then
-    local jsonld_ok=1
-    grep -q '"@type": "Product"' "$dir/snippets/w2agent-head.liquid" || jsonld_ok=0
-    grep -q 'product\.title' "$dir/snippets/w2agent-head.liquid" || jsonld_ok=0
-    grep -q 'shop\.url' "$dir/snippets/w2agent-head.liquid" || jsonld_ok=0
-    grep -q 'product\.available' "$dir/snippets/w2agent-head.liquid" || jsonld_ok=0
+    local head="$dir/snippets/w2agent-head.liquid"
+    local jsonld_ok=1 jsonld_why=""
+    if ! grep -q 'href="/llms.txt"' "$head"; then
+      jsonld_ok=0; jsonld_why="missing the /llms.txt link"
+    fi
+    if grep -qE 'money_without_currency|shop\.currency|template contains' "$head"; then
+      jsonld_ok=0; jsonld_why="${jsonld_why:+$jsonld_why; }hand-built JSON-LD still present"
+    fi
+    if grep -q 'structured_data' "$head" && ! grep -q "request.page_type == 'product'" "$head"; then
+      jsonld_ok=0; jsonld_why="${jsonld_why:+$jsonld_why; }structured_data is not gated by request.page_type == 'product'"
+    fi
     if [[ $jsonld_ok -eq 1 ]]; then
-      pass "JSON-LD content" "@type:Product + product.title + shop.url + product.available"
+      pass "JSON-LD content" "/llms.txt link, no hand-built JSON-LD; any structured_data block is gated to product pages"
       r_jsonld="✅"
     else
-      fail "JSON-LD content" "missing expected JSON-LD fields in head snippet"
+      fail "JSON-LD content" "$jsonld_why"
       r_jsonld="❌"
     fi
   else
@@ -269,7 +275,11 @@ run_config() {
   if [[ -f "$dir/snippets/w2agent-head.liquid" ]]; then
     if [[ $HAS_SHOPIFY_CLI -eq 1 ]]; then
       log "  Running shopify theme check..."
-      if shopify theme check "$dir/snippets/" >/dev/null 2>&1; then
+      # Check only the w2agent snippets so the theme's own offenses do not fail this run.
+      local check_dir="$dir/.w2agent-check"
+      mkdir -p "$check_dir/snippets"
+      cp "$dir"/snippets/w2agent-*.liquid "$check_dir/snippets/"
+      if shopify theme check --path "$check_dir" >/dev/null 2>&1; then
         pass "Liquid syntax" "shopify theme check passed"
         r_liquid="✅"
       else
@@ -277,15 +287,19 @@ run_config() {
         r_liquid="❌"
       fi
     else
-      local liquid_ok=1
-      grep -q '{% if template contains' "$dir/snippets/w2agent-head.liquid" || liquid_ok=0
-      grep -q '{% endif %}' "$dir/snippets/w2agent-head.liquid" || liquid_ok=0
-      grep -q '{{ product\.title' "$dir/snippets/w2agent-head.liquid" || liquid_ok=0
+      local liquid_ok=1 if_count endif_count comment_count endcomment_count
+      if_count=$(grep -cE '\{%-? *if ' "$dir/snippets/w2agent-head.liquid" || true)
+      endif_count=$(grep -cE '\{%-? *endif *-?%\}' "$dir/snippets/w2agent-head.liquid" || true)
+      comment_count=$(grep -cE '\{%-? *comment *-?%\}' "$dir/snippets/w2agent-head.liquid" || true)
+      endcomment_count=$(grep -cE '\{%-? *endcomment *-?%\}' "$dir/snippets/w2agent-head.liquid" || true)
+      [[ "$if_count" -eq "$endif_count" ]] || liquid_ok=0
+      [[ "$comment_count" -eq "$endcomment_count" ]] || liquid_ok=0
+      grep -q '<link ' "$dir/snippets/w2agent-head.liquid" || liquid_ok=0
       if [[ $liquid_ok -eq 1 ]]; then
-        pass "Liquid syntax" "structural: if/endif balanced, Liquid vars present (shopify CLI N/A)"
+        pass "Liquid syntax" "structural: if/endif and comment/endcomment balanced, link tag present (shopify CLI N/A)"
         r_liquid="✅"
       else
-        fail "Liquid syntax" "structural check: missing if/endif or Liquid variables"
+        fail "Liquid syntax" "structural check: unbalanced if/endif or comment/endcomment, or no link tag"
         r_liquid="❌"
       fi
     fi
