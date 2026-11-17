@@ -138,25 +138,66 @@ export function secretValues(staged) {
   return out;
 }
 
-const SECRET_PATTERNS = [
-  /(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}/g,
-  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
-];
+const TOKEN_RUN = /[A-Za-z0-9_.-]+/g;
+const MARK = "[REDACTED]";
+
+function patternSpans(text, spans) {
+  for (const m of text.matchAll(TOKEN_RUN)) {
+    const segs = m[0].split(".");
+    const starts = [];
+    let pos = m.index;
+    for (const seg of segs) {
+      starts.push(pos);
+      pos += seg.length + 1;
+    }
+    for (let k = 0; k < segs.length; k++) {
+      const i = segs[k].indexOf("sk-ant-");
+      if (i >= 0 && segs[k].length - i - 7 >= 20) {
+        spans.push([starts[k] + i, starts[k] + segs[k].length]);
+      }
+    }
+    for (let k = 0; k < segs.length; ) {
+      const p = segs[k].indexOf("eyJ");
+      if (
+        p >= 0 &&
+        segs[k].length - p - 3 >= 8 &&
+        segs[k + 1]?.length >= 8 &&
+        segs[k + 2]?.length >= 8
+      ) {
+        spans.push([starts[k] + p, starts[k + 2] + segs[k + 2].length]);
+        k += 3;
+      } else k++;
+    }
+  }
+}
 
 export function redact(text, secrets) {
-  let count = 0;
-  let out = text;
-  for (const re of SECRET_PATTERNS) {
-    out = out.replace(re, () => {
-      count++;
-      return "[REDACTED]";
-    });
-  }
+  const spans = [];
   for (const s of secrets) {
     if (typeof s !== "string" || s.length < MIN_SECRET_LEN) continue;
-    const parts = out.split(s);
-    count += parts.length - 1;
-    out = parts.join("[REDACTED]");
+    for (let i = text.indexOf(s); i >= 0; i = text.indexOf(s, i + s.length)) {
+      spans.push([i, i + s.length]);
+    }
   }
+  patternSpans(text, spans);
+  spans.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let count = 0;
+  let out = "";
+  let curEnd = -1;
+  let prev;
+  for (const sp of spans) {
+    if (prev && prev[0] === sp[0] && prev[1] === sp[1]) continue;
+    prev = sp;
+    count++;
+    if (sp[0] < curEnd) {
+      curEnd = Math.max(curEnd, sp[1]);
+      continue;
+    }
+    if (curEnd >= 0) out += MARK;
+    out += text.slice(Math.max(curEnd, 0), sp[0]);
+    curEnd = sp[1];
+  }
+  if (curEnd >= 0) out += MARK + text.slice(curEnd);
+  else out = text;
   return { text: out, count };
 }

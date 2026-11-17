@@ -473,6 +473,9 @@ test("redact is linear on pathological input", async () => {
     `eyJ${"a".repeat(1e6)}.`,
     `sk-ant-${"a".repeat(1e6)}`,
     `sk-ant-${"sk-ant-".repeat(150000)}`,
+    `a${"eyJ".repeat(400000)}`,
+    "sk-ant-".repeat(150000),
+    "x.".repeat(500000),
   ]) {
     const t0 = Date.now();
     redact(s, []);

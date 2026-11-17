@@ -170,3 +170,100 @@ test("readCodexAuth prefers CODEX_HOME and an explicit file", () => {
     { from: "file" },
   );
 });
+
+const AK = `sk-ant-oat01-${"Z".repeat(30)}`; // gitleaks:allow
+const JW = `eyJ${"a".repeat(12)}.${"b".repeat(12)}.${"c".repeat(12)}`; // gitleaks:allow
+
+test("redact catches tokens after any token character or JSON escape", () => {
+  const pres = ["\\n", "\\t", "\\r", "_", "-", "q", "7", "", '"', "=", ":", " ", "\n"];
+  for (const tok of [AK, JW]) {
+    for (const pre of pres) {
+      const r = redact(`${pre}${tok}`, []);
+      assert.equal(r.count, 1, JSON.stringify(pre));
+      assert.ok(!r.text.includes(tok), JSON.stringify(pre));
+      assert.ok(r.text.startsWith(pre), JSON.stringify(pre));
+    }
+  }
+  assert.equal(redact(`token-${AK}`, []).text, "token-[REDACTED]");
+  assert.equal(redact(`x_${JW}`, []).text, "x_[REDACTED]");
+});
+
+test("redact handles several tokens in one run and keeps surrounding text", () => {
+  const r = redact(`\\n${JW}\\n${JW} ${AK}.${AK}.${JW}!`, []);
+  assert.equal(r.text, "\\n[REDACTED]\\n[REDACTED] [REDACTED].[REDACTED].[REDACTED]!");
+  assert.equal(r.count, 5);
+  assert.equal(redact(`${JW}.${JW}`, []).count, 2);
+});
+
+test("redact removes a JWT only from eyJ onward and ends it at the third segment", () => {
+  const r = redact(`junk${JW}.tail`, []);
+  assert.equal(r.text, "junk[REDACTED].tail");
+});
+
+test("redact leaves non-token shapes alone", () => {
+  for (const s of [
+    "eyJabc.bbbbbbbbbb.cccccccccc",
+    `eyJ${"a".repeat(12)}.${"b".repeat(12)}`,
+    `eyJ${"a".repeat(12)}.${"b".repeat(12)}.short`,
+    `eyJ${"a".repeat(12)}.short.${"c".repeat(12)}`,
+    "sk-ant-short",
+    `sk-ant-${"a".repeat(10)}.${"a".repeat(30)}`,
+    "plain text eyJ and sk-ant-",
+  ]) {
+    const r = redact(s, []);
+    assert.equal(r.text, s);
+    assert.equal(r.count, 0);
+  }
+});
+
+test("a JSONL tool_result with a token on its own line stays valid JSON", () => {
+  const line = JSON.stringify({ type: "tool_result", content: `out\n${JW}\n${AK}\r\n\t${JW}\n` });
+  assert.ok(line.includes(`\\n${JW.slice(0, 5)}`));
+  const r = redact(line, []);
+  assert.equal(r.count, 3);
+  const parsed = JSON.parse(r.text);
+  assert.equal(parsed.content, "out\n[REDACTED]\n[REDACTED]\r\n\t[REDACTED]\n");
+});
+
+const JW2 = `eyJ${"H".repeat(20)}.${"P".repeat(20)}.${"S".repeat(40)}`; // gitleaks:allow
+const noLeak = (t) => assert.ok(!/P{4}|S{4}|H{4}|Z{4}/.test(t), t);
+
+test("redact: a JWT directly after an Anthropic token leaves no segment behind", () => {
+  const r = redact(`${AK}${JW2}`, []);
+  noLeak(r.text);
+  assert.equal(r.text, "[REDACTED]");
+  assert.equal(r.count, 2);
+});
+
+test("redact: a staged secret is fully replaced when a pattern match overlaps it", () => {
+  const r = redact(`eyJxxxxxxxxx.yyyyyyyy.${JW2}`, [JW2]);
+  noLeak(r.text);
+  assert.equal(r.text, "[REDACTED]");
+});
+
+test("redact: an sk-ant- run inside a JWT segment does not break the JWT match", () => {
+  const jwt = `eyJ${"H".repeat(10)}${AK}.${"P".repeat(20)}.${"S".repeat(20)}`;
+  const r = redact(`a ${jwt} b`, []);
+  noLeak(r.text);
+  assert.equal(r.text, "a [REDACTED] b");
+});
+
+test("redact: staged Claude and Codex tokens next to token-shaped text", () => {
+  const claude = `sk-ant-oat01-${"Q".repeat(30)}`; // gitleaks:allow
+  const r1 = redact(`x_${claude}-tail \\n${claude}.eyJ${"a".repeat(9)}`, [claude]);
+  assert.ok(!r1.text.includes("QQQQ"), r1.text);
+  const r2 = redact(`pre${JW2}.more eyJ12345678.${JW2}`, [JW2]);
+  noLeak(r2.text);
+  assert.ok(r2.count >= 2);
+  const r3 = redact(`${JW2} ${JW2}`, [JW2]);
+  assert.equal(r3.text, "[REDACTED] [REDACTED]");
+  assert.equal(r3.count, 2);
+});
+
+test("redact: exact secrets inside token-shaped runs are replaced alongside patterns", () => {
+  const plain = "opaque-secret-value-1234";
+  const r = redact(`k_${plain}.x ${AK}${plain}`, [plain]);
+  assert.ok(!r.text.includes("opaque"), r.text);
+  assert.equal(r.text, "k_[REDACTED].x [REDACTED]");
+  assert.equal(r.count, 3);
+});
