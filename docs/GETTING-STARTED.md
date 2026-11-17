@@ -57,14 +57,15 @@ w2agent generate <url> [options]
 
 Options:
   -o, --output <dir>       Output directory (default: ./w2agent-output)
-  -f, --format <format>    Output: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, mcp-server, skill-md, webmcp, openclaw, all (default: all)
+  -f, --format <format>    Comma-separated or repeated: llms-txt, full, markdown, robots-txt, schema-org, agent-card, faq, webmcp, all (default: all); opt-in: mcp-server, skill-md, openclaw, agents-md
+  --no-platform            Do not write platform integration files (nextjs/, nuxt/, ...)
   --from-audit             Run audit first, generate fixes for failed checks only
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   -s, --sections <list>    Only these URL sections (comma-separated)
   --timeout <ms>           Request timeout (default: 10000)
 ```
 
-When a platform is detected, integration files are automatically included in the output.
+When a platform is detected, integration files are automatically included in the output unless you pass `--no-platform`.
 
 ### `integrate` — Platform-specific integration
 

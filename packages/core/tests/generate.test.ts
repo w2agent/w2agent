@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import robotsParser from "robots-parser";
 import { describe, expect, it, vi } from "vitest";
+import "../src/adapters/index.js";
 import { aiAgentAccess } from "../src/audit/checks/bot-accessibility.js";
 import { wellKnownAgentCard } from "../src/audit/checks/discovery.js";
 import { validateAgentCard } from "../src/audit/shared/agent-card.js";
@@ -776,6 +777,35 @@ describe("generateAgentCard", () => {
         formats: ["agent-card"],
       });
       expect(withoutEndpoint.files.map((f) => f.filename)).not.toContain("agent-card.json");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("runGenerate platformFiles:false omits platform files but still reports detection", async () => {
+    const nextHtml =
+      '<html><head><title>My Site</title></head><body><p>hi</p><script id="__NEXT_DATA__" type="application/json">{}</script><script src="/_next/static/chunks/main.js"></script></body></html>';
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return url === "https://example.com/"
+        ? new Response(nextHtml, { headers: { "content-type": "text/html" } })
+        : new Response("not found", { status: 404, headers: { "content-type": "text/html" } });
+    });
+    try {
+      const withPlatform = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["llms-txt"],
+      });
+      expect(withPlatform.platform?.platform).toBe("nextjs");
+      expect(withPlatform.files.some((f) => f.filename.startsWith("nextjs/"))).toBe(true);
+
+      const without = await runGenerate("https://example.com/", {
+        maxPages: 1,
+        formats: ["llms-txt"],
+        platformFiles: false,
+      });
+      expect(without.platform?.platform).toBe("nextjs");
+      expect(without.files.map((f) => f.filename)).toEqual(["llms.txt"]);
     } finally {
       vi.restoreAllMocks();
     }

@@ -13,7 +13,8 @@ npx w2agent generate <url> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-o, --output <dir>` | `./w2agent-output` | Output directory |
-| `-f, --format <fmt>` | `all` | Output format: `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `mcp-server`, `skill-md`, `webmcp`, `openclaw`, `all` |
+| `-f, --format <fmt>` | `all` | Output formats, comma-separated or repeated (`-f llms-txt,full` or `-f llms-txt -f full`). `all` = `llms-txt`, `full`, `markdown`, `robots-txt`, `schema-org`, `agent-card`, `faq`, `webmcp`. Opt-in only: `mcp-server`, `skill-md`, `openclaw`, `agents-md` (combine, e.g. `all,agents-md`). Unknown values exit with an error |
+| `--no-platform` | off | Do not write platform integration files (`nextjs/`, `nuxt/`, ...) |
 | `-m, --max-pages <n>` | `100` | Maximum pages to crawl |
 | `-s, --sections <list>` | all | Only these URL path prefixes (comma-separated) |
 | `--a2a-endpoint <url>` | none | Your live A2A agent endpoint; `agent-card` is skipped without it (also on `integrate`) |
@@ -126,7 +127,7 @@ w2agent agent update <slug>                    # Re-crawl hosted deployment
 
 ### Platform Integration Files (auto-detected)
 
-When a platform is detected, additional integration files are generated:
+When a platform is detected, additional integration files are generated (omitted with `--no-platform`):
 
 | Platform | Files Generated |
 |----------|----------------|
