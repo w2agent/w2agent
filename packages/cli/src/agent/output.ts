@@ -113,6 +113,8 @@ export interface Failure {
   reason: Reason;
   message: string;
   next?: readonly (readonly string[])[];
+  changes?: readonly unknown[];
+  postInstallSteps?: readonly string[];
 }
 
 export interface ErrorEnvelope {
@@ -123,6 +125,8 @@ export interface ErrorEnvelope {
     userActionRequired: boolean;
     retryable: boolean;
     next: string[][];
+    changes?: unknown[];
+    postInstallSteps?: string[];
   };
 }
 
@@ -139,6 +143,8 @@ export function buildErrorEnvelope(
       userActionRequired: info.userActionRequired,
       retryable: info.retryable,
       next: sanitizeNext(failure.next ?? [], failingArgv),
+      ...(failure.changes ? { changes: [...failure.changes] } : {}),
+      ...(failure.postInstallSteps ? { postInstallSteps: [...failure.postInstallSteps] } : {}),
     },
   };
 }

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import type { GeneratedFile, InstallPlan, PlatformId } from "w2agent-core";
 
@@ -13,7 +12,7 @@ export const VALID_PLATFORMS: readonly PlatformId[] = [
 
 export const JS_PLATFORMS: readonly PlatformId[] = ["nextjs", "nuxt", "astro", "docusaurus"];
 
-export type ChangeAction = "create" | "modify" | "skip" | "manual";
+export type ChangeAction = "create" | "skip" | "manual";
 
 export interface PlannedChange {
   action: ChangeAction;
@@ -21,25 +20,54 @@ export interface PlannedChange {
   reason: string;
 }
 
-export function mapPlanChanges(plan: InstallPlan, projectDir: string): PlannedChange[] {
-  return plan.actions.map((a) => {
+export interface ExecutedPlan {
+  installed: readonly string[];
+  skipped: readonly string[];
+}
+
+function writeChange(
+  a: { dest: string; reason?: string },
+  path: string,
+  executed: ExecutedPlan | undefined,
+): PlannedChange {
+  if (!executed || executed.installed.includes(a.dest)) {
+    return { action: "create", path, reason: a.reason ?? "new file" };
+  }
+  const entry = executed.skipped.find((s) => s.startsWith(`${a.dest} (`));
+  return {
+    action: "skip",
+    path,
+    reason: entry ? entry.slice(a.dest.length + 2, -1) : "not written",
+  };
+}
+
+/** With `executed`, a write that did not happen is reported as a skip with the executor's reason. */
+export function mapPlanChanges(
+  plan: InstallPlan,
+  projectDir: string,
+  executed?: ExecutedPlan,
+): PlannedChange[] {
+  const changes: PlannedChange[] = [];
+  for (const a of plan.actions) {
     const abs = resolve(projectDir, a.dest);
     const path = relative(projectDir, abs) || a.dest;
     switch (a.type) {
-      case "write": {
-        const exists = existsSync(abs);
-        return {
-          action: exists ? "modify" : "create",
-          path,
-          reason: a.reason ?? (exists ? "existing file will be overwritten" : "new file"),
-        };
-      }
+      case "write":
+        changes.push(writeChange(a, path, executed));
+        break;
       case "skip":
-        return { action: "skip", path, reason: a.reason ?? "not needed" };
+        changes.push({ action: "skip", path, reason: a.reason ?? "not needed" });
+        break;
       case "manual":
-        return { action: "manual", path, reason: a.reason ?? "manual step required" };
+        changes.push({ action: "manual", path, reason: a.reason ?? "manual step required" });
+        break;
+      default: {
+        const unknown: never = a.type;
+        throw new Error(`unknown install action: ${String(unknown)}`);
+      }
     }
-  });
+  }
+  return changes;
 }
 
 /** The command that applies a dry run: same argv with --dry-run swapped for --install. */

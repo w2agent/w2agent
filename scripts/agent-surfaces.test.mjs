@@ -282,6 +282,8 @@ function allFlags(cmd, set = new Set()) {
   return set;
 }
 
+const NON_W2AGENT_FLAGS = new Set(["--no", "-y", "-D"]);
+
 function proseSpans(text) {
   const out = [];
   let inFence = false;
@@ -304,6 +306,7 @@ test("flags named in prose of the playbook and skill exist in `w2agent schema`",
       for (const raw of span.split(/\s+/)) {
         const tok = stripToken(raw).split("=")[0];
         if (!/^--?[A-Za-z][\w-]*$/.test(tok) || isPlaceholder(tok)) continue;
+        if (NON_W2AGENT_FLAGS.has(tok)) continue;
         if (!known.has(tok)) problems.push(`${rel}: unknown flag ${tok} in \`${span}\``);
       }
     }

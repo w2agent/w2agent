@@ -39,10 +39,9 @@ Examples below write `w2agent`. Substitute your runner for it. `next` arrays in 
 4. Plan: `w2agent integrate <local url> --dry-run --json --project-dir <site dir> --site-url <production origin>`. Always pass `--project-dir`. This writes nothing.
 5. Print the plan for the user: `changes`, `warnings`, `postInstallSteps`. Then get [approval](#approval).
 6. Apply: run the argv in `next[0]` (it is the same command with `--install`).
-7. Before you do the `postInstallSteps`, find the step that wires a generated build script into the site's build: for Next.js the `postbuild` script that runs `w2agent-build.mjs`, for Astro the `integrations` entry for `w2agent-integration.mjs`. That script runs `w2agent` through npx. Run `npm view w2agent@0.1.0 version`.
-   - If it succeeds: edit that generated script (a file w2agent just created, not a user file) so the call is pinned, for example `["-y", "w2agent@0.1.0", "generate", ...]`. Then do the `postInstallSteps`, rebuild and restart the local server.
-   - If npm answers 404: skip that wiring step (the `postbuild` script or the Astro `integrations` entry) and do the other steps, then rebuild and restart the local server. The files `integrate` wrote already serve. Report it as a skipped postInstallStep and say why.
-   - Never point a committed hook at a local checkout path. This applies to every platform: a generated call to `w2agent` through npx is pinned or not wired in.
+7. Before you do the `postInstallSteps`, find the step that wires a generated build script into the site's build: the `prebuild` script that runs `w2agent-build.mjs` (Next.js, Nuxt, Astro) or Astro's `integrations` entry for `w2agent-integration.mjs`. That script runs `npx --no -- w2agent`, so it uses only a CLI installed in the project and never downloads one. Never change `--no` to `-y` and never edit the generated script's npx call. Run `npm view w2agent@0.1.0 version`.
+   - If it succeeds: add `w2agent@0.1.0` as a devDependency (`npm install -D w2agent@0.1.0`), then do the `postInstallSteps` (including the `prebuild` script), rebuild and restart the local server.
+   - If npm answers 404: do not wire the hook (the `prebuild` script or the Astro `integrations` entry) and do not add a devDependency that points at a local checkout path: that path is not portable, so it is not committed. Do the other steps, then rebuild and restart the local server. The files `integrate` wrote already serve. In the final report, list "install w2agent as a devDependency, then add the `prebuild` script" as an owner step, and say why it was skipped.
 8. Verify: run the `next` argv from the installed document (`audit <local url> --json`). Compare with the baseline.
 9. Close remaining gaps (see [Closing gaps](#closing-gaps)). Re-audit after each batch.
 10. Report (see [Final report](#final-report)).
@@ -51,7 +50,7 @@ Examples below write `w2agent`. Substitute your runner for it. `next` arrays in 
 
 - If you can pause and ask, show the plan and wait for a yes.
 - If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready counts as approval for the plan exactly as shown, with its `changes` and `postInstallSteps`. Still print the plan first. Anything outside the plan needs explicit approval. Put it in the final report instead of doing it.
-- Exception: a `modify` replaces the whole file. If any `modify` targets a file that a previous w2agent run did not create, the request is not approval. If you cannot tell who created a file, treat it as the owner's. Ask the owner before you apply. In a non-interactive run, do not apply: stop after the dry run and report those paths.
+- `integrate` only creates new files and skips paths that already exist; it never overwrites or deletes. Existing files stay as they are.
 
 ### Production origin
 
@@ -73,8 +72,8 @@ Use what you find and say where it came from. If you find none, ask the owner. I
 ### Rules
 
 - Do not hand-write what `integrate` generates: `llms.txt`, markdown routes, middleware, and the robots or sitemap rules it emits. Run it.
-- Never rewrite, move or restructure existing user files (for example, do not move page copy into new modules). Edits you make by hand are minimal and additive. A `modify` in the plan replaces the whole file (the plan shows no diff). If a `modify` targets a file that a previous w2agent run did not create, follow the [approval](#approval) exception.
-- Change `package.json` scripts or dependencies only as `postInstallSteps` say. Anything else needs approval.
+- Never rewrite, move or restructure existing user files (for example, do not move page copy into new modules). Edits you make by hand are minimal and additive.
+- Change `package.json` scripts or dependencies only as `postInstallSteps` say, plus the one pinned `w2agent@0.1.0` devDependency from step 7. Anything else needs approval.
 - Stay inside the user's project and the w2agent checkout. Do not edit the w2agent repository itself.
 - On a failure, branch on `error.reason`. If `userActionRequired` is true, stop and tell the owner. Do not retry it. One exception: on `no_platform_detected`, if the project files show the framework (for example `next` in `package.json` dependencies means `nextjs`), retry once with `--platform <name>`, using a value that `w2agent schema` lists for `--platform`. If they do not show it, stop and ask.
 

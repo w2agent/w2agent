@@ -60,7 +60,7 @@ Every success document has `ok: true`, an `outcome` and the `platform`. `warning
 | `installed` | `--install` | `changes`, `postInstallSteps` |
 | `generated` | Default mode, files written to `--output` | `outputDir`, `files` |
 
-Each entry in `changes` is `{ "action", "path", "reason" }`. `path` is relative to `--project-dir`. `action` is one of `create`, `modify`, `skip` or `manual`. w2agent never deletes a file. `skip` and `manual` entries need no write; read `reason` for what to do by hand.
+Each entry in `changes` is `{ "action", "path", "reason" }`. `path` is relative to `--project-dir`. `action` is one of `create`, `skip` or `manual`. `integrate` never deletes or overwrites a file: a path that already exists is a `skip`. `skip` and `manual` entries need no write; read `reason` for what to do by hand.
 
 ```bash
 w2agent integrate http://127.0.0.1:<port> --dry-run --json \
@@ -79,7 +79,7 @@ w2agent integrate http://127.0.0.1:<port> --dry-run --json \
   ],
   "warnings": [],
   "postInstallSteps": [
-    "Add `\"postbuild\": \"node w2agent-build.mjs\"` to your package.json scripts."
+    "Add `\"prebuild\": \"node w2agent-build.mjs\"` to your package.json scripts. Needs the w2agent CLI installed in this project."
   ],
   "next": [
     ["w2agent", "integrate", "http://127.0.0.1:<port>", "--install", "--json",
@@ -88,7 +88,7 @@ w2agent integrate http://127.0.0.1:<port> --dry-run --json \
 }
 ```
 
-(Shortened. A real run lists every change.) After `--install`, `next` is `audit <crawl url> --json`, carrying your `--timeout` and `--allow-host` when you gave them. It audits the crawled URL, not `--site-url`. Run it after the `postInstallSteps` and after you rebuild or restart the local server that serves the changes.
+(Shortened. A real run lists every change. A project with no `tsconfig.json` gets `.js` files (`middleware.js`) instead of `.ts`.) After `--install`, `next` is `audit <crawl url> --json`, carrying your `--timeout` and `--allow-host` when you gave them. It audits the crawled URL, not `--site-url`. Run it after the `postInstallSteps` and after you rebuild or restart the local server that serves the changes.
 
 If `--platform` is forced and the crawl found no readable pages, `integrate` still plans or writes the scaffolding. It adds a `warnings` entry that says no pages were readable and why. Without `--platform` the same crawl is an error (below).
 
@@ -121,6 +121,7 @@ On failure, with `--json`, stdout holds:
 - `userActionRequired` is `true` when a person must act (for example allow-list a bot or supply a key). Do not retry blindly.
 - `retryable` is `true` when the same command may succeed later.
 - `next` is a list of argv arrays, each starting with `"w2agent"`. They are suggested follow-up commands. It is often empty.
+- An `integrate --install` failure after the plan ran also carries `changes` (what was executed, as in the success document) and `postInstallSteps` (the steps that do not name a failed file). Both are optional. Files listed as `create` were written even though the command failed. Existing files are skipped on a re-run, so do those steps now.
 
 ### Reasons
 
@@ -135,9 +136,11 @@ On failure, with `--json`, stdout holds:
 | `invalid_url` | 2 | no | no | Fix the URL (also raised for a bad `--site-url`). |
 | `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
 | `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode with `--install` or `--dry-run` also exits 1 and writes nothing. Without them it writes the core files to `--output` and exits 0. |
-| `not_a_project` | 1 | yes | no | `--project-dir` is missing or is not a project root for this platform. Pass the right `--project-dir`. |
+| `not_a_project` | 1 | yes | no | `--project-dir` is missing, is not a project root for this platform, or the platform refused it (for example a Pages Router app). `--install` and `--dry-run` write nothing. Pass the right `--project-dir`. |
 | `auth_required` | 1 | yes | no | Login needs an API key. See [login in agent environments](#login-in-agent-environments). |
 | `below_threshold` | 1 | no | no | `audit --ci --json` scored under `--threshold`. This is a result, not a crash: fix the site, then audit again. |
+
+`--install --json` also uses `unknown_failure` (exit 1) when a write failed or when nothing was installed because every path already existed. Human mode exits 1 in the same cases. With a partial failure the message names what was installed and what failed, and `error.changes` and `error.postInstallSteps` hold the executed changes and the steps still to do.
 
 ### `next` rules
 

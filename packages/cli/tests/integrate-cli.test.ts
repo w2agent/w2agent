@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -154,7 +155,7 @@ describe("built CLI: integrate agent mode", () => {
     expect(doc.platform).toBe("nextjs");
     expect(doc.changes.length).toBeGreaterThan(0);
     for (const c of doc.changes) {
-      expect(["create", "modify", "skip", "manual"]).toContain(c.action);
+      expect(["create", "skip", "manual"]).toContain(c.action);
       expect(typeof c.reason).toBe("string");
       expect(c.path.startsWith("/")).toBe(false);
     }
@@ -429,6 +430,82 @@ describe("built CLI: integrate agent mode", () => {
     expect(existsSync(missing)).toBe(false);
     expect(nextRequests).toBe(before);
   });
+
+  it("--install --json on a package.json without next: resolver refusal is a not_a_project envelope, exit 1", async () => {
+    const dir = tmp("nonnext");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x" }));
+    const r = await run(
+      [
+        "integrate",
+        nextOrigin,
+        "--platform",
+        "nextjs",
+        "--install",
+        "--json",
+        "--project-dir",
+        dir,
+      ],
+      tmp("cwd"),
+    );
+    expect(r.code).toBe(1);
+    const doc = JSON.parse(r.stdout);
+    expect(doc.ok).toBe(false);
+    expect(doc.error.reason).toBe("not_a_project");
+    expect(doc.error.message).toContain("is not a Next.js project");
+    expect(readdirSync(dir)).toEqual(["package.json"]);
+
+    const dry = await run(
+      [
+        "integrate",
+        nextOrigin,
+        "--platform",
+        "nextjs",
+        "--dry-run",
+        "--json",
+        "--project-dir",
+        dir,
+      ],
+      tmp("cwd"),
+    );
+    expect(dry.code).toBe(1);
+    expect(JSON.parse(dry.stdout).error.reason).toBe("not_a_project");
+    expect(readdirSync(dir)).toEqual(["package.json"]);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "--install --json with a failed write is an error envelope, exit 1",
+    async () => {
+      const project = projectDir();
+      chmodSync(join(project, "app"), 0o500);
+      try {
+        const r = await run(
+          ["integrate", nextOrigin, "--install", "--json", "--project-dir", project],
+          tmp("cwd"),
+        );
+        expect(r.code).toBe(1);
+        const doc = JSON.parse(r.stdout);
+        expect(doc.ok).toBe(false);
+        expect(doc.error.reason).toBe("unknown_failure");
+        expect(doc.error.message).toContain("could not be written");
+        expect(doc.error.message).toContain("Installed:");
+        expect(doc.error.message).not.toContain("Nothing was installed");
+        const created = doc.error.changes
+          .filter((c: { action: string }) => c.action === "create")
+          .map((c: { path: string }) => c.path);
+        expect(created).toContain("w2agent-build.mjs");
+        expect(existsSync(join(project, "w2agent-build.mjs"))).toBe(true);
+        expect(
+          doc.error.changes.some(
+            (c: { action: string; path: string }) =>
+              c.action === "skip" && c.path.startsWith("app/"),
+          ),
+        ).toBe(true);
+        expect(doc.error.postInstallSteps.join("\n")).toContain("prebuild");
+      } finally {
+        chmodSync(join(project, "app"), 0o700);
+      }
+    },
+  );
 
   it("detected JS platform with no package.json: not_a_project exit 1, nothing written", async () => {
     const empty = tmp("empty");

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,10 +15,8 @@ function file(filename: string, content: string): GeneratedFile {
 }
 
 describe("mapPlanChanges", () => {
-  it("maps write to create or modify by whether the destination exists, and carries every action type", () => {
+  it("maps write to create, carries every action type, and reports unexecuted writes as skips", () => {
     const dir = mkdtempSync(join(tmpdir(), "w2agent-plan-"));
-    mkdirSync(join(dir, "public"));
-    writeFileSync(join(dir, "public", "llms.txt"), "old");
     const plan: InstallPlan = {
       platform: "nextjs",
       warnings: [],
@@ -31,11 +29,17 @@ describe("mapPlanChanges", () => {
       ],
     };
     const changes = mapPlanChanges(plan, dir);
-    expect(changes.map((c) => c.action)).toEqual(["create", "modify", "skip", "manual"]);
+    expect(changes.map((c) => c.action)).toEqual(["create", "create", "skip", "manual"]);
     expect(changes.map((c) => c.path)).toEqual(["app/new.ts", "public/llms.txt", "a.txt", "b.txt"]);
     expect(changes[2].reason).toBe("already there");
-    for (const c of changes) expect(typeof c.reason).toBe("string");
     expect(changes.every((c) => c.reason.length > 0)).toBe(true);
+
+    const executed = mapPlanChanges(plan, dir, {
+      installed: ["app/new.ts"],
+      skipped: ["public/llms.txt (already exists, not overwritten)"],
+    });
+    expect(executed.map((c) => c.action)).toEqual(["create", "skip", "skip", "manual"]);
+    expect(executed[1].reason).toBe("already exists, not overwritten");
   });
 });
 

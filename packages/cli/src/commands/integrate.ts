@@ -316,6 +316,10 @@ export function registerIntegrateCommand(program: Command): void {
           if (opts.dryRun) {
             // Dry run: simulate result without writing
             if (json) {
+              if (plan.actions.length === 0) {
+                await fail({ reason: "not_a_project", message: plan.warnings.join(" ") });
+                return;
+              }
               await json.emit({
                 ok: true,
                 outcome: "planned",
@@ -339,12 +343,40 @@ export function registerIntegrateCommand(program: Command): void {
             console.log(summary);
           } else {
             const execResult = executeInstallPlan(plan, projectDir);
+            const upToDate = plan.actions.some(
+              (a) => a.type === "skip" && a.reason === "already up to date",
+            );
+            const failedWrite = execResult.failed.length > 0;
+            const nothingDone = execResult.installed.length === 0 && !upToDate;
             if (json) {
+              if (failedWrite || nothingDone) {
+                if (plan.actions.length === 0) {
+                  await fail({ reason: "not_a_project", message: plan.warnings.join(" ") });
+                  return;
+                }
+                const skippedText = execResult.skipped.join("; ");
+                const message = failedWrite
+                  ? `Some files could not be written: ${execResult.failed.join(", ")}. ${
+                      execResult.installed.length > 0
+                        ? `Installed: ${execResult.installed.join(", ")}. `
+                        : "Nothing was installed. "
+                    }${skippedText}. Post-install steps that name a failed file are left out; fix the cause and re-run (existing files are skipped).`
+                  : `Nothing was installed. ${skippedText}`;
+                await fail({
+                  reason: "unknown_failure",
+                  message,
+                  changes: mapPlanChanges(plan, projectDir, execResult),
+                  postInstallSteps: plan.postInstallSteps.filter(
+                    (step) => !execResult.failed.some((f) => step.includes(f)),
+                  ),
+                });
+                return;
+              }
               await json.emit({
                 ok: true,
                 outcome: "installed",
                 platform: platformId,
-                changes,
+                changes: mapPlanChanges(plan, projectDir, execResult),
                 warnings: [...plan.warnings, ...warnings],
                 postInstallSteps: plan.postInstallSteps,
                 next: sanitizeNext([reauditArgv(url, opts, command)], argv),
@@ -353,12 +385,7 @@ export function registerIntegrateCommand(program: Command): void {
             }
             const summary = formatInstallSummary(plan, execResult, projectDir, url, platformName);
             console.log(summary);
-            const upToDate = plan.actions.some(
-              (a) => a.type === "skip" && a.reason === "already up to date",
-            );
-            if (execResult.failed.length > 0 || (execResult.installed.length === 0 && !upToDate)) {
-              process.exitCode = 1;
-            }
+            if (failedWrite || nothingDone) process.exitCode = 1;
           }
         } else {
           // Default mode: write to output directory
