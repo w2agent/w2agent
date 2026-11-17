@@ -195,4 +195,4 @@ Create an API key at [w2agent.dev](https://w2agent.dev), then run:
 w2agent login --api-key <key> --json
 ```
 
-A key that does not start with `w2a_`, or an empty one (`--api-key=`), is rejected with `invalid_argument` (exit 2). If the key or the browser token cannot be saved (for example an unwritable config directory), the result is `unknown_failure` with exit 1.
+A key that does not start with `w2a_`, an empty one (`--api-key=`), or one with a character outside visible ASCII (a space, a newline, a trailing `\r`), is rejected with `invalid_argument` (exit 2) before any request, and the key is not echoed. If the key or the browser token cannot be saved (for example an unwritable config directory), the result is `unknown_failure` with exit 1.
