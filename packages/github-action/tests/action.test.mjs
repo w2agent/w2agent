@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -222,5 +222,415 @@ describe("CLI pin", () => {
     for (const m of raw.matchAll(/npm install -g w2agent@(\d+\.\d+\.\d+\S*?)\)?[\s."]/g)) {
       assert.equal(m[1], version);
     }
+  });
+});
+
+function parseRunner(out) {
+  const commands = [];
+  const stopped = [];
+  let token = null;
+  for (const line of out.split(/\r?\n/)) {
+    if (token !== null) {
+      if (line.startsWith(`::${token}::`)) token = null;
+      else if (line.startsWith("::")) stopped.push(line);
+      continue;
+    }
+    if (!line.startsWith("::")) continue;
+    const m = /^::stop-commands::(.*)$/.exec(line);
+    if (m) {
+      token = m[1];
+      commands.push("stop-commands");
+      continue;
+    }
+    commands.push(line);
+  }
+  return { commands, stopped, live: token === null };
+}
+
+function parseStreams(stdout, stderr) {
+  const r = parseRunner(stdout);
+  const late = stderr.split(/\r?\n/).filter((l) => l.startsWith("::"));
+  return { ...r, commands: [...r.commands, ...late], stderrCommands: late, out: stdout + stderr };
+}
+
+function runLive(s, env, { path, files } = {}) {
+  let body = s.run;
+  for (const [from, to] of files ?? []) body = body.replaceAll(from, to);
+  const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", body], {
+    env: { PATH: path ?? process.env.PATH, ...s.env, ...env },
+    encoding: "utf8",
+  });
+  return { code: r.status, ...parseStreams(r.stdout, r.stderr) };
+}
+
+const HOSTILE = [
+  "\n::warning::INJ",
+  "\r\n::add-mask::x",
+  "%0A::warning::INJ",
+  "x\n::stop-commands::abc\n::error::INJ",
+  "80%0D%0A::warning::INJ",
+];
+
+const stubDir = mkdtempSync(join(tmp, "stub-"));
+const stubAt = (name, body) => {
+  const d = mkdtempSync(join(stubDir, `${name}-`));
+  writeFileSync(join(d, "w2agent"), `#!/bin/bash\n${body}\n`, { mode: 0o755 });
+  return `${d}:${process.env.PATH}`;
+};
+const echoStub = (exit, trailingNewline = true) =>
+  stubAt(
+    `echo${exit}${trailingNewline}`,
+    `for a in "$@"; do printf 'bad option "%s"' "$a" >&2; ${trailingNewline ? "echo >&2;" : ""} done\nprintf '%s' 'tail ::warning::NOEOL'\nexit ${exit}`,
+  );
+const cliDist = join(here, "..", "..", "cli", "dist", "index.js");
+const realCliPath = () => {
+  const d = mkdtempSync(join(stubDir, "real-"));
+  writeFileSync(join(d, "w2agent"), `#!/bin/bash\nexec "${process.execPath}" "${cliDist}" "$@"\n`, {
+    mode: 0o755,
+  });
+  return `${d}:${process.env.PATH}`;
+};
+const auditEnv = (over) => ({ URL: "http://127.0.0.1:1/", MAX_PAGES: "20", ...over });
+
+describe("Workflow-command injection", () => {
+  it("harness: a command is live outside stop-commands, inert inside", () => {
+    const r = parseRunner("::warning::a\n::stop-commands::T\n::warning::b\n::T::\n::error::c\n");
+    assert.deepEqual(r.commands, ["::warning::a", "stop-commands", "::error::c"]);
+    assert.deepEqual(r.stopped, ["::warning::b"]);
+  });
+
+  for (const h of HOSTILE) {
+    it(`Validate inputs escapes threshold ${JSON.stringify(h)}`, () => {
+      const r = runLive(step("Validate inputs"), { THRESHOLD: h });
+      assert.equal(r.code, 1);
+      assert.equal(r.commands.length, 1, r.out);
+      assert.match(r.commands[0], /^::error::Input 'threshold' must be/);
+      assert.ok(
+        r.commands[0].includes(
+          h.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A"),
+        ),
+      );
+    });
+
+    it(`Check threshold escapes threshold ${JSON.stringify(h)} when validation is skipped`, () => {
+      const s = step("Check threshold");
+      const file = join(tmp, `inj-${n++}.json`);
+      writeFileSync(file, '{"overallScore":10}');
+      const r = runLive(s, { THRESHOLD: h }, { files: [[AUDIT_JSON, file]] });
+      assert.equal(r.code, 1);
+      assert.equal(r.commands.length, 1, r.out);
+      assert.match(
+        r.commands[0],
+        /^::error::Input .threshold. must be an integer from 0 to 100; got/,
+      );
+    });
+
+    it(`Check threshold, invariant (passes on base; jq renders the newline as \\n): hostile score ${JSON.stringify(h)}`, () => {
+      const s = step("Check threshold");
+      const file = join(tmp, `inj-${n++}.json`);
+      writeFileSync(file, JSON.stringify({ overallScore: `9${h}` }));
+      const r = runLive(s, { THRESHOLD: "80" }, { files: [[AUDIT_JSON, file]] });
+      assert.equal(r.code, 1);
+      assert.equal(r.commands.length, 1, r.out);
+    });
+
+    for (const [label, exit] of [
+      ["CLI failure", 3],
+      ["CLI success", 0],
+    ]) {
+      it(`Run audit, ${label}: url ${JSON.stringify(h)} yields only the action's own commands`, () => {
+        const r = runLive(step("Run audit"), auditEnv({ URL: h }), { path: echoStub(exit) });
+        assert.equal(r.code, exit === 0 ? 0 : 1, r.out);
+        assert.equal(r.live, true, "commands resumed");
+        const expected = exit === 0 ? ["stop-commands"] : ["stop-commands", "error"];
+        assert.deepEqual(
+          r.commands.map((c) => (c.startsWith("::error::w2agent audit failed for ") ? "error" : c)),
+          expected,
+          r.out,
+        );
+      });
+
+      it(`Run audit, ${label}: max-pages ${JSON.stringify(h)} cannot inject through CLI output`, () => {
+        const r = runLive(step("Run audit"), auditEnv({ MAX_PAGES: h }), {
+          path: echoStub(exit, false),
+        });
+        assert.equal(r.live, true);
+        assert.deepEqual(
+          r.commands.filter(
+            (c) => c !== "stop-commands" && !c.startsWith("::error::w2agent audit failed"),
+          ),
+          [],
+          r.out,
+        );
+      });
+
+      it(`Generate, ${label}: formats ${JSON.stringify(h)} cannot inject`, () => {
+        const r = runLive(
+          step("Generate agent assets"),
+          { URL: "http://127.0.0.1:1/", OUTPUT_DIR: "o", FORMATS: h, MAX_PAGES: "5" },
+          { path: echoStub(exit, false) },
+        );
+        assert.equal(r.code, exit);
+        assert.equal(r.live, true);
+        assert.deepEqual(r.commands, ["stop-commands"], r.out);
+      });
+    }
+  }
+
+  it("CLI stderr cannot escape the stop window (runner reads stdout and stderr on separate pipes)", () => {
+    for (const nl of [true, false]) {
+      for (const exit of [0, 3]) {
+        const p = stubAt(
+          `err${nl}${exit}`,
+          `printf '::warning::STDERR-INJ${nl ? "\\n" : ""}' >&2\nprintf 'x::warning::OUT\\n::warning::OUT2\\n'\nexit ${exit}`,
+        );
+        const r = runLive(step("Run audit"), auditEnv(), { path: p });
+        assert.equal(r.stderrCommands.length, 0, r.out);
+        assert.equal(r.live, true);
+        assert.ok(!r.commands.some((c) => /INJ|OUT/.test(c) && !c.startsWith("::error::")), r.out);
+        const g = runLive(
+          step("Generate agent assets"),
+          { URL: "http://127.0.0.1:1/", OUTPUT_DIR: "o", FORMATS: "all", MAX_PAGES: "5" },
+          { path: p },
+        );
+        assert.equal(g.stderrCommands.length, 0, g.out);
+        assert.deepEqual(g.commands, ["stop-commands"], g.out);
+      }
+    }
+  });
+
+  describe("Validate inputs rejects line breaks in every input that reaches a third-party step", () => {
+    const base = {
+      URL: "https://example.com/",
+      THRESHOLD: "80",
+      MAX_PAGES: "20",
+      FORMATS: "all",
+      OUTPUT_DIR: ".w2agent/",
+      NODE_VERSION: "20",
+    };
+    const names = {
+      URL: "url",
+      THRESHOLD: "threshold",
+      MAX_PAGES: "max-pages",
+      FORMATS: "formats",
+      OUTPUT_DIR: "output-dir",
+      NODE_VERSION: "node-version",
+    };
+    it("accepts clean values for all six", () => {
+      assert.equal(runLive(step("Validate inputs"), base).code, 0);
+    });
+    it("takes all six from env, not from an expression", () => {
+      const s = step("Validate inputs");
+      for (const k of Object.keys(base)) assert.match(s.env[k], /^\$\{\{ inputs\.[\w-]+ \}\}$/);
+    });
+    for (const [k, name] of Object.entries(names)) {
+      for (const h of [...HOSTILE, "x\r::warning::INJ"]) {
+        const expectAccept = !/[\r\n]/.test(h) && k !== "THRESHOLD";
+        it(`${expectAccept ? "accepts" : "rejects"} ${name} ${JSON.stringify(h)}`, () => {
+          const r = runLive(step("Validate inputs"), { ...base, [k]: h });
+          if (expectAccept) {
+            assert.equal(r.code, 0, "a literal %0A is not a line break");
+            return;
+          }
+          assert.equal(r.code, 1, r.out);
+          assert.equal(r.commands.length, 1, r.out);
+          assert.match(r.commands[0], /^::error::Input '[\w-]+' must/);
+          assert.equal(r.stderrCommands.length, 0);
+        });
+      }
+    }
+  });
+
+  it("the stop token is random per run and long", () => {
+    const tokens = new Set();
+    for (let i = 0; i < 4; i++) {
+      const r = runLive(step("Run audit"), auditEnv(), { path: echoStub(0) });
+      tokens.add(/::stop-commands::(\S+)/.exec(r.out)[1]);
+    }
+    assert.equal(tokens.size, 4);
+    for (const t of tokens) assert.match(t, /^[0-9a-f]{64}$/);
+  });
+
+  it("a CLI that guesses/echoes stop and resume lines cannot resume early", () => {
+    const p = stubAt(
+      "guess",
+      "echo '::warning::early'; echo '::abc::'; echo '::warning::after-guess'; exit 1",
+    );
+    const r = runLive(step("Run audit"), auditEnv(), { path: p });
+    assert.deepEqual(
+      r.commands.map((c) => c.slice(0, 31)),
+      ["stop-commands", "::error::w2agent audit failed for"].map((c) =>
+        c === "stop-commands" ? c : c.slice(0, 31),
+      ),
+    );
+  });
+
+  it("Parse audit results escapes score and grade in the notice and rejects multi-line values", () => {
+    const s = step("Parse audit results");
+    const out = join(tmp, `gh-output-${n}`);
+    const run = (auditObj) => {
+      const file = join(tmp, `parse-${n++}.json`);
+      writeFileSync(file, JSON.stringify(auditObj));
+      writeFileSync(out, "");
+      return runLive(
+        s,
+        { URL: "https://www.example.com:8443/x", GITHUB_OUTPUT: out },
+        { files: [[AUDIT_JSON, file]] },
+      );
+    };
+    const ok = run({ overallScore: 90, grade: "A" });
+    assert.equal(ok.code, 0, ok.out);
+    assert.deepEqual(ok.commands, ["::notice::w2agent audit complete — score: 90/100, grade: A"]);
+    assert.equal(
+      readFileSync(out, "utf8"),
+      "score=90\ngrade=A\nbadge-url=https://w2agent.dev/api/sites/example-com/badge.svg\n",
+    );
+    for (const h of HOSTILE) {
+      const r = run({ overallScore: 90, grade: `A${h}` });
+      const multiline = /[\r\n]/.test(h);
+      assert.equal(r.code, multiline ? 1 : 0, r.out);
+      assert.equal(r.commands.length, 1, r.out);
+      assert.match(r.commands[0], multiline ? /^::error::/ : /^::notice::/);
+      assert.doesNotMatch(readFileSync(out, "utf8"), /\n(?!grade=|badge-url=)[^\n]*(INJ|add-mask)/);
+    }
+  });
+
+  it("escapes % first so a literal %0A stays literal", () => {
+    const r = runLive(step("Validate inputs"), { THRESHOLD: "%0A::warning::X" });
+    assert.match(r.out, /got '%250A::warning::X'/);
+  });
+
+  it("no input-derived value is echoed raw in a workflow command", () => {
+    for (const s of steps.filter((x) => typeof x.run === "string")) {
+      for (const line of s.run
+        .split("\n")
+        .filter((l) => l.includes("::error::") || l.includes("::notice::"))) {
+        assert.doesNotMatch(
+          line.replaceAll(/\$\(esc "[^"]*"\)/g, ""),
+          /\$(\{)?(THRESHOLD|URL|MAX_PAGES|FORMATS|OUTPUT_DIR)\b/,
+          line,
+        );
+      }
+    }
+  });
+
+  describe("with the real built CLI", () => {
+    const built = (() => {
+      try {
+        readFileSync(cliDist);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    for (const [label, mk] of [
+      ["audit --depth", (h) => [step("Run audit"), auditEnv({ MAX_PAGES: h })]],
+      [
+        "generate --format",
+        (h) => [
+          step("Generate agent assets"),
+          {
+            URL: "http://127.0.0.1:1/",
+            OUTPUT_DIR: join(tmp, "gen-out"),
+            FORMATS: h,
+            MAX_PAGES: "5",
+          },
+        ],
+      ],
+    ]) {
+      for (const h of [
+        "1\n::warning::INJECTED-B",
+        "llms-txt\r\n::add-mask::x",
+        "1%0A::warning::INJ",
+      ]) {
+        it(`${label} ${JSON.stringify(h)}: CLI echoes raw, action neutralises it and resumes${/[\r\n]/.test(h) ? "" : " (invariant: a literal %0A is not a newline; passes on base)"}`, {
+          skip: !built && "CLI not built",
+        }, () => {
+          const [s, env] = mk(h);
+          const r = runLive(s, env, { path: realCliPath() });
+          assert.notEqual(r.code, 0, r.out);
+          assert.equal(r.live, true);
+          if (/[\r\n]/.test(h)) {
+            assert.ok(
+              r.stopped.length > 0,
+              `the CLI's injected line sits inside the window\n${r.out}`,
+            );
+            assert.equal(r.stderrCommands.length, 0, `no stderr line escapes the window\n${r.out}`);
+          }
+          assert.ok(
+            r.commands.every(
+              (c) => c === "stop-commands" || c.startsWith("::error::w2agent audit failed"),
+            ),
+            r.out,
+          );
+          assert.match(r.out, /INJ|add-mask/, "the CLI did echo the hostile text (premise)");
+        });
+      }
+    }
+
+    it("real CLI success: generate against a loopback site, then commands are live again", {
+      skip: !built && "CLI not built",
+    }, async () => {
+      const srv = spawn(
+        process.execPath,
+        [
+          "-e",
+          `const s=require("http").createServer((q,r)=>{r.setHeader("content-type","text/html");r.end("<html><head><title>T</title></head><body><h1>Hi</h1><p>x</p></body></html>")});s.listen(0,"127.0.0.1",()=>console.log(s.address().port))`,
+        ],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+      try {
+        const port = await new Promise((res) =>
+          srv.stdout.once("data", (d) => res(String(d).trim())),
+        );
+        const s = step("Generate agent assets");
+        const env = {
+          ...s.env,
+          URL: `http://127.0.0.1:${port}/`,
+          OUTPUT_DIR: join(tmp, "gen-ok"),
+          FORMATS: "llms-txt",
+          MAX_PAGES: "2",
+        };
+        const child = spawn("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", s.run], {
+          env: { PATH: realCliPath(), ...env },
+        });
+        let out = "";
+        let err = "";
+        child.stdout.on("data", (d) => {
+          out += d;
+        });
+        child.stderr.on("data", (d) => {
+          err += d;
+        });
+        const code = await new Promise((res) => child.on("close", res));
+        assert.equal(code, 0, out);
+        const r = parseStreams(out, err);
+        assert.deepEqual(r.commands, ["stop-commands"], out);
+        assert.equal(r.live, true);
+        assert.match(out, /llms\.txt/);
+      } finally {
+        srv.kill();
+      }
+    });
+
+    it("real CLI against an unreachable loopback URL: the action's ::error:: is live afterwards", {
+      skip: !built && "CLI not built",
+    }, () => {
+      const r = runLive(
+        step("Run audit"),
+        auditEnv({ URL: "http://127.0.0.1:1/\n::warning::INJ" }),
+        {
+          path: realCliPath(),
+        },
+      );
+      assert.equal(r.code, 1, r.out);
+      assert.equal(r.live, true);
+      assert.equal(r.commands.length, 2, r.out);
+      assert.match(
+        r.commands[1],
+        /^::error::w2agent audit failed for http:\/\/127\.0\.0\.1:1\/%0A::warning::INJ\./,
+      );
+    });
   });
 });

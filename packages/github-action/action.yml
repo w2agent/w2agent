@@ -54,12 +54,29 @@ runs:
     - name: Validate inputs
       shell: bash
       env:
+        URL: ${{ inputs.url }}
         THRESHOLD: ${{ inputs.threshold }}
+        MAX_PAGES: ${{ inputs.max-pages }}
+        FORMATS: ${{ inputs.formats }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        NODE_VERSION: ${{ inputs.node-version }}
       run: |
+        esc() { local s=$1; s=${s//'%'/%25}; s=${s//$'\r'/%0D}; s=${s//$'\n'/%0A}; printf '%s' "$s"; }
         if ! [[ "$THRESHOLD" =~ ^(100|[1-9]?[0-9])$ ]]; then
-          echo "::error::Input 'threshold' must be an integer from 0 to 100 (no sign, decimals, percent sign or leading zeros); got '$THRESHOLD'."
+          echo "::error::Input 'threshold' must be an integer from 0 to 100 (no sign, decimals, percent sign or leading zeros); got '$(esc "$THRESHOLD")'."
           exit 1
         fi
+        nobreak() {
+          if [[ "$2" == *[$'\r\n']* ]]; then
+            echo "::error::Input '$1' must not contain line breaks."
+            exit 1
+          fi
+        }
+        nobreak url "$URL"
+        nobreak max-pages "$MAX_PAGES"
+        nobreak formats "$FORMATS"
+        nobreak output-dir "$OUTPUT_DIR"
+        nobreak node-version "$NODE_VERSION"
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -77,8 +94,15 @@ runs:
         URL: ${{ inputs.url }}
         MAX_PAGES: ${{ inputs.max-pages }}
       run: |
-        if ! w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json --depth "$MAX_PAGES"; then
-          echo "::error::w2agent audit failed for $URL. Ensure the URL is reachable and w2agent is installed (npm install -g w2agent@0.1.0)."
+        esc() { local s=$1; s=${s//'%'/%25}; s=${s//$'\r'/%0D}; s=${s//$'\n'/%0A}; printf '%s' "$s"; }
+        TOKEN=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")
+        echo "::stop-commands::$TOKEN"
+        rc=0
+        w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json --depth "$MAX_PAGES" 2>&1 || rc=$?
+        echo
+        echo "::$TOKEN::"
+        if [ "$rc" -ne 0 ]; then
+          echo "::error::w2agent audit failed for $(esc "$URL"). Ensure the URL is reachable and w2agent is installed (npm install -g w2agent@0.1.0)."
           exit 1
         fi
 
@@ -88,6 +112,7 @@ runs:
       env:
         URL: ${{ inputs.url }}
       run: |
+        esc() { local s=$1; s=${s//'%'/%25}; s=${s//$'\r'/%0D}; s=${s//$'\n'/%0A}; printf '%s' "$s"; }
         if ! SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json 2>/dev/null) || [[ "$SCORE" == "null" || -z "$SCORE" ]]; then
           echo "::error::Failed to parse audit results — /tmp/w2agent-audit.json is missing, malformed, or lacks overallScore."
           exit 1
@@ -95,6 +120,10 @@ runs:
         GRADE=$(jq -r '.grade' /tmp/w2agent-audit.json)
         if [[ "$GRADE" == "null" || -z "$GRADE" ]]; then
           echo "::error::Failed to parse audit grade from /tmp/w2agent-audit.json."
+          exit 1
+        fi
+        if [[ "$SCORE$GRADE" == *[$'\r\n']* ]]; then
+          echo "::error::Failed to parse audit results — score or grade spans multiple lines."
           exit 1
         fi
         echo "score=$SCORE" >> $GITHUB_OUTPUT
@@ -106,7 +135,7 @@ runs:
         SLUG=$(echo "$HOSTNAME" | sed 's/^www\.//' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')
         echo "badge-url=https://w2agent.dev/api/sites/$SLUG/badge.svg" >> $GITHUB_OUTPUT
 
-        echo "::notice::w2agent audit complete — score: $SCORE/100, grade: $GRADE"
+        echo "::notice::w2agent audit complete — score: $(esc "$SCORE")/100, grade: $(esc "$GRADE")"
 
     - name: Post PR comment
       if: github.event_name == 'pull_request'
@@ -180,7 +209,13 @@ runs:
         FORMATS: ${{ inputs.formats }}
         MAX_PAGES: ${{ inputs.max-pages }}
       run: |
-        w2agent generate "$URL" --output "$OUTPUT_DIR" --format "$FORMATS" --max-pages "$MAX_PAGES"
+        TOKEN=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")
+        echo "::stop-commands::$TOKEN"
+        rc=0
+        w2agent generate "$URL" --output "$OUTPUT_DIR" --format "$FORMATS" --max-pages "$MAX_PAGES" 2>&1 || rc=$?
+        echo
+        echo "::$TOKEN::"
+        exit "$rc"
 
     - name: Commit generated files
       if: github.event_name == 'push'
@@ -196,14 +231,19 @@ runs:
       env:
         THRESHOLD: ${{ inputs.threshold }}
       run: |
+        esc() { local s=$1; s=${s//'%'/%25}; s=${s//$'\r'/%0D}; s=${s//$'\n'/%0A}; printf '%s' "$s"; }
         SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json) || SCORE=""
         if ! [[ "$SCORE" =~ ^[0-9]+$ ]]; then
-          echo "::error::Audit score '$SCORE' in /tmp/w2agent-audit.json is not a non-negative integer."
+          echo "::error::Audit score '$(esc "$SCORE")' in /tmp/w2agent-audit.json is not a non-negative integer."
+          exit 1
+        fi
+        if ! [[ "$THRESHOLD" =~ ^(100|[1-9]?[0-9])$ ]]; then
+          echo "::error::Input 'threshold' must be an integer from 0 to 100; got '$(esc "$THRESHOLD")'."
           exit 1
         fi
         if [ "$SCORE" -ge "$THRESHOLD" ]; then
           echo "Audit passed: $SCORE >= $THRESHOLD"
         else
-          echo "::error::Audit score $SCORE is below threshold $THRESHOLD"
+          echo "::error::Audit score $SCORE is below threshold $(esc "$THRESHOLD")"
           exit 1
         fi

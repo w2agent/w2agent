@@ -16,6 +16,8 @@ assets (llms.txt, robots.txt, schema.org, agent-card) on every push to main.
 | `max-pages` | no | `20` | Maximum pages to scan during audit and generate |
 | `generate` | no | `true` | Set to `false` to run audit only (no file generation or commit) |
 
+`url`, `threshold`, `max-pages`, `formats`, `output-dir` and `node-version` must not contain line breaks. The first step fails if one does, because a line break in a value could inject GitHub workflow commands into the step log.
+
 ## Outputs
 
 | Name | Description |
