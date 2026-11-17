@@ -1,70 +1,67 @@
-import {
-  applyRobotsAccessFixRemovals,
-  describeRobotsAccessFixRemovals,
-  planRobotsAccessFix,
-} from "../audit/shared/robots-fix.js";
+import { planRobotsAccessFix } from "../audit/shared/robots-fix.js";
 import type { GenerateContext } from "./types.js";
 
+const HEADER = "# --- w2agent: suggested AI bot rules ---";
+const LINE_BREAK = /\r\n|\r|\n/;
+
 export function generateRobotsTxt(ctx: GenerateContext): string {
-  const { metadata, baseUrl } = ctx;
-  const existing = metadata.robotsTxt;
+  const existing = ctx.metadata.robotsTxt;
+  const additions = planAdditions(ctx);
 
-  if (existing) {
-    return appendMissingRules(existing, baseUrl);
+  if (!existing) {
+    return `${additions.join("\n")}\n`;
   }
-
-  return generateFull(baseUrl);
-}
-
-function generateFull(baseUrl: string): string {
-  const lines: string[] = [];
-
-  lines.push("User-agent: *");
-  lines.push("Allow: /");
-  lines.push("");
-
-  lines.push(`Sitemap: ${baseUrl}/sitemap.xml`);
-  lines.push(`# llms.txt: ${baseUrl}/llms.txt`);
-  lines.push("");
-
-  return lines.join("\n");
-}
-
-function appendMissingRules(existing: string, baseUrl: string): string {
-  const eol = existing.includes("\r\n") ? "\r\n" : "\n";
-  const content = existing.toLowerCase();
-  const fix = planRobotsAccessFix(existing, baseUrl);
-  const lines = fix ? applyRobotsAccessFixRemovals(existing, fix) : existing.split(/\r\n|\r|\n/);
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
-  const additions: string[] = [];
-
-  if (fix) {
-    if (fix.removals.length > 0) {
-      additions.push("# Moved out of their original groups (other agents keep their rules):");
-      additions.push(...describeRobotsAccessFixRemovals(fix));
-    }
-    for (const group of fix.groups) {
-      additions.push(...group);
-      additions.push("");
-    }
-  }
-
-  if (!content.includes("sitemap:")) {
-    additions.push(`Sitemap: ${baseUrl}/sitemap.xml`);
-  }
-
-  if (!content.includes("llms.txt")) {
-    additions.push(`# llms.txt: ${baseUrl}/llms.txt`);
-  }
-
   if (additions.length === 0) {
     return existing;
   }
 
-  lines.push("");
-  lines.push("# --- w2agent: suggested AI bot rules ---");
-  lines.push(...additions);
-
+  const eol = existing.includes("\r\n") ? "\r\n" : "\n";
+  const lines = existing.split(LINE_BREAK);
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  lines.push("", ...additions);
   while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
   return `${lines.join(eol)}${eol}`;
+}
+
+/**
+ * Only the text w2agent adds to the site's robots.txt, with "\n" line endings and a trailing
+ * newline; "" when there is nothing to add. Without an existing robots.txt this is the whole
+ * generated file. Appending it to the existing file (after a blank line) reproduces
+ * generateRobotsTxt, except for CRLF conversion.
+ */
+export function generateRobotsAdditions(ctx: GenerateContext): string {
+  const additions = planAdditions(ctx);
+  return additions.length === 0 ? "" : `${additions.join("\n")}\n`;
+}
+
+function hasSitemap(sitemapXml: string | undefined): boolean {
+  return !!sitemapXml && (sitemapXml.includes("<urlset") || sitemapXml.includes("<sitemapindex"));
+}
+
+function planAdditions(ctx: GenerateContext): string[] {
+  const { metadata, baseUrl } = ctx;
+  const existing = metadata.robotsTxt;
+  const found = hasSitemap(metadata.sitemapXml);
+  const sitemapLine = `Sitemap: ${baseUrl}/sitemap.xml`;
+  const llmsLine = `# llms.txt: ${baseUrl}/llms.txt`;
+
+  if (!existing) {
+    const lines = ["User-agent: *", "Allow: /", ""];
+    if (found) lines.push(sitemapLine);
+    lines.push(llmsLine);
+    return lines;
+  }
+
+  const content = existing.toLowerCase();
+  const additions: string[] = [];
+  const fix = planRobotsAccessFix(existing, baseUrl, { namedBlocks: "keep" });
+
+  for (const group of fix?.groups ?? []) {
+    additions.push(...group, "");
+  }
+  if (found && !content.includes("sitemap:")) additions.push(sitemapLine);
+  if (!content.includes("llms.txt")) additions.push(llmsLine);
+
+  while (additions.length > 0 && additions[additions.length - 1] === "") additions.pop();
+  return additions.length === 0 ? additions : [HEADER, ...additions];
 }

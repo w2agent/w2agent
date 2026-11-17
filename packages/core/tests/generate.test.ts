@@ -15,7 +15,7 @@ import { generateFaq } from "../src/generate/faq.js";
 import { htmlToMarkdown } from "../src/generate/html-to-markdown.js";
 import { generateLlmsFullTxt } from "../src/generate/llms-full-txt.js";
 import { extractSiteInfo, generateLlmsTxt } from "../src/generate/llms-txt.js";
-import { generateRobotsTxt } from "../src/generate/robots-txt.js";
+import { generateRobotsAdditions, generateRobotsTxt } from "../src/generate/robots-txt.js";
 import { generateSchemaOrg } from "../src/generate/schema-org.js";
 import { generateSkillMd } from "../src/generate/skill-md.js";
 import { generateOpenClawSkillMd } from "../src/generate/skill-md-openclaw.js";
@@ -394,12 +394,17 @@ function makeFetchedPage(url: string, html: string): FetchedPage {
 // --- robots-txt generation ---
 
 describe("generateRobotsTxt", () => {
-  const withRobots = (robotsTxt: string) =>
+  const withRobots = (robotsTxt: string, sitemapXml?: string) =>
     generateRobotsTxt(
-      makeCtx({ metadata: { baseUrl: "https://example.com", robotsTxt, wellKnown: {} } }),
+      makeCtx({
+        metadata: { baseUrl: "https://example.com", robotsTxt, sitemapXml, wellKnown: {} },
+      }),
     );
-  const TAIL =
-    "\nSitemap: https://example.com/sitemap.xml\n# llms.txt: https://example.com/llms.txt\n";
+  const SITEMAP =
+    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"/>';
+  const LLMS = "# llms.txt: https://example.com/llms.txt\n";
+  const SM = "Sitemap: https://example.com/sitemap.xml\n";
+  const TAIL = `\n${SM}${LLMS}`;
   const blockedFor = (robotsTxt: string, token: string, path = "/") =>
     robotsParser("https://example.com/robots.txt", robotsTxt).isAllowed(
       `https://example.com${path}`,
@@ -407,12 +412,32 @@ describe("generateRobotsTxt", () => {
     ) === false;
   const accessOf = (robotsTxt: string) =>
     aiAgentAccess.run([], { baseUrl: "https://example.com", robotsTxt, wellKnown: {} });
+  const delayOf = (robotsTxt: string, token: string) =>
+    robotsParser("https://example.com/robots.txt", robotsTxt).getCrawlDelay(token);
+  const aiUserSearch = BOT_TOKENS.filter((b) => b.robotsToken && b.purpose !== "training");
 
-  // A named group overrides User-agent: * for that bot, so per-token groups would
-  // silently lift every path restriction the owner later adds under *.
-  it("generates a plain allow-all robots.txt with no per-token groups when none exists", () => {
+  it("generates a plain allow-all robots.txt with no per-token groups and no sitemap when none was found", () => {
     const result = generateRobotsTxt(makeCtx());
-    expect(result).toBe(`User-agent: *\nAllow: /\n${TAIL}`);
+    expect(result).toBe(`User-agent: *\nAllow: /\n\n${LLMS}`);
+  });
+
+  it("no robots.txt: asserts the Sitemap only when a sitemap was found", () => {
+    const meta = (sitemapXml?: string) =>
+      makeCtx({ metadata: { baseUrl: "https://example.com", sitemapXml, wellKnown: {} } });
+    expect(generateRobotsTxt(meta(SITEMAP))).toBe(`User-agent: *\nAllow: /\n\n${SM}${LLMS}`);
+    expect(generateRobotsTxt(meta("<html>soft 404</html>"))).not.toContain("Sitemap:");
+    expect(generateRobotsTxt(meta(undefined))).not.toContain("Sitemap:");
+  });
+
+  it("existing robots.txt: Sitemap added only when found and not already declared", () => {
+    const existing = "User-agent: *\nDisallow: /private/\n";
+    expect(withRobots(existing)).not.toContain("Sitemap:");
+    expect(withRobots(existing, "<html>soft 404</html>")).not.toContain("Sitemap:");
+    expect(withRobots(existing, SITEMAP)).toContain(SM);
+    const declared = `${existing}Sitemap: https://example.com/other.xml\n`;
+    const result = withRobots(declared, SITEMAP);
+    expect(result).not.toContain("sitemap.xml");
+    expect(result.match(/^Sitemap:/gm)).toHaveLength(1);
   });
 
   it("wildcard block: appends one group for user/search tokens that keeps the site's * path rules", () => {
@@ -421,20 +446,28 @@ describe("generateRobotsTxt", () => {
 
     expect(accessOf(existing).status).toBe("fail");
     expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
+    expect(result.startsWith(existing.trimEnd())).toBe(true);
     expect(result.match(/^Allow: \/$/gm)).toHaveLength(1);
-    for (const bot of BOT_TOKENS.filter((b) => b.robotsToken && b.purpose !== "training")) {
+    for (const bot of aiUserSearch) {
       expect(result).toContain(`User-agent: ${bot.token}\n`);
       expect(blockedFor(result, bot.token, "/"), bot.token).toBe(false);
       expect(blockedFor(result, bot.token, "/private/x"), bot.token).toBe(true);
     }
   });
 
-  it("never emits training tokens — opting out of training is the owner's call (D-2)", () => {
-    const result = withRobots(`User-agent: *\nDisallow: /\n${TAIL}`);
+  it("wildcard block only: training tokens and unknown bots stay blocked, * Crawl-delay is kept", () => {
+    const existing = "User-agent: *\nCrawl-delay: 30\nDisallow: /\nDisallow: /private/\n";
+    const result = withRobots(existing);
+    for (const bot of aiUserSearch) {
+      expect(blockedFor(result, bot.token), bot.token).toBe(false);
+      expect(blockedFor(result, bot.token, "/private/x"), bot.token).toBe(true);
+      expect(delayOf(result, bot.token), bot.token).toBe(30);
+    }
     for (const bot of BOT_TOKENS.filter((b) => b.purpose === "training")) {
       expect(result).not.toContain(`User-agent: ${bot.token}`);
       expect(blockedFor(result, bot.token), bot.token).toBe(true);
     }
+    expect(blockedFor(result, "SomeOtherBot")).toBe(true);
     for (const stale of ["Claude-Web", "anthropic-ai", "cohere-ai", "Bytespider", "Google-Agent"]) {
       expect(result).not.toContain(`User-agent: ${stale}`);
     }
@@ -445,74 +478,68 @@ describe("generateRobotsTxt", () => {
     expect(withRobots(existing)).toBe(existing);
   });
 
-  // Appending "User-agent: ChatGPT-User / Allow: /" alone would merge into the owner's group,
-  // where the longer "Disallow: /*" still wins; so the token is moved out of its group.
-  it("named-group block: moves the token into its own group, so the merged rules no longer block it", () => {
-    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nDisallow: /*\nDisallow: /private/\n${TAIL}`;
+  it("owner blocks GPTBot by name + wildcard block: GPTBot stays blocked, user tokens allowed, unknown bots blocked", () => {
+    const existing = `User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /\n${TAIL}`;
     const result = withRobots(existing);
-
-    expect(accessOf(existing).status).toBe("fail");
-    expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
-    expect(blockedFor(result, "ChatGPT-User", "/private/x")).toBe(true);
-    expect(result).toContain("#    line 4: User-agent: ChatGPT-User");
-    expect(result).toContain("#    line 5: Disallow: /*");
-  });
-
-  // R2-1: blank lines don't end a group, so deleting only the rule would glue the
-  // token's User-agent line onto the next group and inherit its root block.
-  it("sole-agent group followed by a * root block: the token ends up allowed", () => {
-    const existing = `User-agent: ChatGPT-User\nDisallow: /*\n\nUser-agent: *\nDisallow: /\n${TAIL}`;
-    const result = withRobots(existing);
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
-    expect(blockedFor(result, "SomeOtherBot")).toBe(true);
+    expect(result.startsWith(existing.trimEnd())).toBe(true);
     expect(blockedFor(result, "GPTBot")).toBe(true);
-    expect(result).not.toMatch(/^Disallow: \/\*$/m);
-  });
-
-  it("removes an emptied group's rules too, so they never attach to the preceding group", () => {
-    const existing = `User-agent: GPTBot\nDisallow: /private/\n\nUser-agent: ChatGPT-User\nDisallow: /*\n${TAIL}`;
-    const result = withRobots(existing);
     expect(blockedFor(result, "ChatGPT-User")).toBe(false);
-    expect(blockedFor(result, "GPTBot", "/")).toBe(false);
-    expect(blockedFor(result, "GPTBot", "/private/x")).toBe(true);
-  });
-
-  // R2-2 / D-2: a shared group's opt-out for a training crawler must survive the fix.
-  it("shared group with a training token: only the user token is split out; GPTBot stays blocked", () => {
-    const existing = `User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\nDisallow: /private/\n${TAIL}`;
-    const result = withRobots(existing);
-    expect(blockedFor(result, "ChatGPT-User", "/")).toBe(false);
-    expect(blockedFor(result, "ChatGPT-User", "/private/x")).toBe(true);
-    expect(blockedFor(result, "GPTBot", "/")).toBe(true);
-    expect(blockedFor(result, "GPTBot", "/private/x")).toBe(true);
-    expect(result.startsWith("User-agent: GPTBot\nDisallow: /*\nDisallow: /private/\n")).toBe(true);
-  });
-
-  it("shared * + token group: * keeps blocking everything else", () => {
-    const existing = `User-agent: *\nUser-agent: ChatGPT-User\nDisallow: /\n${TAIL}`;
-    const result = withRobots(existing);
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
     expect(blockedFor(result, "SomeOtherBot")).toBe(true);
-    expect(blockedFor(result, "GPTBot")).toBe(true);
-    expect(result.startsWith("User-agent: *\nDisallow: /\n")).toBe(true);
   });
 
-  it("combines named and *-inherited tokens only when their rule sets match", () => {
-    const existing = `User-agent: *\nDisallow: /*\nDisallow: /tmp/\n\nUser-agent: ChatGPT-User\nDisallow: /\n${TAIL}`;
+  const namedCases: Array<[string, string]> = [
+    ["alone", "User-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\n"],
+    ["named after *", "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nDisallow: /\n"],
+    ["in a shared * group", "User-agent: *\nUser-agent: ChatGPT-User\nDisallow: /\n"],
+    ["versioned", "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User/1.0\nDisallow: /\n"],
+    [
+      "with a narrower rule",
+      "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nDisallow: /*\n",
+    ],
+  ];
+  it.each(
+    namedCases,
+  )("owner blocks ChatGPT-User by name (%s): it stays blocked, Claude-User gets Allow", (_n, existing) => {
+    const result = withRobots(existing, SITEMAP);
+    expect(result.startsWith(existing.trimEnd())).toBe(true);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(true);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
+    expect(blockedFor(result, "SomeOtherBot")).toBe(true);
+    expect(result).not.toContain("Moved out");
+    expect(result.match(/User-agent: ChatGPT-User/g)).toHaveLength(1);
+  });
+
+  it("a named group with an empty rule set still counts as naming the token", () => {
+    const existing = "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\n";
     const result = withRobots(existing);
-    expect(result).toContain("User-agent: ChatGPT-User\nAllow: /\n");
-    expect(result).toMatch(
-      /User-agent: Claude-User\n(User-agent: [^\n]+\n)*Disallow: \/tmp\/\nAllow: \/\n/,
-    );
-    expect(blockedFor(result, "ChatGPT-User", "/tmp/a")).toBe(false);
+    expect(result.match(/User-agent: ChatGPT-User/g)).toHaveLength(1);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
+  });
+
+  it("never rewrites or removes an owner line", () => {
+    const existing = `User-agent: GPTBot\nUser-agent: ChatGPT-User\nDisallow: /*\nDisallow: /private/\n\nUser-agent: *\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(result.startsWith(existing.trimEnd())).toBe(true);
+    expect(blockedFor(result, "ChatGPT-User")).toBe(true);
+    expect(blockedFor(result, "GPTBot")).toBe(true);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
+  });
+
+  it("keeps the * Crawl-delay for added tokens and groups them by identical rules", () => {
+    const existing = `User-agent: *\nCrawl-delay: 5\nDisallow: /*\nDisallow: /tmp/\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\nDisallow: /\n${TAIL}`;
+    const result = withRobots(existing);
+    expect(delayOf(result, "ChatGPT-User")).toBe(30);
+    expect(delayOf(result, "Claude-User")).toBe(5);
+    expect(blockedFor(result, "Claude-User")).toBe(false);
     expect(blockedFor(result, "Claude-User", "/tmp/a")).toBe(true);
   });
 
-  it("keeps CRLF line endings and still unblocks the token", () => {
-    const existing =
-      "User-agent: ChatGPT-User\r\nDisallow: /*\r\n\r\nUser-agent: *\r\nDisallow: /private/\r\n";
+  it("keeps CRLF line endings and the owner's text", () => {
+    const existing = "User-agent: *\r\nDisallow: /private/\r\nDisallow: /\r\n";
     const result = withRobots(existing);
     expect(result.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(result.startsWith(existing)).toBe(true);
     expect(blockedFor(result, "ChatGPT-User")).toBe(false);
     expect(accessOf(result)).toMatchObject({ status: "pass", score: 100 });
   });
@@ -521,56 +548,41 @@ describe("generateRobotsTxt", () => {
     const existing = `User-agent: *\nDisallow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n${TAIL}`;
     const result = withRobots(existing);
     expect(result).toContain("User-agent: Applebot\n");
-    expect(result).not.toContain("line 4: User-agent: Applebot-Extended");
-    expect(result).toContain("User-agent: Applebot-Extended\nAllow: /\n");
+    expect(result.match(/User-agent: Applebot-Extended/g)).toHaveLength(1);
     expect(blockedFor(result, "Applebot")).toBe(false);
   });
 
-  // The fix only unblocks the root; a moved token must keep the pacing the owner asked for.
-  const delayOf = (robotsTxt: string, token: string) =>
-    robotsParser("https://example.com/robots.txt", robotsTxt).getCrawlDelay(token);
+  describe("generateRobotsAdditions", () => {
+    const ctxFor = (robotsTxt: string | undefined, sitemapXml?: string) =>
+      makeCtx({
+        metadata: { baseUrl: "https://example.com", robotsTxt, sitemapXml, wellKnown: {} },
+      });
 
-  it("named-group block: the moved token keeps its group's Crawl-delay", () => {
-    const existing = `User-agent: *\nAllow: /\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\nDisallow: /*\n${TAIL}`;
-    expect(delayOf(existing, "ChatGPT-User")).toBe(30);
-    const result = withRobots(existing);
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
-    expect(delayOf(result, "ChatGPT-User")).toBe(30);
-    expect(delayOf(result, "SomeOtherBot")).toBeUndefined();
-    expect(result).toContain("#    line 5: Crawl-delay: 30");
-  });
+    it("returns only the added groups and lines, never the owner's text", () => {
+      const existing =
+        "User-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow: /\nDisallow: /private/\n";
+      const delta = generateRobotsAdditions(ctxFor(existing, SITEMAP));
+      expect(delta).not.toMatch(/^Disallow: \/$/m);
+      expect(delta).not.toMatch(/^User-agent: \*$/m);
+      expect(delta).not.toMatch(/^User-agent: ChatGPT-User$/m);
+      expect(delta).toMatch(/^User-agent: Claude-User$/m);
+      expect(delta).toContain("Disallow: /private/\nAllow: /\n");
+      expect(delta).toContain(SM);
+      expect(delta.startsWith("# --- w2agent")).toBe(true);
+      expect(generateRobotsTxt(ctxFor(existing, SITEMAP))).toBe(`${existing}\n${delta}`);
+    });
 
-  it("wildcard block: *-inherited tokens keep the * Crawl-delay", () => {
-    const existing = `User-agent: *\nCrawl-delay: 30\nDisallow: /*\n${TAIL}`;
-    const result = withRobots(existing);
-    for (const bot of BOT_TOKENS.filter((b) => b.robotsToken && b.purpose !== "training")) {
-      expect(blockedFor(result, bot.token), bot.token).toBe(false);
-      expect(delayOf(result, bot.token), bot.token).toBe(30);
-    }
-  });
+    it("returns an empty string when there is nothing to add", () => {
+      const existing = `User-agent: *\nDisallow: /private/\n${TAIL}`;
+      expect(generateRobotsAdditions(ctxFor(existing))).toBe("");
+      expect(generateRobotsTxt(ctxFor(existing))).toBe(existing);
+    });
 
-  it("uses the last Crawl-delay among the token's groups, as robots-parser does", () => {
-    const existing = `User-agent: ChatGPT-User\nCrawl-delay: 5\nDisallow: /*\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\n${TAIL}`;
-    expect(delayOf(existing, "ChatGPT-User")).toBe(30);
-    const result = withRobots(existing);
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
-    expect(delayOf(result, "ChatGPT-User")).toBe(30);
-  });
-
-  it("does not merge moved tokens whose Crawl-delay differs", () => {
-    const existing = `User-agent: *\nCrawl-delay: 5\nDisallow: /\n\nUser-agent: ChatGPT-User\nCrawl-delay: 30\nDisallow: /\n${TAIL}`;
-    const result = withRobots(existing);
-    expect(delayOf(result, "ChatGPT-User")).toBe(30);
-    expect(delayOf(result, "Claude-User")).toBe(5);
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
-    expect(blockedFor(result, "Claude-User")).toBe(false);
-  });
-
-  it("treats a versioned User-agent line as naming the token, like robots-parser does", () => {
-    const existing = `User-agent: ChatGPT-User/1.0\nDisallow: /\n${TAIL}`;
-    const result = withRobots(existing);
-    expect(result).toContain("#    line 1: User-agent: ChatGPT-User/1.0");
-    expect(blockedFor(result, "ChatGPT-User")).toBe(false);
+    it("is the whole generated file when no robots.txt exists", () => {
+      expect(generateRobotsAdditions(ctxFor(undefined, SITEMAP))).toBe(
+        generateRobotsTxt(ctxFor(undefined, SITEMAP)),
+      );
+    });
   });
 });
 

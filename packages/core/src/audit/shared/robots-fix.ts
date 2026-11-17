@@ -84,9 +84,14 @@ function blocksRoot(rule: RobotsRule, baseUrl: string): boolean {
   return probe.isAllowed(`${baseUrl}/`, "probe") === false;
 }
 
+export interface RobotsAccessFixOptions {
+  namedBlocks?: "move" | "keep";
+}
+
 export function planRobotsAccessFix(
   robotsTxt: string,
   baseUrl: string,
+  options: RobotsAccessFixOptions = {},
 ): RobotsAccessFix | undefined {
   const blocked = findBlockedTokens(robotsTxt, baseUrl);
   const candidates = [...blocked.user, ...blocked.search];
@@ -114,6 +119,7 @@ export function planRobotsAccessFix(
   for (const token of candidates) {
     const agent = normalizeAgent(token);
     const naming = groups.filter((g) => g.agentLines.some((a) => a.agent === agent));
+    if (options.namedBlocks === "keep" && naming.length > 0) continue;
     const owners = naming.filter((g) => g.rules.length > 0);
     if (owners.length === 0) {
       addGroup(
@@ -138,6 +144,8 @@ export function planRobotsAccessFix(
       for (const line of g.scopedLines) removeLines.add(line);
     }
   }
+
+  if (byRules.size === 0) return undefined;
 
   const rawLines = robotsTxt.split(LINE_BREAK);
   return {

@@ -61,7 +61,7 @@ title: Page Title
 
 #### robots.txt
 
-AI-friendly robots.txt with rules for known AI crawlers.
+AI-friendly robots.txt for known AI crawlers. It adds Allow groups only for AI user and search agents that `User-agent: *` alone blocks (keeping the `*` path rules and Crawl-delay), and never changes a group that names an agent, so an owner's explicit block stays. `Sitemap:` is added only when a sitemap was found. `generateRobotsAdditions` returns just the added text.
 
 #### schema-org.json
 
