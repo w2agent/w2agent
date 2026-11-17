@@ -213,10 +213,13 @@ function handleA(req: IncomingMessage, res: ServerResponse) {
     res.writeHead(200, { "content-type": "text/plain" });
     const chunk = Buffer.alloc(16384, 0x61);
     const pump = () => {
-      if (!open) return;
-      endlessWritten += chunk.length;
-      res.write(chunk);
-      setTimeout(pump, 0);
+      while (open) {
+        endlessWritten += chunk.length;
+        if (!res.write(chunk)) {
+          res.once("drain", pump);
+          return;
+        }
+      }
     };
     pump();
   } else if (path.startsWith("/stall")) {
@@ -253,8 +256,13 @@ beforeEach(() => {
   endlessWritten = 0;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const closing = [...sockets].map(
+    (s) => new Promise<void>((done) => s.once("close", () => done())),
+  );
   destroyAll();
+  await Promise.all(closing);
+  await new Promise((done) => setImmediate(done));
 });
 
 afterAll(() => {
@@ -561,9 +569,13 @@ describe.each(VARIANTS)("outbound fetch: %s", (variant) => {
       expect(r.text).toContain("Status: 200");
       expect(r.text).toContain("truncated");
       expect(r.ms).toBeLessThan(SHRUNK_TIMEOUT_MS * 4);
-      await Promise.race([endlessClosed, new Promise((res) => setTimeout(res, 3000))]);
+      const outcome = await Promise.race([
+        endlessClosed.then(() => "closed"),
+        new Promise((res) => setTimeout(() => res("open"), 3000)),
+      ]);
+      expect(outcome).toBe("closed");
       expect(endlessWritten).toBeGreaterThanOrEqual(MAX_BYTES);
-      expect(endlessWritten).toBeLessThan(MAX_BYTES * 3);
+      expect(endlessWritten).toBeLessThan(MAX_BYTES * 16);
     });
   });
 

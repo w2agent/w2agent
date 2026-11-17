@@ -7,8 +7,9 @@ rand_id() { od -An -N4 -tx1 /dev/urandom | tr -d ' \n'; }
 PREFIX="w2agent-e2e-$RUN_ID"
 NET="$PREFIX-net"
 NET_OWNED=0
-# IDs (never names) of the -d containers this run started; foreground helpers write their ID to a
-# cidfile in CIDDIR as soon as Docker creates them. Cleanup removes only these exact IDs.
+NET_ID=""
+# Every container this run starts writes its ID to a cidfile in CIDDIR as soon as Docker creates it,
+# so one that fails to start is still recorded. Cleanup removes only these exact IDs.
 CONTAINERS=()
 CIDDIR="$WORK/cid"
 mkdir -p "$CIDDIR"
@@ -58,21 +59,18 @@ up() {
   local db="$PREFIX-db-$name" wp="$PREFIX-wp-$name" site
   site=$(site_dir "$name")
   mkdir -p "$site"
-  local cid
   if [ "$NET_OWNED" = 0 ]; then
-    docker network create "$NET" >/dev/null 2>&1 || { echo "FAIL could not create network $NET (never reusing an existing one)"; return 1; }
+    NET_ID=$(docker network create "$NET" 2>/dev/null) && [ -n "$NET_ID" ] || { echo "FAIL could not create network $NET (never reusing an existing one)"; return 1; }
     NET_OWNED=1
   fi
-  cid=$(docker run -d --name "$db" --network "$NET" \
+  docker run -d --cidfile "$CIDDIR/db-$name" --name "$db" --network "$NET" \
     -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=wp -e MARIADB_USER=wp -e MARIADB_PASSWORD=wp \
-    mariadb:11) || { echo "FAIL could not start $db"; return 1; }
-  CONTAINERS+=("$cid")
-  cid=$(docker run -d --name "$wp" --network "$NET" -p "127.0.0.1:$port:80" -w "$(wp_path "$name")" \
+    mariadb:11 >/dev/null || { echo "FAIL could not start $db"; return 1; }
+  docker run -d --cidfile "$CIDDIR/wp-$name" --name "$wp" --network "$NET" -p "127.0.0.1:$port:80" -w "$(wp_path "$name")" \
     -v "$site:/var/www/html" \
     -e WORDPRESS_DB_HOST="$db" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
     -e WORDPRESS_DEBUG=1 -e "WORDPRESS_CONFIG_EXTRA=define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);" \
-    wordpress:php8.3-apache) || { echo "FAIL could not start $wp"; return 1; }
-  CONTAINERS+=("$cid")
+    wordpress:php8.3-apache >/dev/null || { echo "FAIL could not start $wp"; return 1; }
   local wpdir ready=0 i
   wpdir=$(wp_host_dir "$name")
   for i in $(seq 1 90); do
@@ -102,8 +100,8 @@ up() {
 cleanup() {
   local c rc=$?
   trap - EXIT
-  # Only what this run created: the -d containers by ID, and foreground helpers left by an
-  # interrupt by the IDs Docker wrote to their cidfiles. Nothing is matched by name.
+  # Only what this run created, by the IDs Docker wrote to the cidfiles and printed for the network.
+  # Nothing is matched by name.
   local f
   for f in "$CIDDIR"/*; do
     [ -s "$f" ] && CONTAINERS+=("$(cat "$f")")
@@ -111,7 +109,7 @@ cleanup() {
   for c in ${CONTAINERS[@]+"${CONTAINERS[@]}"}; do
     docker rm -f -v "$c" >/dev/null 2>&1
   done
-  [ "$NET_OWNED" = 1 ] && docker network rm "$NET" >/dev/null 2>&1
+  [ "$NET_OWNED" = 1 ] && docker network rm "$NET_ID" >/dev/null 2>&1
   if [ -d "$WORK" ]; then
     # site files are owned by the container user: clear them from inside, then drop the empty dir
     docker run --rm --entrypoint sh -v "$WORK:/w" wordpress:php8.3-apache -c 'find /w -mindepth 1 -delete' >/dev/null 2>&1
