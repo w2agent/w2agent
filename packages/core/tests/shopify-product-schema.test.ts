@@ -258,4 +258,27 @@ describe("detectProductSchema on schema forms a theme can already output", () =>
     expect(state(`<!-- old --> ${script}`)).toBe("present");
     expect(state(`<!-- never closed ${script}`)).toBe("absent");
   });
+
+  it("does not match attributes that merely end in itemtype", () => {
+    expect(state('<div data-itemtype="https://schema.org/Product"></div>')).toBe("absent");
+    expect(state('<div x-itemtype="https://schema.org/Product"></div>')).toBe("absent");
+  });
+
+  it("keeps valid JSON-LD whose string contains a comment opener", () => {
+    expect(
+      state(
+        '<script type="application/ld+json">{"@type":"Product","description":"Use <!-- for comments"}</script>',
+      ),
+    ).toBe("present");
+  });
+
+  it("accepts the JSON-LD type case-insensitively, unquoted or with parameters", () => {
+    const body = '{"@type":"Product"}';
+    expect(state(`<script type=application/ld+json>${body}</script>`)).toBe("present");
+    expect(state(`<script type="Application/LD+JSON">${body}</script>`)).toBe("present");
+    expect(state(`<script type="application/ld+json; charset=utf-8">${body}</script>`)).toBe(
+      "present",
+    );
+    expect(state(`<script type="application/json">${body}</script>`)).toBe("absent");
+  });
 });

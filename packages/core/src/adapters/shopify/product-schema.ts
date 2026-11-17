@@ -1,11 +1,8 @@
+import * as cheerio from "cheerio";
 import type { FetchedPage } from "../../audit/types.js";
 
 export type ProductSchemaState = "present" | "absent" | "unknown";
 
-const LD_JSON_SCRIPT =
-  /<script\b[^>]*\btype\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi;
-const ITEMTYPE_ATTR = /\bitemtype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
-const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g;
 const PRODUCT_TYPES = new Set(["Product", "ProductGroup"]);
 const SCHEMA_ORG_PREFIX = /^https?:\/\/schema\.org\//i;
 const MAX_DEPTH = 8;
@@ -39,20 +36,24 @@ function jsonHasProductType(root: unknown): boolean {
   return walk(root, 0);
 }
 
-function htmlHasProductSchema(rawHtml: string): boolean {
-  const html = rawHtml.replace(HTML_COMMENT, "");
-  for (const match of html.matchAll(LD_JSON_SCRIPT)) {
+function htmlHasProductSchema(html: string): boolean {
+  const $ = cheerio.load(html);
+  let found = false;
+  $("script[type]").each((_, el) => {
+    const type = ($(el).attr("type") ?? "").split(";")[0].trim().toLowerCase();
+    if (found || type !== "application/ld+json") return;
     try {
-      if (jsonHasProductType(JSON.parse(match[1]))) return true;
+      if (jsonHasProductType(JSON.parse($(el).text()))) found = true;
     } catch {
       // invalid JSON-LD counts as no schema
     }
-  }
-  for (const match of html.matchAll(ITEMTYPE_ATTR)) {
-    const value = match[1] ?? match[2] ?? match[3] ?? "";
-    if (value.split(/\s+/).some((t) => SCHEMA_ORG_PREFIX.test(t) && isProductType(t))) return true;
-  }
-  return false;
+  });
+  if (found) return true;
+  $("[itemtype]").each((_, el) => {
+    const value = $(el).attr("itemtype") ?? "";
+    if (value.split(/\s+/).some((t) => SCHEMA_ORG_PREFIX.test(t) && isProductType(t))) found = true;
+  });
+  return found;
 }
 
 export function detectProductSchema(rawPages: FetchedPage[]): ProductSchemaState {
