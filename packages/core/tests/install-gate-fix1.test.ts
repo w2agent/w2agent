@@ -145,4 +145,59 @@ describe("gate fix round 1", () => {
       "do not apply",
     );
   });
+
+  it("r2-1: '..' after a symlink segment applies to the real parent", () => {
+    const deep = join(other, "deep");
+    mkdirSync(deep);
+    symlinkSync(deep, join(dir, "esc"));
+    setConfig("define('WP_PLUGIN_DIR', 'esc/../plugins');");
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+    expect(plan.warnings.some((w) => w.includes("outside the project directory"))).toBe(true);
+  });
+
+  it("r2-1: '..' inside the project still resolves to a relative dir", () => {
+    mkdirSync(join(dir, "a"));
+    setConfig("define('WP_PLUGIN_DIR', 'a/../plugins');");
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests.length).toBeGreaterThan(0);
+    expect(dests.every((d) => d.startsWith("plugins/w2agent/"))).toBe(true);
+  });
+
+  it("r2-2: interpolation with a nested quote does not end the string early", () => {
+    setConfig(
+      `$note = "{$a["define('WP_PLUGIN_DIR','fake')"]}"; define('WP_PLUGIN_DIR','../outside');`,
+    );
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+    expect(plan.actions.some((a) => a.type === "manual")).toBe(true);
+  });
+
+  it("r2-2: a heredoc with interpolation next to WP_PLUGIN_DIR plans no writes", () => {
+    setConfig("$x = <<<EOT\n${y} {$z}\nEOT;\ndefine('WP_PLUGIN_DIR', 'custom');");
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+  });
+
+  it("r2-2: interpolation without WP_PLUGIN_DIR does not block the install", () => {
+    setConfig('$x = "{$y}";');
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    expect(plan.actions.some((a) => a.type === "write")).toBe(true);
+  });
+
+  it("r2-3: an execute-time guard failure is recorded as failed", () => {
+    const plan = {
+      platform: "nuxt" as const,
+      actions: [
+        { type: "write" as const, dest: "../x.txt", content: "x" },
+        { type: "write" as const, dest: "ok.txt", content: "x" },
+      ],
+      warnings: [],
+      postInstallSteps: ["Add postbuild"],
+    };
+    const result = executeInstallPlan(plan, dir);
+    expect(result.installed).toEqual(["ok.txt"]);
+    expect(result.failed).toEqual(["../x.txt"]);
+  });
 });

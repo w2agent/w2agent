@@ -22,6 +22,7 @@ export function executeInstallPlan(plan: InstallPlan, projectDir: string): Execu
         const problem = checkDestination(projectDir, action.dest);
         if (problem) {
           skipped.push(`${action.dest} (${describeDestProblem(problem)}, not written)`);
+          failed.push(action.dest);
           break;
         }
         const destPath = resolve(projectDir, action.dest);
