@@ -16,7 +16,7 @@ No manual page creation needed. Content updates automatically when products/page
 
 | Requires | Details |
 |----------|---------|
-| Node.js | >=20.19 |
+| Node.js | >=20.19 <22 or >=22.12 |
 | Shopify CLI | `npm install -g @shopify/cli` |
 | Shopify Partner Account | [partners.shopify.com](https://partners.shopify.com) |
 | Development Store | Create from Partner Dashboard |
@@ -34,7 +34,12 @@ No manual page creation needed. Content updates automatically when products/page
    shopify app config link
    ```
 
-3. Run development server:
+3. Point Prisma at the dev session database (the schema reads `DATABASE_URL`). Create `packages/shopify-app/.env` with:
+   ```
+   DATABASE_URL="file:dev.sqlite"
+   ```
+
+4. Run development server:
    ```bash
    shopify app dev
    ```
@@ -55,7 +60,19 @@ cd packages/shopify-app
 shopify app deploy
 ```
 
-This deploys the app configuration to Shopify. The Remix app itself needs to be hosted separately (e.g., on a Node.js server, Fly.io, Railway).
+This deploys the app configuration to Shopify. The Remix app itself needs to be hosted separately.
+
+Build the Docker image from the repository root (the build uses the root `pnpm-lock.yaml`):
+
+```bash
+docker build -f packages/shopify-app/Dockerfile -t w2agent-shopify-app .
+docker run -v w2agent-data:/data -p 3000:3000 \
+  -e SHOPIFY_API_KEY=... -e SHOPIFY_API_SECRET=... \
+  -e SHOPIFY_APP_URL=https://your-app.example.com -e SCOPES=read_products,read_content \
+  w2agent-shopify-app
+```
+
+The container runs `prisma migrate deploy`, then starts the server. Sessions live in a SQLite file at `/data/sessions.sqlite` (`DATABASE_URL` defaults to `file:/data/sessions.sqlite` in the image). Mount a persistent volume at `/data`, or every redeploy drops the offline sessions and the app proxy returns 401 until the merchant reopens the app. SQLite supports a single instance only. To run more than one instance, switch the Prisma provider and `DATABASE_URL` to a hosted database, as described in [Shopify's deployment guide](https://shopify.dev/docs/apps/launch/deployment/deploy-to-hosting-service), and add migrations for it.
 
 ## Endpoints
 
@@ -81,4 +98,4 @@ This is a private Remix app (not published to npm). It uses:
 - `@shopify/shopify-app-remix` for OAuth + session management
 - Shopify Admin GraphQL API for data fetching
 - App Proxy for serving llms.txt on the merchant's domain
-- Prisma + SQLite (dev) for session storage
+- Prisma + SQLite for session storage (`DATABASE_URL`; single instance, persistent volume in production)

@@ -1,0 +1,15 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!packages/shopify-app
+**/node_modules
+**/.env
+**/.env.*
+**/*.sqlite
+**/*.sqlite-journal
+**/.git
+packages/shopify-app/build
+packages/shopify-app/.cache
+packages/shopify-app/.turbo
+packages/shopify-app/.shopify
