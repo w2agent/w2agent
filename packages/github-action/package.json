@@ -1,0 +1,15 @@
+{
+  "name": "@w2agent/github-action",
+  "version": "0.0.0",
+  "private": true,
+  "description": "w2agent composite GitHub Action (action.yml) and its tests",
+  "scripts": {
+    "build": "echo 'No build step — composite action'",
+    "test": "node --test",
+    "lint": "echo 'No JS lint — composite action'",
+    "clean": "echo 'Nothing to clean'"
+  },
+  "devDependencies": {
+    "yaml": "^2.7.0"
+  }
+}

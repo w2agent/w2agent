@@ -51,6 +51,16 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        THRESHOLD: ${{ inputs.threshold }}
+      run: |
+        if ! [[ "$THRESHOLD" =~ ^(100|[1-9]?[0-9])$ ]]; then
+          echo "::error::Input 'threshold' must be an integer from 0 to 100 (no sign, decimals, percent sign or leading zeros); got '$THRESHOLD'."
+          exit 1
+        fi
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -58,7 +68,7 @@ runs:
 
     - name: Install w2agent
       shell: bash
-      run: npm install -g w2agent
+      run: npm install -g w2agent@0.1.0
 
     - name: Run audit
       id: audit
@@ -68,7 +78,7 @@ runs:
         MAX_PAGES: ${{ inputs.max-pages }}
       run: |
         if ! w2agent audit "$URL" --format json --output /tmp/w2agent-audit.json --depth "$MAX_PAGES"; then
-          echo "::error::w2agent audit failed for $URL. Ensure the URL is reachable and w2agent is installed (npm install -g w2agent)."
+          echo "::error::w2agent audit failed for $URL. Ensure the URL is reachable and w2agent is installed (npm install -g w2agent@0.1.0)."
           exit 1
         fi
 
@@ -101,6 +111,8 @@ runs:
     - name: Post PR comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
+      env:
+        W2AGENT_URL: ${{ inputs.url }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -115,7 +127,7 @@ runs:
             .join('\n');
 
           // Derive slug for badge and leaderboard link (matches platform generateSlug)
-          const reportUrl = report.url || '${{ inputs.url }}';
+          const reportUrl = report.url || process.env.W2AGENT_URL;
           const domain = new URL(reportUrl).hostname.replace(/^www\./, '');
           const slug = domain.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
           const badgeUrl = `https://w2agent.dev/api/sites/${slug}/badge.svg`;
@@ -184,9 +196,14 @@ runs:
       env:
         THRESHOLD: ${{ inputs.threshold }}
       run: |
-        SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json)
-        if [ "$SCORE" -lt "$THRESHOLD" ]; then
+        SCORE=$(jq '.overallScore' /tmp/w2agent-audit.json) || SCORE=""
+        if ! [[ "$SCORE" =~ ^[0-9]+$ ]]; then
+          echo "::error::Audit score '$SCORE' in /tmp/w2agent-audit.json is not a non-negative integer."
+          exit 1
+        fi
+        if [ "$SCORE" -ge "$THRESHOLD" ]; then
+          echo "Audit passed: $SCORE >= $THRESHOLD"
+        else
           echo "::error::Audit score $SCORE is below threshold $THRESHOLD"
           exit 1
         fi
-        echo "Audit passed: $SCORE >= $THRESHOLD"
