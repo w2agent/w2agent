@@ -214,7 +214,18 @@ describe("CLI pin", () => {
 
   it("installs exactly w2agent@<cli package version>", () => {
     const run = step("Install w2agent").run;
-    assert.match(run, new RegExp(`npm install -g w2agent@${version.replaceAll(".", "\\.")}\\s*$`));
+    const v = version.replaceAll(".", "\\.");
+    assert.match(run, new RegExp(`\\n\\s*else\\n\\s*npm install -g w2agent@${v}\\n\\s*fi\\s*$`));
+  });
+
+  it("skips the registry install only for an exact pinned-version match", () => {
+    const run = step("Install w2agent").run;
+    assert.match(
+      run,
+      new RegExp(
+        `V=\\$\\(w2agent --version[^)]*\\) && \\[\\[ "\\$V" == "${version.replaceAll(".", "\\.")}" \\]\\]`,
+      ),
+    );
   });
 
   it("has no unpinned w2agent install anywhere", () => {
@@ -222,6 +233,114 @@ describe("CLI pin", () => {
     for (const m of raw.matchAll(/npm install -g w2agent@(\d+\.\d+\.\d+\S*?)\)?[\s."]/g)) {
       assert.equal(m[1], version);
     }
+  });
+});
+
+describe("Install w2agent skips the registry when the pinned CLI is already on PATH", () => {
+  const version = JSON.parse(readFileSync(cliPkgPath, "utf8")).version;
+  const run = step("Install w2agent").run;
+  const install = (w2agentBody) => {
+    const d = mkdtempSync(join(stubDir, "inst-"));
+    const log = join(d, "npm.log");
+    writeFileSync(join(d, "npm"), `#!/bin/bash\necho "$*" >> "${log}"\n`, { mode: 0o755 });
+    if (w2agentBody !== null)
+      writeFileSync(join(d, "w2agent"), `#!/bin/bash\n${w2agentBody}\n`, { mode: 0o755 });
+    const r = runLive({ run }, {}, { path: `${d}:/usr/bin:/bin` });
+    let calls = [];
+    try {
+      calls = readFileSync(log, "utf8").trim().split("\n");
+    } catch {}
+    return { ...r, calls };
+  };
+
+  it("skips npm when w2agent --version prints the pinned version", () => {
+    const r = install(`echo ${version}`);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(r.calls, []);
+    assert.match(r.out, /already on PATH/);
+  });
+
+  it("installs the pin when w2agent prints another version", () => {
+    const r = install("echo 9.9.9");
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(r.calls, [`install -g w2agent@${version}`]);
+  });
+
+  it("does not accept a version that merely contains the pin", () => {
+    const r = install(`echo ${version}-beta.1`);
+    assert.deepEqual(r.calls, [`install -g w2agent@${version}`]);
+  });
+
+  it("installs the pin when w2agent is not on PATH", () => {
+    const r = install(null);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(r.calls, [`install -g w2agent@${version}`]);
+  });
+
+  it("installs the pin when w2agent --version fails", () => {
+    const r = install(`echo ${version}; exit 1`);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(r.calls, [`install -g w2agent@${version}`]);
+  });
+});
+
+describe("Action test workflow runs the checked-out CLI", () => {
+  const wf = parse(
+    readFileSync(join(here, "..", "..", "..", ".github", "workflows", "github-action.yml"), "utf8"),
+  );
+  const version = JSON.parse(readFileSync(cliPkgPath, "utf8")).version;
+  const paths = wf.on.pull_request.paths;
+
+  it("triggers on CLI, core and lockfile changes", () => {
+    for (const p of [
+      "packages/cli/**",
+      "packages/core/**",
+      "pnpm-lock.yaml",
+      "tsconfig.base.json",
+    ]) {
+      assert.ok(paths.includes(p), p);
+    }
+  });
+
+  for (const [name, job] of Object.entries(wf.jobs)) {
+    describe(`job ${name}`, () => {
+      const idx = job.steps.findIndex((x) => x.uses === "./packages/github-action");
+      const before = job.steps.slice(0, idx);
+      const find = (re) => before.find((x) => re.test(x.run ?? ""));
+
+      it("uses the local action", () => {
+        assert.ok(idx > 0);
+      });
+
+      it("builds and installs the checked-out CLI before the action", () => {
+        assert.ok(before.some((x) => /^pnpm\/action-setup@/.test(x.uses ?? "")));
+        assert.ok(find(/pnpm install --frozen-lockfile/));
+        assert.ok(find(/pnpm .*build/));
+        const inst = find(/npm install --prefix/);
+        assert.ok(inst, "non-global npm install of the packed tarballs");
+        assert.match(inst.run, /pnpm --dir packages\/core pack/);
+        assert.match(inst.run, /pnpm --dir packages\/cli pack/);
+        assert.match(inst.run, /\$RUNNER_TEMP/);
+        assert.match(inst.run, /node_modules\/\.bin" >> "\$GITHUB_PATH"/);
+        assert.doesNotMatch(inst.run, /npm install -g|\$\{\{/);
+        assert.ok(before.indexOf(inst) > before.indexOf(find(/pnpm .*build/)));
+      });
+
+      it("asserts the CLI on PATH reports the package version", () => {
+        const chk = find(/w2agent --version/);
+        assert.ok(chk);
+        assert.ok(before.indexOf(chk) > before.indexOf(find(/npm install --prefix/)));
+        assert.match(chk.run, /packages\/cli\/package\.json/);
+      });
+
+      it("has no npm published gate and no step depends on one", () => {
+        assert.doesNotMatch(JSON.stringify(job), /npm view|steps\.published|published=/);
+      });
+    });
+  }
+
+  it("keeps the pin equal to the CLI version the workflow asserts", () => {
+    assert.match(step("Install w2agent").run, new RegExp(`"${version.replaceAll(".", "\\.")}"`));
   });
 });
 

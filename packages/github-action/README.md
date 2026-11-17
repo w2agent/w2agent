@@ -159,7 +159,7 @@ Reference `score`, `grade`, and `badge-url` in downstream steps by giving the ac
 ## Troubleshooting
 
 **`npm install -g w2agent@0.1.0` fails — package not found**
-The action installs the pinned `w2agent@0.1.0`. It works once that version is published to npm and the `v0.1.0` release tag exists. See [npmjs.com/package/w2agent](https://www.npmjs.com/package/w2agent) for status.
+The action installs the pinned `w2agent@0.1.0`. It works once that version is published to npm and the `v0.1.0` release tag exists. If `w2agent --version` on `PATH` already prints exactly that version, the action skips the install and uses it. See [npmjs.com/package/w2agent](https://www.npmjs.com/package/w2agent) for status.
 
 **Audit fails with "URL unreachable" or timeout**
 Ensure the URL is publicly accessible from GitHub Actions runners. Private/intranet URLs require a self-hosted runner with network access. Use `max-pages: '5'` to reduce timeout risk on large sites.

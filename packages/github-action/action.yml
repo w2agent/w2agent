@@ -97,7 +97,12 @@ runs:
 
     - name: Install w2agent
       shell: bash
-      run: npm install -g w2agent@0.1.0
+      run: |
+        if V=$(w2agent --version 2>/dev/null) && [[ "$V" == "0.1.0" ]]; then
+          echo "w2agent 0.1.0 is already on PATH; skipping the registry install."
+        else
+          npm install -g w2agent@0.1.0
+        fi
 
     - name: Run audit
       id: audit
