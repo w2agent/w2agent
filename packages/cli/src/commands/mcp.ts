@@ -124,7 +124,11 @@ export function registerMcpCommand(program: Command): void {
           console.log("  Next steps:");
           console.log(`${chalk.gray("  cd")} ${chalk.cyan(resolve(outputDir, "mcp-server"))}`);
           console.log(chalk.gray("  npm install"));
-          console.log(chalk.gray("  # Edit wrangler.toml with your KV namespace ID"));
+          console.log(chalk.gray("  bash setup.sh --local && npx wrangler dev   # local test"));
+          console.log(chalk.gray("  npx wrangler kv namespace create MCP_DATA"));
+          console.log(
+            chalk.gray('  # set id = "<id>" under the MCP_DATA binding in wrangler.toml'),
+          );
           console.log(chalk.gray("  bash setup.sh && npx wrangler deploy"));
         } else {
           console.log("  Next steps:");

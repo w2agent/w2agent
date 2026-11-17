@@ -243,14 +243,19 @@ npx w2agent agentize https://example.com --slug my-site
 **Option B — Self-hosted (Vercel):**
 ```bash
 npx w2agent agent deploy https://example.com --self-host vercel
-cd w2agent-output && vercel deploy
+cd w2agent-output/mcp-server && npm install && npx vercel --prod
 ```
 
 **Option C — Self-hosted (Cloudflare):**
 ```bash
 npx w2agent agent deploy https://example.com --self-host cf
-cd w2agent-output && wrangler deploy
+cd w2agent-output/mcp-server && npm install
+npx wrangler kv namespace create MCP_DATA   # put the printed id in wrangler.toml
+bash setup.sh                               # uploads the data to KV
+npx wrangler deploy
 ```
+
+To test locally first: `bash setup.sh --local && npx wrangler dev`. After a re-crawl, rerun `bash setup.sh`.
 
 **Rule 2**: Deployment success ≠ agent working. Proceed to Phase 4 immediately.
 

@@ -72,7 +72,7 @@ export function generateMcpServer(
   const serverTs = generateServerTs(siteName, ctx.baseUrl, detected);
   const packageJson = generatePackageJson(siteName);
   const tsconfig = generateTsConfig();
-  const readme = generateReadme(siteName, detected, ctx.baseUrl);
+  const readme = generateReadme(siteName, detected, ctx.baseUrl, "express");
 
   const files: GeneratedFile[] = [
     makeFile("mcp-server/server.ts", serverTs),
@@ -1191,7 +1191,12 @@ function generateTsConfig(): string {
 
 // --- README ---
 
-function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: string): string {
+function generateReadme(
+  siteName: string,
+  detected: McpDetectedTools,
+  baseUrl: string,
+  variant: "express" | "vercel" | "cf",
+): string {
   const lines: string[] = [];
   const title = mdText(siteName);
   lines.push(`# ${title} Agent Server`);
@@ -1206,12 +1211,46 @@ function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: s
   lines.push(``);
   lines.push(`## Setup`);
   lines.push(``);
-  lines.push("```bash");
-  lines.push(`npm install`);
-  lines.push(`npm start`);
-  lines.push("```");
-  lines.push(``);
-  lines.push(`Server runs at \`http://localhost:3100/mcp\``);
+  let configUrl = "http://localhost:3100/mcp";
+  if (variant === "express") {
+    lines.push("```bash", `npm install`, `npm start`, "```", ``);
+    lines.push(`Server runs at \`http://localhost:3100/mcp\``);
+  } else if (variant === "vercel") {
+    configUrl = "https://YOUR-DEPLOYMENT.vercel.app/mcp";
+    lines.push(
+      "```bash",
+      `npm install`,
+      `npx vercel dev   # local test`,
+      `npx vercel --prod  # deploy`,
+      "```",
+      ``,
+    );
+    lines.push(`The endpoint is \`/mcp\`. Locally, use the URL \`vercel dev\` prints.`);
+  } else {
+    configUrl = "http://localhost:8787/mcp";
+    lines.push(
+      "```bash",
+      `npm install`,
+      `bash setup.sh --local   # seed local data`,
+      `npx wrangler dev        # serves http://localhost:8787/mcp`,
+      "```",
+      ``,
+      `To deploy, create the KV namespace:`,
+      ``,
+      "```bash",
+      `npx wrangler kv namespace create MCP_DATA`,
+      "```",
+      ``,
+      `Set the printed id as \`id = "<id>"\` under the MCP_DATA binding in \`wrangler.toml\`, then upload the data and deploy:`,
+      ``,
+      "```bash",
+      `bash setup.sh`,
+      `npx wrangler deploy`,
+      "```",
+      ``,
+      `After re-crawling, rerun \`bash setup.sh\` to refresh the data.`,
+    );
+  }
   lines.push(``);
   lines.push(`## Claude Desktop Config`);
   lines.push(``);
@@ -1219,7 +1258,7 @@ function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: s
   lines.push(`{`);
   lines.push(`  "mcpServers": {`);
   lines.push(`    "${siteName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}": {`);
-  lines.push(`      "url": "http://localhost:3100/mcp"`);
+  lines.push(`      "url": "${configUrl}"`);
   lines.push(`    }`);
   lines.push(`  }`);
   lines.push(`}`);
@@ -1441,7 +1480,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     2,
   )}\n`;
 
-  const readme = generateReadme(siteName, detected, baseUrl);
+  const readme = generateReadme(siteName, detected, baseUrl, "vercel");
 
   return [
     makeFile("mcp-server/vercel.json", vercelJson),
@@ -1472,7 +1511,8 @@ compatibility_date = "2024-12-01"
 
 [[kv_namespaces]]
 binding = "MCP_DATA"
-id = "" # Run: npx wrangler kv namespace create MCP_DATA
+# Deploy only: run "npx wrangler kv namespace create MCP_DATA", then uncomment and set the id it prints.
+# id = "..."
 `;
 
   const kvKeys = [
@@ -1554,9 +1594,33 @@ export default {
 `;
 
   const setupSh = `#!/bin/bash
-# Upload data to Cloudflare KV
-# First, update wrangler.toml with your KV namespace ID
-${kvKeys.map((k) => `npx wrangler kv key put --binding MCP_DATA "${k}" --path data/${k}.json\n`).join("")}echo "Data uploaded. Deploy with: npx wrangler deploy"
+# Upload data to Cloudflare KV. Default: the deployed namespace (--remote).
+# Usage: bash setup.sh [--local]   (--local seeds the storage used by "wrangler dev")
+set -euo pipefail
+cd "$(dirname "$0")"
+
+case "$*" in
+  "") scope=--remote ;;
+  --local) scope=--local ;;
+  *) echo "Usage: bash setup.sh [--local]" >&2; exit 2 ;;
+esac
+
+if [ "$scope" = "--remote" ] && ! grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"[^"]+"' wrangler.toml; then
+  echo "wrangler.toml has no KV namespace id. Run: npx wrangler kv namespace create MCP_DATA" >&2
+  echo "Then set id = \\"<id>\\" under the MCP_DATA binding in wrangler.toml and rerun." >&2
+  exit 1
+fi
+
+for key in ${kvKeys.join(" ")}; do
+  [ -f "data/$key.json" ] || { echo "Missing data/$key.json" >&2; exit 1; }
+done
+
+${kvKeys.map((k) => `npx wrangler kv key put --binding MCP_DATA "${k}" --path data/${k}.json "$scope"\n`).join("")}
+if [ "$scope" = "--local" ]; then
+  echo "Local data uploaded. Start the server with: npx wrangler dev"
+else
+  echo "Data uploaded. Deploy with: npx wrangler deploy"
+fi
 `;
 
   const pkgJson = `${JSON.stringify(
@@ -1581,7 +1645,7 @@ ${kvKeys.map((k) => `npx wrangler kv key put --binding MCP_DATA "${k}" --path da
     2,
   )}\n`;
 
-  const readme = generateReadme(siteName, detected, baseUrl);
+  const readme = generateReadme(siteName, detected, baseUrl, "cf");
 
   return [
     makeFile("mcp-server/wrangler.toml", wranglerToml),

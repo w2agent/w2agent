@@ -146,8 +146,11 @@ Your agent endpoint is live immediately. Add it to Claude Desktop:
 npx w2agent@0.1.0 agent deploy https://example.com --self-host vercel
 npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare Workers
 
-# Outputs a ready-to-deploy project in ./w2agent-output/
-# vercel deploy ./w2agent-output/   or   wrangler deploy ./w2agent-output/
+# Outputs a project in ./w2agent-output/mcp-server/ (see its README.md)
+cd w2agent-output/mcp-server && npm install
+# Vercel:  npx vercel --prod
+# Cloudflare: npx wrangler kv namespace create MCP_DATA   # put the id in wrangler.toml
+#             bash setup.sh && npx wrangler deploy
 ```
 
 ## Hosted vs Self-hosted
@@ -156,7 +159,7 @@ npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare
 |---|---|---|
 | **Setup** | `npx w2agent@0.1.0 login` + one command | Generate + deploy to your infra |
 | **Domain** | `<slug>.agent.w2agent.dev` | Your domain |
-| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (`wrangler deploy` again) |
+| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (regenerate; on Cloudflare also rerun `bash setup.sh`, then deploy) |
 | **Directory listing** | Yes (opt-in) | No |
 | **Auth required** | Free API key | None |
 | **Best for** | Quick deploy, directory visibility | Custom domains, air-gapped, enterprise |

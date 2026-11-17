@@ -146,8 +146,11 @@ npx w2agent@0.1.0 agentize https://example.com --slug my-docs
 npx w2agent@0.1.0 agent deploy https://example.com --self-host vercel
 npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare Workers
 
-# 在 ./w2agent-output/ 输出一个随时可部署的项目
-# vercel deploy ./w2agent-output/   或   wrangler deploy ./w2agent-output/
+# 在 ./w2agent-output/mcp-server/ 输出项目（见其中的 README.md）
+cd w2agent-output/mcp-server && npm install
+# Vercel：  npx vercel --prod
+# Cloudflare：npx wrangler kv namespace create MCP_DATA   # 将 id 填入 wrangler.toml
+#             bash setup.sh && npx wrangler deploy
 ```
 
 ## 托管版 vs 自托管版
@@ -156,7 +159,7 @@ npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare
 |---|---|---|
 | **部署方式** | `npx w2agent@0.1.0 login` + 一条命令 | 生成后部署到自有基础设施 |
 | **域名** | `<slug>.agent.w2agent.dev` | 自定义域名 |
-| **重新爬取** | 自动（通过控制台按需触发） | 手动（再次运行 `wrangler deploy`） |
+| **重新爬取** | 自动（通过控制台按需触发） | 手动（重新生成；Cloudflare 需再次运行 `bash setup.sh` 后部署） |
 | **目录收录** | 支持（可选加入） | 不支持 |
 | **是否需要授权** | 免费 API Key | 无需 |
 | **适用场景** | 快速部署、目录曝光 | 自定义域名、离线环境、企业级 |
