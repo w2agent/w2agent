@@ -703,6 +703,7 @@ test("score.mjs kills the running stage when it gets SIGTERM", { timeout: 30000 
     process.execPath,
     [
       score,
+      "--in-sandbox",
       "--baseline",
       "--fixture",
       "next-static",

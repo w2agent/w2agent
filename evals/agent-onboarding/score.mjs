@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildChildEnv, waitForExit } from "./run.mjs";
+import { scoreInSandbox } from "./scorer-vm.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -14,11 +15,16 @@ const DEFAULT_CLI = path.join(REPO_ROOT, "packages", "cli", "dist", "index.js");
 const USAGE = `Usage: node score.mjs --run <out-dir> [options]
        node score.mjs --baseline --fixture <name> --out <dir> [options]
   --run <dir>          run directory produced by run.mjs
-  --cli <path>         CLI entry to audit with (default: this checkout's packages/cli/dist/index.js)
   --out <dir>          where to write result.json, summary.md, audit.json (default: the run dir)
+  --ref <rev>          w2agent revision to build the scorer CLI from (default: the run's w2agentRef, else HEAD)
   --timeout <minutes>  limit for each of install, build and server start (default 10)
+  --keep               keep the run's volume after a successful score
+  --claude-credentials <file>  Claude login JSON used only to redact outputs (default: Keychain or ~/.claude)
+  --codex-auth <file>  Codex auth.json used only to redact outputs (default: $CODEX_HOME or ~/.codex)
   --baseline           score the pristine fixture with no transcript
-  --fixture <name>     fixture for --baseline (default next-static)`;
+  --fixture <name>     fixture for --baseline (default next-static)
+Scoring runs in a VM with no staged credentials. --in-sandbox is set by the host wrapper inside that VM
+and runs the stages directly; do not pass it on the host. --cli <path> only works with --in-sandbox.`;
 
 const REPLACED_THRESHOLD = 0.2;
 const E404_RE = /E404|404 Not Found|ERR_PNPM_FETCH_404/i;
@@ -29,30 +35,46 @@ export function parseArgs(argv) {
   const opts = {
     run: undefined,
     cli: DEFAULT_CLI,
+    cliGiven: false,
     out: undefined,
+    ref: undefined,
     timeout: 10,
     baseline: false,
     fixture: "next-static",
+    inSandbox: false,
+    keep: false,
+    claudeCredentials: undefined,
+    codexAuth: undefined,
   };
   const valueFlags = {
     "--run": "run",
     "--cli": "cli",
     "--out": "out",
+    "--ref": "ref",
     "--timeout": "timeout",
     "--fixture": "fixture",
+    "--claude-credentials": "claudeCredentials",
+    "--codex-auth": "codexAuth",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--baseline") {
       opts.baseline = true;
+    } else if (a === "--in-sandbox") {
+      opts.inSandbox = true;
+    } else if (a === "--keep") {
+      opts.keep = true;
     } else if (a in valueFlags) {
       const v = argv[++i];
       if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
       opts[valueFlags[a]] = v;
+      if (a === "--cli") opts.cliGiven = true;
     } else {
       throw new Error(`unknown argument: ${a}`);
     }
   }
+  if (opts.cliGiven && !opts.inSandbox)
+    throw new Error("--cli only applies with --in-sandbox; the scorer CLI is built from --ref");
   if (opts.baseline) {
     if (!opts.out) throw new Error("--baseline needs --out");
     if (opts.run) throw new Error("--baseline and --run are exclusive");
@@ -1135,18 +1157,21 @@ export function renderSummary(r) {
 }
 
 const CODEX_CONTAINMENT_NOTE =
-  "codex sandbox limits writes to the workspace plus /tmp and $TMPDIR; flags are advisory";
+  "codex runs with its own sandbox bypassed (the VM is the boundary); flags are advisory";
 
 const SITE_SKIP = new Set(["node_modules", ".next", "next-env.d.ts"]);
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), deps = {}) {
   const [major] = process.versions.node.split(".").map(Number);
   if (major < 22) throw new Error(`Node >= 22 required (running ${process.version})`);
 
   const opts = parseArgs(argv);
+  if (!opts.inSandbox) return scoreInSandbox(opts, deps);
   const cli = path.resolve(opts.cli);
   if (!existsSync(cli)) {
-    throw new Error(`CLI not found at ${cli}. Build it first (pnpm build) or pass --cli <path>.`);
+    throw new Error(
+      `CLI not found at ${cli}. In the scorer VM it is built from --ref; with --in-sandbox pass --cli <path>.`,
+    );
   }
   const timeoutMs = opts.timeout * 60_000;
 
