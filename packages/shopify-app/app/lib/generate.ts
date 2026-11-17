@@ -33,11 +33,12 @@ const SHOP_QUERY = `#graphql
 
 const PRODUCTS_QUERY = `#graphql
   query Products($first: Int!, $after: String) {
-    products(first: $first, after: $after, query: "status:active") {
+    products(first: $first, after: $after, query: "status:active AND published_status:published") {
       edges {
         node {
           title
           handle
+          onlineStoreUrl
           descriptionHtml
         }
       }
@@ -51,11 +52,12 @@ const PRODUCTS_QUERY = `#graphql
 
 const PAGES_QUERY = `#graphql
   query Pages($first: Int!, $after: String) {
-    pages(first: $first, after: $after) {
+    pages(first: $first, after: $after, query: "published_status:published") {
       edges {
         node {
           title
           handle
+          isPublished
           body
         }
       }
@@ -66,6 +68,17 @@ const PAGES_QUERY = `#graphql
     }
   }
 `;
+
+function assertNoErrors(body: { errors?: unknown } | null | undefined) {
+  if (!body?.errors) return;
+  const errors = body.errors;
+  const message = Array.isArray(errors)
+    ? errors
+        .map((e) => (e && typeof e.message === "string" ? e.message : "unknown error"))
+        .join("; ")
+    : String(errors);
+  throw new Error(`Shopify Admin API returned errors: ${message}`);
+}
 
 const PAGE_SIZE = 250;
 const MAX_ITEMS = 2000;
@@ -80,7 +93,11 @@ async function fetchAll<T>(admin: AdminClient, query: string, rootField: string)
 
     const res = await admin.graphql(query, { variables });
     const data = await res.json();
-    const connection = data.data[rootField];
+    assertNoErrors(data);
+    const connection = data?.data?.[rootField];
+    if (!connection?.edges || !connection.pageInfo) {
+      throw new Error(`Shopify Admin API response is missing data.${rootField}`);
+    }
     for (const { node } of connection.edges) {
       items.push(node);
     }
@@ -94,24 +111,33 @@ async function fetchAll<T>(admin: AdminClient, query: string, rootField: string)
 interface Product {
   title: string;
   handle: string;
+  onlineStoreUrl: string | null;
   descriptionHtml: string;
 }
 
 interface Page {
   title: string;
   handle: string;
+  isPublished: boolean;
   body: string;
 }
 
 export async function generateLlmsTxt(admin: AdminClient): Promise<string> {
-  const [shopRes, products, pages] = await Promise.all([
+  const [shopRes, allProducts, allPages] = await Promise.all([
     admin.graphql(SHOP_QUERY),
     fetchAll<Product>(admin, PRODUCTS_QUERY, "products"),
     fetchAll<Page>(admin, PAGES_QUERY, "pages"),
   ]);
 
+  const products = allProducts.filter((p) => p.onlineStoreUrl != null);
+  const pages = allPages.filter((p) => p.isPublished === true);
+
   const shopData = await shopRes.json();
-  const shop = shopData.data.shop;
+  assertNoErrors(shopData);
+  const shop = shopData?.data?.shop;
+  if (!shop?.primaryDomain?.url) {
+    throw new Error("Shopify Admin API response is missing data.shop");
+  }
   const baseUrl = shop.primaryDomain.url;
 
   let output = `# ${shop.name}\n\n`;

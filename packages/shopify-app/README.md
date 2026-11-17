@@ -10,7 +10,7 @@ Install the app → it auto-generates `llms.txt` from your shop's products and p
 https://your-store.myshopify.com/apps/w2agent/llms.txt
 ```
 
-No manual page creation needed. Content updates automatically when products/pages change (cached for 1 hour).
+No manual page creation needed. Content updates automatically when products/pages change (rebuilt at most every 15 minutes per shop; the last good copy is served if Shopify returns an error).
 
 ## Prerequisites
 
@@ -68,8 +68,8 @@ All other app proxy paths return 404.
 ## Data Scope
 
 - **Shop**: name, description, primary domain
-- **Products**: all active products (title, handle, description) — paginated, up to 2,000
-- **Pages**: all pages (title, handle, body) — paginated, up to 2,000
+- **Products**: active products published to the Online Store (title, handle, description) — paginated, up to 2,000
+- **Pages**: published pages (title, handle, body) — paginated, up to 2,000
 
 ## Canonical URL
 
