@@ -252,7 +252,7 @@ w2agent auto-detects your platform and generates native integration code:
 | **Next.js** | `__NEXT_DATA__`, `_next/static` | Route handlers with ISR, middleware for content negotiation, build script | Build + live audit |
 | **Nuxt** | `__NUXT`, Nuxt meta tags | Nitro server routes, auto-imported middleware | Build + live audit |
 | **Astro** | Generator meta, astro assets | Static files + middleware for content negotiation | Build + live audit |
-| **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt additions, Product JSON-LD when the theme lacks it · **Shopify App** (`packages/shopify-app`) with OAuth + App Proxy | Syntax + structure |
+| **Shopify** | cdn.shopify.com, Shopify headers | Liquid snippets, robots.txt additions, Product JSON-LD when the theme lacks it · experimental, unreleased Shopify App (`packages/shopify-app`, App Proxy) | Syntax + structure |
 | **Docusaurus** | Generator meta, html class | Build plugin that generates llms.txt from the built docs content (serves an existing `static/llms.txt` as is unless `overwrite: true`) | Build + live audit |
 
 Platform-specific checks run automatically during audit:

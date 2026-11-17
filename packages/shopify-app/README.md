@@ -2,6 +2,8 @@
 
 Shopify App for [w2agent](https://w2agent.dev) — serves `llms.txt` via Shopify App Proxy.
 
+> **Experimental.** This app is not released, not published to npm, and not submitted to the Shopify App Store. Its admin UI is still the stock Shopify Remix template.
+
 ## How it works
 
 Install the app → it auto-generates `llms.txt` from your shop's products and pages. Served at:
@@ -10,7 +12,7 @@ Install the app → it auto-generates `llms.txt` from your shop's products and p
 https://your-store.myshopify.com/apps/w2agent/llms.txt
 ```
 
-No manual page creation needed. Content updates automatically when products/pages change (rebuilt at most every 15 minutes per shop; the last good copy is served if Shopify returns an error).
+No manual page creation needed. There is no webhook invalidation. The file is rebuilt from the Admin API when the cached copy is older than 15 minutes. Responses also carry `Cache-Control: public, max-age=900`, so a product or page change can take up to about 30 minutes to appear. If Shopify returns an error, the last good copy is served (or 503 when there is none).
 
 ## Prerequisites
 
@@ -90,11 +92,11 @@ All other app proxy paths return 404.
 
 ## Canonical URL
 
-The canonical endpoint is `/apps/w2agent/llms.txt` on the merchant's storefront. Root-level `/llms.txt` is not possible without a theme extension. Merchants can add a URL redirect from `/llms.txt` → `/apps/w2agent/llms.txt` in Shopify admin (Settings → Navigation → URL Redirects) if desired.
+The canonical endpoint is `/apps/w2agent/llms.txt` on the merchant's storefront. Shopify already serves `/llms.txt` for every store, so a URL redirect from that path does not apply. To replace the store's `/llms.txt` with the generated content, use the optional `templates/llms.txt.liquid` override that `w2agent integrate <url> --platform shopify --output <dir>` writes. The app does not install it.
 
 ## Architecture
 
-This is a private Remix app (not published to npm). It uses:
+This is an experimental, private Remix app (`private: true`, not published to npm). It uses:
 - `@shopify/shopify-app-remix` for OAuth + session management
 - Shopify Admin GraphQL API for data fetching
 - App Proxy for serving llms.txt on the merchant's domain
