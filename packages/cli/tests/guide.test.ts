@@ -105,9 +105,17 @@ describe("w2agent guide", () => {
     expect(guide).toBeDefined();
     expect(guide.arguments[0].choices).toEqual([
       "canonical",
+      "content-negotiation",
+      "forms-structured",
+      "llms-txt",
+      "local-business",
       "markdown-alternate",
+      "og-meta-tags",
+      "robots-access",
+      "robots",
       "schema-org",
       "security-headers",
+      "semantic-html",
       "sitemap",
     ]);
     expect(guide.options.map((o: { long: string }) => o.long)).toEqual(["--platform", "--json"]);

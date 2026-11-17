@@ -407,8 +407,18 @@ test("fix guides follow the guide file contract", () => {
 });
 
 test("guide map, guide files and the audit registry agree", async () => {
-  const { CHECK_GUIDES, GUIDES, allChecks } = await import(CORE);
-  const registry = new Set(allChecks.map((c) => c.id));
+  const { CHECK_GUIDES, GUIDES, allChecks, allAdapters, getSiteTypeChecks } = await import(CORE);
+  const siteTypes = ["ecommerce", "local-business"];
+  const registry = new Set(
+    [
+      ...allChecks,
+      ...allAdapters().flatMap((a) => a.checks),
+      ...siteTypes.flatMap((t) => getSiteTypeChecks(t)),
+    ].map((c) => c.id),
+  );
+  for (const id of ["nextjs-well-known-served", "local-business-nap-structured"]) {
+    assert.ok(registry.has(id), `registry is missing ${id}`);
+  }
   const guides = readGuides();
   const byId = new Map(guides.map((g) => [g.id, g]));
 
