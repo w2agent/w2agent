@@ -5,6 +5,13 @@ import { platform } from "node:os";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
+import {
+  enterJsonMode,
+  failWith,
+  type JsonMode,
+  jsonRequested,
+  loginRequiresApiKey,
+} from "../agent/output.js";
 import { clearCredentials, getApiUrl, loadCredentials, saveCredentials } from "../auth.js";
 
 function openBrowser(url: string): void {
@@ -37,16 +44,28 @@ export function registerLoginCommand(program: Command): void {
     .description("Authenticate with w2agent")
     .option("--api-key <key>", "Authenticate with an API key directly")
     .option("--force", "Re-authenticate even if already logged in")
+    .option("--json", "Print one JSON document on stdout (result or error envelope)")
     .action(async (opts: { apiKey?: string; force?: boolean }) => {
+      const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
+
       // --api-key path
       if (opts.apiKey) {
         const key = opts.apiKey;
         if (!key.startsWith("w2a_") || key.length <= 4) {
-          console.error(chalk.red("Invalid API key format. Keys must start with w2a_"));
-          process.exit(1);
+          await failWith(
+            json,
+            {
+              reason: "invalid_argument",
+              message: "Invalid API key format. Keys must start with w2a_",
+            },
+            undefined,
+            chalk.red("Invalid API key format. Keys must start with w2a_"),
+          );
+          return;
         }
         saveCredentials(key);
-        console.log(chalk.green("✓ API key saved successfully."));
+        if (json) await json.emit({ ok: true, outcome: "authenticated" });
+        else console.log(chalk.green("✓ API key saved successfully."));
         return;
       }
 
@@ -54,6 +73,10 @@ export function registerLoginCommand(program: Command): void {
       const existing = loadCredentials();
       if (existing && !opts.force) {
         const who = existing.email ? ` as ${existing.email}` : "";
+        if (json) {
+          await json.emit({ ok: true, outcome: "already_authenticated" });
+          return;
+        }
         console.log(
           chalk.yellow(
             `Already logged in${who}. Use --force to re-authenticate or run \`w2agent logout\` first.`,
@@ -62,77 +85,149 @@ export function registerLoginCommand(program: Command): void {
         return;
       }
 
-      // Browser OAuth path
-      const state = randomBytes(16).toString("hex");
+      if (loginRequiresApiKey(process.env, process.stdin.isTTY)) {
+        const message =
+          "Browser login needs an interactive terminal. Create an API key at https://w2agent.dev and run: w2agent login --api-key <api-key>";
+        await failWith(
+          json,
+          {
+            reason: "auth_required",
+            message,
+            next: [["w2agent", "login", "--api-key", "<api-key>"]],
+          },
+          undefined,
+          message,
+        );
+        return;
+      }
 
-      const server = createServer((req, res) => {
-        const url = new URL(req.url ?? "/", "http://localhost");
-        if (url.pathname !== "/callback") {
-          res.writeHead(404);
-          res.end();
-          return;
-        }
-
-        const token = url.searchParams.get("token");
-        const returnedState = url.searchParams.get("state");
-        const email = url.searchParams.get("email") ?? undefined;
-
-        if (returnedState !== state) {
-          res.writeHead(403, { "Content-Type": "text/plain" });
-          res.end("State mismatch. Please try again.");
-          console.error(
-            chalk.red("  ✗ State mismatch in callback. Possible CSRF attempt. Try again."),
-          );
-          return;
-        }
-
-        if (!token) {
-          res.writeHead(400, { "Content-Type": "text/plain" });
-          res.end("Missing token.");
-          return;
-        }
-
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(SUCCESS_HTML);
-
-        setTimeout(() => server.close(), 500);
-
-        saveCredentials(token, email);
-        spinner.stop();
-        const emailStr = email ? ` as ${chalk.white(email)}` : "";
-        console.log(chalk.green(`✓ Logged in successfully${emailStr}.`));
-      });
-
-      let spinner: ReturnType<typeof ora>;
-
-      server.on("error", (err) => {
-        console.error(chalk.red(`Failed to start local server: ${err.message}`));
-        console.log(chalk.yellow("Use --api-key instead: w2agent login --api-key <key>"));
-        process.exit(1);
-      });
-
-      server.listen(0, "127.0.0.1", () => {
-        const addr = server.address();
-        if (!addr || typeof addr === "string") {
-          console.error(chalk.red("Could not determine server port."));
-          process.exit(1);
-        }
-        const port = addr.port;
-        const authUrl = `${getApiUrl()}/cli/auth?port=${port}&state=${state}`;
-
-        spinner = ora("Waiting for browser authentication...").start();
-        console.log(chalk.gray(`\n  Opening: ${authUrl}`));
-        openBrowser(authUrl);
-      });
-
-      // 120s timeout
-      setTimeout(() => {
-        server.close();
-        console.error(chalk.red("\n✗ Authentication timed out after 120 seconds."));
-        console.log(chalk.yellow("Use --api-key instead: w2agent login --api-key <key>"));
-        process.exit(1);
-      }, 120_000);
+      await runBrowserLogin({ json });
     });
+}
+
+export interface BrowserLoginDeps {
+  json?: JsonMode;
+  timeoutMs?: number;
+  open?: (url: string) => void;
+  exit?: (code: number) => void;
+}
+
+/**
+ * Resolves once the login has finished one way or the other. The timer is
+ * cleared and the listener closed on success so nothing later fires or keeps
+ * the process alive.
+ */
+export function runBrowserLogin(deps: BrowserLoginDeps = {}): Promise<void> {
+  const {
+    json,
+    timeoutMs = 120_000,
+    open = openBrowser,
+    exit = (code: number) => process.exit(code),
+  } = deps;
+  return new Promise<void>((resolve) => {
+    const state = randomBytes(16).toString("hex");
+    let spinner: ReturnType<typeof ora> | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+
+    const finishServer = () => {
+      server.close();
+      server.closeAllConnections();
+    };
+
+    const abort = (reason: "unknown_failure" | "timeout", message: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      spinner?.stop();
+      finishServer();
+      const done = () => {
+        exit(1);
+        resolve();
+      };
+      if (!json) {
+        console.error(chalk.red(message));
+        console.log(chalk.yellow("Use --api-key instead: w2agent login --api-key <key>"));
+        done();
+        return;
+      }
+      void failWith(json, {
+        reason,
+        message,
+        next: [["w2agent", "login", "--api-key", "<api-key>"]],
+      }).then(done);
+    };
+
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname !== "/callback") {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+
+      const token = url.searchParams.get("token");
+      const returnedState = url.searchParams.get("state");
+      const email = url.searchParams.get("email") ?? undefined;
+
+      if (returnedState !== state) {
+        res.writeHead(403, { "Content-Type": "text/plain" });
+        res.end("State mismatch. Please try again.");
+        console.error(
+          chalk.red("  ✗ State mismatch in callback. Possible CSRF attempt. Try again."),
+        );
+        return;
+      }
+
+      if (!token) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Missing token.");
+        return;
+      }
+
+      if (settled) {
+        res.writeHead(409, { "Content-Type": "text/plain" });
+        res.end("Login already finished.");
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+
+      res.writeHead(200, { "Content-Type": "text/html", Connection: "close" });
+      res.end(SUCCESS_HTML, () => finishServer());
+
+      saveCredentials(token, email);
+      spinner?.stop();
+      if (json) {
+        void json.emit({ ok: true, outcome: "authenticated" }).then(resolve);
+        return;
+      }
+      const emailStr = email ? ` as ${chalk.white(email)}` : "";
+      console.log(chalk.green(`✓ Logged in successfully${emailStr}.`));
+      resolve();
+    });
+
+    server.on("error", (err) => {
+      abort("unknown_failure", `Failed to start local server: ${err.message}`);
+    });
+
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") {
+        abort("unknown_failure", "Could not determine server port.");
+        return;
+      }
+      const authUrl = `${getApiUrl()}/cli/auth?port=${addr.port}&state=${state}`;
+
+      spinner = json ? undefined : ora("Waiting for browser authentication...").start();
+      console.log(chalk.gray(`\n  Opening: ${authUrl}`));
+      open(authUrl);
+    });
+
+    timer = setTimeout(() => {
+      abort("timeout", `Authentication timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+    }, timeoutMs);
+  });
 }
 
 export function registerLogoutCommand(program: Command): void {
