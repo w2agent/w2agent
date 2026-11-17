@@ -4,6 +4,8 @@ import { createServer as createHttpServer } from "node:http";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import type { EcommerceArtifacts } from "../../src/generate/ecommerce.js";
+import type { LocalBusinessArtifacts } from "../../src/generate/local-business.js";
 import { generateMcpServer } from "../../src/generate/mcp-server.js";
 import type { GenerateContext } from "../../src/generate/types.js";
 import { freePort, spawnServer, waitForRunning } from "./mcp-harness.js";
@@ -47,8 +49,14 @@ export async function bootGenerated(
   ctx: GenerateContext,
   root: string,
   hostMap: Array<[string, string]>,
+  artifacts: { ecommerce?: EcommerceArtifacts; localBusiness?: LocalBusinessArtifacts } = {},
 ): Promise<Booted> {
-  const files = generateMcpServer(ctx, variant === "express" ? undefined : variant);
+  const files = generateMcpServer(
+    ctx,
+    variant === "express" ? undefined : variant,
+    artifacts.ecommerce,
+    artifacts.localBusiness,
+  );
   for (const f of files) {
     const target = join(root, f.filename);
     mkdirSync(dirname(target), { recursive: true });
@@ -96,12 +104,16 @@ export async function bootGenerated(
         const res = await worker.fetch(
           new Request("http://127.0.0.1/mcp", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json, text/event-stream",
+            },
             body: JSON.stringify(body),
           }),
           env,
         );
-        return JSON.parse(await res.text());
+        const text = await res.text();
+        return text ? parseBody(text) : null;
       },
       dir,
       close: () => {},

@@ -283,16 +283,17 @@ async function loadWorker(name: string, ctx: GenerateContext) {
     const res = await worker.fetch(
       new Request("http://127.0.0.1/mcp", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
         body: JSON.stringify(body),
       }),
       env,
     );
-    return JSON.parse(await res.text());
+    return parseBody(await res.text());
   };
-  const info = async () =>
-    JSON.parse(await (await worker.fetch(new Request("http://127.0.0.1/mcp"), env)).text());
-  return { call, info };
+  return { call };
 }
 
 describe("hostile crawl data: Express server", () => {
@@ -341,10 +342,9 @@ describe("hostile crawl data: Express server", () => {
 
 describe("hostile crawl data: Cloudflare worker", () => {
   let call: Awaited<ReturnType<typeof loadWorker>>["call"];
-  let info: Awaited<ReturnType<typeof loadWorker>>["info"];
 
   beforeAll(async () => {
-    ({ call, info } = await loadWorker("cf", buildCtx()));
+    ({ call } = await loadWorker("cf", buildCtx()));
   });
 
   it("tools/list succeeds and dedupes OpenAPI names against built-in and form tools", async () => {
@@ -353,9 +353,6 @@ describe("hostile crawl data: Cloudflare worker", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(EXPECTED_TOOLS));
     expect(new Set(names).size).toBe(names.length);
-    const advertised: string[] = (await info()).tools;
-    expect(advertised).toEqual(expect.arrayContaining(EXPECTED_TOOLS));
-    expect(new Set(advertised).size).toBe(advertised.length);
     const listPages2 = tools.find((t) => t.name === "list-pages-2");
     expect(Object.hasOwn(listPages2?.inputSchema.properties, "__proto___query")).toBe(true);
     expect(Object.hasOwn(listPages2?.inputSchema.properties, "__proto__")).toBe(false);

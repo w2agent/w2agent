@@ -359,12 +359,15 @@ async function boot(variant: Variant): Promise<Rpc> {
       const res = await worker.fetch(
         new Request("http://127.0.0.1/mcp", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+          },
           body: JSON.stringify(body),
         }),
         env,
       );
-      return JSON.parse(await res.text());
+      return parseBody(await res.text());
     };
   }
   writeFiles(generateMcpServer(ctx, "vercel"), root);

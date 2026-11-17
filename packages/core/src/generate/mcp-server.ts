@@ -737,22 +737,6 @@ function formZodShape(spec: FormToolSpec, indent: string): string {
     .join(",\n");
 }
 
-function formFieldJsonSchema(f: FormFieldSpec): Record<string, unknown> {
-  if (f.kind === "checkbox") return { type: "boolean" };
-  if (f.kind === "checkbox-group") {
-    return { type: "array", items: { type: "string", enum: f.options } };
-  }
-  if (f.kind === "radio" || f.kind === "select") return { type: "string", enum: f.options };
-  return { type: f.kind === "number" ? "number" : "string" };
-}
-
-function formJsonSchema(spec: FormToolSpec): { properties: unknown; required: string[] } {
-  return {
-    properties: Object.fromEntries(spec.fields.map((f) => [f.name, formFieldJsonSchema(f)])),
-    required: spec.fields.filter((f) => f.required).map((f) => f.name),
-  };
-}
-
 function formRequestExpr(tool: FormToolEmit, paramsVar: string): string {
   const method = tool.spec.method === "GET" ? '"GET"' : '"POST"';
   return `buildFormRequest(${JSON.stringify(tool.action)}, ${method}, ${jsonObjectLiteral(tool.spec.fields)} as FormFieldSpec[], ${paramsVar})`;
@@ -1245,41 +1229,30 @@ function generateReadme(siteName: string, detected: McpDetectedTools, baseUrl: s
   return lines.join("\n");
 }
 
-// --- Vercel Self-Host Template ---
+const LOCAL_BUSINESS_TOOLS = [
+  ["get-hours", "Get business hours and opening times", "getHours"],
+  ["get-menu", "Get the menu URL for this business", "getMenu"],
+  ["get-services", "Get the services page URL for this business", "getServices"],
+  ["book-appointment", "Get booking URL and instructions for scheduling", "bookAppointment"],
+] as const;
 
-function generateVercelTemplate(
-  siteName: string,
-  baseUrl: string,
-  detected: McpDetectedTools,
-  dataFiles: GeneratedFile[],
-): GeneratedFile[] {
-  const slug = siteName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+function localBusinessToolRegistrations(detected: McpDetectedTools): string {
+  return LOCAL_BUSINESS_TOOLS.filter(([name]) =>
+    detected.tools.some((t) => t.name === name && t.condition === "hasLocalBusiness"),
+  )
+    .map(
+      ([name, description, handler]) => `
+  server.tool(${JSON.stringify(name)}, ${JSON.stringify(description)}, {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
+    const result = ${handler}(business);
+    return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }] };
+  });
+`,
+    )
+    .join("");
+}
 
-  const vercelJson = `${JSON.stringify(
-    {
-      rewrites: [
-        { source: "/.well-known/mcp", destination: "/api/mcp" },
-        { source: "/mcp", destination: "/api/mcp" },
-      ],
-    },
-    null,
-    2,
-  )}\n`;
-
-  const apiMcpTs = `import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
-import pages from "../data/pages.json" with { type: "json" };
-${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}
-${OUTBOUND_HELPER_SOURCE}
-${detected.forms.length > 0 ? FORM_HELPER_SOURCE : ""}
-function createServer() {
-  const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
-
+function generateSharedToolRegistrations(detected: McpDetectedTools, baseUrl: string): string {
+  return `
   server.tool("list-pages", "List all pages", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
     const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");
     return { content: [{ type: "text", text: listing }] };
@@ -1362,6 +1335,13 @@ ${generateCommerceToolHandlers()}
     : ""
 }
 ${
+  detected.hasLocalBusiness
+    ? `
+${generateLocalBusinessToolHandlers()}
+${localBusinessToolRegistrations(detected)}`
+    : ""
+}
+${
   formToolEmits(detected).length > 0
     ? formToolEmits(detected)
         .map((tool) => {
@@ -1391,6 +1371,45 @@ ${formZodShape(tool.spec, "    ")}
         .join("\n")
     : ""
 }
+`;
+}
+
+// --- Vercel Self-Host Template ---
+
+function generateVercelTemplate(
+  siteName: string,
+  baseUrl: string,
+  detected: McpDetectedTools,
+  dataFiles: GeneratedFile[],
+): GeneratedFile[] {
+  const slug = siteName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const vercelJson = `${JSON.stringify(
+    {
+      rewrites: [
+        { source: "/.well-known/mcp", destination: "/api/mcp" },
+        { source: "/mcp", destination: "/api/mcp" },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
+
+  const apiMcpTs = `import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
+import pages from "../data/pages.json" with { type: "json" };
+${detected.hasFaq ? 'import faq from "../data/faq.json" with { type: "json" };\n' : ""}${detected.hasProducts ? 'import products from "../data/products.json" with { type: "json" };\n' : ""}${detected.hasLocalBusiness ? 'import business from "../data/business.json" with { type: "json" };\n' : ""}
+${OUTBOUND_HELPER_SOURCE}
+${detected.forms.length > 0 ? FORM_HELPER_SOURCE : ""}
+function createServer() {
+  const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
+
+${generateSharedToolRegistrations(detected, baseUrl)}
   return server;
 }
 
@@ -1447,23 +1466,6 @@ function generateCloudflareTemplate(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  const apiBase = detected.openapiServerUrl || baseUrl;
-  const openapiTools: Array<{
-    toolName: string;
-    ep: (typeof detected.openapiEndpoints)[0];
-    inputs: AllocatedInputs;
-  }> = [];
-  if (detected.hasOpenapi && detected.openapiEndpoints.length > 0) {
-    const usedNames = new Set<string>(reservedToolNames(detected));
-    for (const ep of detected.openapiEndpoints) {
-      openapiTools.push({
-        toolName: inferOpenapiToolName(ep, usedNames),
-        ep,
-        inputs: allocateInputKeys(ep),
-      });
-    }
-  }
-
   const wranglerToml = `name = "${slug}-agent"
 main = "worker.ts"
 compatibility_date = "2024-12-01"
@@ -1473,20 +1475,44 @@ binding = "MCP_DATA"
 id = "" # Run: npx wrangler kv namespace create MCP_DATA
 `;
 
+  const kvKeys = [
+    "pages",
+    ...(detected.hasFaq ? ["faq"] : []),
+    ...(detected.hasProducts ? ["products"] : []),
+    ...(detected.hasLocalBusiness ? ["business"] : []),
+  ];
+  const createServerParams = kvKeys.map((k) => `${k}: any`).join(", ");
+
   const workerTs = `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 
 ${OUTBOUND_HELPER_SOURCE}
 ${detected.forms.length > 0 ? FORM_HELPER_SOURCE : ""}
 interface Env {
-  MCP_DATA: KVNamespace;
+  MCP_DATA: { get(key: string): Promise<string | null> };
+}
+
+const KV_KEYS = ${JSON.stringify(kvKeys)};
+
+function jsonRpcError(status: number, code: number, message: string, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+function createServer(${createServerParams}) {
+  const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
+
+${generateSharedToolRegistrations(detected, baseUrl)}
+  return server;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // Handle .well-known/mcp discovery
     if (url.pathname === "/.well-known/mcp") {
       return Response.redirect(new URL("/mcp", request.url).href, 307);
     }
@@ -1496,347 +1522,33 @@ export default {
     }
 
     if (request.method !== "POST") {
-      return new Response(JSON.stringify({
-        name: ${JSON.stringify(siteName)},
-        version: "1.0.0",
-        tools: ${JSON.stringify(detected.tools.map((t) => t.name))},
-      }), { headers: { "content-type": "application/json" } });
+      return jsonRpcError(405, -32000, "Method not allowed.", { Allow: "POST" });
     }
 
-    // Load data from KV
-    const pagesStr = await env.MCP_DATA.get("pages");
-    const pages = pagesStr ? JSON.parse(pagesStr) : [];
-${detected.hasFaq ? '    const faqStr = await env.MCP_DATA.get("faq");\n    const faq = faqStr ? JSON.parse(faqStr) : null;\n' : ""}${detected.hasProducts ? '    const productsStr = await env.MCP_DATA.get("products");\n    const products = productsStr ? JSON.parse(productsStr) : [];\n' : ""}
-    // Create stateless MCP server
-    const server = new McpServer({ name: ${JSON.stringify(siteName)}, version: "1.0.0" });
-
-    server.tool("list-pages", "List all pages", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
-      const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");
-      return { content: [{ type: "text", text: listing }] };
-    });
-
-    server.tool("get-page", "Get page content", { url: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ url: pageUrl }) => {
-      const page = pages.find((p: any) => p.url === pageUrl || p.url.endsWith("/" + pageUrl) || p.url.includes(pageUrl));
-      if (!page) return { content: [{ type: "text", text: "Page not found" }] };
-      return { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] };
-    });
-
-    server.tool("search-site", "Search site content", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
-      const terms = query.toLowerCase().split(/\\s+/);
-      const scored = pages.map((p: any) => {
-        let score = 0;
-        for (const term of terms) {
-          if (p.title?.toLowerCase().includes(term)) score += 3;
-          if (p.description?.toLowerCase().includes(term)) score += 2;
-          if (p.markdown?.toLowerCase().includes(term)) score += 1;
+    try {
+      const raw = await Promise.all(KV_KEYS.map((k) => env.MCP_DATA.get(k)));
+      const values = raw.map((s) => {
+        if (s === null) return null;
+        try {
+          return JSON.parse(s);
+        } catch {
+          return null;
         }
-        return { ...p, score };
-      }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);
-      if (scored.length === 0) return { content: [{ type: "text", text: "No results" }] };
-      const results = scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
-      return { content: [{ type: "text", text: results }] };
-    });
-${
-  detected.searchAction
-    ? `
-    server.tool("site-search", ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
-      return { content: [{ type: "text", text: ${siteSearchUrlExpr(detected.searchAction, "query")} }] };
-    });
-`
-    : ""
-}
-${
-  detected.hasProducts
-    ? `
-${generateCommerceToolHandlers()}
-
-    server.tool("search-products", "Search products by name, category, or description", { query: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ query }) => {
-      const results = searchProducts(query, products);
-      if (results.length === 0) return { content: [{ type: "text", text: "No products found" }] };
-      return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
-    });
-
-    server.tool("get-product", "Get full product details by product ID", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
-      const product = getProduct(productId, products);
-      if (!product) return { content: [{ type: "text", text: "Product not found" }] };
-      return { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] };
-    });
-
-    server.tool("check-inventory", "Check product availability and price", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
-      const result = checkInventory(productId, products);
-      if (!result) return { content: [{ type: "text", text: "Product not found" }] };
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    });
-
-    server.tool("get-reviews", "Get aggregate rating for a product", { productId: z.string() }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async ({ productId }) => {
-      const result = getReviews(productId, products);
-      if (!result) return { content: [{ type: "text", text: "Product not found" }] };
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    });
-`
-    : ""
-}
-${
-  detected.forms.length > 0
-    ? formToolEmits(detected)
-        .map((tool) => {
-          return `
-    server.tool(${JSON.stringify(tool.name)}, ${JSON.stringify(tool.description)}, {
-${formZodShape(tool.spec, "      ")}
-    }, ${formAnnotations(tool.spec.method)}, async (params) => {
-      try {
-        const _req = ${formRequestExpr(tool, "params")};
-        return { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };
-      } catch (err) {
-        return { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
+      });
+      const missing = KV_KEYS.filter((_, i) => values[i] === null);
+      if (missing.length > 0) {
+        return jsonRpcError(503, -32000, "Server data is missing or unreadable in KV (" + missing.join(", ") + "). Run setup.sh to upload it, then retry.");
       }
-    });`;
-        })
-        .join("\n")
-    : ""
-}
-${
-  openapiTools.length > 0
-    ? "\n" +
-      generateOpenapiToolHandlers(detected.openapiEndpoints, apiBase, reservedToolNames(detected))
-        .map((l) => (l ? `    ${l}` : l))
-        .join("\n")
-    : ""
-}
-    // Simple JSON-RPC handler since CF Workers doesn't support StreamableHTTP easily
-    const body = await request.json() as any;
-    if (body.method === "initialize") {
-      return new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: body.id,
-        result: {
-          protocolVersion: "2025-03-26",
-          serverInfo: { name: ${JSON.stringify(siteName)}, version: "1.0.0" },
-          capabilities: { tools: {} },
-        },
-      }), { headers: { "content-type": "application/json" } });
+      const [${kvKeys.join(", ")}] = values;
+
+      const server = createServer(${kvKeys.join(", ")});
+      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+      await server.connect(transport);
+      return await transport.handleRequest(request);
+    } catch (error) {
+      console.error("Error handling MCP request:", error);
+      return jsonRpcError(500, -32603, "Internal server error");
     }
-
-    if (body.method === "tools/list") {
-      return new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        id: body.id,
-        result: {
-          tools: [
-            { name: "list-pages", description: "List all pages", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            { name: "get-page", description: "Get page content", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            { name: "search-site", description: "Search site content", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            ${
-              detected.searchAction
-                ? `{ name: "site-search", description: ${JSON.stringify(SITE_SEARCH_DESCRIPTION)}, inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },`
-                : ""
-            }
-            ${
-              detected.hasProducts
-                ? `{ name: "search-products", description: "Search products by name, category, or description", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            { name: "get-product", description: "Get full product details by product ID", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            { name: "check-inventory", description: "Check product availability and price", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
-            { name: "get-reviews", description: "Get aggregate rating for a product", inputSchema: { type: "object", properties: { productId: { type: "string" } }, required: ["productId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },`
-                : ""
-            }
-${
-  detected.forms.length > 0
-    ? formToolEmits(detected)
-        .map((tool) => {
-          const { properties, required } = formJsonSchema(tool.spec);
-          return `            { name: ${JSON.stringify(tool.name)}, description: ${JSON.stringify(tool.description)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: ${formAnnotations(tool.spec.method)} },`;
-        })
-        .join("\n")
-    : ""
-}
-${
-  openapiTools.length > 0
-    ? openapiTools
-        .map(({ toolName, ep, inputs }) => {
-          const properties = Object.fromEntries([
-            ...[...inputs.path, ...inputs.query].map(({ p, key }) => [
-              key,
-              { type: p.type === "integer" || p.type === "number" ? "number" : "string" },
-            ]),
-            ...inputs.body.map(({ def, key }) => [
-              key,
-              { type: def.type === "integer" || def.type === "number" ? "number" : "string" },
-            ]),
-          ]);
-          const required = [...inputs.path, ...inputs.query]
-            .filter(({ p }) => p.required)
-            .map(({ key }) => key);
-          const isReadOnly = ep.method.toLowerCase() === "get";
-          const annotations = isReadOnly
-            ? "{ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }"
-            : "{ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }";
-          const desc = ep.summary || ep.description || `${ep.method.toUpperCase()} ${ep.path}`;
-          return `            { name: ${JSON.stringify(toolName)}, description: ${JSON.stringify(desc)}, inputSchema: { type: "object", properties: ${jsonObjectLiteral(properties)}, required: ${JSON.stringify(required)} }, annotations: ${annotations} },`;
-        })
-        .join("\n")
-    : ""
-}
-          ],
-        },
-      }), { headers: { "content-type": "application/json" } });
-    }
-
-    if (body.method === "tools/call") {
-      const toolName = body.params?.name;
-      const args = body.params?.arguments || {};
-      let result: any;
-
-      if (toolName === "list-pages") {
-        const listing = pages.map((p: any) => \`\${p.title} — \${p.url}\`).join("\\n");
-        result = { content: [{ type: "text", text: listing }] };
-      } else if (toolName === "get-page") {
-        const page = pages.find((p: any) => p.url === args.url || p.url.endsWith("/" + args.url) || p.url.includes(args.url));
-        result = page
-          ? { content: [{ type: "text", text: \`# \${page.title}\\n\\n\${page.markdown}\` }] }
-          : { content: [{ type: "text", text: "Page not found" }] };
-      } else if (toolName === "search-site") {
-        const terms = (args.query || "").toLowerCase().split(/\\s+/);
-        const scored = pages.map((p: any) => {
-          let score = 0;
-          for (const term of terms) {
-            if (p.title?.toLowerCase().includes(term)) score += 3;
-            if (p.description?.toLowerCase().includes(term)) score += 2;
-            if (p.markdown?.toLowerCase().includes(term)) score += 1;
-          }
-          return { ...p, score };
-        }).filter((p: any) => p.score > 0).sort((a: any, b: any) => b.score - a.score).slice(0, 10);
-        const text = scored.length === 0
-          ? "No results"
-          : scored.map((p: any) => \`**\${p.title}** (\${p.url})\\n\${p.markdown?.slice(0, 3000)}...\`).join("\\n\\n");
-        result = { content: [{ type: "text", text }] };
-      }${
-        detected.searchAction
-          ? ` else if (toolName === "site-search") {
-        try {
-          if (typeof args.query !== "string") throw new Error("Field query must be a string");
-          result = { content: [{ type: "text", text: ${siteSearchUrlExpr(detected.searchAction, "args.query")} }] };
-        } catch (err) {
-          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
-        }
-      }`
-          : ""
-      }${
-        detected.hasProducts
-          ? ` else if (toolName === "search-products") {
-        const results = searchProducts(args.query || "", products);
-        result = results.length === 0
-          ? { content: [{ type: "text", text: "No products found" }] }
-          : { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
-      } else if (toolName === "get-product") {
-        const product = getProduct(args.productId || "", products);
-        result = product
-          ? { content: [{ type: "text", text: JSON.stringify(product, null, 2) }] }
-          : { content: [{ type: "text", text: "Product not found" }] };
-      } else if (toolName === "check-inventory") {
-        const inv = checkInventory(args.productId || "", products);
-        result = inv
-          ? { content: [{ type: "text", text: JSON.stringify(inv, null, 2) }] }
-          : { content: [{ type: "text", text: "Product not found" }] };
-      } else if (toolName === "get-reviews") {
-        const rev = getReviews(args.productId || "", products);
-        result = rev
-          ? { content: [{ type: "text", text: JSON.stringify(rev, null, 2) }] }
-          : { content: [{ type: "text", text: "Product not found" }] };
-      }`
-          : ""
-      }${
-        detected.forms.length > 0
-          ? formToolEmits(detected)
-              .map((tool) => {
-                return ` else if (toolName === ${JSON.stringify(tool.name)}) {
-        try {
-          const _req = ${formRequestExpr(tool, "args")};
-          result = { content: [{ type: "text", text: await outboundFetch(_req.url, _req.init, 2000) }] };
-        } catch (err) {
-          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
-        }
-      }`;
-              })
-              .join("")
-          : ""
-      }${
-        openapiTools.length > 0
-          ? openapiTools
-              .map(({ toolName, ep, inputs }) => {
-                const queryParams = inputs.query;
-                const bodyProps = inputs.body;
-
-                let pathExpr = JSON.stringify(ep.path);
-                for (const { p, key } of inputs.path) {
-                  pathExpr = `(${pathExpr}).replace(${JSON.stringify(`{${p.name}}`)}, () => encodeURIComponent(String(args[${JSON.stringify(key)}])))`;
-                }
-
-                const queryLines: string[] = [];
-                if (queryParams.length > 0) {
-                  queryLines.push(`          const _query = new URLSearchParams();`);
-                  for (const { p, key } of queryParams) {
-                    if (p.required) {
-                      queryLines.push(
-                        `          _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
-                      );
-                    } else {
-                      queryLines.push(
-                        `          if (args[${JSON.stringify(key)}] !== undefined) _query.set(${JSON.stringify(p.name)}, String(args[${JSON.stringify(key)}]));`,
-                      );
-                    }
-                  }
-                  queryLines.push(
-                    `          const _qs = _query.toString(); if (_qs) _url += "?" + _qs;`,
-                  );
-                }
-
-                const bodyLines: string[] = [];
-                let fetchExtra: string;
-                if (bodyProps.length > 0) {
-                  bodyLines.push(
-                    `          const _body: Record<string, unknown> = Object.create(null);`,
-                  );
-                  for (const { name, key } of bodyProps) {
-                    bodyLines.push(
-                      `          if (args[${JSON.stringify(key)}] !== undefined) _body[${JSON.stringify(name)}] = args[${JSON.stringify(key)}];`,
-                    );
-                  }
-                  fetchExtra = `, headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(_body)`;
-                } else {
-                  fetchExtra = `, headers: { "Accept": "application/json" }`;
-                }
-
-                const innerLines = [...queryLines, ...bodyLines].join("\n");
-
-                return ` else if (toolName === ${JSON.stringify(toolName)}) {
-        try {
-          const _path = ${pathExpr};
-          assertSafePath(_path);
-          let _url = ${JSON.stringify(apiBase)} + _path;
-${innerLines ? `${innerLines}\n` : ""}          result = { content: [{ type: "text", text: await outboundFetch(_url, { method: ${JSON.stringify(ep.method.toUpperCase())}${fetchExtra} }, 3000) }] };
-        } catch (err) {
-          result = { content: [{ type: "text", text: \`Error: \${err instanceof Error ? err.message : String(err)}\` }], isError: true };
-        }
-      }`;
-              })
-              .join("")
-          : ""
-      } else {
-        return new Response(JSON.stringify({
-          jsonrpc: "2.0", id: body.id,
-          error: { code: -32601, message: "Unknown tool: " + toolName },
-        }), { headers: { "content-type": "application/json" } });
-      }
-
-      return new Response(JSON.stringify({
-        jsonrpc: "2.0", id: body.id, result,
-      }), { headers: { "content-type": "application/json" } });
-    }
-
-    return new Response(JSON.stringify({
-      jsonrpc: "2.0", id: body.id,
-      error: { code: -32601, message: "Method not found" },
-    }), { headers: { "content-type": "application/json" } });
   },
 };
 `;
@@ -1844,8 +1556,7 @@ ${innerLines ? `${innerLines}\n` : ""}          result = { content: [{ type: "te
   const setupSh = `#!/bin/bash
 # Upload data to Cloudflare KV
 # First, update wrangler.toml with your KV namespace ID
-npx wrangler kv key put --binding MCP_DATA "pages" --path data/pages.json
-${detected.hasFaq ? 'npx wrangler kv key put --binding MCP_DATA "faq" --path data/faq.json\n' : ""}${detected.hasProducts ? 'npx wrangler kv key put --binding MCP_DATA "products" --path data/products.json\n' : ""}echo "Data uploaded. Deploy with: npx wrangler deploy"
+${kvKeys.map((k) => `npx wrangler kv key put --binding MCP_DATA "${k}" --path data/${k}.json\n`).join("")}echo "Data uploaded. Deploy with: npx wrangler deploy"
 `;
 
   const pkgJson = `${JSON.stringify(

@@ -498,9 +498,8 @@ describe("generateMcpServer self-host: cf", () => {
     const worker = files.find((f) => f.filename === "mcp-server/worker.ts");
     expect(worker).toBeDefined();
     expect(worker?.content).toContain(".well-known/mcp");
-    expect(worker?.content).toContain("initialize");
-    expect(worker?.content).toContain("tools/list");
-    expect(worker?.content).toContain("tools/call");
+    expect(worker?.content).toContain("WebStandardStreamableHTTPServerTransport");
+    expect(worker?.content).not.toContain("tools/call");
   });
 
   it("produces setup.sh for KV data upload", () => {
@@ -635,14 +634,6 @@ describe("tool annotations", () => {
     expect(workerFile.content).toContain("idempotentHint: true");
   });
 
-  it("cloudflare worker.ts tools/list response includes annotations", () => {
-    const files = generateMcpServer(ctx, "cf");
-    const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
-    // The tools/list response is a JS object literal inside JSON.stringify() —
-    // in generated source code, annotations appear as JS syntax, not serialized JSON
-    expect(workerFile.content).toContain("annotations: { readOnlyHint: true");
-  });
-
   it("vercel api/mcp.ts includes form submission tools when forms detected", () => {
     const ctxWithForm = makeCtx({
       pages: [
@@ -696,13 +687,13 @@ describe("tool annotations", () => {
     });
     const files = generateMcpServer(ctxWithForm, "cf");
     const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
-    // Real fetch in tools/call handler
+    // Real fetch in the registered tool handler
     expect(workerFile.content).toContain("fetch(");
     expect(workerFile.content).toContain("AbortController");
     expect(workerFile.content).toContain("10000");
     expect(workerFile.content).toContain("isError: true");
     expect(workerFile.content).toContain("application/x-www-form-urlencoded");
-    // Write annotations present in tools/list response
+    // Write annotations passed to server.tool
     expect(workerFile.content).toContain("destructiveHint: true");
     expect(workerFile.content).toContain("idempotentHint: false");
     // Action URL resolved at generation time
@@ -1069,8 +1060,6 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
     expect(workerFile).toBeDefined();
     // SDK section
     expect(workerFile.content).toContain('"list-pets"');
-    // tools/list entry
-    expect(workerFile.content).toContain('name: "list-pets"');
     // readOnly annotations (GET endpoint)
     expect(workerFile.content).toContain("readOnlyHint: true");
     expect(workerFile.content).toContain("destructiveHint: false");
@@ -1099,7 +1088,6 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
     });
     const files = generateMcpServer(ctx, "cf");
     const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
-    // tools/call: else if dispatch
     expect(workerFile.content).toContain('"get-pet"');
     expect(workerFile.content).toContain("fetch(");
     expect(workerFile.content).toContain("AbortController");
@@ -1134,7 +1122,7 @@ describe("generateMcpServer — OpenAPI tools in output", () => {
     const files = generateMcpServer(ctx, "cf");
     const workerFile = files.find((f) => f.filename === "mcp-server/worker.ts")!;
     expect(workerFile.content).toContain('"create-pet"');
-    // Write annotations in tools/list
+    // Write annotations passed to server.tool
     expect(workerFile.content).toContain("destructiveHint: true");
     expect(workerFile.content).toContain("idempotentHint: false");
     // Body construction

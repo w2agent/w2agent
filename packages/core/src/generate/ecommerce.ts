@@ -323,6 +323,7 @@ export function generateCommerceToolHandlers(): string {
 }
 
 function getProduct(productId, products) {
+  if (typeof productId !== 'string' || !productId.trim()) return null;
   return products.find(p => p.productId === productId) ||
     products.find(p => p.name.toLowerCase().includes(productId.toLowerCase())) ||
     null;
