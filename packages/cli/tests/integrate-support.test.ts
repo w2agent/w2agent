@@ -164,6 +164,35 @@ describe("rewriteOrigin", () => {
     expect(warnings[0]).not.toContain("b.md");
   });
 
+  it("rewrites a quoted host only as a property value, never in prose", () => {
+    const { files, warnings } = rewriteOrigin(
+      [
+        file(
+          "a",
+          [
+            'Use "localhost" for DB.',
+            '{ "name": "localhost" }',
+            'name: "localhost",',
+            'const name = "localhost";',
+            'x ="localhost"',
+          ].join("\n"),
+        ),
+      ],
+      "http://localhost:3000",
+      site,
+    );
+    expect(files[0].content).toBe(
+      [
+        'Use "localhost" for DB.',
+        '{ "name": "acme.example" }',
+        'name: "acme.example",',
+        'const name = "acme.example";',
+        'x ="acme.example"',
+      ].join("\n"),
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
   it("keeps hostname-only boundaries for heading and JSON-value rewrites", () => {
     const { files } = rewriteOrigin(
       [file("a", '# 127.0.0.10\n"127.0.0.1.evil.com"\n# x127.0.0.1\n"127.0.0.10"')],

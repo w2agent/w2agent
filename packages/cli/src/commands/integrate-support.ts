@@ -144,13 +144,13 @@ function rulesFor(a: Authority, site: URL, includeBare: boolean): Rule[] {
   if (includeBare && a.hostname !== site.hostname) {
     const bare = escapeRegExp(a.hostname);
     // Only a whole derived value: a line that is just the host (optionally a
-    // Markdown heading) or a quoted string that is just the host.
+    // Markdown heading) or a quoted property value that is just the host (`"name": "host"`, `name: "host"`, `name = "host"`).
     rules.push(
       {
         re: new RegExp(`^([ \\t]*(?:#{1,6}[ \\t]+)?)${bare}(?=[ \\t\\r]*$)`, "gim"),
         replace: (_m, lead) => `${lead}${site.hostname}`,
       },
-      { re: new RegExp(`(?<=")${bare}(?=")`, "gi"), replace: () => site.hostname },
+      { re: new RegExp(`(?<=[:=][ \\t]*")${bare}(?=")`, "gi"), replace: () => site.hostname },
     );
   }
   return rules;
@@ -163,7 +163,7 @@ function rulesFor(a: Authority, site: URL, includeBare: boolean): Rule[] {
  * is a loopback name, the other loopback names on the same port are rewritten
  * too. The bare crawl hostname is rewritten only where it is a whole derived
  * value (core falls back to it as the site name): a line that is just the host
- * or `# host`, and a string value that is exactly `"host"`. Prose that merely
+ * or `# host`, and a quoted value right after `:` or `=` that is exactly the host. Prose that merely
  * mentions it stays as written. Anything left that still names the crawl host
  * is reported in `warnings`.
  */

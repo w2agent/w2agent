@@ -363,6 +363,24 @@ describe("built CLI: integrate agent mode", () => {
     );
     expect(h.code).toBe(0);
     expect(h.stderr).toContain("No readable pages");
+    const withSite = await run(
+      [
+        "integrate",
+        origin,
+        "--dry-run",
+        "--platform",
+        "nextjs",
+        "--site-url",
+        "https://acme.example",
+        "--project-dir",
+        project,
+        "--timeout",
+        "3000",
+      ],
+      tmp("cwd"),
+    );
+    expect(withSite.code).toBe(0);
+    expect(withSite.stderr.split("No readable pages").length - 1).toBe(1);
   });
 
   it("unknown platform: exit 2 invalid_argument before any request", async () => {

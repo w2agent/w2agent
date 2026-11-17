@@ -169,7 +169,7 @@ w2agent integrate http://127.0.0.1:<port> --install --json \
 - `host:port` forms of the crawl host;
 - loopback aliases (`localhost`, `127.0.0.1`, `[::1]`) on the same port.
 
-The bare crawl hostname is rewritten only where it is a whole value that core derives from it (the site name): a line that is just the host or `# <host>`, and a string value that is exactly `"<host>"`. A mention in prose, such as "open localhost in your browser", is left as written.
+The bare crawl hostname is rewritten only where it is a whole value that core derives from it (the site name): a line that is just the host or `# <host>`, and a quoted value that follows `:` or `=` and is exactly the host (`"name": "<host>"`, `name: "<host>"`). A quoted host in prose, such as `Use "localhost" for DB`, is left as written. A mention in prose, such as "open localhost in your browser", is left as written.
 
 Every other mention of the crawl host is reported in `warnings` (on stderr in human mode). A warning means generated content still names the crawl host. Check it by hand before you publish.
 

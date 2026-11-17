@@ -301,7 +301,7 @@ export function registerIntegrateCommand(program: Command): void {
           const rewritten = rewriteOrigin(result.files, url, siteOrigin);
           result.files = rewritten.files;
           warnings.push(...rewritten.warnings);
-          if (!json) for (const w of warnings) console.error(chalk.yellow(`  ! ${w}`));
+          if (!json) for (const w of rewritten.warnings) console.error(chalk.yellow(`  ! ${w}`));
         }
 
         const platformFiles = result.files.filter((f) => f.filename.startsWith(`${platformId}/`));
