@@ -2,14 +2,38 @@
 
 # w2agent
 
-**每个网站本身就是一个 Agent。** w2agent 能够审计、生成并将任意网站部署为一个实时 Agent 服务器——可被 Claude、GPT 及任何兼容 MCP 的 AI 工具发现和查询。
+**w2agent 审计网站的 AI Agent 就绪性，并生成让 Claude、GPT 及其他兼容 MCP 的工具发现该网站所需的文件**（llms.txt、agent-card.json、Schema.org JSON-LD、WebMCP 等）。
 
-<!-- gif: cli-audit — terminal running `npx w2agent audit https://stripe.com`, score output scrolling in -->
+## 站点所有者：交给你的编码 Agent
+
+对你的编码 Agent 说：
+
+> use w2agent to make my site agent-ready
+
+它会按照 [docs/AGENT-PLAYBOOK.md](docs/AGENT-PLAYBOOK.md) 执行（也打包成了 [w2agent skill](skills/w2agent/SKILL.md)）。流程固定在 `w2agent@0.1.0`：
 
 ```bash
-npx w2agent audit https://your-site.com     # 评分检测
-npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
+npx w2agent@0.1.0 audit <url> --json                       # 基线评分
+npx w2agent@0.1.0 integrate <local url> --dry-run --json \
+  --project-dir . --site-url <production origin>            # 生成方案，不写入任何文件
+npx w2agent@0.1.0 integrate <local url> --install --json \
+  --project-dir . --site-url <production origin>            # 应用
+npx w2agent@0.1.0 audit <local url> --json                 # 复审
 ```
+
+应用之前，Agent 会先把方案展示给用户。参数、JSON 文档和退出码见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
+
+如果 npm 对 `w2agent@0.1.0` 返回 404：在 w2agent 仓库内，从源码构建（`pnpm install && pnpm --filter w2agent... build`），再运行 `node packages/cli/dist/index.js`；否则停止并告知所有者。不要尝试其他包名。
+
+为你的 Agent 安装该 playbook：
+
+```bash
+npx skills add interskh/w2agent                       # 任何支持 skills 的 Agent
+claude plugin marketplace add interskh/w2agent        # Claude Code
+claude plugin install w2agent@w2agent
+```
+
+## 审计报告示例
 
 ```
   w2agent audit — AI 就绪性报告
@@ -52,14 +76,95 @@ npx w2agent agentize https://your-site.com  # 部署为 Agent 服务器
 
 | 步骤 | 命令 | 执行内容 |
 |------|---------|-------------|
-| **1. 审计** | `npx w2agent audit <url>` | 通过 57 项检查（50 项计分）评估 AI 就绪性，找出阻碍 Agent 的问题。 |
-| **2. 生成** | `npx w2agent generate <url>` | 生成 llms.txt、agent-card.json、schema-org.json 等文件。 |
-| **3. 集成** | `npx w2agent integrate <url>` | 安装平台原生文件（WordPress 插件、Next.js 中间件）。 |
-| **4. 部署** | `npx w2agent agentize <url>` | 将网站托管为实时 Agent 服务器，地址为 `<slug>.agent.w2agent.dev`。 |
+| **1. 审计** | `npx w2agent@0.1.0 audit <url>` | 通过 57 项检查（50 项计分）评估 AI 就绪性，找出阻碍 Agent 的问题。 |
+| **2. 生成** | `npx w2agent@0.1.0 generate <url>` | 生成 llms.txt、agent-card.json、schema-org.json 等文件。 |
+| **3. 集成** | `npx w2agent@0.1.0 integrate <url>` | 安装平台原生文件（WordPress 插件、Next.js 中间件）。 |
+| **4. 部署（可选，托管）** | `npx w2agent@0.1.0 agentize <url>` | 将网站托管为实时 Agent 服务器，地址为 `<slug>.agent.w2agent.dev`。 |
 
 完整的分步方法论——网站分析、Agent 架构决策、输出验证和质量评估——请参阅 [AGENTIZE.md](docs/AGENTIZE.md)。
 
-## Agent 网络
+## 功能特性
+
+| 没有 w2agent | 有了 w2agent |
+|----------------|-------------|
+| Agent 在你的文档上产生幻觉——基于过时快照训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
+| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 57 项检查，精准显示阻碍 Agent 的问题 |
+| 每个平台需要不同的集成文件 | 自动检测平台，一条命令生成对应的原生文件（WordPress 插件、Next.js 中间件、Shopify Liquid） |
+| 手写 llms.txt 繁琐且容易出错 | `generate` 自动生成 llms.txt、agent-card.json、schema-org.json 等 10 种格式 |
+| 部署 Agent 服务器需要自行搭建基础设施 | `npx w2agent@0.1.0 agentize` 直接托管你的网站为 Agent 服务器，无需管理服务器 |
+| CI/CD 流水线无法以 AI 就绪性作为门控条件 | `--ci --threshold 80` 在评分下降时返回退出码 1，阻断构建 |
+| AI 框架期望不同格式（llms.txt、OpenClaw、WebMCP、Skill.md） | 一次爬取生成 10 种输出格式，按需全部生成或选择特定格式 |
+
+## 安装与使用
+
+### 审计、生成、集成（无需 API Key）
+
+```bash
+# 审计网站 AI 就绪性
+npx w2agent@0.1.0 audit https://example.com
+npx w2agent@0.1.0 audit https://example.com --depth 10 --verbose
+npx w2agent@0.1.0 audit https://example.com --ci --threshold 80  # CI 门控
+
+# 生成 llms.txt 及所有 AI 就绪文件
+npx w2agent@0.1.0 generate https://example.com
+npx w2agent@0.1.0 generate https://example.com --format llms-txt
+npx w2agent@0.1.0 generate https://example.com --max-pages 200 --output ./output/
+
+# 生成平台专用集成文件
+npx w2agent@0.1.0 integrate https://example.com
+npx w2agent@0.1.0 integrate https://example.com --platform wordpress
+npx w2agent@0.1.0 integrate https://example.com --install        # 安装到项目中
+```
+
+### 部署（可选）——在 w2agent.dev 上托管 Agent
+
+将你的网站托管为实时 Agent 服务器（需要免费 API Key）：
+
+```bash
+npx w2agent@0.1.0 login                             # 一次性授权
+npx w2agent@0.1.0 agentize https://example.com      # 部署 → example-com.agent.w2agent.dev
+npx w2agent@0.1.0 agentize https://example.com --slug my-docs
+```
+
+你的 Agent 端点立即上线。将其添加到 Claude Desktop：
+```json
+{
+  "mcpServers": {
+    "my-site": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev"]
+    }
+  }
+}
+```
+
+### 自托管 Agent 服务器（无需 API Key，部署到自有基础设施）
+
+```bash
+# 生成可部署的 MCP 服务器项目
+npx w2agent@0.1.0 agent deploy https://example.com --self-host vercel
+npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare Workers
+
+# 在 ./w2agent-output/ 输出一个随时可部署的项目
+# vercel deploy ./w2agent-output/   或   wrangler deploy ./w2agent-output/
+```
+
+## 托管版 vs 自托管版
+
+| | 托管版（`agentize`） | 自托管版（`mcp deploy`） |
+|---|---|---|
+| **部署方式** | `npx w2agent@0.1.0 login` + 一条命令 | 生成后部署到自有基础设施 |
+| **域名** | `<slug>.agent.w2agent.dev` | 自定义域名 |
+| **重新爬取** | 自动（通过控制台按需触发） | 手动（再次运行 `wrangler deploy`） |
+| **目录收录** | 支持（可选加入） | 不支持 |
+| **是否需要授权** | 免费 API Key | 无需 |
+| **适用场景** | 快速部署、目录曝光 | 自定义域名、离线环境、企业级 |
+
+## 可选：用 `agentize` 托管 Agent
+
+以下内容均为可选。`agentize` 把网站托管为 w2agent.dev 上的实时 Agent 服务器，需要先执行 `npx w2agent@0.1.0 login`，不属于上面的本地流程。
+
+### Agent 网络
 
 每个已部署的网站都会加入共享网络——可通过 [w2agent 目录](https://w2agent.dev/directory)和 **Meta Agent** 发现服务器访问。
 
@@ -115,7 +220,7 @@ _标准工具：`list-pages`、`get-page`、`search-site`。具有原生搜索�
 
 [浏览目录 →](https://w2agent.dev/directory)
 
-## 适用场景
+### 适用场景
 
 w2agent 适用于任何公开网站。只要人可以浏览，Agent 就可以使用。
 
@@ -133,83 +238,6 @@ w2agent 适用于任何公开网站。只要人可以浏览，Agent 就可以使
 | 金融科技 | plaid.com, twilio.com, gusto.com | 解答 API 文档问题、解释定价、导航指南 |
 | 非营利组织 | habitat.org, charitywater.org, doctorswithoutborders.org | 介绍项目、定位办公室、说明捐款影响 |
 | 本地服务 | angi.com, thumbtack.com | 按类别查找服务商、获取评价、询价 |
-
-## 功能特性
-
-| 没有 w2agent | 有了 w2agent |
-|----------------|-------------|
-| Agent 在你的文档上产生幻觉——基于过时快照训练 | `agentize` 提供实时内容；Agent 始终查询当前网站 |
-| 在用户投诉之前，无法知道你的网站对 Agent 不可访问 | `audit` 在几秒内运行 57 项检查，精准显示阻碍 Agent 的问题 |
-| 每个平台需要不同的集成文件 | 自动检测平台，一条命令生成对应的原生文件（WordPress 插件、Next.js 中间件、Shopify Liquid） |
-| 手写 llms.txt 繁琐且容易出错 | `generate` 自动生成 llms.txt、agent-card.json、schema-org.json 等 10 种格式 |
-| 部署 Agent 服务器需要自行搭建基础设施 | `npx w2agent agentize` 直接托管你的网站为 Agent 服务器，无需管理服务器 |
-| CI/CD 流水线无法以 AI 就绪性作为门控条件 | `--ci --threshold 80` 在评分下降时返回退出码 1，阻断构建 |
-| AI 框架期望不同格式（llms.txt、OpenClaw、WebMCP、Skill.md） | 一次爬取生成 10 种输出格式，按需全部生成或选择特定格式 |
-
-## 安装与使用
-
-### 审计、生成、集成（无需 API Key）
-
-```bash
-# 审计网站 AI 就绪性
-npx w2agent audit https://example.com
-npx w2agent audit https://example.com --depth 10 --verbose
-npx w2agent audit https://example.com --ci --threshold 80  # CI 门控
-
-# 生成 llms.txt 及所有 AI 就绪文件
-npx w2agent generate https://example.com
-npx w2agent generate https://example.com --format llms-txt
-npx w2agent generate https://example.com --max-pages 200 --output ./output/
-
-# 生成平台专用集成文件
-npx w2agent integrate https://example.com
-npx w2agent integrate https://example.com --platform wordpress
-npx w2agent integrate https://example.com --install        # 安装到项目中
-```
-
-### 部署——在 w2agent.dev 上托管 Agent
-
-将你的网站托管为实时 Agent 服务器（需要免费 API Key）：
-
-```bash
-npx w2agent login                             # 一次性授权
-npx w2agent agentize https://example.com      # 部署 → example-com.agent.w2agent.dev
-npx w2agent agentize https://example.com --slug my-docs
-```
-
-你的 Agent 端点立即上线。将其添加到 Claude Desktop：
-```json
-{
-  "mcpServers": {
-    "my-site": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev"]
-    }
-  }
-}
-```
-
-### 自托管 Agent 服务器（无需 API Key，部署到自有基础设施）
-
-```bash
-# 生成可部署的 MCP 服务器项目
-npx w2agent agent deploy https://example.com --self-host vercel
-npx w2agent agent deploy https://example.com --self-host cf   # Cloudflare Workers
-
-# 在 ./w2agent-output/ 输出一个随时可部署的项目
-# vercel deploy ./w2agent-output/   或   wrangler deploy ./w2agent-output/
-```
-
-## 托管版 vs 自托管版
-
-| | 托管版（`agentize`） | 自托管版（`mcp deploy`） |
-|---|---|---|
-| **部署方式** | `npx w2agent login` + 一条命令 | 生成后部署到自有基础设施 |
-| **域名** | `<slug>.agent.w2agent.dev` | 自定义域名 |
-| **重新爬取** | 自动（通过控制台按需触发） | 手动（再次运行 `wrangler deploy`） |
-| **目录收录** | 支持（可选加入） | 不支持 |
-| **是否需要授权** | 免费 API Key | 无需 |
-| **适用场景** | 快速部署、目录曝光 | 自定义域名、离线环境、企业级 |
 
 ## 平台适配器
 
@@ -364,7 +392,7 @@ steps:
   - uses: actions/setup-node@v4
     with:
       node-version: 18
-  - run: npx w2agent audit ${{ vars.SITE_URL }} --ci --threshold 80
+  - run: npx w2agent@0.1.0 audit ${{ vars.SITE_URL }} --ci --threshold 80
 ```
 
 ## 许可证
