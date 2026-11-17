@@ -13,10 +13,21 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import * as credentialsMod from "./credentials.mjs";
+import { redact } from "./credentials.mjs";
+import * as sandboxMod from "./sandbox.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
+
+const MOUNT_PATH = "/work";
+const GUEST_HOME = "/home/node";
+const GUEST_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const VOLUME_BYTES = 8 * 1024 ** 3;
+const OUTPUT_CAP = 50 * 1024 * 1024;
+const MARGIN_MS = 30 * 60_000;
 
 const SCRUB_EXACT = [
   "CLAUDECODE",
@@ -37,8 +48,11 @@ const USAGE = `Usage: node run.mjs --harness claude|codex --arm tool|docs-only [
   --ref <rev>          revision to export (default HEAD)
   --out <dir>          output dir (default: fresh dir under the OS tmpdir)
   --model <id>         model id (omitted from argv when absent)
-  --timeout <minutes>  kill the harness after this long (default 20)
-  --dry-run            build the workspace and print argv/env, do not spawn`;
+  --timeout <minutes>  stop the harness after this long (default 20)
+  --claude-credentials <file>  Claude login JSON (default: Keychain or ~/.claude)
+  --codex-auth <file>  Codex auth.json (default: $CODEX_HOME or ~/.codex)
+  --dry-run            build the workspace and print the sandbox plan, start nothing
+  --cleanup            delete every leftover w2a-eval-* VM and volume (no other flags)`;
 
 export function parseArgs(argv) {
   const opts = {
@@ -51,6 +65,9 @@ export function parseArgs(argv) {
     model: undefined,
     timeout: 20,
     dryRun: false,
+    cleanup: false,
+    claudeCredentials: undefined,
+    codexAuth: undefined,
   };
   const valueFlags = {
     "--harness": "harness",
@@ -61,7 +78,14 @@ export function parseArgs(argv) {
     "--out": "out",
     "--model": "model",
     "--timeout": "timeout",
+    "--claude-credentials": "claudeCredentials",
+    "--codex-auth": "codexAuth",
   };
+  if (argv.includes("--cleanup")) {
+    if (argv.length !== 1) throw new Error("--cleanup takes no other flags");
+    opts.cleanup = true;
+    return opts;
+  }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--dry-run") {
@@ -104,6 +128,19 @@ export function buildChildEnv(env, cacheDir) {
   };
 }
 
+export function buildGuestEnv(cacheDir) {
+  return {
+    HOME: GUEST_HOME,
+    PATH: GUEST_PATH,
+    LANG: "C.UTF-8",
+    npm_config_cache: `${cacheDir}/npm`,
+    npm_config_store_dir: `${cacheDir}/pnpm-store`,
+    XDG_CACHE_HOME: `${cacheDir}/xdg`,
+    COREPACK_HOME: `${cacheDir}/corepack`,
+    NEXT_TELEMETRY_DISABLED: "1",
+  };
+}
+
 export function buildHarnessArgv(harness, prompt, model) {
   if (harness === "claude") {
     const args = [
@@ -124,10 +161,7 @@ export function buildHarnessArgv(harness, prompt, model) {
     "--json",
     "--skip-git-repo-check",
     "--ephemeral",
-    "-s",
-    "workspace-write",
-    "-c",
-    "sandbox_workspace_write.network_access=true",
+    "--dangerously-bypass-approvals-and-sandbox",
   ];
   if (model) args.push("-m", model);
   args.push(prompt);
@@ -136,14 +170,6 @@ export function buildHarnessArgv(harness, prompt, model) {
 
 export function exportArgs(ref) {
   return ["archive", "--format=tar", ref, "--", ".", ":(exclude)evals"];
-}
-
-export function envDiff(base, child) {
-  const added = {};
-  const removed = [];
-  for (const k of Object.keys(child)) if (base[k] !== child[k]) added[k] = child[k];
-  for (const k of Object.keys(base)) if (!(k in child)) removed.push(k);
-  return { added, removed };
 }
 
 function run(cmd, args, opts = {}) {
@@ -236,16 +262,80 @@ function copyFixture(src, dest) {
   });
 }
 
-function versionOf(cmd) {
-  const r = spawnSync(cmd, ["--version"], { encoding: "utf8" });
-  return r.status === 0 ? r.stdout.trim() : null;
+export function redactingSink(file, secrets, maxBytes, onOverflow, onError) {
+  const stream = createWriteStream(file, { mode: 0o600 });
+  let failure;
+  stream.on("error", (e) => {
+    if (failure) return;
+    failure = e;
+    onError?.(e);
+  });
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  let bytes = 0;
+  let count = 0;
+  let truncated = false;
+  const emit = (text) => {
+    const r = redact(text, secrets);
+    count += r.count;
+    if (!failure) stream.write(r.text);
+  };
+  return {
+    write(chunk) {
+      if (truncated || failure) return;
+      let buf = chunk;
+      if (bytes + buf.length > maxBytes) {
+        buf = buf.subarray(0, maxBytes - bytes);
+        truncated = true;
+      }
+      bytes += buf.length;
+      pending += decoder.write(buf);
+      const i = pending.lastIndexOf("\n");
+      if (i >= 0) {
+        emit(pending.slice(0, i + 1));
+        pending = pending.slice(i + 1);
+      }
+      if (truncated) {
+        pending = "";
+        onOverflow();
+      }
+    },
+    async end() {
+      if (!truncated) {
+        pending += decoder.end();
+        if (pending) emit(pending);
+      }
+      await new Promise((r) => {
+        if (failure) return r();
+        stream.end(r);
+      });
+      return { count, truncated, error: failure };
+    },
+  };
 }
 
-export async function main(argv = process.argv.slice(2)) {
+const CREDENTIAL_TARGET = {
+  claude: { dir: `${GUEST_HOME}/.claude`, file: ".credentials.json" },
+  codex: { dir: `${GUEST_HOME}/.codex`, file: "auth.json" },
+};
+
+export async function main(argv = process.argv.slice(2), deps = {}) {
   const [major] = process.versions.node.split(".").map(Number);
   if (major < 22) throw new Error(`Node >= 22 required (running ${process.version})`);
 
   const opts = parseArgs(argv);
+  const sb = { ...sandboxMod, ...deps.sandbox };
+  const cred = { ...credentialsMod, ...deps.credentials };
+  const env = deps.env ?? process.env;
+  const spawner = deps.spawner ?? spawn;
+
+  if (opts.cleanup) {
+    const { deleted, failed } = sb.sweep();
+    console.log(JSON.stringify({ deleted, failed }, null, 2));
+    if (failed.length) throw new Error(`failed to delete: ${failed.join(", ")}`);
+    return undefined;
+  }
+
   const fixtureSrc = path.join(HERE, "fixtures", opts.fixture);
   const promptFile = path.join(HERE, "prompts", `${opts.arm}.md`);
   const prompt = readFileSync(promptFile, "utf8").trim();
@@ -255,18 +345,40 @@ export async function main(argv = process.argv.slice(2)) {
   const out = path.resolve(opts.out ?? mkdtempSync(path.join(tmpdir(), "w2agent-onboarding-")));
   assertFreshOut(out);
   const workspace = path.join(out, "workspace");
-  const cache = path.join(workspace, ".cache");
-  mkdirSync(cache, { recursive: true });
+  mkdirSync(path.join(workspace, ".cache"), { recursive: true });
   copyFixture(fixtureSrc, path.join(workspace, "site"));
   await exportW2agent(checkout, sha, path.join(workspace, "w2agent"));
 
-  const env = buildChildEnv(process.env, cache);
+  const guestWs = `${MOUNT_PATH}/workspace`;
+  const guestEnv = buildGuestEnv(`${guestWs}/.cache`);
   const { cmd, args } = buildHarnessArgv(opts.harness, prompt, opts.model);
+  const execOpts = { user: "node", cwd: guestWs, env: guestEnv };
 
   if (opts.dryRun) {
+    const names = {
+      vm: sb.resourceName("<runid>", "agent"),
+      volume: sb.resourceName("<runid>", "work"),
+    };
+    const image = sb.imageTag(readFileSync(sb.DOCKERFILE), {});
+    const startArgs = sb.startArgv({
+      name: names.vm,
+      image,
+      volume: names.volume,
+      mountPath: MOUNT_PATH,
+    });
     console.log(
       JSON.stringify(
-        { cwd: workspace, cmd, args, env: envDiff(process.env, env), w2agentRef: sha },
+        {
+          image,
+          ...names,
+          mountPath: MOUNT_PATH,
+          volumeCreate: sb.volumeCreateArgv(names.volume, VOLUME_BYTES),
+          vmArgv: startArgs,
+          guestEnv,
+          harnessArgv: sb.execArgv(names.vm, [cmd, ...args], execOpts),
+          credentials: `${opts.harness} login staged into the guest HOME at run time (not read in dry-run)`,
+          w2agentRef: sha,
+        },
         null,
         2,
       ),
@@ -275,70 +387,210 @@ export async function main(argv = process.argv.slice(2)) {
     return out;
   }
 
+  const { tag } = sb.ensureImage({});
+  const id = sb.runId();
+  const vm = sb.resourceName(id, "agent");
+  const volume = sb.resourceName(id, "work");
+  const sandbox = { image: tag, vm, volume, mountPath: MOUNT_PATH };
+  const base = {
+    harness: opts.harness,
+    model: opts.model ?? null,
+    arm: opts.arm,
+    fixture: opts.fixture,
+    w2agentRef: sha,
+    promptSha256: createHash("sha256").update(prompt).digest("hex"),
+    workspace: guestWs,
+    sandbox,
+  };
   const startedAt = new Date();
-  const transcript = createWriteStream(path.join(out, "transcript.jsonl"));
-  const stderrLog = createWriteStream(path.join(out, "stderr.log"));
-  const child = spawn(cmd, args, {
-    cwd: workspace,
-    env,
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout.pipe(transcript);
-  child.stderr.pipe(stderrLog);
+  const writeRun = (o) =>
+    writeFileSync(path.join(out, "run.json"), `${JSON.stringify(o, null, 2)}\n`);
+  writeRun({ ...base, startedAt: startedAt.toISOString(), status: "starting" });
 
-  const killGroup = (sig) => {
+  let vmUp = false;
+  let volumeUp = false;
+  let harnessStarted = false;
+  let secrets = [];
+  let child;
+  let sinkError;
+  let finalized = false;
+  const leaked = [];
+  const dropVm = () => {
+    if (!vmUp) return;
+    vmUp = false;
     try {
-      process.kill(-child.pid, sig);
+      sb.deleteVm(vm);
+    } catch {
+      leaked.push(vm);
+    }
+  };
+  const dropVolume = () => {
+    if (!volumeUp) return;
+    volumeUp = false;
+    try {
+      sb.deleteVolume(volume);
+    } catch {
+      leaked.push(volume);
+    }
+  };
+  const stop = () => {
+    try {
+      child?.kill("SIGKILL");
     } catch {}
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {}
+    dropVm();
   };
-  let timedOut = false;
-  let killTimer;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    killGroup("SIGTERM");
-    killTimer = setTimeout(() => killGroup("SIGKILL"), 10_000);
-  }, opts.timeout * 60_000);
+  const reportLeaks = () => {
+    if (leaked.length)
+      console.error(
+        `FAILED TO DELETE sandbox resources, run \`run.mjs --cleanup\`: ${leaked.join(", ")}`,
+      );
+  };
+  const exit = deps.exit ?? process.exit;
+  let interrupted = null;
   const onSignal = (sig) => {
-    killGroup("SIGTERM");
-    setTimeout(() => killGroup("SIGKILL"), 10_000).unref();
-    process.once(sig, () => process.exit(1));
-  };
-  process.once("SIGINT", () => onSignal("SIGINT"));
-  process.once("SIGTERM", () => onSignal("SIGTERM"));
-
-  const exited = await waitForExit(child);
-  if (exited.error) stderrLog.write(`spawn error: ${exited.error.message}\n`);
-  const exitCode = exited.code;
-  const signal = exited.signal;
-  clearTimeout(timer);
-  clearTimeout(killTimer);
-  await Promise.all([new Promise((r) => transcript.end(r)), new Promise((r) => stderrLog.end(r))]);
-
-  const endedAt = new Date();
-  writeFileSync(
-    path.join(out, "run.json"),
-    `${JSON.stringify(
-      {
-        harness: opts.harness,
-        harnessVersion: versionOf(opts.harness),
-        model: opts.model ?? null,
-        arm: opts.arm,
-        fixture: opts.fixture,
-        w2agentRef: sha,
-        promptSha256: createHash("sha256").update(prompt).digest("hex"),
+    if (interrupted) exit(1);
+    interrupted = sig;
+    stop();
+    if (!harnessStarted) {
+      dropVolume();
+      finalized = true;
+      writeRun({
+        ...base,
         startedAt: startedAt.toISOString(),
-        endedAt: endedAt.toISOString(),
-        wallMs: endedAt - startedAt,
-        exitCode,
-        signal,
-        timedOut,
-        workspace,
-      },
-      null,
-      2,
-    )}\n`,
-  );
+        endedAt: new Date().toISOString(),
+        status: "interrupted",
+        interrupted: sig,
+        ...(leaked.length ? { leaked } : {}),
+      });
+      reportLeaks();
+      exit(130);
+    }
+  };
+  const onSigint = () => onSignal("SIGINT");
+  const onSigterm = () => onSignal("SIGTERM");
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+
+  let finalRun;
+  let error;
+  try {
+    volumeUp = true;
+    sb.createVolume(volume, VOLUME_BYTES);
+    vmUp = true;
+    sb.startVm({ name: vm, image: tag, volume, mountPath: MOUNT_PATH });
+    const inVm = (user, argv2) => {
+      const r = sb.execIn(vm, argv2, { user });
+      if (r.status !== 0)
+        throw new Error(
+          `${argv2[0]} in the sandbox exited ${r.status}: ${String(r.stderr ?? "")
+            .trim()
+            .slice(0, 300)}`,
+        );
+    };
+    inVm("root", ["chmod", "0777", MOUNT_PATH]);
+    inVm("node", ["mkdir", "-p", guestWs]);
+    await sb.copyIn(vm, workspace, guestWs, { user: "node" });
+
+    const minValidMs = opts.timeout * 60_000 + MARGIN_MS;
+    const staged =
+      opts.harness === "claude"
+        ? cred.stageClaude(cred.readClaudeLogin({ file: opts.claudeCredentials, env }), {
+            minValidMs,
+          })
+        : cred.stageCodex(cred.readCodexAuth({ file: opts.codexAuth, env }), { minValidMs });
+    secrets = cred.secretValues(staged);
+    const target = CREDENTIAL_TARGET[opts.harness];
+    sb.execWithStdin(
+      vm,
+      [
+        "sh",
+        "-c",
+        `umask 077 && mkdir -p ${target.dir} && cat > ${target.dir}/${target.file} && chmod 600 ${target.dir}/${target.file}`,
+      ],
+      JSON.stringify(staged),
+      { user: "node" },
+    );
+
+    const ver = sb.execIn(vm, [cmd, "--version"], { user: "node", env: guestEnv });
+    const harnessVersion = ver.status === 0 ? String(ver.stdout ?? "").trim() || null : null;
+
+    harnessStarted = true;
+    let timedOut = false;
+    const sinkFailed = (e) => {
+      sinkError ??= e;
+      stop();
+    };
+    const outSink = redactingSink(
+      path.join(out, "transcript.jsonl"),
+      secrets,
+      OUTPUT_CAP,
+      stop,
+      sinkFailed,
+    );
+    const errSink = redactingSink(
+      path.join(out, "stderr.log"),
+      secrets,
+      OUTPUT_CAP,
+      stop,
+      sinkFailed,
+    );
+    child = spawner(sb.RUNTIME, sb.execArgv(vm, [cmd, ...args], execOpts), {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", outSink.write);
+    child.stderr.on("data", errSink.write);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop();
+    }, opts.timeout * 60_000);
+    const exited = await waitForExit(child);
+    clearTimeout(timer);
+    const [t, e] = await Promise.all([outSink.end(), errSink.end()]);
+    dropVm();
+    if (sinkError)
+      throw new Error(`cannot write the run output: ${sinkError.code ?? "write error"}`);
+
+    const endedAt = new Date();
+    finalRun = {
+      ...base,
+      harnessVersion,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      wallMs: endedAt - startedAt,
+      exitCode: exited.code,
+      signal: exited.signal,
+      timedOut,
+      interrupted,
+      truncated: t.truncated || e.truncated,
+      redactions: { transcript: t.count, stderr: e.count },
+      ...(exited.error ? { error: `spawn error: ${exited.error.message}` } : {}),
+      status: "done",
+    };
+  } catch (e) {
+    if (finalized) throw e;
+    error = e;
+    stop();
+    if (!harnessStarted) dropVolume();
+    finalRun = {
+      ...base,
+      startedAt: startedAt.toISOString(),
+      endedAt: new Date().toISOString(),
+      status: "failed",
+      error: redact(String(e.message), secrets).text,
+    };
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  }
+  if (leaked.length) finalRun.leaked = leaked;
+  writeRun(finalRun);
+  reportLeaks();
+  if (error) throw new Error(finalRun.error);
+  if (leaked.length) throw new Error(`failed to delete: ${leaked.join(", ")}`);
   console.log(out);
   return out;
 }

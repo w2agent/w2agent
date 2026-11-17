@@ -133,7 +133,7 @@ export function execIn(name, argv, { runner = run, ...opts } = {}) {
 }
 
 export function execWithStdin(name, argv, input, { runner = run, ...opts } = {}) {
-  const r = runner(execArgv(name, argv, { ...opts, stdin: true }), { input, encoding: "buffer" });
+  const r = runner(execArgv(name, argv, { ...opts, stdin: true }), { input });
   if (r.status !== 0) throw new Error(`exec in ${name} exited ${r.status}`);
 }
 
