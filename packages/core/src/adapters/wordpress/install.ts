@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import nodePath, { join, win32 } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
 import { guardInstallActions } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
@@ -17,6 +17,35 @@ const DEFAULT_PLUGIN_DIR = "wp-content/plugins";
 
 const TOKEN = "\u0001";
 
+type PathApi = typeof nodePath;
+
+const SAFE_BLOCK = /^(?:[\w$[\]\->:]|'[^\\{}"']*')*$/;
+
+function hasUnsafeBlock(body: string): boolean {
+  for (let k = 0; k < body.length; k++) {
+    const c = body[k];
+    if (c === "\\") {
+      k++;
+      continue;
+    }
+    let open = -1;
+    if (c === "{" && body[k + 1] === "$") open = k + 1;
+    else if (c === "$" && body[k + 1] === "{") open = k + 2;
+    if (open === -1) continue;
+    const close = body.indexOf("}", open);
+    if (close === -1 || !SAFE_BLOCK.test(body.slice(open, close))) return true;
+    k = close;
+  }
+  return false;
+}
+
+function skipInlineHtml(source: string, from: number): number {
+  const reopen = /<\?(?:php|=)?/gi;
+  reopen.lastIndex = from;
+  const open = reopen.exec(source);
+  return open ? open.index + open[0].length : source.length;
+}
+
 function stripPhpComments(source: string): {
   code: string;
   strings: string[];
@@ -25,7 +54,7 @@ function stripPhpComments(source: string): {
   const strings: string[] = [];
   let interpolated = false;
   let out = "";
-  let i = 0;
+  let i = skipInlineHtml(source, 0);
   while (i < source.length) {
     const ch = source[i];
     const next = source[i + 1];
@@ -33,10 +62,15 @@ function stripPhpComments(source: string): {
       let j = i + 1;
       while (j < source.length && source[j] !== ch) j += source[j] === "\\" ? 2 : 1;
       const raw = source.slice(i, j + 1);
-      if (ch === '"' && /\{\$|\$\{/.test(raw)) interpolated = true;
+      if (ch === '"' && hasUnsafeBlock(raw.slice(1, j < source.length ? -1 : undefined))) {
+        interpolated = true;
+      }
       out += `${TOKEN}${strings.length}${TOKEN}`;
       strings.push(raw);
       i = j + 1;
+    } else if (ch === "?" && next === ">") {
+      i = skipInlineHtml(source, i + 2);
+      out += " ";
     } else if (ch === "/" && next === "*") {
       const end = source.indexOf("*/", i + 2);
       i = end === -1 ? source.length : end + 2;
@@ -44,16 +78,20 @@ function stripPhpComments(source: string): {
     } else if (ch === "#" || (ch === "/" && next === "/")) {
       while (i < source.length && source[i] !== "\n" && !source.startsWith("?>", i)) i++;
     } else if (ch === "<" && next === "<") {
-      const heredoc = source.slice(i).match(/^<<<[ \t]*(['"]?)([A-Za-z_]\w*)\1\r?\n/);
+      const heredoc = source
+        .slice(i)
+        .match(/^<<<[ \t]*(['"]?)([A-Za-z_\u0080-￿][\w\u0080-￿]*)\1\r?\n/);
       if (!heredoc) {
         out += ch;
         i++;
         continue;
       }
       const bodyStart = i + heredoc[0].length;
-      const close = new RegExp(`(^|\\n)[ \\t]*${heredoc[2]}(?!\\w)`).exec(source.slice(bodyStart));
+      const close = new RegExp(`(^|\\n)[ \\t]*${heredoc[2]}(?![\\w\\u0080-\\uffff])`).exec(
+        source.slice(bodyStart),
+      );
       const end = close ? bodyStart + close.index + close[0].length : source.length;
-      if (heredoc[1] !== "'" && /\{\$|\$\{/.test(source.slice(bodyStart, end))) interpolated = true;
+      if (heredoc[1] !== "'" && hasUnsafeBlock(source.slice(bodyStart, end))) interpolated = true;
       i = end;
       out += " ";
     } else {
@@ -64,7 +102,7 @@ function stripPhpComments(source: string): {
   return { code: out, strings, interpolated };
 }
 
-function readPluginDirLiteral(wpConfig: string): {
+export function readPluginDirLiteral(wpConfig: string): {
   literal: string | null;
   found: boolean;
   unreliable: boolean;
@@ -82,7 +120,8 @@ function readPluginDirLiteral(wpConfig: string): {
     const raw = strings[Number(index)];
     const body = raw.slice(1, -1);
     if (raw.length < 2 || raw[raw.length - 1] !== raw[0]) return null;
-    if (body.includes("\\") || (raw[0] === '"' && body.includes("$"))) return null;
+    if (raw[0] === "'") return body.replace(/\\([\\'])/g, "$1");
+    if (body.includes("\\") || body.includes("$")) return null;
     return body;
   };
   const forms = [
@@ -106,15 +145,15 @@ function readPluginDirLiteral(wpConfig: string): {
   };
 }
 
-function resolvePhysical(root: string, literal: string): string {
-  let cur = isAbsolute(literal) ? resolve("/") : root;
-  for (const seg of literal.split(/[\\/]+/)) {
+function resolvePhysical(start: string, rest: string, p: PathApi): string {
+  let cur = start;
+  for (const seg of rest.split(p.sep === "\\" ? /[\\/]+/ : /\/+/)) {
     if (seg === "" || seg === ".") continue;
     if (seg === "..") {
-      cur = dirname(cur);
+      cur = p.dirname(cur);
       continue;
     }
-    const next = join(cur, seg);
+    const next = p.join(cur, seg);
     try {
       cur = realpathSync(next);
     } catch {
@@ -124,19 +163,52 @@ function resolvePhysical(root: string, literal: string): string {
   return cur;
 }
 
-function realWithRemainder(path: string): string {
+function realWithRemainder(path: string, p: PathApi = nodePath): string {
   const rest: string[] = [];
   let cur = path;
   for (;;) {
     try {
-      return join(realpathSync(cur), ...rest.reverse());
+      return p.join(realpathSync(cur), ...rest.reverse());
     } catch {
-      const parent = dirname(cur);
+      const parent = p.dirname(cur);
       if (parent === cur) return path;
-      rest.push(basename(cur));
+      rest.push(p.basename(cur));
       cur = parent;
     }
   }
+}
+
+export function isBackslashNameOffWindows(literal: string, p: PathApi = nodePath): boolean {
+  return (
+    p.sep !== "\\" &&
+    literal.includes("\\") &&
+    !/^[A-Za-z]:/.test(literal) &&
+    (p.isAbsolute(literal) || !win32.isAbsolute(literal))
+  );
+}
+
+export function resolvePluginDirLiteral(
+  projectDir: string,
+  literal: string,
+  p: PathApi = nodePath,
+): string | null {
+  if (/^[A-Za-z]:(?![\\/])/.test(literal)) return null;
+  const root = realWithRemainder(p.resolve(projectDir), p);
+  let start = root;
+  let rest = literal;
+  if (win32.isAbsolute(literal) || p.isAbsolute(literal)) {
+    if (p.sep !== "\\") {
+      if (!p.isAbsolute(literal)) return null;
+      start = p.resolve("/");
+    } else {
+      const literalRoot = win32.parse(literal).root;
+      start = /^(?:[A-Za-z]:|[\\/]{2})/.test(literalRoot) ? literalRoot : win32.parse(root).root;
+      rest = literal.slice(literalRoot.length);
+    }
+  }
+  const rel = p.relative(root, resolvePhysical(start, rest, p));
+  if (rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel)) return null;
+  return rel.split(p.sep).join("/");
 }
 
 export function detectWordPressLayout(projectDir: string): WordPressLayout {
@@ -157,18 +229,17 @@ export function detectWordPressLayout(projectDir: string): WordPressLayout {
         pluginDirWarnings.push(
           "WP_PLUGIN_DIR could not be read reliably from wp-config.php (string interpolation). Nothing was written.",
         );
-      } else if (literal !== null) {
-        const root = realWithRemainder(resolve(projectDir));
-        const rel = relative(root, resolvePhysical(root, literal));
-        if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      } else if (literal !== null && !isBackslashNameOffWindows(literal)) {
+        const rel = resolvePluginDirLiteral(projectDir, literal);
+        if (rel === null) {
           pluginDirOutside = true;
           pluginDirWarnings.push(
             `WP_PLUGIN_DIR (${literal}) points outside the project directory. Nothing was written.`,
           );
         } else {
-          pluginDir = rel.split(sep).join("/");
+          pluginDir = rel;
         }
-      } else if (found) {
+      } else if (found || literal !== null) {
         pluginDirWarnings.push(
           `Could not read WP_PLUGIN_DIR from wp-config.php (only a plain string literal is supported). Using ${DEFAULT_PLUGIN_DIR}.`,
         );

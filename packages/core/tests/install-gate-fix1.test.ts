@@ -192,10 +192,18 @@ describe("gate fix round 1", () => {
     expect(plan.actions.some((a) => a.type === "manual")).toBe(true);
   });
 
-  it("r2-2: a heredoc with interpolation next to WP_PLUGIN_DIR plans no writes", () => {
-    setConfig("$x = <<<EOT\n${y} {$z}\nEOT;\ndefine('WP_PLUGIN_DIR', 'custom');");
+  it("r2-2: a heredoc with unreliable interpolation next to WP_PLUGIN_DIR plans no writes", () => {
+    setConfig("$x = <<<EOT\n${y} {$z(1)}\nEOT;\ndefine('WP_PLUGIN_DIR', 'custom');");
     const plan = resolveWordPressInstall(wpFiles, dir);
     expect(plan.actions.some((a) => a.type === "write")).toBe(false);
+  });
+
+  it("r2-2: a heredoc with plain variable interpolation still reads WP_PLUGIN_DIR", () => {
+    setConfig("$x = <<<EOT\n${y} {$z}\nEOT;\ndefine('WP_PLUGIN_DIR', 'custom');");
+    const plan = resolveWordPressInstall(wpFiles, dir);
+    const dests = plan.actions.filter((a) => a.type === "write").map((a) => a.dest);
+    expect(dests.length).toBeGreaterThan(0);
+    expect(dests.every((d) => d.startsWith("custom/w2agent/"))).toBe(true);
   });
 
   it("r2-2: interpolation without WP_PLUGIN_DIR does not block the install", () => {
