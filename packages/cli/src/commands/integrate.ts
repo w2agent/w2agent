@@ -288,7 +288,7 @@ export function registerIntegrateCommand(program: Command): void {
 
         const baseUrl = siteOrigin ?? new URL(url).origin;
         if (integrationFiles.length === 0) {
-          const ctx = {
+          const ctx = result.context ?? {
             pages: [],
             rawPages: [],
             metadata: { baseUrl, wellKnown: {} },

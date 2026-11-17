@@ -148,6 +148,14 @@ describe("guide map", () => {
   });
 });
 
+describe("adapter guide coverage", () => {
+  it("maps every Next.js adapter check to a guide", () => {
+    const nextjs = allAdapters().find((a) => a.id === "nextjs");
+    expect(nextjs?.checks.length).toBeGreaterThan(0);
+    for (const check of nextjs?.checks ?? []) expect(CHECK_GUIDES[check.id], check.id).toBeTruthy();
+  });
+});
+
 describe("generated guides module", () => {
   it("is current with the guide files", () => {
     const committed = readFileSync(OUTPUT, "utf-8");

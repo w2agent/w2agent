@@ -9,15 +9,17 @@ import {
   WEBHOOK_ROUTE_PATH,
 } from "./templates.js";
 
+function normalizedPath(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    return undefined;
+  }
+}
+
 function homeMarkdown(ctx: GenerateContext): string | undefined {
-  const home = ctx.pages.find((p) => {
-    try {
-      const { pathname } = new URL(p.url);
-      return pathname === "/" || pathname === "";
-    } catch {
-      return false;
-    }
-  });
+  const start = normalizedPath(ctx.startUrl ?? ctx.baseUrl) ?? "/";
+  const home = ctx.pages.find((p) => normalizedPath(p.url) === start);
   if (!home) return undefined;
   const body = home.markdown.trim();
   if (!body) return undefined;

@@ -3,6 +3,7 @@ id: server-html
 checks:
   - no-js-dependency
   - token-efficiency
+  - nextjs-static-generation
 fixBy: owner
 ---
 
@@ -10,10 +11,11 @@ fixBy: owner
 
 ## Passes when
 
-Both checks read the HTML the server returns, without running JavaScript.
+The first two checks read the HTML the server returns, without running JavaScript. `nextjs-static-generation` (Next.js adapter check, added only when the site is detected as Next.js) reads the response headers and the `__NEXT_DATA__` flags of the same pages.
 
 - `no-js-dependency` judges each page. A page is a JS-only shell, and not good, when all three hold: it has an empty mount element (`<div id="__next">`, `root`, `app` or `__nuxt`, or an empty `data-reactroot` div); it has fewer than 5 `<a href>` links; and its visible words plus `<noscript>` words, at 5 characters per word, are under 20% of the size of all its `<script>` tags. Any other page is good when its visible words plus `<noscript>` words reach 100 if the HTML contains a framework marker (`__NEXT_DATA__`, `window.__nuxt__`, `ng-app`, `ng-version`, `data-reactroot`, `data-v-app`, `__svelte`, `ember-application`), or 50 when it contains none. The score is the share of good pages. 70 or more passes, above 0 is `partial`, 0 is `fail`. When a marker matched, `details` lists "Detected JS frameworks". App Router pages normally carry none of these markers (`__NEXT_DATA__` belongs to the Pages Router), so they get the 50-word threshold.
 - `token-efficiency`: for each page, the length of the visible text divided by the length of the whole HTML document, scripts and styles included. The score uses the average over pages: 25% or more is 100, 15% or more is 80, 10% or more is 60, 5% or more is 30, lower is 0. 60 or more passes (so about 10% or more), 30 is `partial`, 0 is `fail` (under 5%).
+- `nextjs-static-generation`: each page is `dynamic` when `cache-control` has `private` or `no-store`, or its `__NEXT_DATA__` flags `gssp` or `gip` (without `nextExport`), or `appGip` (without `gsp` or `nextExport`). Otherwise it is `static` when it has an `x-nextjs-prerender` header, an `x-nextjs-cache` or `x-vercel-cache` of `HIT`, `STALE`, `PRERENDER` or `REVALIDATED`, `s-maxage` or `public` in `cache-control`, or the flags `gsp`, `nextExport` or `autoExport`. A page with none of these is unknown and not counted. It passes (100) when static pages are at least half of the pages with evidence. Otherwise it is `partial` (60), also when no page has evidence. It is never `fail`.
 
 ## Who fixes it
 
@@ -22,6 +24,8 @@ The owner does (`fixBy: owner`). Three different causes give the same result, an
 - Thin pages: the pages have little text. That is a content decision (see the `content-quality` guide).
 - Client rendering: the content is drawn in the browser, so the server HTML is a shell or lacks text. Moving to server rendering changes how the site is built.
 - Heavy markup: inline scripts, inline CSS, large SVG or framework payloads dominate the HTML, so the text share is low. Cutting it is engineering work with trade-offs.
+
+`nextjs-static-generation` has the same owner rule: a route is dynamic because the code reads `headers()`, `cookies()` or `searchParams`, or sets `dynamic = "force-dynamic"` or a no-store fetch. That is a product decision. Name the file and the cause in the report; do not change it. A local `next dev` audit gives no evidence, so audit a production build.
 
 You do not rewrite page copy, convert a page to server rendering, or strip scripts to move a ratio.
 

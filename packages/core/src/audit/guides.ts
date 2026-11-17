@@ -36,6 +36,8 @@ export const CHECK_GUIDES: Readonly<Record<string, string>> = {
   https: "https",
   "well-known-agent-card": "agent-card",
   "nextjs-well-known-served": "agent-card",
+  "nextjs-metadata-api": "og-meta-tags",
+  "nextjs-static-generation": "server-html",
   "mcp-discovery": "agent-protocols",
   "mcp-server-card": "agent-protocols",
   "agent-skills-index": "agent-protocols",

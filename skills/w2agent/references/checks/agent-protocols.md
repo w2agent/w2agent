@@ -31,7 +31,7 @@ Each check looks for evidence that the site offers a protocol to agents.
 
 The owner does (`fixBy: owner`). Every one of these says "the site offers X". It is only true when the site has a real MCP server, a real API, a real checkout, a real search, a real skill. Only the owner knows that, and you cannot create the service by writing its description.
 
-`skip` results (`mcp-server-card`, `agent-skills-index`, `well-known-ucp` off a store, `webmcp-declarative`, `webmcp-imperative`) are not failures. They mean "not measured" or "not applicable". They never authorize an edit. The two WebMCP checks and the two discovery files have weight 0 and only ever pass or skip.
+`skip` results (`mcp-server-card`, `agent-skills-index`, `well-known-ucp` off a store, `webmcp-declarative`, `webmcp-imperative`) are not failures. They mean "not measured" or "not applicable". They never authorize an edit. The two WebMCP checks have weight 0 and only ever pass or skip. The two discovery files (`mcp-server-card`, `agent-skills-index`) also have weight 0, but a file that exists and is invalid is `fail` (and `agent-skills-index` without `$schema` is `partial`), as the bullets above say.
 
 A brochure site with no API, no MCP server, no store and no search form has nothing to fix here. Report each non-passing check as "not applicable: the site does not offer this".
 

@@ -5,6 +5,8 @@ export interface GenerateContext {
   rawPages: FetchedPage[];
   metadata: SiteMetadata;
   baseUrl: string;
+  /** The URL the crawl started from (may carry a base path). */
+  startUrl?: string;
   siteType?: {
     siteType: string;
     confidence: number;
@@ -64,6 +66,8 @@ export interface GenerateResult {
   /** Total pages discovered (sitemap + links) before applying maxPages limit */
   totalPagesFound: number;
   files: GeneratedFile[];
+  /** The context the generators ran with; lets a caller run an adapter on the real crawl. */
+  context?: GenerateContext;
   /** Section names found in llms.txt */
   sections: string[];
   platform?: {

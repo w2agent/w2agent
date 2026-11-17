@@ -159,6 +159,7 @@ export async function runGenerate(
     rawPages: pages,
     metadata,
     baseUrl,
+    startUrl: url,
     ...(detectedSiteType && { siteType: detectedSiteType }),
     ...(options.allowedOffOriginHosts
       ? { allowedOffOriginHosts: options.allowedOffOriginHosts }
@@ -292,6 +293,7 @@ export async function runGenerate(
     sections: sectionNames,
     ...(detected && { platform: detected }),
     ...(detectedSiteType && { siteType: detectedSiteType }),
+    context: ctx,
   };
 }
 

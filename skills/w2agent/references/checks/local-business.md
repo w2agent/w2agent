@@ -76,7 +76,7 @@ const jsonLd = {
 };
 ```
 
-Every value above is a placeholder: replace it with what the site shows, and delete a key the site does not show. Keep the `<script type="application/ld+json">` pattern from the `schema-org` guide (escape `<` as `<`). Do not put this block in the root layout.
+Every value above is a placeholder: replace it with what the site shows, and delete a key the site does not show. Keep the `<script type="application/ld+json">` pattern from the `schema-org` guide (escape `<` as `\u003c`). Do not put this block in the root layout.
 
 ## Pitfalls
 

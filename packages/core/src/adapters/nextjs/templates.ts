@@ -260,20 +260,35 @@ try {
     ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full,markdown", "--no-platform", "--output", "./.w2agent/"],
     { stdio: "inherit" }
   );
-  // The markdown format writes one file per page with front matter. Keep only the home page, without front matter.
+  // The markdown format writes one file per page with front matter. Keep only the start page (the home page, also under a base path), without front matter.
   const pagesDir = "./.w2agent/markdown";
-  const homeFile = pagesDir + "/index.md";
-  if (fs.existsSync(homeFile)) {
-    const raw = fs.readFileSync(homeFile, "utf-8");
-    const match = raw.match(/^---\\n([\\s\\S]*?)\\n---\\n+/);
-    let body = match ? raw.slice(match[0].length) : raw;
-    const titleLine = match && match[1].match(/^title: (.*)$/m);
-    let title = "";
+  const pathOf = (u) => {
     try {
-      title = titleLine ? JSON.parse(titleLine[1]) : "";
-    } catch {}
-    if (title && !/^# /.test(body.trimStart())) body = "# " + title + "\\n\\n" + body;
-    fs.writeFileSync("./.w2agent/index.md", body);
+      return new URL(u).pathname.replace(/\\/+$/, "") || "/";
+    } catch {
+      return "";
+    }
+  };
+  const startPath = pathOf(SITE_URL);
+  const files = fs.existsSync(pagesDir) ? fs.readdirSync(pagesDir) : [];
+  for (const name of files) {
+    const raw = fs.readFileSync(pagesDir + "/" + name, "utf-8");
+    const match = raw.match(/^---\\n([\\s\\S]*?)\\n---\\n+/);
+    const field = (key) => {
+      const line = match && match[1].match(new RegExp("^" + key + ": (.*)$", "m"));
+      try {
+        return line ? JSON.parse(line[1]) : "";
+      } catch {
+        return "";
+      }
+    };
+    if (!startPath || pathOf(field("url")) !== startPath) continue;
+    const title = field("title");
+    let body = (match ? raw.slice(match[0].length) : raw).trim();
+    if (!body) break;
+    if (title && !/^# /.test(body)) body = "# " + title + "\\n\\n" + body;
+    fs.writeFileSync("./.w2agent/index.md", body + "\\n");
+    break;
   }
   fs.rmSync(pagesDir, { recursive: true, force: true });
   console.log("[w2agent] Done. Files written to .w2agent/");

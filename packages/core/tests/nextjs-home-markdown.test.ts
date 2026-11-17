@@ -64,6 +64,28 @@ describe("Next.js home markdown seed", () => {
     expect(seedOf(files)).toBe("# Acme Plumbing\n\nHello\n");
   });
 
+  it("under a base path, is the crawled start page, not the origin root", () => {
+    const files = nextjsAdapter.generateIntegration(
+      {
+        ...ctxWith([
+          page("https://acme.example/docs/guide", "Guide", "Guide body"),
+          page("https://acme.example/docs", "Docs Home", HOME_BODY),
+        ]),
+        startUrl: "https://acme.example/docs/",
+      },
+      coreFiles,
+    );
+    expect(seedOf(files)).toBe(`# Docs Home\n\n${HOME_BODY}\n`);
+  });
+
+  it("is omitted when the home page has no body, even with a title", () => {
+    const files = nextjsAdapter.generateIntegration(
+      ctxWith([page("https://acme.example/", "Acme", "  \n")]),
+      coreFiles,
+    );
+    expect(seedOf(files)).toBeUndefined();
+  });
+
   it("is omitted when the crawl has no home page", () => {
     const files = nextjsAdapter.generateIntegration(
       ctxWith([page("https://acme.example/about", "About", "About us")]),
@@ -164,6 +186,65 @@ describe("Next.js build script refreshes the home markdown", () => {
         "# Acme Plumbing\n\nFresh home body\n",
       );
       expect(existsSync(join(dir, ".w2agent", "markdown"))).toBe(false);
+    },
+  );
+});
+
+describe("Next.js build script start page selection", () => {
+  const script = generateNextjsIntegration("", "", undefined, "https://acme.example").find(
+    (f) => f.filename === "nextjs/w2agent-build.mjs",
+  )?.content as string;
+  let dir: string;
+
+  const front = (url: string, title: string) => `---\nurl: "${url}"\ntitle: "${title}"\n---\n\n`;
+  function build(siteUrl: string, pages: Record<string, string>) {
+    writeFileSync(join(dir, "w2agent-build.mjs"), script);
+    const lines = ["#!/bin/sh", "mkdir -p .w2agent/markdown"];
+    for (const [name, content] of Object.entries(pages)) {
+      lines.push(`printf '%s' '${content.replace(/'/g, "'\\''")}' > .w2agent/markdown/${name}`);
+    }
+    writeFileSync(join(dir, "bin", "npx"), lines.join("\n"));
+    chmodSync(join(dir, "bin", "npx"), 0o755);
+    execFileSync("node", ["w2agent-build.mjs"], {
+      cwd: dir,
+      env: { ...process.env, SITE_URL: siteUrl, PATH: `${join(dir, "bin")}:${process.env.PATH}` },
+      stdio: "pipe",
+    });
+  }
+  const indexPath = () => join(dir, ".w2agent", "index.md");
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "w2agent-build-start-"));
+    mkdirSync(join(dir, "bin"));
+    mkdirSync(join(dir, ".w2agent"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it.skipIf(process.platform === "win32")(
+    "picks the start page by its front matter url under a base path",
+    () => {
+      build("https://acme.example/docs/", {
+        "docs.md": `${front("https://acme.example/docs", "Docs Home")}Docs home body\n`,
+        "docs-guide.md": `${front("https://acme.example/docs/guide", "Guide")}Guide body\n`,
+        "index.md": `${front("https://acme.example/", "Root")}Root body\n`,
+      });
+      expect(readFileSync(indexPath(), "utf-8")).toBe("# Docs Home\n\nDocs home body\n");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "writes nothing when the start page has no body, leaving an existing seed",
+    () => {
+      writeFileSync(indexPath(), "seed");
+      build("https://acme.example", {
+        "index.md": `${front("https://acme.example/", "Acme")}\n`,
+      });
+      expect(readFileSync(indexPath(), "utf-8")).toBe("seed");
+      rmSync(indexPath());
+      build("https://acme.example", {
+        "index.md": `${front("https://acme.example/", "Acme")}\n`,
+      });
+      expect(existsSync(indexPath())).toBe(false);
     },
   );
 });

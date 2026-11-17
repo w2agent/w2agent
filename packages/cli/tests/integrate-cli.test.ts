@@ -172,6 +172,41 @@ describe("built CLI: integrate agent mode", () => {
     expect(readdirSync(cwd)).toEqual([]);
   });
 
+  it("seeds the home markdown when --platform forces Next.js on an undetected site", async () => {
+    const project = projectDir();
+    const r = await run(
+      [
+        "integrate",
+        plainOrigin,
+        "--dry-run",
+        "--platform",
+        "nextjs",
+        "--json",
+        "--project-dir",
+        project,
+      ],
+      tmp("cwd"),
+    );
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.stdout);
+    expect(doc.changes).toContainEqual(
+      expect.objectContaining({ action: "create", path: ".w2agent/index.md" }),
+    );
+  });
+
+  it("seeds the home markdown for a start page under a base path", async () => {
+    const project = projectDir();
+    const r = await run(
+      ["integrate", `${nextOrigin}/docs`, "--dry-run", "--json", "--project-dir", project],
+      tmp("cwd"),
+    );
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.stdout);
+    expect(doc.changes).toContainEqual(
+      expect.objectContaining({ action: "create", path: ".w2agent/index.md" }),
+    );
+  });
+
   it("--dry-run without --install writes nothing in human mode either", async () => {
     const project = projectDir();
     const cwd = tmp("cwd");

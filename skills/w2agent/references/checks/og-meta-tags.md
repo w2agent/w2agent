@@ -2,6 +2,7 @@
 id: og-meta-tags
 checks:
   - og-meta-tags
+  - nextjs-metadata-api
 fixBy: agent
 ---
 
@@ -12,6 +13,8 @@ fixBy: agent
 `og-meta-tags` looks on every audited page for `<meta property="og:title" content="...">`, `og:description` and `og:image`. A tag counts only when it uses the `property` attribute and its `content` is not empty. A page scores the share of the three it has (3 of 3 is 100, 2 of 3 is 67, 1 of 3 is 33). The check score is the average over all audited pages. 80 or more passes, above 0 is `partial`, 0 is `fail`.
 
 Two of three tags on every page is 67, so it stays `partial`. A site needs `og:image` on nearly every page to pass.
+
+`nextjs-metadata-api` (Next.js adapter check, added only when the site is detected as Next.js) reads each audited page's HTML. A page counts as complete when it has a non-empty `<title>`, a `<meta name="description">` and at least one `<meta property="og:...">` tag (any `og:` property, not all three). The score is the share of complete pages. 80 or more passes, 50 or more is `partial`, lower is `fail`. Fixing the `og-meta-tags` steps below fixes this check too; the page `title` and `description` come from the same `metadata` export.
 
 ## Who fixes it
 
