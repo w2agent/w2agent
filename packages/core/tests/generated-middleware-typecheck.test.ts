@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { nextjsAdapter } from "../src/adapters/nextjs/index.js";
+import {
+  nextjsMiddlewareSource,
+  nextjsWebhookRouteSource,
+} from "../src/adapters/nextjs/templates.js";
 import { nuxtAdapter } from "../src/adapters/nuxt/index.js";
 import type { GenerateContext } from "../src/generate/types.js";
 
@@ -27,6 +31,8 @@ const nuxtFiles = nuxtAdapter.generateIntegration(ctx, []);
 
 const SOURCES: Record<string, string> = {
   "next middleware.ts": content(nextFiles, "nextjs/middleware.ts"),
+  "next webhook route.ts": nextjsWebhookRouteSource("ts"),
+  "next proxy.ts (Next 16)": nextjsMiddlewareSource({ lang: "ts", fn: "proxy" }),
   "nuxt emitted content-negotiation.ts": content(
     nuxtFiles,
     "nuxt/server/middleware/content-negotiation.ts",

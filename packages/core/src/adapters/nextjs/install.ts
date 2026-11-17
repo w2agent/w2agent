@@ -3,12 +3,22 @@ import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
 import { guardInstallActions, hasWrittenCopy, willWrite } from "../../install/guard.js";
 import type { InstallAction, InstallPlan } from "../../install/types.js";
+import {
+  type NextjsEdgeFn,
+  nextjsMiddlewareSource,
+  nextjsWebhookRouteSource,
+  ROUTE_REVALIDATE_SEGMENT,
+  type SourceLang,
+  WEBHOOK_ROUTE_PATH,
+} from "./templates.js";
 
 interface NextjsLayout {
   hasSrcDir: boolean;
   hasAppDir: boolean;
   hasPagesDir: boolean;
   hasMiddleware: boolean;
+  hasProxy: boolean;
+  existingEdgeFile: string | null;
   hasExistingLlmsRoute: boolean;
   hasExistingW2agentLlms: boolean;
   hasExistingBuildScript: boolean;
@@ -22,11 +32,13 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   const hasPagesDir =
     existsSync(join(projectDir, "pages")) || existsSync(join(projectDir, "src", "pages"));
 
-  const hasMiddleware =
-    existsSync(join(projectDir, "middleware.ts")) ||
-    existsSync(join(projectDir, "middleware.js")) ||
-    existsSync(join(projectDir, "src", "middleware.ts")) ||
-    existsSync(join(projectDir, "src", "middleware.js"));
+  const edgePaths = (name: string) =>
+    ["", "src/"].flatMap((dir) => ["ts", "js"].map((ext) => `${dir}${name}.${ext}`));
+  const existing = (paths: string[]) => paths.find((p) => existsSync(join(projectDir, p))) ?? null;
+  const existingMiddleware = existing(edgePaths("middleware"));
+  const existingProxy = existing(edgePaths("proxy"));
+  const hasMiddleware = existingMiddleware !== null;
+  const existingEdgeFile = existingMiddleware ?? existingProxy;
 
   const appRoot = hasSrcDir && existsSync(join(projectDir, "src", "app")) ? "src/app" : "app";
   const hasExistingLlmsRoute = existsSync(join(projectDir, appRoot, "llms.txt", "route.ts"));
@@ -34,20 +46,12 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
   const hasExistingBuildScript = existsSync(join(projectDir, "w2agent-build.mjs"));
 
   let hasW2agentRefs = false;
-  if (hasMiddleware) {
-    for (const p of [
-      join(projectDir, "middleware.ts"),
-      join(projectDir, "middleware.js"),
-      join(projectDir, "src", "middleware.ts"),
-      join(projectDir, "src", "middleware.js"),
-    ]) {
-      if (existsSync(p)) {
-        const content = readFileSync(p, "utf-8");
-        if (content.includes("w2agent") || content.includes("llms.txt")) {
-          hasW2agentRefs = true;
-          break;
-        }
-      }
+  for (const p of [...edgePaths("middleware"), ...edgePaths("proxy")]) {
+    if (!existsSync(join(projectDir, p))) continue;
+    const content = readFileSync(join(projectDir, p), "utf-8");
+    if (content.includes("w2agent") || content.includes("llms.txt")) {
+      hasW2agentRefs = true;
+      break;
     }
   }
 
@@ -56,6 +60,8 @@ export function detectNextjsLayout(projectDir: string): NextjsLayout {
     hasAppDir,
     hasPagesDir,
     hasMiddleware,
+    hasProxy: existingProxy !== null,
+    existingEdgeFile,
     hasExistingLlmsRoute,
     hasExistingW2agentLlms,
     hasExistingBuildScript,
@@ -73,6 +79,48 @@ function isNextjsProject(projectDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+function majorOf(version: unknown): number | null {
+  if (typeof version !== "string") return null;
+  const match = /^\s*(?:[\^~]|[<>]=?|=)?\s*v?(\d+)/.exec(version);
+  return match?.[1] ? Number(match[1]) : null;
+}
+
+// Installed version first, then the package.json range; null when neither names a number
+// (`latest`, `canary`, `*`, workspace and git specs).
+export function detectNextMajor(projectDir: string): number | null {
+  try {
+    const installed = JSON.parse(
+      readFileSync(join(projectDir, "node_modules", "next", "package.json"), "utf-8"),
+    );
+    const major = majorOf(installed?.version);
+    if (major !== null) return major;
+  } catch {}
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf-8"));
+    return majorOf(pkg?.dependencies?.next ?? pkg?.devDependencies?.next);
+  } catch {
+    return null;
+  }
+}
+
+// Text only: the config is never imported or executed. Any mention of the flag counts
+// except a literal `: false`.
+export function usesCacheComponents(projectDir: string): boolean {
+  for (const name of NEXT_CONFIG_NAMES) {
+    let text: string;
+    try {
+      text = readFileSync(join(projectDir, name), "utf-8");
+    } catch {
+      continue;
+    }
+    for (const match of text.matchAll(/\b(?:cacheComponents|dynamicIO)\b/g)) {
+      const rest = text.slice(match.index + match[0].length);
+      if (!/^["']?\s*:\s*false\b/.test(rest)) return true;
+    }
+  }
+  return false;
 }
 
 function pathExists(path: string): boolean {
@@ -114,6 +162,21 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
   const mergeCopies: { dest: string; manualDest: string }[] = [];
 
+  // No tsconfig.json: a JavaScript project, so install .js/.jsx (Next asks to install typescript otherwise)
+  const lang: SourceLang = existsSync(join(projectDir, "tsconfig.json")) ? "ts" : "js";
+  const ext = lang === "ts" ? "ts" : "js";
+  const nextMajor = detectNextMajor(projectDir);
+  // An existing file decides the convention (Next rejects both side by side); a new install uses
+  // `proxy` from Next 16 on and `middleware` before it or when the version is unknown (Next 15
+  // silently ignores proxy.ts, Next 16 only warns about middleware.ts).
+  const edgeFn: NextjsEdgeFn = layout.hasMiddleware
+    ? "middleware"
+    : layout.hasProxy || (nextMajor !== null && nextMajor >= 16)
+      ? "proxy"
+      : "middleware";
+  const edgeDir = "";
+  const dropRevalidate = usesCacheComponents(projectDir);
+
   for (const file of platformFiles) {
     const relPath = file.filename.slice(prefix.length);
     const baseName = relPath.split("/").pop() || relPath;
@@ -123,7 +186,9 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
     // Route handler files — adjust for src/app layout
     if (relPath.startsWith("app/")) {
-      const adjustedPath = relPath.replace(/^app\//, `${appPrefix}/`);
+      const adjustedPath = relPath
+        .replace(/^app\//, `${appPrefix}/`)
+        .replace(/route\.ts$/, `route.${ext}`);
 
       if (layout.hasExistingLlmsRoute && relPath.startsWith("app/llms.txt/")) {
         actions.push({
@@ -156,7 +221,10 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
         );
         continue;
       }
-      actions.push({ type: "write", dest: adjustedPath, content: file.content });
+      let content =
+        file.filename === WEBHOOK_ROUTE_PATH ? nextjsWebhookRouteSource(lang) : file.content;
+      if (dropRevalidate) content = content.replace(ROUTE_REVALIDATE_SEGMENT, "");
+      actions.push({ type: "write", dest: adjustedPath, content });
       continue;
     }
 
@@ -176,25 +244,27 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       continue;
     }
 
-    // middleware.ts
+    // middleware.ts: rendered for the project's language and Next convention, never copied from the input
     if (baseName === "middleware.ts" || baseName === "middleware.js") {
+      const dest = `${edgeDir}${edgeFn}.${ext}`;
       if (layout.hasW2agentRefs) {
         actions.push({
           type: "skip",
-          dest: relPath,
+          dest,
           reason: "already has w2agent integration",
         });
         continue;
       }
 
-      if (layout.hasMiddleware) {
-        const mergedName = relPath.replace(/\.(ts|js)$/, ".w2agent.$1");
-        actions.push({ type: "write", dest: mergedName, content: file.content });
-        mergeCopies.push({ dest: mergedName, manualDest: relPath });
+      const content = nextjsMiddlewareSource({ lang, fn: edgeFn });
+      if (layout.existingEdgeFile) {
+        const mergedName = `${edgeDir}${edgeFn}.w2agent.${ext}`;
+        actions.push({ type: "write", dest: mergedName, content });
+        mergeCopies.push({ dest: mergedName, manualDest: layout.existingEdgeFile });
         continue;
       }
 
-      actions.push({ type: "write", dest: relPath, content: file.content });
+      actions.push({ type: "write", dest, content });
       continue;
     }
 
@@ -214,8 +284,9 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       continue;
     }
 
-    // Everything else: write
-    actions.push({ type: "write", dest: relPath, content: file.content });
+    // Everything else: write (the one .tsx file, the WebMCP component, has no annotations, so JS is a rename)
+    const dest = lang === "js" ? relPath.replace(/\.tsx$/, ".jsx") : relPath;
+    actions.push({ type: "write", dest, content: file.content });
   }
 
   // Post-install: suggest adding build script to package.json
@@ -227,15 +298,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
       guarded.actions.push({
         type: "manual",
         dest: copy.manualDest,
-        reason: `Existing middleware found. Merge the content from ${name} into your existing middleware.`,
+        reason: `Existing ${edgeFn} found. Merge the content from ${name} into your existing ${edgeFn}.`,
       });
-      warnings.push(`Existing middleware found — saved as ${name}. Merge manually.`);
+      warnings.push(`Existing ${edgeFn} found — saved as ${name}. Merge manually.`);
     } else {
       guarded.actions.push({
         type: "manual",
         dest: copy.manualDest,
         reason:
-          "Existing middleware found, but the w2agent middleware was not written (see warnings). " +
+          `Existing ${edgeFn} found, but the w2agent ${edgeFn} was not written (see warnings). ` +
           "Merge it by hand, for example from `w2agent integrate <url> --output <dir>`.",
       });
     }
@@ -248,13 +319,15 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
   }
 
   const webmcpWrite = guarded.actions.find(
-    (a) => a.type === "write" && a.dest.endsWith("/WebMcpScript.tsx"),
+    (a) => a.type === "write" && /\/WebMcpScript\.(tsx|jsx)$/.test(a.dest),
   );
   if (webmcpWrite) {
     const existing = ["tsx", "jsx", "ts", "js"]
-      .map((ext) => `${appPrefix}/layout.${ext}`)
+      .map((layoutExt) => `${appPrefix}/layout.${layoutExt}`)
       .find((p) => existsSync(join(projectDir, p)));
-    const target = existing ? existing : `your root layout (${appPrefix}/layout.tsx)`;
+    const target = existing
+      ? existing
+      : `your root layout (${appPrefix}/layout.${lang === "ts" ? "tsx" : "jsx"})`;
     postInstallSteps.push(
       `Import WebMcpScript from ${webmcpWrite.dest} in ${target} and render <WebMcpScript /> inside <body> so the WebMCP tools register on every page.`,
     );

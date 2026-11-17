@@ -1,20 +1,25 @@
 import type { GeneratedFile } from "../../generate/types.js";
-import { HOME_VARIANT_SOURCE } from "../shared/accept-negotiation.js";
+import { homeVariantSource, type SourceLang } from "../shared/accept-negotiation.js";
 
-export function generateNextjsIntegration(
-  llmsTxtContent: string,
-  llmsFullTxtContent: string,
-  agentCardContent: string | undefined,
-  siteUrl: string,
-): GeneratedFile[] {
-  const files: GeneratedFile[] = [];
+export type { SourceLang };
 
-  const middlewareTs = `/* eslint-disable */
-import { NextRequest, NextResponse } from "next/server";
+// The one segment config the routes carry. The resolver removes this exact
+// text when the project turns on cacheComponents (Next rejects `revalidate`
+// there), so the template and the removal cannot drift.
+export const ROUTE_REVALIDATE_SEGMENT =
+  "// ISR: regenerate every hour\nexport const revalidate = 3600;\n\n";
 
-${HOME_VARIANT_SOURCE}
+// The file name and exported function Next reads: `middleware` before Next 16, `proxy` from 16.
+export type NextjsEdgeFn = "middleware" | "proxy";
 
-export function middleware(request: NextRequest) {
+export function nextjsMiddlewareSource({ lang, fn }: { lang: SourceLang; fn: NextjsEdgeFn }) {
+  const ts = lang === "ts";
+  return `/* eslint-disable */
+import { ${ts ? "NextRequest, " : ""}NextResponse } from "next/server";
+
+${homeVariantSource(lang)}
+
+export function ${fn}(request${ts ? ": NextRequest" : ""}) {
   if (request.nextUrl.pathname !== "/") return NextResponse.next();
 
   // Content negotiation: markdown gets /index.md, plain text gets /llms.txt, everything else the page
@@ -35,6 +40,72 @@ export const config = {
   matcher: ["/"],
 };
 `;
+}
+
+export const WEBHOOK_ROUTE_PATH = "nextjs/app/api/w2agent-mcp-webhook/route.ts";
+
+export function nextjsWebhookRouteSource(lang: SourceLang) {
+  const ts = lang === "ts";
+  return `import { NextResponse } from "next/server";
+
+/**
+ * w2agent MCP Webhook — Next.js Integration
+ *
+ * Place at: app/api/w2agent-mcp-webhook/route.${ts ? "ts" : "js"}
+ * Triggers a re-crawl when content changes.
+ *
+ * Requires W2AGENT_INBOUND_TOKEN; callers must present it as a Bearer token.
+ * Without this check the route is a confused deputy — unauthenticated callers
+ * would otherwise receive authenticated upstream webhook calls for free.
+ */
+
+const WEBHOOK_URL = process.env.W2AGENT_WEBHOOK_URL || "https://w2agent.dev/api/agent/webhook/YOUR_SLUG";
+const WEBHOOK_TOKEN = process.env.W2AGENT_WEBHOOK_TOKEN || "YOUR_WEBHOOK_TOKEN";
+
+export async function POST(request${ts ? ": Request" : ""}) {
+  const expected = process.env.W2AGENT_INBOUND_TOKEN;
+  if (!expected) {
+    return NextResponse.json(
+      { error: "W2AGENT_INBOUND_TOKEN not configured" },
+      { status: 401 },
+    );
+  }
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (presented !== expected) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+
+    // Notify w2agent MCP server of content change
+    await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: \`Bearer \${WEBHOOK_TOKEN}\`,
+      },
+      body: JSON.stringify({ trigger: "nextjs", ...body }),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: ${ts ? "(err as Error).message" : "err.message"} }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateNextjsIntegration(
+  llmsTxtContent: string,
+  llmsFullTxtContent: string,
+  agentCardContent: string | undefined,
+  siteUrl: string,
+): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
+
+  const middlewareTs = nextjsMiddlewareSource({ lang: "ts", fn: "middleware" });
 
   // Dynamic route handler for /llms.txt — ISR, regenerates every hour
   const llmsTxtRoute = `/* eslint-disable */
@@ -42,10 +113,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-// ISR: regenerate every hour
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   // Read from generated file (updated by build script or CI)
   const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
   if (fs.existsSync(filePath)) {
@@ -69,7 +137,7 @@ export async function GET() {
   });
 }
 
-function generateLlmsTxtFromPages(): string {
+function generateLlmsTxtFromPages() {
   // TODO: Replace with your actual page data source
   // Examples:
   //   - Read from a CMS API
@@ -87,9 +155,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   // Same content as /llms.txt: the generated file, or a minimal fallback
   const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
   const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
@@ -113,9 +179,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   const filePath = path.join(process.cwd(), ".w2agent", "llms-full.txt");
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf-8");
@@ -139,9 +203,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
-export const revalidate = 3600;
-
-export async function GET() {
+${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
   const filePath = path.join(process.cwd(), ".w2agent", "agent-card.json");
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf-8");

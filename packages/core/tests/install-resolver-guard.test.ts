@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { astroAdapter } from "../src/adapters/astro/index.js";
 import { docusaurusAdapter } from "../src/adapters/docusaurus/index.js";
 import { nextjsAdapter } from "../src/adapters/nextjs/index.js";
+import { nextjsMiddlewareSource } from "../src/adapters/nextjs/templates.js";
 import { nuxtAdapter } from "../src/adapters/nuxt/index.js";
 import { shopifyAdapter } from "../src/adapters/shopify/index.js";
 import { wordpressAdapter } from "../src/adapters/wordpress/index.js";
@@ -40,6 +41,7 @@ describe("resolver steps follow the guarded actions", () => {
     beforeEach(() => {
       mkdirSync(join(tempDir, "app"), { recursive: true });
       writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"next":"15.0.0"}}');
+      writeFileSync(join(tempDir, "tsconfig.json"), "{}");
     });
 
     it("prints no postbuild step when a sibling build script makes the guard skip the write", () => {
@@ -93,7 +95,10 @@ describe("resolver steps follow the guarded actions", () => {
 
     it("keeps the merge text when the existing middleware.w2agent.ts is byte-identical", () => {
       writeFileSync(join(tempDir, "middleware.ts"), "export function middleware() { /* auth */ }");
-      writeFileSync(join(tempDir, "middleware.w2agent.ts"), "export function middleware() {}");
+      writeFileSync(
+        join(tempDir, "middleware.w2agent.ts"),
+        nextjsMiddlewareSource({ lang: "ts", fn: "middleware" }),
+      );
 
       const plan = planInstall(nextjsAdapter, files, tempDir);
 

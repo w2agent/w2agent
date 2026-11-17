@@ -33,6 +33,7 @@ describe("Next.js install resolver", () => {
     // Create a basic Next.js app-router project
     mkdirSync(join(tempDir, "app"), { recursive: true });
     writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"next":"15.0.0"}}', "utf-8");
+    writeFileSync(join(tempDir, "tsconfig.json"), "{}", "utf-8");
   });
 
   afterEach(() => {

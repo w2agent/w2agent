@@ -152,6 +152,7 @@ describe("Next.js install plan mounts WebMcpScript", () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "w2agent-nextjs-webmcp-"));
     writeFileSync(join(tempDir, "package.json"), '{"dependencies":{"next":"15.0.0"}}');
+    writeFileSync(join(tempDir, "tsconfig.json"), "{}");
   });
 
   afterEach(() => {

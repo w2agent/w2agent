@@ -1,12 +1,15 @@
+export type SourceLang = "ts" | "js";
+
 // Source of the homepage Accept negotiation, emitted verbatim into generated
 // middleware. Self-contained and strict-TS valid: no imports, no backticks.
-export const HOME_VARIANT_SOURCE = `type HomeVariant = "markdown" | "plain" | "html";
-
-// Most specific matching Accept range decides q. Markdown wins equal-q ties
+// One source renders both languages: type annotations appear only for "ts".
+export function homeVariantSource(lang: SourceLang): string {
+  const t = (annotation: string) => (lang === "ts" ? annotation : "");
+  return `${t(`type HomeVariant = "markdown" | "plain" | "html";\n\n`)}// Most specific matching Accept range decides q. Markdown wins equal-q ties
 // when explicitly listed; text/plain must beat text/html strictly (generic
 // clients list text/plain next to */*).
-function splitOutsideQuotes(value: string, separator: string): string[] {
-  const parts: string[] = [];
+function splitOutsideQuotes(value${t(": string")}, separator${t(": string")})${t(": string[]")} {
+  const parts${t(": string[]")} = [];
   let current = "";
   let quoted = false;
   for (let i = 0; i < value.length; i++) {
@@ -27,9 +30,9 @@ function splitOutsideQuotes(value: string, separator: string): string[] {
   return parts;
 }
 
-function homeVariant(accept: string | null): HomeVariant {
+function homeVariant(accept${t(": string | null")})${t(": HomeVariant")} {
   if (!accept || !accept.trim()) return "html";
-  const ranges: { type: string; q: number }[] = [];
+  const ranges${t(": { type: string; q: number }[]")} = [];
   for (const part of splitOutsideQuotes(accept, ",")) {
     const [rawType = "", ...params] = splitOutsideQuotes(part, ";");
     const type = rawType.trim().toLowerCase();
@@ -43,7 +46,7 @@ function homeVariant(accept: string | null): HomeVariant {
     }
     ranges.push({ type, q });
   }
-  const quality = (type: string): number => {
+  const quality = (type${t(": string")})${t(": number")} => {
     const wildcard = type.slice(0, type.indexOf("/")) + "/*";
     let best = 0;
     let bestQ = 0;
@@ -57,7 +60,7 @@ function homeVariant(accept: string | null): HomeVariant {
     }
     return bestQ;
   };
-  const listed = (type: string) => ranges.some((range) => range.type === type);
+  const listed = (type${t(": string")}) => ranges.some((range) => range.type === type);
   const html = quality("text/html");
   const markdown = quality("text/markdown");
   const plain = quality("text/plain");
@@ -65,3 +68,6 @@ function homeVariant(accept: string | null): HomeVariant {
   if (listed("text/plain") && plain > 0 && plain > html) return "plain";
   return "html";
 }`;
+}
+
+export const HOME_VARIANT_SOURCE = homeVariantSource("ts");

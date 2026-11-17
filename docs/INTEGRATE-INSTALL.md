@@ -70,8 +70,12 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | `src/app/` layout | `src/app/` dir exists | Adjusts all `app/` paths to `src/app/` |
 | Pages Router only | Has `pages/` but no `app/` | Skip all with warning |
 | Existing `app/llms.txt/route.ts` | File exists | Skip + warn |
-| Existing middleware (with w2agent) | Read file, check content | Skip |
-| Existing middleware (no w2agent) | Read file, check content | Write as `.w2agent.ts` + merge instructions |
+| No existing `middleware.*` or `proxy.*` | Next major from `node_modules/next/package.json`, else the `next` range in `package.json` | Next 16 or newer: write `proxy.<ext>` (function `proxy`). Next 15 or older, or an unknown version (`latest`, `canary`, `*`, workspace or git spec): write `middleware.<ext>` (function `middleware`). Next 16 rejects a `middleware` and a `proxy` file together, and Next 15 ignores `proxy.ts`, so an unknown version gets `middleware` |
+| Existing middleware or proxy (with w2agent or llms.txt) | Read `middleware.*` and `proxy.*` (root and `src/`) | Skip. Covers a re-run after the Next 16 codemod renamed our middleware to proxy |
+| Existing middleware (no w2agent) | Read file, check content | Write as `middleware.w2agent.<ext>` (function `middleware`, even on Next 16) + merge instructions |
+| Existing proxy (no w2agent) | Read file, check content | Write as `proxy.w2agent.<ext>` (function `proxy`) + merge instructions. Never writes the other convention beside an existing file |
+| No `tsconfig.json` | JavaScript project | Install `.js` routes, middleware or proxy and merge copies, and a `.jsx` WebMCP component, so `next build` does not ask to install TypeScript |
+| `cacheComponents` or `dynamicIO` in any `next.config.{js,mjs,ts,cjs,mts}` | Text match (the config is never run); a literal `: false` does not count | Routes are written without `export const revalidate`, which Next rejects under `cacheComponents` |
 | Any `public/<path>` that matches a planned route `app/<path>/route.ts` (for example `public/llms.txt`, `public/index.md`, `public/.well-known/agent-card.json`) | File exists | Skip that route, manual step to remove or rename the public file (Next.js errors when both exist) and re-run. The file is never deleted |
 | Existing `app/llms.txt/route.js` (or other extension) | Same stem, other extension | Skip + warn |
 | Existing `w2agent-build.mjs` | File exists | Skip + warn |
@@ -135,6 +139,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
 - `tests/install-nextjs.test.ts` — project check, src/app, pages-router, middleware merge, existing files, public/ conflicts (24 tests)
+- `tests/install-nextjs-conventions.test.ts` — proxy vs middleware by Next version, existing proxy, JS-only projects (installed files parsed by Node), `cacheComponents` (41 tests)
 - `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall` (13 tests)
 - `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (10 tests)
