@@ -95,6 +95,8 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Existing server routes | File exists | Skip + warn |
 | Existing middleware (with w2agent) | Read file, check content | Skip |
 | Existing middleware (no w2agent) | Read file | Write as `.w2agent.ts` |
+| Local module | Always | Install `modules/w2agent.ts`: it inlines only `public/{llms.txt,llms-full.txt,agent-card.json,.well-known/agent-card.json}` into the server bundle (scoped `w2agent` server assets), so the routes serve the files as of build time from any working directory and return 404 when a file is missing. Run the prebuild script before `nuxi build`. An existing different `modules/w2agent.ts` is kept (guard) with a warning that the routes then 404 until it registers the asset |
+| WebMCP plugin | `srcDir` rule below | Install `<srcDir>/plugins/w2agent-webmcp.client.ts`; only the plugin moves, `server/`, `public/`, `modules/` and the build script stay at the root. Explicit literal `srcDir` in `nuxt.config.*` wins; else Nuxt 4 mode (nuxt major >= 4 from `package.json` or the installed package, or `compatibilityVersion: 4`): `app/` when it holds anything besides `spa-loading-template.html` and `router.options*`, or when it is empty of those and the root has no `app.vue`/`App.vue`/`assets`/`layouts`/`middleware`/`pages`/`plugins`; otherwise the root. A non-literal `srcDir` warns and uses that rule |
 | Any other generated file already present | File exists | Skip + warn (guard) |
 
 ### Astro (`packages/core/src/adapters/astro/install.ts`)
@@ -140,7 +142,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 
 ## Testing
 
-### Unit tests (281 tests across 15 test files)
+### Unit tests (311 tests across 17 test files)
 
 - `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
 - `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
@@ -151,6 +153,8 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 - `tests/nextjs-prebuild-docs.test.ts` — `prebuild` step, script header and INSTALL.md wording (3 tests)
 - `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall` (13 tests)
 - `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
+- `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`) (18 tests)
+- `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording (16 tests)
 - `tests/install-astro.test.ts` — static/SSR/hybrid, config detection (11 tests)
 - `tests/install-docusaurus.test.ts` — plugin config, gray-matter (10 tests)
 - `tests/install-wordpress.test.ts` — WP root, existing plugin, `WP_PLUGIN_DIR` forms (22 tests)

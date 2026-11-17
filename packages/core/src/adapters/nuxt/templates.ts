@@ -11,42 +11,54 @@ export function generateNuxtIntegration(
 
   // Nitro's cached handlers only keep headers the handler sets on the response,
   // so each route sets its Content-Type inside the handler.
-  const llmsTxtRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
+  // The w2agent module (modules/w2agent.ts) inlines the public/ copies into the server
+  // bundle as the "w2agent" server assets at build time, so the routes need no filesystem.
+  // A missing file throws a 404 before any header is set, so nothing cacheable is sent.
+  const assetRoute = (key: string, contentType: string) => `import { createError } from "h3";
+import { defineCachedEventHandler, setResponseHeader, useStorage } from "#imports";
 
 export default defineCachedEventHandler(
   async (event) => {
-    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
-    // Read from generated static file, or customize with your own content source
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const filePath = path.join(process.cwd(), "public", "llms.txt");
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, "utf-8");
+    const storage = useStorage("assets:w2agent");
+    const raw = (await storage.hasItem("${key}")) ? await storage.getItemRaw("${key}") : null;
+    if (raw === null || raw === undefined) {
+      throw createError({ statusCode: 404, statusMessage: "Not Found" });
     }
-    // Fallback: minimal llms.txt
-    const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
-    return "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
-      "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+    setResponseHeader(event, "Content-Type", "${contentType}");
+    return typeof raw === "string" ? raw : new TextDecoder().decode(raw as Uint8Array);
   },
   { swr: true, maxAge: 3600 },
 );
 `;
 
-  const llmsFullTxtRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
+  const llmsTxtRoute = assetRoute("llms.txt", "text/plain; charset=utf-8");
+  const llmsFullTxtRoute = assetRoute("llms-full.txt", "text/plain; charset=utf-8");
 
-export default defineCachedEventHandler(
-  async (event) => {
-    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const filePath = path.join(process.cwd(), "public", "llms-full.txt");
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, "utf-8");
-    }
-    return "# No content generated yet\\n\\nRun: npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./public/\\n";
-  },
-  { swr: true, maxAge: 3600 },
-);
+  const w2agentModule = `// w2agent: serve the public/ llms files as of build time.
+// Nuxt registers modules/*; this inlines only the listed files into the server bundle.
+import { isAbsolute, resolve } from "node:path";
+
+interface W2agentNitroConfig {
+  serverAssets?: { baseName: string; dir: string; pattern?: string }[];
+}
+
+interface W2agentNuxt {
+  options: { dir: { public: string }; srcDir: string };
+  hook: (name: "nitro:config", fn: (nitroConfig: W2agentNitroConfig) => void) => unknown;
+}
+
+export default function w2agent(_options: unknown, nuxt: W2agentNuxt) {
+  nuxt.hook("nitro:config", (nitroConfig) => {
+    const configured = nuxt.options.dir.public;
+    const dir = isAbsolute(configured) ? configured : resolve(nuxt.options.srcDir, configured);
+    nitroConfig.serverAssets ||= [];
+    nitroConfig.serverAssets.push({
+      baseName: "w2agent",
+      dir,
+      pattern: "{llms.txt,llms-full.txt,agent-card.json,.well-known/agent-card.json}",
+    });
+  });
+}
 `;
 
   const agentCardRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
@@ -63,24 +75,7 @@ export default defineCachedEventHandler(
 `;
 
   // Markdown twin of the homepage: the llms.txt content served as text/markdown
-  const indexMdRoute = `import { defineCachedEventHandler, setResponseHeader } from "#imports";
-
-export default defineCachedEventHandler(
-  async (event) => {
-    setResponseHeader(event, "Content-Type", "text/markdown; charset=utf-8");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const filePath = path.join(process.cwd(), "public", "llms.txt");
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, "utf-8");
-    }
-    const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
-    return "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
-      "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
-  },
-  { swr: true, maxAge: 3600 },
-);
-`;
+  const indexMdRoute = assetRoute("llms.txt", "text/markdown; charset=utf-8");
 
   const contentNegotiationMiddleware = `import { appendResponseHeader, defineEventHandler, getRequestHeader, sendRedirect } from "h3";
 
@@ -135,7 +130,7 @@ try {
     "[w2agent] Generation failed: " + (err && err.message ? err.message : String(err)) + "\\n" +
     "[w2agent] Either the w2agent CLI is not installed in this project (it is not published on npm yet: " +
     "build it from the w2agent repo, then run npm install -D <path-to-w2agent>/packages/cli) " +
-    "or the crawl of " + SITE_URL + " failed. Nitro routes will use fallback content."
+    "or the crawl of " + SITE_URL + " failed. Nitro routes serve the public/ files as of the last build and return 404 while public/llms.txt is missing."
   );
 }
 `;
@@ -166,24 +161,31 @@ The module auto-registers all Nitro routes. No manual file copying needed.
 
 ## Architecture
 
-This integration uses **Nitro cached event handlers** for dynamic content
-and static \`public/\` files as fallback. Content is cached for 1 hour with SWR.
+This integration uses **Nitro cached event handlers**. A small local module
+(\`modules/w2agent.ts\`) inlines \`public/llms.txt\`, \`public/llms-full.txt\` and the agent card
+into the server bundle at build time. Content is cached for 1 hour with SWR.
 
 \`\`\`
+nuxi build
+  -> modules/w2agent.ts bundles those public/ files into the server
 Request for /llms.txt
-  -> Nitro cached handler reads public/llms.txt
+  -> Nitro cached handler serves the bundled copy (no filesystem, any working directory)
   -> Returns with 1hr cache + stale-while-revalidate
-  -> If file missing, generates minimal fallback
+  -> If the file was missing at build time, returns 404
 \`\`\`
+
+The routes serve the \`public/\` files as they were when you built. Run the build script (or
+\`w2agent generate\`) before \`nuxi build\`; a file generated afterwards is not served until the next build.
 
 ## Setup
 
-### 1. Copy Nitro server routes
+### 1. Copy Nitro server routes and the module
 \`\`\`bash
 cp -r nuxt/server/ your-nuxt-app/server/
+cp -r nuxt/modules/ your-nuxt-app/modules/
 \`\`\`
 
-### 2. Copy static fallback files
+### 2. Copy the seed files
 \`\`\`bash
 cp nuxt/public/llms.txt your-nuxt-app/public/
 cp nuxt/public/llms-full.txt your-nuxt-app/public/
@@ -212,6 +214,8 @@ from the w2agent repo, then run \`npm install -D <path-to-w2agent>/packages/cli\
 \`\`\`
 your-nuxt-app/
   w2agent-build.mjs                                    <- Build-time regeneration
+  modules/
+    w2agent.ts                                         <- Bundles the public/ llms files into the server at build time
   server/
     routes/
       llms.txt.ts                                      <- Cached Nitro handler
@@ -221,8 +225,8 @@ your-nuxt-app/
     middleware/
       content-negotiation.ts                           <- AI bot content negotiation
   public/
-    llms.txt                                           <- Static fallback
-    llms-full.txt                                      <- Static fallback
+    llms.txt                                           <- Content served as of the last build
+    llms-full.txt                                      <- Content served as of the last build
 \`\`\`
 
 ## How It Works
@@ -230,7 +234,7 @@ your-nuxt-app/
 1. **Nitro handlers** serve content with 1hr cache + stale-while-revalidate
 2. **Build script** regenerates \`public/\` files before each build via \`npx --no -- w2agent generate\`
 3. **Middleware** redirects \`/\` (with \`Vary: Accept\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page
-4. **Fallback** — if static files are missing, handlers generate minimal content
+4. **Missing file** — if \`public/llms.txt\` (or \`llms-full.txt\`) did not exist at build time, its routes return 404 instead of placeholder content
 
 ## Regenerating
 
@@ -242,6 +246,7 @@ npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --o
 \`\`\`
 `;
 
+  files.push(makeFile("nuxt/modules/w2agent.ts", w2agentModule));
   files.push(makeFile("nuxt/server/routes/llms.txt.ts", llmsTxtRoute));
   files.push(makeFile("nuxt/server/routes/llms-full.txt.ts", llmsFullTxtRoute));
   files.push(makeFile("nuxt/server/routes/index.md.ts", indexMdRoute));

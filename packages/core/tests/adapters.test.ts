@@ -738,9 +738,9 @@ describe("Docusaurus integration generation", () => {
 });
 
 describe("Nuxt integration generation", () => {
-  it("generates 9 files", () => {
+  it("generates 10 files", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
-    expect(files).toHaveLength(9);
+    expect(files).toHaveLength(10);
   });
 
   it("generates Nitro cached event handlers", () => {
@@ -751,9 +751,10 @@ describe("Nuxt integration generation", () => {
     expect(llmsRoute?.content).toContain("maxAge: 3600");
   });
 
-  it("includes static fallback files", () => {
+  it("includes the build-time module and the seed files", () => {
     const files = nuxtAdapter.generateIntegration(makeCtx(), makeCoreFiles());
     const filenames = files.map((f) => f.filename);
+    expect(filenames).toContain("nuxt/modules/w2agent.ts");
     expect(filenames).toContain("nuxt/public/llms.txt");
     expect(filenames).toContain("nuxt/public/llms-full.txt");
   });
