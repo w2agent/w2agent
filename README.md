@@ -2,16 +2,39 @@
 
 # w2agent
 
-**Every website is already an agent.** w2agent audits, generates, and deploys
-any website as a live agent server — discoverable and queryable by Claude, GPT,
-and any MCP-compatible AI tool.
+**w2agent audits a website for AI-agent readiness and generates the files that make it discoverable by Claude, GPT, and other MCP-compatible tools** (llms.txt, agent-card.json, Schema.org JSON-LD, WebMCP, and more).
 
-<!-- gif: cli-audit — terminal running `npx w2agent audit https://stripe.com`, score output scrolling in -->
+## Site owners: let your coding agent do it
+
+Ask your coding agent:
+
+> use w2agent to make my site agent-ready
+
+It follows [docs/AGENT-PLAYBOOK.md](docs/AGENT-PLAYBOOK.md) (also packaged as the [w2agent skill](skills/w2agent/SKILL.md)). The flow it runs, pinned to `w2agent@0.1.0`:
 
 ```bash
-npx w2agent audit https://your-site.com     # score it
-npx w2agent agentize https://your-site.com  # deploy it as an agent server
+npx w2agent@0.1.0 audit <local url> --json                 # baseline score (<local url> = your local server)
+npx w2agent@0.1.0 integrate <local url> --dry-run --json \
+  --project-dir . --site-url <production origin>            # plan, writes nothing
+npx w2agent@0.1.0 integrate <local url> --install --json \
+  --project-dir . --site-url <production origin>            # apply
+# then: do the postInstallSteps, rebuild and restart the local server
+npx w2agent@0.1.0 audit <local url> --json                 # re-audit
 ```
+
+The agent shows the plan to the user before applying. Flags, JSON documents and exit codes: [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md).
+
+The agent checks `npm view w2agent@0.1.0 version` before the first `npx`. If npm answers 404: if a w2agent checkout is available locally (for example cloned next to the site), build it from source (`pnpm install && pnpm --filter w2agent... build`) and run `node <checkout>/packages/cli/dist/index.js`. Otherwise stop and tell the owner. Never try other package names.
+
+Install the playbook for your agent:
+
+```bash
+npx skills add interskh/w2agent                       # any agent that supports skills
+claude plugin marketplace add interskh/w2agent        # Claude Code
+claude plugin install w2agent@w2agent
+```
+
+## What an audit looks like
 
 ```
   w2agent audit — AI Readiness Report
@@ -54,14 +77,95 @@ Turn any website into a queryable AI agent in four steps:
 
 | Step | Command | What happens |
 |------|---------|-------------|
-| **1. Audit** | `npx w2agent audit <url>` | Score AI-readiness across 57 checks (50 scored). Find what's blocking agents. |
-| **2. Generate** | `npx w2agent generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
-| **3. Integrate** | `npx w2agent integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
-| **4. Agentize** | `npx w2agent agentize <url>` | Host the site as a live agent server at `<slug>.agent.w2agent.dev`. |
+| **1. Audit** | `npx w2agent@0.1.0 audit <url>` | Score AI-readiness across 57 checks (50 scored). Find what's blocking agents. |
+| **2. Generate** | `npx w2agent@0.1.0 generate <url>` | Generate llms.txt, agent-card.json, schema-org.json, and more. |
+| **3. Integrate** | `npx w2agent@0.1.0 integrate <url>` | Install platform-native files (WordPress plugin, Next.js middleware). |
+| **4. Agentize (optional, hosted)** | `npx w2agent@0.1.0 agentize <url>` | Host the site as a live agent server at `<slug>.agent.w2agent.dev`. |
 
-For a complete step-by-step methodology — site analysis, agent architecture decisions, output verification, and quality validation — see [AGENTIZE.md](AGENTIZE.md).
+For a complete step-by-step methodology — site analysis, agent architecture decisions, output verification, and quality validation — see [AGENTIZE.md](docs/AGENTIZE.md).
 
-## The Agent Network
+## Features
+
+| Without w2agent | With w2agent |
+|----------------|-------------|
+| Agents hallucinate your docs — trained on stale snapshots | `agentize` serves live content; agents always query the current site |
+| No way to know you're agent-inaccessible until users complain | `audit` runs 57 checks in seconds and shows exactly what's blocking agents |
+| Every platform needs different integration files | Auto-detected platform generates the right native files (WordPress plugin, Next.js middleware, Shopify Liquid) in one command |
+| Writing llms.txt by hand is tedious and error-prone | `generate` produces llms.txt, agent-card.json, schema-org.json, and 7 more formats automatically |
+| Deploying an agent server requires infrastructure setup | `npx w2agent@0.1.0 agentize` hosts your site as an agent server — no servers to manage |
+| CI/CD pipelines can't gate on AI-readiness | `--ci --threshold 80` returns exit code 1 when scores drop — blocks the build |
+| AI frameworks expect different formats (llms.txt, OpenClaw, WebMCP, Skill.md) | 10 output formats from one crawl — generate all or just what you need |
+
+## Install & Use
+
+### Audit, Generate, Integrate (no API key required)
+
+```bash
+# Audit a site's AI-readiness
+npx w2agent@0.1.0 audit https://example.com
+npx w2agent@0.1.0 audit https://example.com --depth 10 --verbose
+npx w2agent@0.1.0 audit https://example.com --ci --threshold 80  # CI gate
+
+# Generate llms.txt + all AI-ready files
+npx w2agent@0.1.0 generate https://example.com
+npx w2agent@0.1.0 generate https://example.com --format llms-txt
+npx w2agent@0.1.0 generate https://example.com --max-pages 200 --output ./output/
+
+# Generate platform-specific integration files
+npx w2agent@0.1.0 integrate https://example.com
+npx w2agent@0.1.0 integrate https://example.com --platform wordpress
+npx w2agent@0.1.0 integrate https://example.com --install        # install into project
+```
+
+### Agentize (optional) — hosted agent on w2agent.dev
+
+Host your site as a live agent server (requires free API key):
+
+```bash
+npx w2agent@0.1.0 login                             # one-time auth
+npx w2agent@0.1.0 agentize https://example.com      # deploys → example-com.agent.w2agent.dev
+npx w2agent@0.1.0 agentize https://example.com --slug my-docs
+```
+
+Your agent endpoint is live immediately. Add it to Claude Desktop:
+```json
+{
+  "mcpServers": {
+    "my-site": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev"]
+    }
+  }
+}
+```
+
+### Self-host agent server (no API key, deploy to your own infra)
+
+```bash
+# Generate a deployable MCP server project
+npx w2agent@0.1.0 agent deploy https://example.com --self-host vercel
+npx w2agent@0.1.0 agent deploy https://example.com --self-host cf   # Cloudflare Workers
+
+# Outputs a ready-to-deploy project in ./w2agent-output/
+# vercel deploy ./w2agent-output/   or   wrangler deploy ./w2agent-output/
+```
+
+## Hosted vs Self-hosted
+
+| | Hosted (`agentize`) | Self-hosted (`mcp deploy`) |
+|---|---|---|
+| **Setup** | `npx w2agent@0.1.0 login` + one command | Generate + deploy to your infra |
+| **Domain** | `<slug>.agent.w2agent.dev` | Your domain |
+| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (`wrangler deploy` again) |
+| **Directory listing** | Yes (opt-in) | No |
+| **Auth required** | Free API key | None |
+| **Best for** | Quick deploy, directory visibility | Custom domains, air-gapped, enterprise |
+
+## Optional: hosted agents with `agentize`
+
+Everything below is optional. `agentize` hosts a site as a live agent server on w2agent.dev. It needs `npx w2agent@0.1.0 login` and is not part of the local flow above.
+
+### The Agent Network
 
 Every agentized site joins a shared network — discoverable via the
 [w2agent directory](https://w2agent.dev/directory) and the **Meta Agent** discovery
@@ -119,7 +223,7 @@ _Standard tools: `list-pages`, `get-page`, `search-site`. Sites with native sear
 
 [Browse the directory →](https://w2agent.dev/directory)
 
-## When to Agentize
+### When to Agentize
 
 w2agent works for any public website. If a human can browse it, an agent can use it.
 
@@ -137,83 +241,6 @@ w2agent works for any public website. If a human can browse it, an agent can use
 | Finance & Fintech | plaid.com, twilio.com, gusto.com | Answer API docs questions, explain pricing, navigate guides |
 | Nonprofits | habitat.org, charitywater.org, doctorswithoutborders.org | Describe programs, locate offices, explain donation impact |
 | Local Services | angi.com, thumbtack.com | Find providers by category, surface reviews, get quotes |
-
-## Features
-
-| Without w2agent | With w2agent |
-|----------------|-------------|
-| Agents hallucinate your docs — trained on stale snapshots | `agentize` serves live content; agents always query the current site |
-| No way to know you're agent-inaccessible until users complain | `audit` runs 57 checks in seconds and shows exactly what's blocking agents |
-| Every platform needs different integration files | Auto-detected platform generates the right native files (WordPress plugin, Next.js middleware, Shopify Liquid) in one command |
-| Writing llms.txt by hand is tedious and error-prone | `generate` produces llms.txt, agent-card.json, schema-org.json, and 7 more formats automatically |
-| Deploying an agent server requires infrastructure setup | `npx w2agent agentize` hosts your site as an agent server — no servers to manage |
-| CI/CD pipelines can't gate on AI-readiness | `--ci --threshold 80` returns exit code 1 when scores drop — blocks the build |
-| AI frameworks expect different formats (llms.txt, OpenClaw, WebMCP, Skill.md) | 10 output formats from one crawl — generate all or just what you need |
-
-## Install & Use
-
-### Audit, Generate, Integrate (no API key required)
-
-```bash
-# Audit a site's AI-readiness
-npx w2agent audit https://example.com
-npx w2agent audit https://example.com --depth 10 --verbose
-npx w2agent audit https://example.com --ci --threshold 80  # CI gate
-
-# Generate llms.txt + all AI-ready files
-npx w2agent generate https://example.com
-npx w2agent generate https://example.com --format llms-txt
-npx w2agent generate https://example.com --max-pages 200 --output ./output/
-
-# Generate platform-specific integration files
-npx w2agent integrate https://example.com
-npx w2agent integrate https://example.com --platform wordpress
-npx w2agent integrate https://example.com --install        # install into project
-```
-
-### Agentize — hosted agent on w2agent.dev
-
-Host your site as a live agent server (requires free API key):
-
-```bash
-npx w2agent login                             # one-time auth
-npx w2agent agentize https://example.com      # deploys → example-com.agent.w2agent.dev
-npx w2agent agentize https://example.com --slug my-docs
-```
-
-Your agent endpoint is live immediately. Add it to Claude Desktop:
-```json
-{
-  "mcpServers": {
-    "my-site": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://my-docs.agent.w2agent.dev"]
-    }
-  }
-}
-```
-
-### Self-host agent server (no API key, deploy to your own infra)
-
-```bash
-# Generate a deployable MCP server project
-npx w2agent agent deploy https://example.com --self-host vercel
-npx w2agent agent deploy https://example.com --self-host cf   # Cloudflare Workers
-
-# Outputs a ready-to-deploy project in ./w2agent-output/
-# vercel deploy ./w2agent-output/   or   wrangler deploy ./w2agent-output/
-```
-
-## Hosted vs Self-hosted
-
-| | Hosted (`agentize`) | Self-hosted (`mcp deploy`) |
-|---|---|---|
-| **Setup** | `npx w2agent login` + one command | Generate + deploy to your infra |
-| **Domain** | `<slug>.agent.w2agent.dev` | Your domain |
-| **Re-crawl** | Automatic (on-demand via dashboard) | Manual (`wrangler deploy` again) |
-| **Directory listing** | Yes (opt-in) | No |
-| **Auth required** | Free API key | None |
-| **Best for** | Quick deploy, directory visibility | Custom domains, air-gapped, enterprise |
 
 ## Platform Adapters
 
@@ -273,6 +300,7 @@ Options:
   --ci                     CI mode: exit code 1 if below threshold
   --threshold <score>      Minimum score for CI mode (default: 70)
   --timeout <ms>           Request timeout in ms (default: 10000)
+  --json                   One JSON document on stdout (report or error envelope)
 ```
 
 ```
@@ -297,6 +325,11 @@ Options:
   -m, --max-pages <n>      Max pages to crawl (default: 100)
   --timeout <ms>           Request timeout in ms (default: 10000)
   --a2a-endpoint <url>     Live A2A agent endpoint (no agent card is integrated without it)
+  --install                Install files directly into your project
+  --project-dir <dir>      Project root for --install (default: .)
+  --dry-run                Show what --install would do; never writes files
+  --site-url <url>         Production origin to write into generated content when crawling another origin (e.g. localhost)
+  --json                   One JSON document on stdout (result or error envelope)
 ```
 
 ```
@@ -306,6 +339,21 @@ Options:
   --api-key <key>    API key (alternative to `w2agent login`)
   --slug <slug>      Custom slug (default: derived from domain)
 ```
+
+```
+w2agent login [options]
+
+Options:
+  --api-key <key>    Authenticate with an API key (required in agent and non-interactive environments)
+  --force            Re-authenticate even if already logged in
+  --json             One JSON document on stdout (result or error envelope)
+```
+
+```
+w2agent schema      Print all commands and options as JSON
+```
+
+Exit codes for `audit`, `integrate`, `login` and `schema`: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
 
 ```
 w2agent agent deploy <url> [options]
@@ -353,7 +401,7 @@ steps:
   - uses: actions/setup-node@v4
     with:
       node-version: 18
-  - run: npx w2agent audit ${{ vars.SITE_URL }} --ci --threshold 80
+  - run: npx w2agent@0.1.0 audit ${{ vars.SITE_URL }} --ci --threshold 80
 ```
 
 ## License

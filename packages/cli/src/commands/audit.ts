@@ -5,6 +5,7 @@ import {
   AuditError,
   type AuditOptions,
   allChecks,
+  CATEGORY_CONFIG,
   type CategoryId,
   clearChecks,
   type EdgeEvidence,
@@ -15,10 +16,19 @@ import {
   registerChecks,
   runAudit,
 } from "w2agent-core";
+import {
+  currentArgv,
+  enterJsonMode,
+  failWith,
+  isReason,
+  type JsonMode,
+  jsonRequested,
+  type Reason,
+} from "../agent/output.js";
 import { formatJson } from "../output/json.js";
 import { formatReport, formatVerboseReport } from "../output/terminal.js";
 
-function isPlausibleUrl(url: string): boolean {
+export function isPlausibleUrl(url: string): boolean {
   let host: string;
   try {
     host = new URL(url).hostname;
@@ -69,6 +79,63 @@ function isEdgeEvidence(edge: unknown): edge is EdgeEvidence {
   );
 }
 
+const FORMATS = ["terminal", "json"];
+
+export function parsePositiveInt(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const n = Number.parseInt(value, 10);
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+export function parseNonNegativeInt(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const n = Number.parseInt(value, 10);
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+export function withLargerTimeout(argv: readonly string[], currentMs: number): string[] {
+  const larger = String(currentMs * 2);
+  const end = argv.indexOf("--");
+  const head = end === -1 ? argv : argv.slice(0, end);
+  const tail = end === -1 ? [] : argv.slice(end);
+  const out: string[] = [];
+  let replaced = false;
+  for (let i = 0; i < head.length; i++) {
+    const arg = head[i];
+    if (arg === "--timeout" && i + 1 < head.length) {
+      out.push(arg, larger);
+      i++;
+      replaced = true;
+    } else if (arg.startsWith("--timeout=")) {
+      out.push(`--timeout=${larger}`);
+      replaced = true;
+    } else {
+      out.push(arg);
+    }
+  }
+  if (!replaced) out.push("--timeout", larger);
+  return [...out, ...tail];
+}
+
+function invalidArgument(opts: Record<string, unknown>): string | undefined {
+  if (!FORMATS.includes(opts.format as string)) {
+    return `Invalid --format "${opts.format}". Use one of: ${FORMATS.join(", ")}.`;
+  }
+  const categoryIds = Object.keys(CATEGORY_CONFIG);
+  if (opts.category !== undefined && !categoryIds.includes(opts.category as string)) {
+    return `Invalid --category "${opts.category}". Use one of: ${categoryIds.join(", ")}.`;
+  }
+  for (const flag of ["depth", "timeout"]) {
+    if (parsePositiveInt(opts[flag]) === undefined) {
+      return `Invalid --${flag} "${opts[flag]}". Use a positive integer.`;
+    }
+  }
+  if (parseNonNegativeInt(opts.threshold) === undefined) {
+    return `Invalid --threshold "${opts.threshold}". Use a non-negative integer.`;
+  }
+  return undefined;
+}
+
 export function registerAuditCommand(program: Command): void {
   program
     .command("audit")
@@ -79,9 +146,10 @@ export function registerAuditCommand(program: Command): void {
     .option("-o, --output <file>", "Write report to file")
     .option("-c, --category <category>", "Audit specific category only")
     .option("-v, --verbose", "Show all checks, not just failures")
-    .option("--ci", "CI mode: exit with code based on grade")
+    .option("--ci", "CI mode: exit with non-zero code when the score is below the threshold")
     .option("--threshold <score>", "Minimum score threshold for CI mode", "70")
     .option("--timeout <ms>", "Request timeout in milliseconds", "10000")
+    .option("--json", "Print one JSON document on stdout (the report, or an error envelope)")
     .option(
       "--allow-host <host>",
       "Allow off-origin host when discovering OpenAPI/Swagger specs (repeatable)",
@@ -89,19 +157,8 @@ export function registerAuditCommand(program: Command): void {
       [] as string[],
     )
     .action(async (url: string, opts) => {
-      const config = loadConfig();
-
-      const categories = opts.category ? [opts.category as CategoryId] : undefined;
-      const allowedOffOriginHosts: string[] | undefined =
-        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
-
-      const auditOptions = mergeConfigWithOptions(config, {
-        maxPages: parseInt(opts.depth, 10),
-        timeout: parseInt(opts.timeout, 10),
-        categories,
-        verbose: opts.verbose ?? false,
-        ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
-      }) as AuditOptions;
+      const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
+      const argv = currentArgv();
 
       // Ensure URL has protocol
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -109,24 +166,56 @@ export function registerAuditCommand(program: Command): void {
       }
 
       if (!isPlausibleUrl(url)) {
-        console.error(`Invalid URL: "${url}". Please provide a full URL like https://example.com.`);
-        process.exit(1);
+        await failWith(
+          json,
+          {
+            reason: "invalid_url",
+            message: `Invalid URL: "${url}". Please provide a full URL like https://example.com.`,
+          },
+          argv,
+        );
+        return;
       }
+
+      const badArgument = invalidArgument(opts);
+      if (badArgument) {
+        await failWith(
+          json,
+          { reason: "invalid_argument", message: badArgument, next: [["w2agent", "schema"]] },
+          argv,
+        );
+        return;
+      }
+
+      const config = loadConfig();
+
+      const categories = opts.category ? [opts.category as CategoryId] : undefined;
+      const allowedOffOriginHosts: string[] | undefined =
+        Array.isArray(opts.allowHost) && opts.allowHost.length > 0 ? opts.allowHost : undefined;
+      const timeout = parsePositiveInt(opts.timeout) as number;
+
+      const auditOptions = mergeConfigWithOptions(config, {
+        maxPages: parsePositiveInt(opts.depth),
+        timeout,
+        categories,
+        verbose: opts.verbose ?? false,
+        ...(allowedOffOriginHosts ? { allowedOffOriginHosts } : {}),
+      }) as AuditOptions;
 
       clearChecks();
       registerChecks(allChecks);
 
-      const spinner = ora("Starting audit...").start();
+      const spinner = json ? undefined : ora("Starting audit...").start();
 
       try {
         const report = await runAudit(url, auditOptions, (status) => {
-          spinner.text = status;
+          if (spinner) spinner.text = status;
         });
 
-        spinner.stop();
+        spinner?.stop();
 
         const output =
-          opts.format === "json"
+          json || opts.format === "json"
             ? formatJson(report)
             : opts.verbose
               ? formatVerboseReport(report)
@@ -135,22 +224,59 @@ export function registerAuditCommand(program: Command): void {
         if (opts.output) {
           writeFileSync(opts.output, output, "utf-8");
           console.log(`Report written to ${opts.output}`);
-        } else {
+        }
+
+        const threshold = parseNonNegativeInt(opts.threshold) as number;
+        const below = opts.ci && report.overallScore < threshold;
+
+        if (below && json) {
+          await failWith(
+            json,
+            {
+              reason: "below_threshold",
+              message: `Score ${report.overallScore} is below threshold ${threshold}`,
+            },
+            argv,
+          );
+          return;
+        }
+
+        if (json) {
+          await json.emit(output);
+        } else if (!opts.output) {
           console.log(output);
         }
 
-        if (opts.ci) {
-          const threshold = parseInt(opts.threshold, 10);
-          if (report.overallScore < threshold) {
-            console.error(`Score ${report.overallScore} is below threshold ${threshold}`);
-            process.exit(1);
-          }
+        if (below) {
+          console.error(`Score ${report.overallScore} is below threshold ${threshold}`);
+          process.exitCode = 1;
         }
       } catch (err) {
-        spinner.fail(`Audit failed: ${(err as Error).message}`);
+        const message = (err as Error).message;
+        const rawKind = (err as { kind?: unknown }).kind;
+        const isAuditError =
+          err instanceof AuditError || (err as { name?: unknown }).name === "AuditError";
+        const kind: Reason =
+          isAuditError && typeof rawKind === "string" && isReason(rawKind)
+            ? rawKind
+            : "unknown_failure";
         const edge = edgeEvidenceOf(err);
+        if (!json) {
+          spinner?.fail(`Audit failed: ${message}`);
+          if (edge) console.error(formatEdgeEvidenceLine(edge));
+          process.exitCode = 1;
+          return;
+        }
         if (edge) console.error(formatEdgeEvidenceLine(edge));
-        process.exit(1);
+        await failWith(
+          json,
+          {
+            reason: kind,
+            message,
+            next: kind === "timeout" ? [withLargerTimeout(argv, timeout)] : [],
+          },
+          argv,
+        );
       }
     });
 }

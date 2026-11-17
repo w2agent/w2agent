@@ -1,0 +1,14 @@
+{
+  "name": "w2agent",
+  "owner": { "name": "w2agent" },
+  "metadata": {
+    "description": "Skills for making websites agent-ready with w2agent."
+  },
+  "plugins": [
+    {
+      "name": "w2agent",
+      "source": "./",
+      "description": "Audit a website for AI agent readiness and add llms.txt, markdown routes and related files with the w2agent CLI."
+    }
+  ]
+}

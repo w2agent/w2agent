@@ -50,6 +50,9 @@ pnpm-debug.log*
 # Claude research docs (internal)
 claudedocs/
 
+# Agent eval results (never committed)
+evals/**/results/
+
 # Platform validation results (generated)
 scripts/platform-validation/results-*.md
 

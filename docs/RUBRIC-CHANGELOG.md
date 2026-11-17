@@ -54,7 +54,7 @@ All weights are unchanged.
 
 ### Not changed
 
-- `/.well-known/mcp.json` was considered as a discovery path and not added. 3.0 retired it. It was the early path in MCP SEP-1649, which is a draft; its continuation (unmerged PR #2127) uses `/.well-known/mcp/server-card.json`. Spec §7.1 forbids probing retired paths, and criteria are frozen within a cycle (§7.2). Re-adding it is a major-bump decision. The evidence is in the run handoff, `docs/handoff/2026-10-16-audit-detection-fixes.md`, under "Rejected".
+- `/.well-known/mcp.json` was considered as a discovery path and not added. 3.0 retired it. It was the early path in MCP SEP-1649, which is a draft; its continuation (unmerged PR #2127) uses `/.well-known/mcp/server-card.json`. Spec §7.1 forbids probing retired paths, and criteria are frozen within a cycle (§7.2). Re-adding it is a major-bump decision. A GitHub code search on 2026-10-16 for "well-known/mcp.json" returned at least 100 hits (the search cap), scattered across READMEs and docs with no shared schema, and three server card shapes are live.
 - The `pkce-s256` and `oauth-discovery` applicability issue (a site with no OAuth surface is still measured) is out of scope for 3.1 and unchanged.
 - `edge-agent-access` is not promoted. The 3.0 tracked-additions table names promotion as a 3.1 decision; this release does not take it, and the check stays tracked at weight 0.
 - Thresholds in `technical.ts` and `content-quality.ts` are not retuned. Only their text input changes.

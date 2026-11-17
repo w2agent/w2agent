@@ -144,7 +144,7 @@ This is a documentation-only contribution — no code changes required.
 ### What you're contributing
 
 A completed `<slug>.md` site document placed in `sites/`. Each document maps a real website's
-routes, components, and data models — the output of following the [AGENTIZE.md](AGENTIZE.md) SOP.
+routes, components, and data models — the output of following the [AGENTIZE.md](docs/AGENTIZE.md) SOP.
 
 Maintainers review accepted documents and seed them into the w2agent directory.
 
@@ -152,7 +152,7 @@ Maintainers review accepted documents and seed them into the w2agent directory.
 
 - `npx w2agent` available (no install required)
 - The target site is publicly accessible — not paywalled or login-gated
-- You've read [AGENTIZE.md](AGENTIZE.md) (the 4-phase SOP) and [SITE_TEMPLATE.md](SITE_TEMPLATE.md)
+- You've read [AGENTIZE.md](docs/AGENTIZE.md) (the 4-phase SOP) and [SITE_TEMPLATE.md](SITE_TEMPLATE.md)
 
 ### Step-by-step
 
@@ -178,7 +178,7 @@ cp SITE_TEMPLATE.md sites/<slug>.md
 ```
 
 Use the domain as the slug (e.g., `stripe-com.md` for `stripe.com`). Fill every section
-following the four-phase [AGENTIZE.md](AGENTIZE.md) SOP:
+following the four-phase [AGENTIZE.md](docs/AGENTIZE.md) SOP:
 
 - **Phase 1** — Audit results, Route Map, Component Registry, Data Models
 - **Phase 2** — Agent Architecture decisions

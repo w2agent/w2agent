@@ -1,12 +1,13 @@
 # AGENTIZE.md — w2agent Agentize SOP
 
+> Optional: the SOP for turning a site into a hosted agent server. Most site owners only need audit/integrate.
+
 > Every website is already an agent. This document is the standard operating
 > procedure for turning one into a live, queryable agent server using w2agent.
 
-**Audience**: AI agents (Claude, Codex) and human developers.
 **Purpose**: Methodology-as-prompt — follow this to agentize any website consistently.
 **Scope**: The four-phase pipeline from analysis through live deployment.
-Does not cover audit scoring, generate format details, or per-site templates — see [SITE_TEMPLATE.md](SITE_TEMPLATE.md).
+Does not cover audit scoring, generate format details, or per-site templates — see [SITE_TEMPLATE.md](../SITE_TEMPLATE.md).
 
 Each website gets a companion `<SITE>.md` (per-site document) that fills in the mandatory
 tables from this SOP. This document defines the process; `<SITE>.md` holds the site-specific data.

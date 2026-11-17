@@ -1,7 +1,7 @@
 # [Site Name] — `<SITE>.md`
 
 <!-- Copy this file and rename it to your site's slug, e.g. stripe.md, shopify.md -->
-<!-- Fill each section top-to-bottom as you execute AGENTIZE.md phases -->
+<!-- Fill each section top-to-bottom as you execute docs/AGENTIZE.md phases -->
 
 **Site**: [Site Name]
 **URL**: https://example.com

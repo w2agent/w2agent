@@ -1,0 +1,113 @@
+# Agent Playbook: make a site agent-ready with w2agent
+
+For a coding agent that a site owner asked to "use w2agent to make my site agent-ready". Follow the steps in order. The CLI contract (exit codes, JSON documents, error reasons) is in [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md). This page does not repeat it.
+
+Do not read the w2agent source code (`packages/core` and so on) to learn the CLI. Run `w2agent schema` instead. It prints every command, flag and value as JSON.
+
+## 1. Pick a path
+
+1. Is the site deployed at a public URL, and can you not run code (or does the owner prefer it)? Use the [hosted path](#hosted-path).
+2. Otherwise you have the project on disk and can run code. Use the [local flow](#local-flow).
+3. Detect the framework from the project: `nextjs`, `nuxt`, `astro`, `docusaurus`, `wordpress`, `shopify`. `integrate` detects it from the crawl. Pass `--platform <name>` only when it cannot (`no_platform_detected`, see the failure rule under Rules). `w2agent schema` lists the accepted values.
+
+## 2. Run the CLI
+
+Pinned version: `w2agent@0.1.0`. The runner is:
+
+```bash
+npx -y w2agent@0.1.0 <command>
+```
+
+Check that the version is on npm before you run it. Run `npm view w2agent@0.1.0 version` first. If it prints `0.1.0`, use the runner above. Do not run `npx` on a version you have not checked.
+
+If `npm view` answers 404 for `w2agent@0.1.0`:
+
+- If a w2agent checkout exists locally (the owner may have cloned it next to the site, not in your cwd), build the CLI from source and run `node <checkout>/packages/cli/dist/index.js <command>`. Narrowest build that works (needs Node 18+ and pnpm):
+  ```bash
+  cd <checkout> && pnpm install && pnpm --filter w2agent... build
+  ```
+  The full `pnpm install && pnpm build` also works but builds more packages.
+- Otherwise stop and tell the owner. Never guess another package name (no `w2agent-cli`, no scoped names). Never install a package with a different name.
+
+Examples below write `w2agent`. Substitute your runner for it. `next` arrays in JSON output start with `"w2agent"`: replace that first element with your runner.
+
+## Local flow
+
+1. Build the site and start its production server locally. Note the URL (for example `http://127.0.0.1:3000`).
+2. Baseline: `w2agent audit <local url> --json`. Keep `overallScore` and `grade`.
+3. Find the production origin for `--site-url` (see [Production origin](#production-origin)).
+4. Plan: `w2agent integrate <local url> --dry-run --json --project-dir <site dir> --site-url <production origin>`. Always pass `--project-dir`. This writes nothing.
+5. Print the plan for the user: `changes`, `warnings`, `postInstallSteps`. Then get [approval](#approval).
+6. Apply: run the argv in `next[0]` (it is the same command with `--install`).
+7. Before you do the `postInstallSteps`, find the step that wires a generated build script into the site's build: the `prebuild` script that runs `w2agent-build.mjs` (Next.js, Nuxt, Astro) or Astro's `integrations` entry for `w2agent-integration.mjs`. That script runs `npx --no -- w2agent`, so it uses only a CLI installed in the project and never downloads one. Never change `--no` to `-y` and never edit the generated script's npx call. Run `npm view w2agent@0.1.0 version`.
+   - If it succeeds: add `w2agent@0.1.0` as a devDependency (`npm install -D w2agent@0.1.0`), then do the `postInstallSteps` (including the `prebuild` script), rebuild and restart the local server.
+   - If npm answers 404: do not wire the hook (the `prebuild` script or the Astro `integrations` entry) and do not add a devDependency that points at a local checkout path: that path is not portable, so it is not committed. Do the other steps, then rebuild and restart the local server. The files `integrate` wrote already serve. In the final report, list "install w2agent as a devDependency, then add the `prebuild` script" as an owner step, and say why it was skipped.
+8. Verify: run the `next` argv from the installed document (`audit <local url> --json`). Compare with the baseline.
+9. Close remaining gaps (see [Closing gaps](#closing-gaps)). Re-audit after each batch.
+10. Report (see [Final report](#final-report)).
+
+### Approval
+
+- If you can pause and ask, show the plan and wait for a yes.
+- If you cannot pause (a non-interactive run), the owner's request to make the site agent-ready counts as approval for the plan exactly as shown, with its `changes` and `postInstallSteps`. Still print the plan first. Anything outside the plan needs explicit approval. Put it in the final report instead of doing it.
+- `integrate` only creates new files and skips paths that already exist; it never overwrites or deletes. Existing files stay as they are.
+
+### Production origin
+
+`--site-url` makes generated files name the production site instead of the local server. After generation it rewrites the crawl origin and its host and loopback forms. Any crawl host still left is reported in `warnings`. Check those by hand before the owner publishes. Details: [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md#--site-url-crawl-one-origin-write-for-another).
+
+Find the origin in the project first. Places to look:
+
+- Next.js `metadataBase`
+- a `Sitemap:` line in `robots.txt`
+- `site` in `astro.config.*`
+- `url` in `docusaurus.config.*`
+- Nuxt `site.url` or `siteUrl`
+- a `CNAME` file
+- `homepage` in `package.json`
+- the README
+
+Use what you find and say where it came from. If you find none, ask the owner. If you cannot ask, stop after the dry run and report that the production origin is needed. Never invent one.
+
+### Rules
+
+- Do not hand-write what `integrate` generates: `llms.txt`, markdown routes, middleware, and the robots or sitemap rules it emits. Run it.
+- Never rewrite, move or restructure existing user files (for example, do not move page copy into new modules). Edits you make by hand are minimal and additive.
+- Change `package.json` scripts or dependencies only as `postInstallSteps` say, plus the one pinned `w2agent@0.1.0` devDependency from step 7. Anything else needs approval.
+- Stay inside the user's project and the w2agent checkout. Do not edit the w2agent repository itself.
+- On a failure, branch on `error.reason`. If `userActionRequired` is true, stop and tell the owner. Do not retry it. One exception: on `no_platform_detected`, if the project files show the framework (for example `next` in `package.json` dependencies means `nextjs`), retry once with `--platform <name>`, using a value that `w2agent schema` lists for `--platform`. If they do not show it, stop and ask.
+
+### Closing gaps
+
+After the re-audit, read the failing checks and their `fixSnippet` in the audit JSON. Apply only fixes that are true for this site, using its real content: sitemap, JSON-LD with the site's real business data, canonical URLs, security headers. Never fabricate content.
+
+What not to advertise:
+
+- No agent card without a live A2A endpoint (`--a2a-endpoint`).
+- No MCP declaration without a running MCP server.
+- No OAuth, OpenAPI or auth metadata the site does not have.
+
+For a typical brochure site, `integrate` cannot move Agent Protocols, Auth & Access, or much of Content Quality. A low score there is expected. Do not fake it.
+
+### Final report
+
+Give the owner:
+
+- before and after score and grade;
+- files created and modified;
+- `warnings` (especially leftover crawl hosts);
+- what you did not do and why;
+- anything that needs the owner (production origin, approvals, content only they can write).
+
+## Hosted path
+
+For a deployed public site when you will not run code. Before the first call, tell the owner that the URL is sent to w2agent.dev and that w2agent.dev fetches the site. Only public URLs work: localhost and private hosts are rejected.
+
+- `POST https://w2agent.dev/api/audit` with `{"url": "<url>"}` returns the same report as `audit --json`, plus `auditId` and possibly a `summary` text. `/api/audit` and `/api/generate` share one limit: 5 requests per minute per IP.
+- An invalid, private or loopback URL returns HTTP 400 `{"error": "<reason>"}`.
+- A site that cannot be measured returns 422 `{"error": "audit_failed", "kind": "...", "message": "..."}`. The `kind` values match the `reason` values in [CLI-AGENT-MODE.md](CLI-AGENT-MODE.md#reasons).
+- `POST https://w2agent.dev/api/generate` with `{"url": "<url>"}` returns generated files. It counts against the same limit.
+
+You write the fixes yourself from the report's fix hints. The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
+
+Optional and separate: `agentize` runs a hosted agent server. It needs a login or API key. See [AGENTIZE.md](AGENTIZE.md).

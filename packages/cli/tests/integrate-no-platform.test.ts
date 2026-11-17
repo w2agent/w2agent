@@ -108,10 +108,11 @@ describe("integrate with no detectable platform (NX-11)", () => {
   );
 
   it.skipIf(!existsSync(cliEntry))(
-    "forced nextjs --install on an empty dir prints the summary and exits 1",
+    "forced nextjs --install on a non-Next.js dir prints the resolver refusal and exits 1",
     async () => {
       const cwd = tmp("w2agent-cli-cwd-");
       const project = tmp("w2agent-cli-proj-");
+      writeFileSync(join(project, "package.json"), JSON.stringify({ name: "x" }));
       const { code, out } = await run(
         [
           "integrate",
@@ -127,8 +128,8 @@ describe("integrate with no detectable platform (NX-11)", () => {
         cwd,
       );
       expect(code).toBe(1);
-      expect(out).toContain("Next.js");
-      expect(readdirSync(project)).toEqual([]);
+      expect(out).toContain("is not a Next.js project");
+      expect(readdirSync(project)).toEqual(["package.json"]);
     },
     90000,
   );
@@ -195,6 +196,7 @@ describe("integrate with no detectable platform (NX-11)", () => {
     async () => {
       const cwd = tmp("w2agent-cli-cwd-");
       const project = tmp("w2agent-cli-proj-");
+      writeFileSync(join(project, "package.json"), JSON.stringify({ name: "site" }));
       const args = [
         "integrate",
         baseUrl,
