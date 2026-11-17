@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
@@ -105,6 +105,24 @@ describe("Next.js WebMcpScript component (NX-8)", () => {
     expect(renderChild(component?.content ?? "")).toBe(webmcpJs);
   });
 
+  it("keeps the use client directive first and a static usage comment", () => {
+    const tsx = component?.content ?? "";
+    expect(tsx.startsWith('"use client";')).toBe(true);
+    const out = ts.transpileModule(tsx, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React },
+    }).outputText;
+    expect(out.trimStart().startsWith('"use client";')).toBe(true);
+    const comment = tsx.split("\n").find((l) => l.startsWith("// Add to your root layout"));
+    expect(comment).toBeDefined();
+    for (const h of HOSTILE) expect(comment).not.toContain(h);
+    expect(comment).not.toContain(BASE);
+  });
+
+  it("documents the WebMCP step in the Next INSTALL.md", () => {
+    const md = generated.find((f) => f.filename === "nextjs/INSTALL.md")?.content ?? "";
+    expect(md).toContain("<WebMcpScript />");
+  });
+
   it("registers the raw hostile strings and runs no injected code", () => {
     const child = renderChild(component?.content ?? "");
     const tools: {
@@ -143,26 +161,33 @@ describe("Next.js install plan mounts WebMcpScript", () => {
     return resolveNextjsInstall([...core, ...generated], tempDir);
   }
 
-  it("names the written component path and root layout for app/", () => {
+  it("names the existing app/layout.js, not a nonexistent layout.tsx", () => {
     mkdirSync(join(tempDir, "app"), { recursive: true });
+    writeFileSync(join(tempDir, "app", "layout.js"), "");
     const p = plan();
     const write = p.actions.find((a) => a.type === "write" && a.dest.endsWith("WebMcpScript.tsx"));
     expect(write).toBeDefined();
     const step = p.postInstallSteps.find((s) => s.includes("WebMcpScript"));
-    expect(step).toBeDefined();
     expect(step).toContain(write?.dest);
     expect(step).toContain("<WebMcpScript />");
-    expect(step).toContain("app/layout.tsx");
-    expect(step).not.toContain("src/app/layout.tsx");
+    expect(step).toContain(" in app/layout.js ");
+    expect(step).not.toContain("layout.tsx");
   });
 
   it("names src/app/layout.tsx for a src/app project", () => {
     mkdirSync(join(tempDir, "src", "app"), { recursive: true });
+    writeFileSync(join(tempDir, "src", "app", "layout.tsx"), "");
     const p = plan();
     const write = p.actions.find((a) => a.type === "write" && a.dest.endsWith("WebMcpScript.tsx"));
     const step = p.postInstallSteps.find((s) => s.includes("WebMcpScript"));
     expect(step).toContain(write?.dest);
-    expect(step).toContain("src/app/layout.tsx");
+    expect(step).toContain(" in src/app/layout.tsx ");
+  });
+
+  it("falls back to neutral wording naming the app dir when no layout exists", () => {
+    mkdirSync(join(tempDir, "app"), { recursive: true });
+    const step = plan().postInstallSteps.find((s) => s.includes("WebMcpScript"));
+    expect(step).toContain("your root layout (app/layout.tsx)");
   });
 
   it("adds no mount step when the component is not written", () => {

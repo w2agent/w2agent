@@ -120,6 +120,7 @@ export async function POST(request: Request) {
 
 import Script from "next/script";
 
+// Add to your root layout: import WebMcpScript from "<path to this file>"; then render <WebMcpScript /> inside <body>.
 export default function WebMcpScript() {
   return (
     <Script id="w2agent-webmcp" strategy="lazyOnload">

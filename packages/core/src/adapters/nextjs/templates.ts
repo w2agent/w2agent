@@ -231,6 +231,10 @@ Then add to \`package.json\`:
 
 This regenerates your AI content on every deploy.
 
+### 4. Mount the WebMCP script (only if \`nextjs/components/WebMcpScript.tsx\` was generated)
+Copy \`nextjs/components/WebMcpScript.tsx\` into your app, import it in your root layout
+(\`app/layout.tsx\` or \`src/app/layout.tsx\`), and render \`<WebMcpScript />\` inside \`<body>\`.
+
 ## File Structure
 
 \`\`\`

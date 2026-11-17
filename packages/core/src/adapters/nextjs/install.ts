@@ -200,9 +200,12 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
     (a) => a.type === "write" && a.dest.endsWith("/WebMcpScript.tsx"),
   );
   if (webmcpWrite) {
-    const layoutPath = `${appPrefix}/layout.tsx`;
+    const existing = ["tsx", "jsx", "ts", "js"]
+      .map((ext) => `${appPrefix}/layout.${ext}`)
+      .find((p) => existsSync(join(projectDir, p)));
+    const target = existing ? existing : `your root layout (${appPrefix}/layout.tsx)`;
     postInstallSteps.push(
-      `Import WebMcpScript from ${webmcpWrite.dest} in ${layoutPath} and render <WebMcpScript /> inside <body> so the WebMCP tools register on every page.`,
+      `Import WebMcpScript from ${webmcpWrite.dest} in ${target} and render <WebMcpScript /> inside <body> so the WebMCP tools register on every page.`,
     );
   }
 
