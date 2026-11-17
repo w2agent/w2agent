@@ -69,7 +69,7 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
     if (key === "allow" || key === "disallow") {
       current.rules.push({ directive: key === "allow" ? "Allow" : "Disallow", value, line: i + 1 });
       current.scopedLines.push(i + 1);
-    } else if (key === "crawl-delay") {
+    } else if (key === "crawl-delay" && value) {
       current.crawlDelay = value;
       current.scopedLines.push(i + 1);
     }
@@ -79,21 +79,22 @@ function parseGroups(robotsTxt: string): RobotsGroup[] {
 }
 
 /**
- * True when the last line with a key is `User-agent`: that group has no rules yet, so agents
- * appended after it would join it. Follows robots-parser, where any keyed line (Sitemap, an
- * unknown key) ends the agent run and comments, blank and colon-less lines do not.
+ * True when no Allow/Disallow follows the last `User-agent` line: agents appended after it could
+ * join that run. This is the stricter of robots-parser (any keyed line ends a run) and Google
+ * (only Allow/Disallow ends a run), so it bails whenever either parser would join them.
  */
 export function endsInOpenGroup(robotsTxt: string): boolean {
-  let lastKey = "";
+  let open = false;
   for (const raw of robotsTxt.split(LINE_BREAK)) {
     const hash = raw.indexOf("#");
     const text = hash > -1 ? raw.slice(0, hash) : raw;
     const colon = text.indexOf(":");
     if (colon < 0) continue;
     const key = text.slice(0, colon).trim().toLowerCase();
-    if (key) lastKey = key;
+    if (key === "user-agent") open = true;
+    else if (key === "allow" || key === "disallow") open = false;
   }
-  return lastKey === "user-agent";
+  return open;
 }
 
 function blocksRoot(rule: RobotsRule, baseUrl: string): boolean {

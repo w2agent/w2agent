@@ -217,4 +217,17 @@ describe("robotsAllowGroups", () => {
     expect(robotsAllowGroups(robots, BASE)).toEqual([]);
     expect(additionsFor(robots)).toBeUndefined();
   });
+
+  it.each([
+    "User-agent: *\nDisallow: /\nUser-agent: GPTBot\nDisallow: /\nUser-agent: GPTBot\nSitemap: https://example.com/s.xml",
+    "User-agent: *\nDisallow: /\n\nUser-agent: *\nCrawl-delay: 5\n",
+    "User-agent: *\nDisallow: /\n\nUser-agent: *\nSitemap: https://example.com/s.xml\n",
+  ])("returns [] when a Sitemap or Crawl-delay is all that follows the last User-agent", (robots) => {
+    expect(robotsAllowGroups(robots, BASE)).toEqual([]);
+  });
+
+  it("keeps the earlier Crawl-delay when a later one is empty", () => {
+    const robots = "User-agent: *\nDisallow: /\nCrawl-delay: 5\nCrawl-delay:";
+    expect(robotsAllowGroups(robots, BASE).flat()).toContain("Crawl-delay: 5");
+  });
 });

@@ -512,7 +512,7 @@ describe("generateRobotsTxt", () => {
 
   it("a named group with an empty rule set still counts as naming the token", () => {
     const existing =
-      "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nSitemap: https://example.com/s.xml\n";
+      "User-agent: ChatGPT-User\nSitemap: https://example.com/s.xml\n\nUser-agent: *\nDisallow: /\n";
     const result = withRobots(existing);
     expect(result.match(/User-agent: ChatGPT-User/g)).toHaveLength(1);
     expect(blockedFor(result, "Claude-User")).toBe(false);
@@ -567,17 +567,25 @@ describe("generateRobotsTxt", () => {
     }
   });
 
-  it("a keyed line after the dangling User-agent closes the group in robots-parser, so groups are added", () => {
-    const existing =
-      "User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nSitemap: https://example.com/s.xml\n";
+  it.each([
+    ["* with Crawl-delay", "User-agent: *\nDisallow: /\n\nUser-agent: *\nCrawl-delay: 5\n"],
+    [
+      "* with Sitemap",
+      "User-agent: *\nDisallow: /\n\nUser-agent: *\nSitemap: https://example.com/s.xml\n",
+    ],
+    [
+      "GPTBot with Sitemap",
+      "User-agent: *\nDisallow: /\n\nUser-agent: GPTBot\nSitemap: https://example.com/s.xml\n",
+    ],
+  ])("a trailing run closed only by Sitemap or Crawl-delay is open under Google, so nothing is added (%s)", (_n, existing) => {
     const result = withRobots(existing);
-    expect(result).toMatch(/^User-agent: Claude-User$/m);
-    expect(blockedFor(result, "GPTBot")).toBe(true);
-    expect(blockedFor(result, "Claude-User")).toBe(false);
+    expect(result.startsWith(existing.trimEnd())).toBe(true);
+    expect(result).not.toMatch(/^User-agent: Claude-User$/m);
+    expect(result).not.toMatch(/^Allow: \/$/m);
   });
 
   it("ignores an empty Crawl-delay and keeps the last non-empty one", () => {
-    const existing = "User-agent: *\nDisallow: /\nCrawl-delay: 5\n\nUser-agent: *\nCrawl-delay:\n";
+    const existing = "User-agent: *\nDisallow: /\nCrawl-delay: 5\nCrawl-delay:\n";
     const result = withRobots(existing);
     const added = result.slice(existing.length);
     expect(added).toContain("Crawl-delay: 5\nAllow: /");

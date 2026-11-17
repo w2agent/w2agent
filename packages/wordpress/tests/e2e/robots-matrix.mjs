@@ -65,6 +65,9 @@ for (const c of cases) {
         `${c.name} [${copy}]: ${t} is unchanged`,
       );
     }
+    for (const line of c.addedContains ?? []) {
+      out(added.split(/\r?\n/).includes(line), `${c.name} [${copy}]: addition contains "${line}"`);
+    }
     for (const p of c.paths ?? []) {
       out(
         allowed(combined, p.agent, p.path) === p.allowed,

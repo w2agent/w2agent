@@ -261,8 +261,11 @@ function w2agent_site_robots_trim($value) {
     return preg_replace('/^' . $ws . '|' . $ws . '\\z/', '', (string) $value);
 }
 
-// $open is set when the last record with a key is a \`User-agent\` line: that group has no rules yet.
+// $open is set when no Allow/Disallow follows the last \`User-agent\` line: appended agents could join
+// that run. This is the stricter of robots-parser (any keyed line ends a run) and Google (only
+// Allow/Disallow ends a run), so it bails whenever either parser would join them.
 function w2agent_site_robots_groups($output, &$open = false) {
+    $open = false;
     $groups = [];
     $current = -1;
     $last_agent = false;
@@ -287,17 +290,18 @@ function w2agent_site_robots_groups($output, &$open = false) {
                 $groups[$current]['agents'][] = w2agent_site_robots_trim($agent);
             }
             $last_agent = true;
+            $open = true;
             continue;
         }
         $last_agent = false;
         if ($current < 0) continue;
         if ($key === 'allow' || $key === 'disallow') {
             $groups[$current]['rules'][] = ['allow' => $key === 'allow', 'value' => $value];
-        } elseif ($key === 'crawl-delay') {
+            $open = false;
+        } elseif ($key === 'crawl-delay' && $value !== '') {
             $groups[$current]['delay'] = $value;
         }
     }
-    $open = $last_agent;
     return $groups;
 }
 

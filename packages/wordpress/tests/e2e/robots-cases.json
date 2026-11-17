@@ -58,10 +58,36 @@
     "open": true
   },
   {
-    "name": "Sitemap line after a dangling agent closes the group",
+    "name": "Sitemap after a dangling named agent stays open (Google keeps the run)",
     "robots": "User-agent: *\nDisallow: /\n\nUser-agent: ChatGPT-User\nSitemap: http://example.test/s.xml\n",
     "blocksRoot": true,
-    "named": ["ChatGPT-User"]
+    "named": ["ChatGPT-User"],
+    "open": true
+  },
+  {
+    "name": "trailing star run with Crawl-delay only adds nothing",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: *\nCrawl-delay: 5\n",
+    "blocksRoot": true,
+    "open": true
+  },
+  {
+    "name": "trailing star run with Sitemap only adds nothing",
+    "robots": "User-agent: *\nDisallow: /\n\nUser-agent: *\nSitemap: http://example.test/s.xml\n",
+    "blocksRoot": true,
+    "open": true
+  },
+  {
+    "name": "repeated GPTBot run closed only by Sitemap adds nothing",
+    "robots": "User-agent: *\nDisallow: /\nUser-agent: GPTBot\nDisallow: /\nUser-agent: GPTBot\nSitemap: http://example.test/s.xml",
+    "blocksRoot": true,
+    "named": ["GPTBot"],
+    "open": true
+  },
+  {
+    "name": "empty Crawl-delay after a value in the same star group",
+    "robots": "User-agent: *\nDisallow: /\nCrawl-delay: 5\nCrawl-delay:\n",
+    "blocksRoot": true,
+    "addedContains": ["Crawl-delay: 5"]
   },
   {
     "name": "BOM before a named agent",
@@ -83,7 +109,8 @@
   {
     "name": "empty Crawl-delay in a second star group",
     "robots": "User-agent: *\nDisallow: /\nCrawl-delay: 5\n\nUser-agent: *\nCrawl-delay:\n",
-    "blocksRoot": true
+    "blocksRoot": true,
+    "open": true
   },
   {
     "name": "path rule and crawl-delay carry into the group",
