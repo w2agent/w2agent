@@ -143,7 +143,7 @@ w2agent agent status <slug>                    # Check hosted deployment
 W2AGENT_WEBHOOK_TOKEN=<token> w2agent agent update <slug>   # Re-crawl hosted deployment
 ```
 
-`agent update` needs the deployment's webhook token (printed by `w2agent deploy`; `--show-token` shows it in full). Set `W2AGENT_WEBHOOK_TOKEN` or pass `--token <token>`; the saved login key is never used. Both commands honour `W2AGENT_API_URL`, validate the slug (`^[a-z0-9-]+$`, exit 2 otherwise) and exit 1 on any failure.
+`agent update` needs the deployment's webhook token (printed by `w2agent deploy`; `--show-token` shows it in full). Set `W2AGENT_WEBHOOK_TOKEN` or pass `--token <token>`; the saved login key is never used. Both commands honour `W2AGENT_API_URL` (https, or http on a loopback host; anything else exits 2), validate the slug (`^[a-z0-9-]+$`, exit 2 otherwise) and exit 1 on any failure.
 
 The `--self-host` variants carry the same tools as the standalone server (FAQ, product and form tools, `--allow-host`). `agent deploy` exits 1 and writes nothing when no page can be crawled or no page has extractable content. `generate` does the same when a content format (`llms-txt`, `full`, `markdown`, `agents-md`, `mcp-server`, `skill-md`, `openclaw`) is requested and no page has extractable content, so an existing `llms.txt` is never overwritten by an empty stub. With only non-content formats (for example `robots-txt`), `generate` still writes them, but when no page has extractable content it skips the detected platform's integration files (they embed crawl-derived seeds, so a hand-written `<platform>/.../llms.txt` stays untouched) and prints a warning.
 

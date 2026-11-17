@@ -147,6 +147,7 @@ On failure, with `--json`, stdout holds:
 ### `next` rules
 
 - `next` never contains the command that just failed.
+- Secret values never reach stdout or stderr. The CLI replaces the exact values of `--api-key` and `--token` (values of 5 or more characters) with `<api-key>` in everything it prints to stderr, and to stdout in human mode. Under `--json`, stdout is one document whose error envelope already redacts the values. The match ignores case. Help and version text is never rewritten.
 - `next` never contains a secret. The value of `--api-key` (both `--api-key v` and `--api-key=v`) becomes the placeholder `<api-key>`. Replace it with a real key before you run the command. The same value is also redacted wherever it appears in `message`.
 - When the command line has a `--` terminator, added flags go before it.
 
@@ -181,6 +182,10 @@ Every other mention of the crawl host is reported in `warnings` (on stderr in hu
 ## `w2agent schema`
 
 `w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It exits 0, or 2 on a usage error.
+
+## Hosted API address (`W2AGENT_API_URL`)
+
+`login`, `whoami`, `deploy`, `agentize`, `agent status` and `agent update` talk to `https://w2agent.dev` unless `W2AGENT_API_URL` is set. The value must parse as a URL and use `https`, or use `http` with a loopback host (`localhost`, any `127.x.x.x` address, or `[::1]`). Any other scheme or host is refused before a credential is read or a request is sent: the result is `invalid_argument` (exit 2), and nothing is saved. The message names the variable and, when the value parses, its scheme and host. It never repeats the full value. A trailing slash is ignored; a path prefix is kept.
 
 ## Login in agent environments
 

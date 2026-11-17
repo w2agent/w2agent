@@ -1,7 +1,14 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import { getApiUrl, getAuthHeaders, isHeaderSafeToken, loadCredentials } from "../auth.js";
+import { failWith } from "../agent/output.js";
+import {
+  apiUrlProblem,
+  getApiUrl,
+  getAuthHeaders,
+  isHeaderSafeToken,
+  loadCredentials,
+} from "../auth.js";
 
 interface DeployResult {
   slug: string;
@@ -23,6 +30,11 @@ async function handleDeployAction(
   url: string,
   opts: { apiKey?: string; slug?: string; showToken?: boolean },
 ): Promise<void> {
+  const problem = apiUrlProblem();
+  if (problem) {
+    await failWith(undefined, { reason: "invalid_argument", message: problem });
+    return;
+  }
   const apiUrl = getApiUrl();
   const authHeaders = opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : getAuthHeaders();
 

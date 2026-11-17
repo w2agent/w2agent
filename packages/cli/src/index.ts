@@ -8,6 +8,7 @@ import {
   buildErrorEnvelope,
   currentArgv,
   EXIT,
+  installOutputRedaction,
   redactMessage,
 } from "./agent/output.js";
 import { registerAuditCommand } from "./commands/audit.js";
@@ -28,6 +29,15 @@ const { version } = JSON.parse(
 
 const jsonRequested = argvHasJson(process.argv.slice(2));
 
+// Help and version text prints no argv value, so it bypasses the scrubber. Under
+// --json stdout is one document that buildErrorEnvelope already redacts, so only
+// stderr is scrubbed there.
+const rawStdoutWrite = process.stdout.write.bind(process.stdout);
+installOutputRedaction(
+  apiKeyValues(currentArgv()),
+  jsonRequested ? [process.stderr] : [process.stdout, process.stderr],
+);
+
 const program = new Command();
 
 program
@@ -36,6 +46,9 @@ program
   .version(version)
   .exitOverride()
   .configureOutput({
+    writeOut: (str) => {
+      rawStdoutWrite(str);
+    },
     outputError: (str, write) => {
       if (!jsonRequested) write(redactMessage(str, apiKeyValues(currentArgv())));
     },

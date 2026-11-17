@@ -4,7 +4,8 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
 import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "w2agent-core";
-import { getApiUrl, isHeaderSafeToken } from "../auth.js";
+import { failWith } from "../agent/output.js";
+import { apiUrlProblem, getApiUrl, isHeaderSafeToken } from "../auth.js";
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program
@@ -150,6 +151,12 @@ export function registerMcpCommand(program: Command): void {
       }
       if (!isValidSlug(slug)) badSlug(slug);
 
+      const problem = apiUrlProblem();
+      if (problem) {
+        await failWith(undefined, { reason: "invalid_argument", message: problem });
+        return;
+      }
+
       const spinner = ora(`Checking status of ${slug}...`).start();
       let res: Response;
       try {
@@ -209,6 +216,12 @@ export function registerMcpCommand(program: Command): void {
     )
     .action(async (slug: string, opts: { token?: string }) => {
       if (!isValidSlug(slug)) badSlug(slug);
+
+      const problem = apiUrlProblem();
+      if (problem) {
+        await failWith(undefined, { reason: "invalid_argument", message: problem });
+        return;
+      }
 
       const token = (opts.token?.trim() || process.env.W2AGENT_WEBHOOK_TOKEN?.trim()) ?? "";
       if (!token) {

@@ -13,6 +13,7 @@ import {
   loginRequiresApiKey,
 } from "../agent/output.js";
 import {
+  apiUrlProblem,
   clearCredentials,
   getApiUrl,
   isHeaderSafeToken,
@@ -56,6 +57,12 @@ export function registerLoginCommand(program: Command): void {
     .option("--json", "Print one JSON document on stdout (result or error envelope)")
     .action(async (opts: { apiKey?: string; force?: boolean }) => {
       const json: JsonMode | undefined = jsonRequested() ? enterJsonMode() : undefined;
+
+      const problem = apiUrlProblem();
+      if (problem) {
+        await failWith(json, { reason: "invalid_argument", message: problem });
+        return;
+      }
 
       // --api-key path
       if (opts.apiKey !== undefined) {
@@ -318,6 +325,11 @@ export function registerWhoamiCommand(program: Command): void {
     .command("whoami")
     .description("Show current authentication status")
     .action(async () => {
+      const problem = apiUrlProblem();
+      if (problem) {
+        await failWith(undefined, { reason: "invalid_argument", message: problem });
+        return;
+      }
       const creds = loadCredentials();
       if (!creds) {
         console.log(chalk.yellow("Not logged in. Run `w2agent login` to authenticate."));

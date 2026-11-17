@@ -99,6 +99,44 @@ export function redactMessage(message: string, secrets: readonly string[] = []):
     .replace(/w2a_[A-Za-z0-9_-]+/g, API_KEY_PLACEHOLDER);
 }
 
+type WritableLike = { write: (...args: never[]) => boolean };
+
+/**
+ * Replaces the exact secret values from argv in everything written to the
+ * given streams, so no code path (console, ora, a direct write) can print one.
+ * Does nothing when there is no secret.
+ */
+export function installOutputRedaction(
+  secrets: readonly string[],
+  streams: readonly WritableLike[] = [process.stdout, process.stderr],
+): void {
+  if (secrets.length === 0) return;
+  const patterns = secrets.map(
+    (secret) => new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+  );
+  const scrub = (text: string): string => {
+    let out = text;
+    for (const pattern of patterns) out = out.replace(pattern, API_KEY_PLACEHOLDER);
+    return out;
+  };
+  for (const stream of streams) {
+    const original = stream.write as unknown as (...args: unknown[]) => boolean;
+    const bound = original.bind(stream);
+    (stream as unknown as { write: (...args: unknown[]) => boolean }).write = (
+      chunk: unknown,
+      ...rest: unknown[]
+    ) => {
+      if (typeof chunk === "string") return bound(scrub(chunk), ...rest);
+      if (chunk instanceof Uint8Array) {
+        const text = Buffer.from(chunk).toString("utf-8");
+        const scrubbed = scrub(text);
+        if (scrubbed !== text) return bound(scrubbed, ...rest.filter((r) => typeof r !== "string"));
+      }
+      return bound(chunk, ...rest);
+    };
+  }
+}
+
 /** Adds flags to an argv, ahead of a `--` terminator when there is one. */
 export function insertFlags(argv: readonly string[], flags: readonly string[]): string[] {
   const end = argv.indexOf("--");
