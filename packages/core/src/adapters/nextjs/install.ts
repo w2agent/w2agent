@@ -375,7 +375,7 @@ export function resolveNextjsInstall(files: GeneratedFile[], projectDir: string)
 
   if (willWrite(guarded.actions, "w2agent-build.mjs")) {
     postInstallSteps.push(
-      'Add `"postbuild": "node w2agent-build.mjs"` to your package.json scripts. Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run `npm install -D <path-to-w2agent>/packages/cli`.',
+      'Add `"prebuild": "node w2agent-build.mjs"` to your package.json scripts (not postbuild: the routes are prerendered during `next build`, so a postbuild refresh is not served). Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run `npm install -D <path-to-w2agent>/packages/cli`.',
     );
   }
 

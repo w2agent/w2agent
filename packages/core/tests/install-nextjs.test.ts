@@ -56,7 +56,7 @@ describe("Next.js install resolver", () => {
     expect(dests).toContain("w2agent-build.mjs");
     expect(plan.warnings.length).toBe(0);
     expect(plan.postInstallSteps.length).toBeGreaterThan(0);
-    expect(plan.postInstallSteps[0]).toContain("postbuild");
+    expect(plan.postInstallSteps[0]).toContain("prebuild");
     expect(plan.postInstallSteps[0]).toContain("npm install -D <path-to-w2agent>/packages/cli");
   });
 
@@ -147,7 +147,7 @@ describe("Next.js install resolver", () => {
     const skipped = plan.actions.find((a) => a.type === "skip" && a.dest === "w2agent-build.mjs");
     expect(skipped).toBeDefined();
     expect(skipped?.reason).toBe("already exists");
-    // No postbuild step since build script wasn't written
+    // No prebuild step since build script wasn't written
     expect(plan.postInstallSteps.length).toBe(0);
   });
 

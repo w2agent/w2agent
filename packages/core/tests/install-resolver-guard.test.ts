@@ -44,7 +44,7 @@ describe("resolver steps follow the guarded actions", () => {
       writeFileSync(join(tempDir, "tsconfig.json"), "{}");
     });
 
-    it("prints no postbuild step when a sibling build script makes the guard skip the write", () => {
+    it("prints no prebuild step when a sibling build script makes the guard skip the write", () => {
       writeFileSync(join(tempDir, "w2agent-build.js"), "// mine");
 
       const plan = planInstall(nextjsAdapter, files, tempDir);
@@ -52,14 +52,14 @@ describe("resolver steps follow the guarded actions", () => {
       expect(plan.actions.some((a) => a.type === "write" && a.dest === "w2agent-build.mjs")).toBe(
         false,
       );
-      expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(false);
+      expect(plan.postInstallSteps.some((s) => s.includes("prebuild"))).toBe(false);
       expect(plan.warnings.filter((w) => w.includes("w2agent-build.mjs"))).toHaveLength(1);
     });
 
-    it("keeps the postbuild step when the build script is written", () => {
+    it("keeps the prebuild step when the build script is written", () => {
       const plan = planInstall(nextjsAdapter, files, tempDir);
 
-      expect(plan.postInstallSteps.some((s) => s.includes("postbuild"))).toBe(true);
+      expect(plan.postInstallSteps.some((s) => s.includes("prebuild"))).toBe(true);
     });
 
     it("does not tell the user to merge from a stale middleware.w2agent.ts that was skipped", () => {

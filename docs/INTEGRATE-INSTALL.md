@@ -83,6 +83,7 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | Any `public/<path>` that matches a planned route `app/<path>/route.ts` (for example `public/llms.txt`, `public/index.md`, `public/.well-known/agent-card.json`) | File exists | Skip that route, manual step to remove or rename the public file (Next.js errors when both exist) and re-run. The file is never deleted |
 | Existing `app/llms.txt/route.js` (or other extension) | Same stem, other extension | Skip + warn |
 | Existing `w2agent-build.mjs` | File exists | Skip + warn |
+| `w2agent-build.mjs` written | Not already present | Post-install step: add `"prebuild": "node w2agent-build.mjs"` (not `postbuild`: the routes are prerendered during `next build`, so a postbuild refresh is not served). The crawl targets the live site, so a build serves the previous deploy's content; the first deploy serves the install-time seed |
 | Any other generated file already present | File exists | Skip + warn (guard) |
 
 ### Nuxt (`packages/core/src/adapters/nuxt/install.ts`)

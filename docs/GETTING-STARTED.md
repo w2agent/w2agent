@@ -151,7 +151,7 @@ See [GENERATE.md](GENERATE.md) for detailed reference.
 | Platform | What gets generated | How it stays fresh |
 |----------|--------------------|--------------------|
 | **WordPress** | PHP plugin with admin page | Dynamically generates llms.txt from WP database on each request |
-| **Next.js** | Route handlers + middleware | ISR revalidation (1h) + build script for CI/CD |
+| **Next.js** | Route handlers + middleware | Routes revalidate hourly (ISR); a `prebuild` script refreshes the content from the live site before each build (the previous deploy; the first deploy serves the install-time seed) |
 | **Nuxt** | Nitro server routes + middleware | Server routes generate llms.txt dynamically per request |
 | **Astro** | Static files + middleware | Static output at build time, middleware for content negotiation |
 | **Shopify** | Liquid snippets + robots.txt.liquid | Liquid templates use live store data (product titles, prices) |
