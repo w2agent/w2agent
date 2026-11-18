@@ -142,6 +142,63 @@ describe("Astro install resolver", () => {
       expect(prebuild).toContain('"prebuild": "node w2agent-build.mjs --overwrite=llms.txt"');
     });
 
+    const SEEDS = { "llms.txt": "# Seed", "llms-full.txt": "# Seed Full" };
+
+    it("a re-install over identical seeds still passes overwrite: true and --overwrite", () => {
+      writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+      mkdirSync(join(tempDir, "public"), { recursive: true });
+      for (const [name, content] of Object.entries(SEEDS)) {
+        writeFileSync(join(tempDir, "public", name), content);
+      }
+      const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+      expect(plan.actions.some((a) => a.type === "write" && a.dest.startsWith("public/llms"))).toBe(
+        false,
+      );
+      const integration = plan.postInstallSteps.find((s) => s.includes("integrations: [")) ?? "";
+      const prebuild = plan.postInstallSteps.find((s) => s.includes('"prebuild"')) ?? "";
+      expect(integration).toContain("integrations: [w2agentIntegration({ overwrite: true })]");
+      expect(prebuild).toContain('"prebuild": "node w2agent-build.mjs --overwrite"');
+      expect(prebuild).toContain("w2agent seeds in public/");
+    });
+
+    it.each([
+      ["llms.txt", "llms-full.txt"],
+      ["llms-full.txt", "llms.txt"],
+    ])("identical %s seed plus an owner %s: only the seed is listed", (seed, owner) => {
+      writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+      mkdirSync(join(tempDir, "public"), { recursive: true });
+      writeFileSync(join(tempDir, "public", seed), SEEDS[seed as keyof typeof SEEDS]);
+      writeFileSync(join(tempDir, "public", owner), "# hand-written");
+      const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+      const integration = plan.postInstallSteps.find((s) => s.includes("integrations: [")) ?? "";
+      const prebuild = plan.postInstallSteps.find((s) => s.includes('"prebuild"')) ?? "";
+      expect(integration).toContain(`w2agentIntegration({ overwrite: ["${seed}"] })`);
+      expect(prebuild).toContain(`"prebuild": "node w2agent-build.mjs --overwrite=${seed}"`);
+    });
+
+    it("an edited seed is the owner's file: plain steps", () => {
+      writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+      mkdirSync(join(tempDir, "public"), { recursive: true });
+      writeFileSync(join(tempDir, "public", "llms.txt"), "# Seed edited");
+      writeFileSync(join(tempDir, "public", "llms-full.txt"), "# Seed Full edited");
+      const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+      const integration = plan.postInstallSteps.find((s) => s.includes("integrations: [")) ?? "";
+      expect(integration).toContain("integrations: [w2agentIntegration()]");
+    });
+
+    it("the prebuild wording agrees with the number of seeds", () => {
+      writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+      const both = resolveAstroInstall(makeAstroFiles(), tempDir);
+      const bothStep = both.postInstallSteps.find((s) => s.includes('"prebuild"')) ?? "";
+      expect(bothStep).toContain("w2agent seeds in public/");
+      mkdirSync(join(tempDir, "public"), { recursive: true });
+      writeFileSync(join(tempDir, "public", "llms.txt"), "# hand-written");
+      const one = resolveAstroInstall(makeAstroFiles(), tempDir);
+      const oneStep = one.postInstallSteps.find((s) => s.includes('"prebuild"')) ?? "";
+      expect(oneStep).toContain("w2agent seed in public/");
+      expect(oneStep).not.toContain("seeds");
+    });
+
     it("no seed written: plain integration and plain prebuild script", () => {
       const { integration, prebuild } = seedSteps(["llms.txt", "llms-full.txt"]);
       expect(integration).toContain("integrations: [w2agentIntegration()]");

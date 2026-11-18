@@ -95,6 +95,27 @@ const spec = {
         ],
       },
     },
+    "/declared-page-size": {
+      get: {
+        operationId: "declaredPageSize",
+        summary: "declared-page-size",
+        parameters: [
+          { name: "page[size]", in: "query", ...str },
+          { name: "filter[status]", in: "query", ...str },
+          { name: "q", in: "query", ...obj },
+        ],
+      },
+    },
+    "/declared-flag-brackets": {
+      get: {
+        operationId: "declaredFlagBrackets",
+        summary: "declared-flag-brackets",
+        parameters: [
+          { name: "flag[]", in: "query", ...str },
+          { name: "filter", in: "query", ...obj },
+        ],
+      },
+    },
     "/page-keys": {
       get: {
         operationId: "pageKeys",
@@ -307,7 +328,7 @@ describe.each(VARIANTS)("generated query key collisions: %s", (variant: Variant)
   it("two lone-surrogate keys in one object are refused with a same-object message", async () => {
     const { r, sent } = await call("two-objects", { a: { "\uD800": "a", "\uDC00": "b" } });
     expect(r.isError, r.text).toBe(true);
-    expect(r.text).toContain("differ only by letter case or encode to the same query key");
+    expect(r.text).toContain("collide as one query key");
     expect(r.text).not.toContain("another object query parameter");
     expect(sent).toEqual([]);
   });
@@ -315,7 +336,7 @@ describe.each(VARIANTS)("generated query key collisions: %s", (variant: Variant)
   it("keys that differ only by case in one object are refused with a same-object message", async () => {
     const { r, sent } = await call("two-objects", { a: { "Page[size]": 1, "page[size]": 2 } });
     expect(r.isError, r.text).toBe(true);
-    expect(r.text).toContain("differ only by letter case or encode to the same query key");
+    expect(r.text).toContain("collide as one query key");
     expect(sent).toEqual([]);
   });
 
@@ -371,6 +392,61 @@ describe.each(VARIANTS)("generated query key collisions: %s", (variant: Variant)
     });
     expect(r.isError, r.text).toBe(true);
     expect(r.text).toContain('"page[size]"');
+    expect(sent).toEqual([]);
+  });
+
+  for (const [first, second] of [
+    [{ flag: "1" }, { "flag[]": "2" }],
+    [{ "flag[]": "2" }, { flag: "1" }],
+    [{ FLAG: "1" }, { "flag[a]": "2" }],
+  ]) {
+    it(`a bare key beside its bracket form across objects is refused: ${JSON.stringify([first, second])}`, async () => {
+      const { r, sent } = await call("two-objects", { a: first, b: second });
+      expect(r.isError, r.text).toBe(true);
+      expect(r.text).toContain("another object query parameter");
+      expect(sent).toEqual([]);
+    });
+  }
+
+  it("a bare key beside its bracket form in one object is refused with the same-object message", async () => {
+    const { r, sent } = await call("two-objects", { a: { flag: "1", "FLAG[x]": "2" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain("collide as one query key");
+    expect(r.text).not.toContain("another object query parameter");
+    expect(sent).toEqual([]);
+  });
+
+  it("distinct bracket keys with one base are sent across objects", async () => {
+    const { r, sent } = await call("two-objects", { a: { "flag[a]": "1" }, b: { "flag[b]": "2" } });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/two-objects?flag%5Ba%5D=1&flag%5Bb%5D=2"]);
+  });
+
+  it("a declared page[size] and a property page[number] are sent", async () => {
+    const { r, sent } = await call("declared-page-size", {
+      "page[size]": "10",
+      q: { "page[number]": 2, "filter[type]": "x" },
+    });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual([
+      "/declared-page-size?page%5Bsize%5D=10&page%5Bnumber%5D=2&filter%5Btype%5D=x",
+    ]);
+  });
+
+  it("a declared page[size] and a bare property page are refused", async () => {
+    const { r, sent } = await call("declared-page-size", { "page[size]": "10", q: { page: 2 } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"page[size]"');
+    expect(sent).toEqual([]);
+  });
+
+  it("a declared flag[] and a bare property flag are refused", async () => {
+    const { r, sent } = await call("declared-flag-brackets", {
+      "flag[]": "1",
+      filter: { flag: "x" },
+    });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"flag[]"');
     expect(sent).toEqual([]);
   });
 

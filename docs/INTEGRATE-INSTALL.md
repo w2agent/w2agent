@@ -111,8 +111,8 @@ Each platform adapter implements `resolveInstall(files, projectDir)` that detect
 | SSR/hybrid mode | `output: "server"` or `"hybrid"` | Install all files |
 | No config found | Missing `astro.config.*` | Warn + proceed with public/ files |
 | Existing `public/llms.txt` | File exists | Skip + warn; the build keeps that file (see the seed rows below for the step text) |
-| `public/llms.txt` and `public/llms-full.txt` seeds written | Neither already present | Integration step says `w2agentIntegration({ overwrite: true })` and the prebuild step says `--overwrite`, so each build refreshes both seeds |
-| Only one seed written | The other file exists | Integration step says `overwrite: ["<seed>"]` and the prebuild step `--overwrite=<seed>`; the file you already had is kept (the integration keeps it in the build, the script keeps it in `public/`) |
+| `public/llms.txt` and `public/llms-full.txt` seeds written | Each file is absent or byte-identical to the seed (a re-install over the seeds counts) | Integration step says `w2agentIntegration({ overwrite: true })` and the prebuild step says `--overwrite`, so each build refreshes both seeds |
+| Only one seed written or identical | The other file exists with other content | Integration step says `overwrite: ["<seed>"]` and the prebuild step `--overwrite=<seed>`; the file you already had is kept (the integration keeps it in the build, the script keeps it in `public/`) |
 | `WebMcpScript.astro` | Generated as `src/components/WebMcpScript.astro` | Install under `src/`; post-install step to import it in a layout and render `<WebMcpScript />` (only when written) |
 | `w2agent-build.mjs` written | Not already present | Post-install step: add `"prebuild": "node w2agent-build.mjs"` (with the `--overwrite` flag for the seeds written, see above) as an alternative to the integration (use one, not both). Without a flag the script only writes files missing from `public/` |
 

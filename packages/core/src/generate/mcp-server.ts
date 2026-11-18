@@ -625,10 +625,15 @@ function wellFormedKey(key: string): string {
   return decodeURIComponent(pairText(key, "").slice(0, -1).replace(/\+/g, " "));
 }
 
-function declaredKey(key: string): string {
-  const wf = wellFormedKey(key);
-  const open = wf.indexOf("[");
-  return (open > 0 ? wf.slice(0, open) : wf).toLowerCase();
+function keyBase(full: string): string {
+  const open = full.indexOf("[");
+  return open > 0 ? full.slice(0, open) : full;
+}
+
+function keysCollide(a: string, b: string): boolean {
+  const baseA = keyBase(a);
+  const baseB = keyBase(b);
+  return a === b || (baseA === a && a === baseB) || (baseB === b && b === baseA);
 }
 
 function appendQueryParam(query: string[], name: string, value: unknown, collection: string | undefined, declared: string[], objectKeys: Set<string>): void {
@@ -642,16 +647,17 @@ function appendQueryParam(query: string[], name: string, value: unknown, collect
       query.push(pairText(name, "") + parts.join(literal));
     }
   } else if (typeof value === "object" && value !== null) {
-    const declaredKeys = declared.map(declaredKey);
+    const declaredKeys = declared.map((d) => wellFormedKey(d).toLowerCase());
+    const earlier = [...objectKeys];
     const seen = new Map<string, string>();
     for (const [k, v] of Object.entries(value)) {
-      const dk = declaredKey(k);
-      const di = declaredKeys.indexOf(dk);
-      if (di >= 0) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that collides with the query parameter " + JSON.stringify(declared[di]));
       const wk = wellFormedKey(k).toLowerCase();
-      const prior = seen.get(wk);
-      if (prior !== undefined) throw new Error("Query parameter " + JSON.stringify(name) + " has the properties " + JSON.stringify(prior) + " and " + JSON.stringify(k) + " that differ only by letter case or encode to the same query key");
-      if (objectKeys.has(wk)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that another object query parameter also sets");
+      const di = declaredKeys.findIndex((d) => keysCollide(d, wk));
+      if (di >= 0) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that collides with the query parameter " + JSON.stringify(declared[di]));
+      for (const [other, raw] of seen) {
+        if (keysCollide(other, wk)) throw new Error("Query parameter " + JSON.stringify(name) + " has the properties " + JSON.stringify(raw) + " and " + JSON.stringify(k) + " that collide as one query key (letter case, encoding or a bracket form of the same name)");
+      }
+      if (earlier.some((e) => keysCollide(e, wk))) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that another object query parameter also sets");
       seen.set(wk, k);
       objectKeys.add(wk);
       query.push(pairText(k, scalarText(v)));

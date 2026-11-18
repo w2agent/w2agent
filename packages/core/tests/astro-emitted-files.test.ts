@@ -229,12 +229,26 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     }
   });
 
-  it("ignores unknown names in an overwrite list", async () => {
+  it.each([
+    ["a string", "llms-full.txt"],
+    ["an unknown name", ["robots.txt"]],
+    ["an inherited property name", ["toString"]],
+    ["a number", 1],
+    ["null", null],
+  ])("throws from the factory when overwrite is %s", async (_label, overwrite) => {
+    await expect(plugin({ overwrite: overwrite as unknown as boolean })).rejects.toThrow(
+      /overwrite must be true, false or an array/,
+    );
+  });
+
+  it("accepts overwrite: false and an empty list as none", async () => {
     put(join(site, "public", "llms.txt"), "OWNER\n");
     put(join(dist, "llms.txt"), "OWNER\n");
-    const { build } = await plugin({ overwrite: ["robots.txt"] });
-    await build(publicUrl());
-    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+    for (const overwrite of [false, []]) {
+      const { build } = await plugin({ overwrite });
+      await build(publicUrl());
+      expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+    }
   });
 
   it("regenerates llms.txt over public/llms.txt when called with overwrite: true", async () => {
@@ -246,14 +260,6 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     expect(readFileSync(join(dist, "llms-full.txt"), "utf-8")).toBe("GENERATED-FULL\n");
     expect(calls()[0]).toContain("--format llms-txt,full");
     expect(infos(logger).some((m) => m.includes("Keeping"))).toBe(false);
-  });
-
-  it("treats only overwrite === true or an array as overwrite", async () => {
-    put(join(site, "public", "llms.txt"), "OWNER\n");
-    put(join(dist, "llms.txt"), "OWNER\n");
-    const { build } = await plugin({ overwrite: "yes" as unknown as boolean });
-    await build(publicUrl());
-    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
   });
 
   it("reads publicDir from the config, as a URL or a string", async () => {
@@ -360,6 +366,33 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
       expect(calls()).toHaveLength(before);
     });
 
+    it.each([
+      ["the space form", ["--overwrite", "llms-full.txt"]],
+      ["an empty list", ["--overwrite="]],
+      ["an unknown name", ["--overwrite=robots.txt"]],
+      ["a list with an unknown name", ["--overwrite=llms-full.txt,robots.txt"]],
+      ["an unknown flag", ["--force"]],
+      ["a bare word", ["llms-full.txt"]],
+      ["two flags", ["--overwrite", "--overwrite=llms.txt"]],
+    ])("exits 1 before generating on %s", (_label, args) => {
+      seedOwner(true, true);
+      let status = 0;
+      let stderr = "";
+      try {
+        script(args);
+      } catch (e) {
+        const err = e as { status: number; stderr: string };
+        status = err.status;
+        stderr = err.stderr;
+      }
+      expect(status).toBe(1);
+      expect(stderr).toContain("--overwrite=llms.txt,llms-full.txt");
+      expect(stderr.trim().split("\n")).toHaveLength(1);
+      expect(calls()).toHaveLength(0);
+      expect(read("llms.txt")).toBe("OWNER\n");
+      expect(read("llms-full.txt")).toBe("OWNER\n");
+    });
+
     it("a plain first run writes both missing files, and a second plain run keeps them", () => {
       seedOwner(false, false);
       script([]);
@@ -462,7 +495,10 @@ describe("emitted astro/INSTALL.md", () => {
     const config = step2.match(/```js\n([\s\S]*?)```/)?.[1] ?? "";
     expect(config).toContain("integrations: [w2agent({ overwrite: true })]");
     expect(config).not.toContain("w2agent()");
-    expect(step2).toMatch(/hand-written `public\/llms\.txt`[^.]*plain `w2agent\(\)`/);
+    expect(step2).not.toContain("the integration only regenerates `llms-full.txt`");
+    expect(step2).toMatch(/Plain `w2agent\(\)` keeps every file that exists in `public\/`/);
+    expect(step2).toContain("copy only the other seed in step 1");
+    expect(step2).toContain("keeps your hand-written `public/llms.txt`");
     const diagram = md.slice(md.indexOf("Build time:"), md.indexOf("Runtime (static):"));
     expect(diagram).not.toMatch(/Writes llms\.txt, llms-full\.txt/);
     expect(diagram).toContain("llms-full.txt");

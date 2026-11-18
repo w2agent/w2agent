@@ -118,16 +118,21 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
 
   const guarded = guardInstallActions(actions, projectDir);
   warnings.push(...guarded.warnings);
-  const seeds = ["llms.txt", "llms-full.txt"].filter((name) =>
-    willWrite(guarded.actions, `public/${name}`),
-  );
+  const seeds = ["llms.txt", "llms-full.txt"].filter((name) => {
+    if (willWrite(guarded.actions, `public/${name}`)) return true;
+    const seed = platformFiles.find((f) => f.filename === `${prefix}public/${name}`);
+    const current = join(projectDir, "public", name);
+    return (
+      seed !== undefined && existsSync(current) && readFileSync(current, "utf-8") === seed.content
+    );
+  });
   const seedList = seeds.map((name) => `public/${name}`).join(" and ");
+  const plural = seeds.length === 2;
   if (willWrite(guarded.actions, "w2agent-integration.mjs")) {
-    const option =
-      seeds.length === 2 ? "{ overwrite: true }" : `{ overwrite: ${JSON.stringify(seeds)} }`;
+    const option = plural ? "{ overwrite: true }" : `{ overwrite: ${JSON.stringify(seeds)} }`;
     postInstallSteps.push(
       seeds.length > 0
-        ? `Add w2agent integration to your astro.config: integrations: [w2agentIntegration(${option})]. ${seedList} ${seeds.length === 2 ? "are the seeds" : "is the seed"} this install wrote, so overwrite lets each build refresh ${seeds.length === 2 ? "them" : "it"}. A file you already had stays as it is.`
+        ? `Add w2agent integration to your astro.config: integrations: [w2agentIntegration(${option})]. ${seedList} ${plural ? "are w2agent seeds" : "is a w2agent seed"}, so overwrite lets each build refresh ${plural ? "them" : "it"}. A file you already had stays as it is.`
         : "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
     );
   }
@@ -139,7 +144,7 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
       seeds.length === 2 ? " --overwrite" : seeds.length === 1 ? ` --overwrite=${seeds[0]}` : "";
     const refresh =
       seeds.length > 0
-        ? " The flag lets each run refresh the seed this install wrote; the script keeps any other file already in public/."
+        ? ` The flag lets each run refresh the w2agent ${plural ? "seeds" : "seed"} in public/; the script keeps any other file already there.`
         : " The script keeps files already in public/ and writes only the missing ones.";
     postInstallSteps.push(
       `Add \`"prebuild": "node w2agent-build.mjs${flag}"\` to your package.json scripts (it must run before the build so files land in public/).${refresh}${alternative} Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run \`npm install -D <path-to-w2agent>/packages/cli\`.`,
