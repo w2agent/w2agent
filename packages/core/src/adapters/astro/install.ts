@@ -118,10 +118,16 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
 
   const guarded = guardInstallActions(actions, projectDir);
   warnings.push(...guarded.warnings);
+  const seeds = ["llms.txt", "llms-full.txt"].filter((name) =>
+    willWrite(guarded.actions, `public/${name}`),
+  );
+  const seedList = seeds.map((name) => `public/${name}`).join(" and ");
   if (willWrite(guarded.actions, "w2agent-integration.mjs")) {
+    const option =
+      seeds.length === 2 ? "{ overwrite: true }" : `{ overwrite: ${JSON.stringify(seeds)} }`;
     postInstallSteps.push(
-      willWrite(guarded.actions, "public/llms.txt")
-        ? "Add w2agent integration to your astro.config: integrations: [w2agentIntegration({ overwrite: true })]. public/llms.txt is the seed this install wrote, so overwrite lets each build refresh it."
+      seeds.length > 0
+        ? `Add w2agent integration to your astro.config: integrations: [w2agentIntegration(${option})]. ${seedList} ${seeds.length === 2 ? "are the seeds" : "is the seed"} this install wrote, so overwrite lets each build refresh ${seeds.length === 2 ? "them" : "it"}. A file you already had stays as it is.`
         : "Add w2agent integration to your astro.config: integrations: [w2agentIntegration()]",
     );
   }
@@ -129,8 +135,14 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
     const alternative = willWrite(guarded.actions, "w2agent-integration.mjs")
       ? " This is an alternative to the w2agentIntegration() step above (use one, not both, or the site is crawled twice per build): the plugin is the default and writes into the build output; the script is for CI setups that need the files in public/."
       : "";
+    const flag =
+      seeds.length === 2 ? " --overwrite" : seeds.length === 1 ? ` --overwrite=${seeds[0]}` : "";
+    const refresh =
+      seeds.length > 0
+        ? " The flag lets each run refresh the seed this install wrote; the script keeps any other file already in public/."
+        : " The script keeps files already in public/ and writes only the missing ones.";
     postInstallSteps.push(
-      `Add \`"prebuild": "node w2agent-build.mjs"\` to your package.json scripts (it must run before the build so files land in public/).${alternative} Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run \`npm install -D <path-to-w2agent>/packages/cli\`.`,
+      `Add \`"prebuild": "node w2agent-build.mjs${flag}"\` to your package.json scripts (it must run before the build so files land in public/).${refresh}${alternative} Needs the w2agent CLI installed in this project: it is not published on npm yet, so build it from the w2agent repo and run \`npm install -D <path-to-w2agent>/packages/cli\`.`,
     );
   }
   if (willWrite(guarded.actions, "src/components/WebMcpScript.astro")) {

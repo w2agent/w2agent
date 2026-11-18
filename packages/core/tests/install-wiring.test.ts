@@ -138,6 +138,20 @@ describe("Astro WebMcpScript and build script wiring", () => {
     ).toBe(true);
   });
 
+  it("passes --overwrite to the prebuild script when this install writes both seeds", () => {
+    const seeded = [
+      ...files,
+      makeFile("astro/public/llms.txt", "# seed"),
+      makeFile("astro/public/llms-full.txt", "# seed"),
+    ];
+    const plan = planInstall(astroAdapter, seeded, dir);
+    expect(
+      plan.postInstallSteps.some((s) =>
+        s.includes('"prebuild": "node w2agent-build.mjs --overwrite"'),
+      ),
+    ).toBe(true);
+  });
+
   it("no mount step when the component already exists", () => {
     mkdirSync(join(dir, "src", "components"), { recursive: true });
     writeFileSync(join(dir, "src", "components", "WebMcpScript.astro"), "mine");

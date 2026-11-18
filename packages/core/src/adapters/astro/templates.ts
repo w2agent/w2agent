@@ -55,9 +55,10 @@ export const GET: APIRoute = async () => {
  *   import w2agent from "./w2agent-integration.mjs";
  *   export default defineConfig({ integrations: [w2agent()] });
  *
- * Regenerates llms-full.txt after each build, and llms.txt too unless the project
- * has its own public/llms.txt (Astro copies it into the build and it is kept).
- * To regenerate llms.txt as well: w2agent({ overwrite: true })
+ * Regenerates llms.txt and llms-full.txt after each build, except a file the project
+ * already has in public/ (Astro copies it into the build and it is kept).
+ * To regenerate files that exist in public/: w2agent({ overwrite: true }) for both,
+ * or w2agent({ overwrite: ["llms-full.txt"] }) for the listed ones.
  *
  * Requires the w2agent CLI installed in this project. It is not published on npm
  * yet: build it from the w2agent repo, then run
@@ -69,8 +70,12 @@ import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const FORMATS = { "llms.txt": "llms-txt", "llms-full.txt": "full" };
+
 export default function w2agentIntegration(options = {}) {
-  const overwrite = options.overwrite === true;
+  const overwrite = options.overwrite === true
+    ? Object.keys(FORMATS)
+    : Array.isArray(options.overwrite) ? options.overwrite : [];
   let siteRoot = process.cwd();
   let publicDir = join(siteRoot, "public");
 
@@ -86,20 +91,22 @@ export default function w2agentIntegration(options = {}) {
       "astro:build:done": async ({ dir, logger }) => {
         const siteUrl = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
         const outDir = fileURLToPath(dir);
-        const existing = join(publicDir, "llms.txt");
-        const keep = !overwrite && existsSync(existing);
-
-        logger.info("Regenerating AI content for " + siteUrl + "...");
-        if (keep) {
+        const names = Object.keys(FORMATS);
+        const kept = names.filter((name) => !overwrite.includes(name) && existsSync(join(publicDir, name)));
+        for (const name of kept) {
           logger.info(
-            "Keeping existing " + relative(siteRoot, existing) + "; set overwrite: true to replace it with a generated llms.txt"
+            "Keeping existing " + relative(siteRoot, join(publicDir, name)) + "; set overwrite: true or overwrite: [" + JSON.stringify(name) + "] to replace it with a generated " + name
           );
         }
+        const formats = names.filter((name) => !kept.includes(name)).map((name) => FORMATS[name]);
+        if (formats.length === 0) return;
+
+        logger.info("Regenerating AI content for " + siteUrl + "...");
 
         try {
           execFileSync(
             "npx",
-            ["--no", "--", "w2agent", "generate", siteUrl, "--format", keep ? "full" : "llms-txt,full", "--no-platform", "--output", outDir],
+            ["--no", "--", "w2agent", "generate", siteUrl, "--format", formats.join(","), "--no-platform", "--output", outDir],
             { stdio: "inherit" }
           );
           logger.info("Done. Files written to " + outDir);
@@ -122,10 +129,14 @@ export default function w2agentIntegration(options = {}) {
  * w2agent build script — run during CI/CD or as a prebuild hook
  *
  * Usage:
- *   node w2agent-build.mjs
+ *   node w2agent-build.mjs [--overwrite | --overwrite=llms.txt,llms-full.txt]
  *
  * Or add to package.json:
- *   "scripts": { "prebuild": "node w2agent-build.mjs" }
+ *   "scripts": { "prebuild": "node w2agent-build.mjs --overwrite" }
+ *
+ * It writes llms.txt and llms-full.txt into public/, except a file that already
+ * exists there. --overwrite replaces both; --overwrite=<names> replaces the
+ * comma-separated files only. Without it, a plain run only fills missing files.
  *
  * It must run before the build: Astro copies public/ into dist/ during the
  * build, so a postbuild refresh would not reach the deployed output.
@@ -136,15 +147,31 @@ export default function w2agentIntegration(options = {}) {
  * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
+const FORMATS = { "llms.txt": "llms-txt", "llms-full.txt": "full" };
+
+const flag = process.argv.slice(2).find((a) => a === "--overwrite" || a.startsWith("--overwrite="));
+const overwrite = flag === undefined
+  ? []
+  : flag === "--overwrite" ? Object.keys(FORMATS) : flag.slice("--overwrite=".length).split(",");
+
+const names = Object.keys(FORMATS);
+const kept = names.filter((name) => !overwrite.includes(name) && existsSync(join("public", name)));
+for (const name of kept) {
+  console.log("[w2agent] Keeping existing public/" + name + "; pass --overwrite or --overwrite=" + name + " to replace it");
+}
+const formats = names.filter((name) => !kept.includes(name)).map((name) => FORMATS[name]);
+if (formats.length === 0) process.exit(0);
 
 console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 
 try {
   execFileSync(
     "npx",
-    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./public/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", formats.join(","), "--no-platform", "--output", "./public/"],
     { stdio: "inherit" }
   );
   console.log("[w2agent] Done. Files written to public/");
@@ -190,7 +217,7 @@ Astro's static-first approach is ideal for AI content. This integration provides
 \`\`\`
 Build time:
   -> w2agent integration runs at astro:build:done
-  -> Writes llms-full.txt to the output directory, and llms.txt too with overwrite: true (needs the w2agent CLI installed in your project)
+  -> Writes llms.txt and llms-full.txt to the output directory, except a file public/ already has (overwrite: true replaces both; needs the w2agent CLI installed in your project)
 
 Runtime (static):
   -> Serve directly from public/ (zero overhead)
@@ -223,14 +250,14 @@ export default defineConfig({
 });
 \`\`\`
 
-The \`public/llms.txt\` copied in step 1 is w2agent output, so \`overwrite: true\` lets every build regenerate it. A hand-written \`public/llms.txt\` is kept with plain \`w2agent()\`: Astro copies it into the build and the integration only regenerates \`llms-full.txt\`.
+The \`public/llms.txt\` and \`public/llms-full.txt\` copied in step 1 are w2agent output, so \`overwrite: true\` lets every build regenerate both. A hand-written \`public/llms.txt\` is kept with plain \`w2agent()\`: Astro copies it into the build and the integration only regenerates \`llms-full.txt\`. To keep one of your own files and refresh the other, list the file to refresh: \`w2agent({ overwrite: ["llms-full.txt"] })\` keeps your \`public/llms.txt\`, \`w2agent({ overwrite: ["llms.txt"] })\` keeps your \`public/llms-full.txt\`. A file that is in \`public/\` and not listed is never replaced.
 
 ### Alternative: prebuild script
 \`\`\`bash
 cp astro/w2agent-build.mjs your-astro-app/
 \`\`\`
 
-Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build. The script replaces \`public/llms.txt\` and \`public/llms-full.txt\` on every run, so do not use it when you write \`public/llms.txt\` by hand.
+Instead of the integration, \`w2agent-build.mjs\` can run as \`"prebuild": "node w2agent-build.mjs --overwrite"\` and writes into \`public/\`. Use one of the two, not both, or the site is crawled twice per build. The script keeps a file that already exists in \`public/\` and writes only the missing ones, so a plain run never refreshes the step 1 seeds. Pass \`--overwrite\` to replace both files on every run, or \`--overwrite=llms-full.txt\` (comma-separated names) to replace only those and keep your own \`public/llms.txt\`.
 \n### 3. (Optional) Add SSR endpoints
 These endpoints render on demand, so the project needs an adapter: \`output: "server"\` with an adapter, or static output with an adapter (Astro 5+). In a static project without an adapter the build fails with \`NoAdapterInstalled\`; skip this step there and serve the files in \`public/\` as they are.
 \`\`\`bash

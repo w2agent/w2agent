@@ -129,7 +129,7 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     process.env.PATH = originalPath;
   });
 
-  async function plugin(options?: { overwrite?: boolean }) {
+  async function plugin(options?: { overwrite?: boolean | string[] }) {
     const p = join(dir, `integration-${counter++}.mjs`);
     writeFileSync(p, emitted("astro/w2agent-integration.mjs").content);
     const mod = await import(pathToFileURL(p).href);
@@ -168,7 +168,7 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     expect(infos(logger).some((m) => m.includes("Keeping"))).toBe(false);
   });
 
-  it("keeps the build's llms.txt copied from public/, still writes llms-full.txt, logs one keep line", async () => {
+  it("keeps the build's llms.txt copied from public/, still writes llms-full.txt, logs one keep line for it", async () => {
     put(join(site, "public", "llms.txt"), "OWNER\n");
     put(join(dist, "llms.txt"), "OWNER\n");
     const { logger, build } = await plugin();
@@ -182,6 +182,61 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     expect(keeps[0]).toContain("public/llms.txt");
   });
 
+  const matrix: [string, boolean | string[] | undefined, boolean, boolean, boolean, boolean][] = [
+    ["plain", undefined, false, false, false, false],
+    ["plain", undefined, true, false, true, false],
+    ["plain", undefined, false, true, false, true],
+    ["plain", undefined, true, true, true, true],
+    ["overwrite: true", true, false, false, false, false],
+    ["overwrite: true", true, true, false, false, false],
+    ["overwrite: true", true, false, true, false, false],
+    ["overwrite: true", true, true, true, false, false],
+    ['overwrite: ["llms-full.txt"]', ["llms-full.txt"], false, false, false, false],
+    ['overwrite: ["llms-full.txt"]', ["llms-full.txt"], true, false, true, false],
+    ['overwrite: ["llms-full.txt"]', ["llms-full.txt"], false, true, false, false],
+    ['overwrite: ["llms-full.txt"]', ["llms-full.txt"], true, true, true, false],
+    ['overwrite: ["llms.txt"]', ["llms.txt"], false, true, false, true],
+    ['overwrite: ["llms.txt"]', ["llms.txt"], true, true, false, true],
+  ];
+
+  it.each(
+    matrix,
+  )("%s, %j, owner llms.txt %s, owner llms-full.txt %s", async (_label, overwrite, ownerTxt, ownerFull, keepTxt, keepFull) => {
+    if (ownerTxt) {
+      put(join(site, "public", "llms.txt"), "OWNER\n");
+      put(join(dist, "llms.txt"), "OWNER\n");
+    }
+    if (ownerFull) {
+      put(join(site, "public", "llms-full.txt"), "OWNER\n");
+      put(join(dist, "llms-full.txt"), "OWNER\n");
+    }
+    const { logger, build } = await plugin(overwrite === undefined ? undefined : { overwrite });
+    await build(publicUrl());
+    const read = (name: string) =>
+      existsSync(join(dist, name)) ? readFileSync(join(dist, name), "utf-8") : null;
+    expect(read("llms.txt")).toBe(keepTxt ? "OWNER\n" : "GENERATED-LLMS\n");
+    expect(read("llms-full.txt")).toBe(keepFull ? "OWNER\n" : "GENERATED-FULL\n");
+    const keeps = infos(logger).filter((m) => m.includes("Keeping"));
+    expect(keeps).toHaveLength(Number(keepTxt) + Number(keepFull));
+    expect(keeps.some((m) => m.includes("public/llms.txt"))).toBe(keepTxt);
+    expect(keeps.some((m) => m.includes("public/llms-full.txt"))).toBe(keepFull);
+    if (keepTxt && keepFull) {
+      expect(calls()).toHaveLength(0);
+    } else {
+      expect(calls()).toHaveLength(1);
+      const fmt = keepTxt ? "full" : keepFull ? "llms-txt" : "llms-txt,full";
+      expect(calls()[0]).toContain(`--format ${fmt} `);
+    }
+  });
+
+  it("ignores unknown names in an overwrite list", async () => {
+    put(join(site, "public", "llms.txt"), "OWNER\n");
+    put(join(dist, "llms.txt"), "OWNER\n");
+    const { build } = await plugin({ overwrite: ["robots.txt"] });
+    await build(publicUrl());
+    expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+  });
+
   it("regenerates llms.txt over public/llms.txt when called with overwrite: true", async () => {
     put(join(site, "public", "llms.txt"), "OWNER\n");
     put(join(dist, "llms.txt"), "OWNER\n");
@@ -193,7 +248,7 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     expect(infos(logger).some((m) => m.includes("Keeping"))).toBe(false);
   });
 
-  it("treats only overwrite === true as overwrite", async () => {
+  it("treats only overwrite === true or an array as overwrite", async () => {
     put(join(site, "public", "llms.txt"), "OWNER\n");
     put(join(dist, "llms.txt"), "OWNER\n");
     const { build } = await plugin({ overwrite: "yes" as unknown as boolean });
@@ -231,6 +286,88 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     const { build } = await plugin();
     await build();
     expect(readFileSync(join(dist, "llms.txt"), "utf-8")).toBe("OWNER\n");
+  });
+
+  describe("w2agent-build.mjs", () => {
+    function script(args: string[]) {
+      const p = join(dir, "w2agent-build.mjs");
+      writeFileSync(p, emitted("astro/w2agent-build.mjs").content);
+      return execFileSync(process.execPath, [p, ...args], {
+        cwd: site,
+        env: { ...process.env, SITE_URL: BASE },
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+    }
+    const pub = (name: string) => join(site, "public", name);
+    const read = (name: string) =>
+      existsSync(pub(name)) ? readFileSync(pub(name), "utf-8") : null;
+    const seedOwner = (txt: boolean, full: boolean) => {
+      mkdirSync(join(site, "public"), { recursive: true });
+      if (txt) writeFileSync(pub("llms.txt"), "OWNER\n");
+      if (full) writeFileSync(pub("llms-full.txt"), "OWNER\n");
+    };
+
+    const scriptMatrix: [string[], boolean, boolean, boolean, boolean][] = [
+      [[], false, false, false, false],
+      [[], true, false, true, false],
+      [[], false, true, false, true],
+      [[], true, true, true, true],
+      [["--overwrite"], false, false, false, false],
+      [["--overwrite"], true, false, false, false],
+      [["--overwrite"], false, true, false, false],
+      [["--overwrite"], true, true, false, false],
+      [["--overwrite=llms-full.txt"], false, false, false, false],
+      [["--overwrite=llms-full.txt"], true, false, true, false],
+      [["--overwrite=llms-full.txt"], false, true, false, false],
+      [["--overwrite=llms-full.txt"], true, true, true, false],
+      [["--overwrite=llms.txt,llms-full.txt"], true, true, false, false],
+      [["--overwrite=llms.txt"], true, true, false, true],
+    ];
+
+    it.each(
+      scriptMatrix,
+    )("args %j, owner llms.txt %s, owner llms-full.txt %s: keeps llms.txt %s, keeps llms-full.txt %s", (args, ownerTxt, ownerFull, keepTxt, keepFull) => {
+      seedOwner(ownerTxt, ownerFull);
+      const out = script(args);
+      expect(read("llms.txt")).toBe(keepTxt ? "OWNER\n" : "GENERATED-LLMS\n");
+      expect(read("llms-full.txt")).toBe(keepFull ? "OWNER\n" : "GENERATED-FULL\n");
+      expect(out.split("Keeping existing").length - 1).toBe(Number(keepTxt) + Number(keepFull));
+      if (keepTxt && keepFull) {
+        expect(calls()).toHaveLength(0);
+      } else {
+        expect(calls()).toHaveLength(1);
+        const fmt = keepTxt ? "full" : keepFull ? "llms-txt" : "llms-txt,full";
+        expect(calls()[0]).toContain(`--format ${fmt} `);
+        expect(calls()[0]).toContain("--output ./public/");
+      }
+    });
+
+    it("run twice: --overwrite refreshes the files it wrote, a plain run keeps them", () => {
+      seedOwner(false, false);
+      script(["--overwrite"]);
+      writeFileSync(pub("llms.txt"), "STALE\n");
+      writeFileSync(pub("llms-full.txt"), "STALE\n");
+      script(["--overwrite"]);
+      expect(read("llms.txt")).toBe("GENERATED-LLMS\n");
+      expect(read("llms-full.txt")).toBe("GENERATED-FULL\n");
+      writeFileSync(pub("llms.txt"), "STALE\n");
+      writeFileSync(pub("llms-full.txt"), "STALE\n");
+      const before = calls().length;
+      script([]);
+      expect(read("llms.txt")).toBe("STALE\n");
+      expect(read("llms-full.txt")).toBe("STALE\n");
+      expect(calls()).toHaveLength(before);
+    });
+
+    it("a plain first run writes both missing files, and a second plain run keeps them", () => {
+      seedOwner(false, false);
+      script([]);
+      expect(read("llms.txt")).toBe("GENERATED-LLMS\n");
+      writeFileSync(pub("llms.txt"), "STALE\n");
+      script([]);
+      expect(read("llms.txt")).toBe("STALE\n");
+    });
   });
 });
 
@@ -299,7 +436,21 @@ describe("emitted astro/INSTALL.md", () => {
     const src = emitted("astro/src/pages/llms.txt.ts").content;
     expect(src).toContain("needs an adapter");
     expect(src).toContain("export const prerender = false;");
-    expect(md).toContain("do not use it when you write `public/llms.txt` by hand");
+  });
+
+  it("describes the per-file keep for the integration and the prebuild script", () => {
+    const md = emitted("astro/INSTALL.md").content;
+    expect(md).not.toContain("do not use it when you write `public/llms.txt` by hand");
+    expect(md).not.toContain("replaces `public/llms.txt` and `public/llms-full.txt` on every run");
+    expect(md).toContain('w2agent({ overwrite: ["llms-full.txt"] })');
+    expect(md).toContain('w2agent({ overwrite: ["llms.txt"] })');
+    expect(md).toContain('"prebuild": "node w2agent-build.mjs --overwrite"');
+    expect(md).toContain("--overwrite=llms-full.txt");
+    expect(md).toContain("writes only the missing ones");
+    const integration = emitted("astro/w2agent-integration.mjs").content;
+    expect(integration).toContain('w2agent({ overwrite: ["llms-full.txt"] })');
+    const script = emitted("astro/w2agent-build.mjs").content;
+    expect(script).toContain("--overwrite=<names>");
   });
 
   it("manual step 2 passes overwrite: true after the step 1 seed copy and the diagram does not promise llms.txt", () => {

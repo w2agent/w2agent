@@ -145,9 +145,15 @@ describe("generated build scripts refresh llms.txt (NX-5, GEN-5)", () => {
         writeFileSync(join(project, target, "llms.txt"), STALE);
         const before = listFiles(project);
 
-        const { code, out } = await exec(process.execPath, ["w2agent-build.mjs"], project, {
-          SITE_URL: baseUrl,
-        });
+        const args = platform === "astro" ? ["--overwrite"] : [];
+        const { code, out } = await exec(
+          process.execPath,
+          ["w2agent-build.mjs", ...args],
+          project,
+          {
+            SITE_URL: baseUrl,
+          },
+        );
 
         expect(code).toBe(0);
         expect(out).toContain("Done. Files written");
