@@ -176,6 +176,20 @@ describe("Astro install resolver", () => {
       expect(prebuild).toContain(`"prebuild": "node w2agent-build.mjs --overwrite=${seed}"`);
     });
 
+    it.each([
+      "llms.txt",
+      "llms-full.txt",
+    ])("a directory at public/%s is no seed and no throw", (name) => {
+      writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
+      mkdirSync(join(tempDir, "public", name), { recursive: true });
+      const plan = resolveAstroInstall(makeAstroFiles(), tempDir);
+      expect(plan.platform).toBe("astro");
+      const integration = plan.postInstallSteps.find((s) => s.includes("integrations: [")) ?? "";
+      const other = name === "llms.txt" ? "llms-full.txt" : "llms.txt";
+      expect(integration).not.toContain("overwrite: true");
+      expect(integration).toContain(`overwrite: ["${other}"]`);
+    });
+
     it("an edited seed is the owner's file: plain steps", () => {
       writeFileSync(join(tempDir, "astro.config.mjs"), "export default defineConfig({});", "utf-8");
       mkdirSync(join(tempDir, "public"), { recursive: true });

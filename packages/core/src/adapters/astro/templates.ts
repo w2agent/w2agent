@@ -73,9 +73,9 @@ import { fileURLToPath } from "node:url";
 const FORMATS = { "llms.txt": "llms-txt", "llms-full.txt": "full" };
 
 export default function w2agentIntegration(options = {}) {
-  const given = options.overwrite;
+  const given = options.overwrite === void 0 ? false : options.overwrite;
   if (
-    given !== undefined && given !== false && given !== true &&
+    given !== false && given !== true &&
     !(Array.isArray(given) && given.every((name) => Object.keys(FORMATS).includes(name)))
   ) {
     throw new Error('w2agent: overwrite must be true, false or an array of "llms.txt" and "llms-full.txt"');

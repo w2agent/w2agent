@@ -241,6 +241,10 @@ if (formats.includes("full")) fs.writeFileSync(path.join(out, "llms-full.txt"), 
     );
   });
 
+  it("emits no undefined text in the integration", () => {
+    expect(emitted("astro/w2agent-integration.mjs").content).not.toContain("undefined");
+  });
+
   it("accepts overwrite: false and an empty list as none", async () => {
     put(join(site, "public", "llms.txt"), "OWNER\n");
     put(join(dist, "llms.txt"), "OWNER\n");

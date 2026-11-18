@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { GeneratedFile } from "../../generate/types.js";
 import { guardInstallActions, willWrite } from "../../install/guard.js";
@@ -122,9 +122,15 @@ export function resolveAstroInstall(files: GeneratedFile[], projectDir: string):
     if (willWrite(guarded.actions, `public/${name}`)) return true;
     const seed = platformFiles.find((f) => f.filename === `${prefix}public/${name}`);
     const current = join(projectDir, "public", name);
-    return (
-      seed !== undefined && existsSync(current) && readFileSync(current, "utf-8") === seed.content
-    );
+    try {
+      return (
+        seed !== undefined &&
+        statSync(current).isFile() &&
+        readFileSync(current, "utf-8") === seed.content
+      );
+    } catch {
+      return false;
+    }
   });
   const seedList = seeds.map((name) => `public/${name}`).join(" and ");
   const plural = seeds.length === 2;
