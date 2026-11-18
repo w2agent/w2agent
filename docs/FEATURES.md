@@ -356,7 +356,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details on running and extending i
 
 ```bash
 pnpm test                                        # Unit tests (~1s)
-pnpm --filter w2agent-core test:integration     # Integration tests (~75s)
+pnpm --filter @w2agent/core test:integration     # Integration tests (~75s)
 ```
 
 ### Manual

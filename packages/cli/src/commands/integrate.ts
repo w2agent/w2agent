@@ -1,8 +1,5 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import chalk from "chalk";
-import type { Command } from "commander";
-import ora from "ora";
 import {
   classifyHomepage,
   DEFAULT_GENERATE_OPTIONS,
@@ -13,7 +10,10 @@ import {
   type PlatformId,
   planInstall,
   runGenerate,
-} from "w2agent-core";
+} from "@w2agent/core";
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
 import {
   currentArgv,
   enterJsonMode,

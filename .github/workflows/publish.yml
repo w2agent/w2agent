@@ -18,9 +18,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: 24
           registry-url: https://registry.npmjs.org
+
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@^11.5.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -31,12 +33,13 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish w2agent-core
-        run: cd packages/core && npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Pack
+        run: |
+          cd packages/core && pnpm pack --pack-destination "$RUNNER_TEMP/core"
+          cd ../cli && pnpm pack --pack-destination "$RUNNER_TEMP/cli"
+
+      - name: Publish @w2agent/core
+        run: npm publish "$RUNNER_TEMP"/core/*.tgz --provenance --access public
 
       - name: Publish w2agent
-        run: cd packages/cli && npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "$RUNNER_TEMP"/cli/*.tgz --provenance --access public

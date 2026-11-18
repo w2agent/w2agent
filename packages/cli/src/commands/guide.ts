@@ -1,5 +1,5 @@
+import { GUIDES, type PlatformId } from "@w2agent/core";
 import { Argument, type Command } from "commander";
-import { GUIDES, type PlatformId } from "w2agent-core";
 import { enterJsonMode, failWith, jsonRequested } from "../agent/output.js";
 import { VALID_PLATFORMS } from "./integrate-support.js";
 

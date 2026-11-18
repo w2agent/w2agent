@@ -16,7 +16,13 @@ const read = (rel) => readFileSync(path.join(ROOT, rel), "utf8");
 const readJson = (rel) => JSON.parse(read(rel));
 const isDir = (p) => existsSync(p) && statSync(p).isDirectory();
 
-const DOCS = ["README.md", "README_CN.md", "docs/AGENT-PLAYBOOK.md", "skills/w2agent/SKILL.md"];
+const DOCS = [
+  "README.md",
+  "README_CN.md",
+  "docs/AGENT-PLAYBOOK.md",
+  "skills/w2agent/SKILL.md",
+  "packages/cli/README.md",
+];
 
 function parseFrontmatter(text) {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);

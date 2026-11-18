@@ -1,5 +1,5 @@
+import { AuditError, type EdgeEvidence, formatEdgeEvidenceLine } from "@w2agent/core";
 import { describe, expect, it } from "vitest";
-import { AuditError, type EdgeEvidence, formatEdgeEvidenceLine } from "w2agent-core";
 import { edgeEvidenceOf } from "../src/commands/audit.js";
 
 const EDGE: EdgeEvidence = {

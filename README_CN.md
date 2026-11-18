@@ -377,7 +377,7 @@ w2agent agent deploy <url> [options]
 
 ```
 packages/core     审计引擎、生成器、MCP 服务器构建器、平台适配器
-                  （发布为 w2agent-core）
+                  （发布为 @w2agent/core）
 packages/cli      CLI 工具——audit、generate、integrate、guide、agentize、mcp
                   （发布为 w2agent）
 ```
@@ -391,7 +391,7 @@ pnpm test           # 单元测试
 pnpm dev            # 开发模式（监听变更）
 
 # 集成测试——构建真实的平台项目并对其进行审计
-pnpm --filter w2agent-core test:integration
+pnpm --filter @w2agent/core test:integration
 ```
 
 贡献指南、测试架构及如何添加新平台，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。

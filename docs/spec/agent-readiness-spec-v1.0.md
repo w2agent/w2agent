@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Spec version | 1.2 |
-| Engine version | `RUBRIC_VERSION = "3.2"` in `packages/core/src/audit/types.ts`, exported from the `w2agent-core` package index |
+| Engine version | `RUBRIC_VERSION = "3.2"` in `packages/core/src/audit/types.ts`, exported from the `@w2agent/core` package index |
 | Status | Published 2026-09-17 (v1.0) · revised 2026-10-16 (v1.1, rubric 3.1) · revised 2026-11-17 (v1.2, rubric 3.2) |
 | Created | 2026-05-07 (v0.1) · rationale layer 2026-05-08 (v0.2) · rubric 3.0 update 2026-09-14 (v1.0-draft) · published 2026-09-17 (v1.0) · rubric 3.1 revision 2026-10-16 (v1.1) · rubric 3.2 revision 2026-11-17 (v1.2) |
-| Implements | `w2agent-core` 0.2.0 audit engine, rubric 3.2 |
+| Implements | `@w2agent/core` 0.2.0 audit engine, rubric 3.2 |
 | Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo ([github.com/w2agent/w2agent](https://github.com/w2agent/w2agent/blob/main/docs/spec/agent-readiness-spec-v1.0.md)); the w2agent platform renders a copy at `/methodology`, kept byte-identical by the platform's `scripts/sync-spec.ts` (`--check` exits non-zero when the copies differ) |
 | License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see [`docs/spec/LICENSE`](https://github.com/w2agent/w2agent/blob/main/docs/spec/LICENSE). Engine code keeps the repo's own license |
 | Rubric changelog | `docs/RUBRIC-CHANGELOG.md` in the OSS repo: every check, weight and detection change per rubric version |
@@ -32,7 +32,7 @@
 
 ## 2. Versioning
 
-The implemented rubric is identified by a single string constant `RUBRIC_VERSION`, defined in `packages/core/src/audit/types.ts` and exported from the `w2agent-core` package index. Current value: **`"3.2"`**. The w2agent platform (a separate, private repo) imports it (`lib/rubric.ts`) and keeps no copy of its own.
+The implemented rubric is identified by a single string constant `RUBRIC_VERSION`, defined in `packages/core/src/audit/types.ts` and exported from the `@w2agent/core` package index. Current value: **`"3.2"`**. The w2agent platform (a separate, private repo) imports it (`lib/rubric.ts`) and keeps no copy of its own.
 
 Every score persisted by the platform in its `audit_history` table is tagged with the rubric version that produced it. Successful-audit rows written since platform migration `0029` also store each check's `{ status, score }` in `check_results`. This is the basis for "are we improving?" — comparisons are valid only when the rubric version is held constant. A comparison across versions runs both engines on the same sites (platform `scripts/rescore-all.ts --rubric-compare`).
 

@@ -381,7 +381,7 @@ See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
 
 ```
 packages/core     Audit engine, generators, MCP server builder, platform adapters
-                  (published as w2agent-core)
+                  (published as @w2agent/core)
 packages/cli      CLI tool — audit, generate, integrate, guide, agentize, mcp
                   (published as w2agent)
 packages/nuxt      Installable Nuxt module — auto-serves llms.txt, agent-card.json, webhook
@@ -399,7 +399,7 @@ pnpm test           # Unit tests
 pnpm dev            # Dev mode (watch)
 
 # Integration tests — builds real platform projects and audits them
-pnpm --filter w2agent-core test:integration
+pnpm --filter @w2agent/core test:integration
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide, testing architecture, and how to add new platforms.

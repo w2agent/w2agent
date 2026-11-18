@@ -1,5 +1,5 @@
+import type { AuditReport, LetterGrade } from "@w2agent/core";
 import chalk from "chalk";
-import type { AuditReport, LetterGrade } from "w2agent-core";
 
 const PLATFORM_NAMES: Record<string, string> = {
   wordpress: "WordPress",

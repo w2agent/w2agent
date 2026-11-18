@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "@w2agent/core";
 import chalk from "chalk";
 import type { Command } from "commander";
 import ora from "ora";
-import { type GenerateOptions, runGenerate, type SelfHostPlatform } from "w2agent-core";
 import { failWith } from "../agent/output.js";
 import { apiUrlProblem, getApiUrl, isHeaderSafeToken } from "../auth.js";
 

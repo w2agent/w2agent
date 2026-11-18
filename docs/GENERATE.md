@@ -296,7 +296,7 @@ Returns a `GenerateResult` JSON with all generated files and `platform` detectio
 ## Programmatic Use
 
 ```typescript
-import { runGenerate } from "w2agent-core";
+import { runGenerate } from "@w2agent/core";
 
 const result = await runGenerate("https://example.com", {
   maxPages: 20,

@@ -89,7 +89,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv.includes("--check")) {
     if (readFileSync(OUTPUT, "utf8") !== next) {
       console.error(
-        "guides.generated.ts is stale against skills/w2agent/references/checks/*.md. Run: pnpm --filter w2agent-core gen:guides",
+        "guides.generated.ts is stale against skills/w2agent/references/checks/*.md. Run: pnpm --filter @w2agent/core gen:guides",
       );
       process.exit(1);
     }

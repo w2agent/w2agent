@@ -1,5 +1,5 @@
 import { relative, resolve } from "node:path";
-import type { GeneratedFile, InstallPlan, PlatformId } from "w2agent-core";
+import type { GeneratedFile, InstallPlan, PlatformId } from "@w2agent/core";
 
 export const VALID_PLATFORMS: readonly PlatformId[] = [
   "wordpress",

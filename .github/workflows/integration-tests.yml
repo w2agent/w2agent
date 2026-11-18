@@ -48,7 +48,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build core
-        run: pnpm --filter w2agent-core build
+        run: pnpm --filter @w2agent/core build
 
       - name: Build Nuxt module
         run: pnpm --filter @w2agent/nuxt build
@@ -57,7 +57,7 @@ jobs:
         env:
           PATTERN: ${{ matrix.pattern }}
           NODE_ENV: test
-        run: pnpm --filter w2agent-core test:integration --reporter=verbose -t "$PATTERN"
+        run: pnpm --filter @w2agent/core test:integration --reporter=verbose -t "$PATTERN"
 
   integration-conformance:
     name: "Conformance (Node 22)"
@@ -77,12 +77,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build core
-        run: pnpm --filter w2agent-core build
+        run: pnpm --filter @w2agent/core build
 
       - name: Build Nuxt module
         run: pnpm --filter @w2agent/nuxt build
 
       - name: Run conformance tests
-        run: 'pnpm --filter w2agent-core test:integration --reporter=verbose -t "integration: conformance"'
+        run: 'pnpm --filter @w2agent/core test:integration --reporter=verbose -t "integration: conformance"'
         env:
           NODE_ENV: test

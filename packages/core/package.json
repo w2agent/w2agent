@@ -1,5 +1,5 @@
 {
-  "name": "w2agent-core",
+  "name": "@w2agent/core",
   "version": "0.2.0",
   "license": "MIT",
   "description": "Core crawl and MCP generation engine for w2agent",

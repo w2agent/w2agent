@@ -12,7 +12,7 @@ pnpm build
 ## Project Structure
 
 ```
-packages/core     Audit engine, generators, platform adapters (published as w2agent-core)
+packages/core     Audit engine, generators, platform adapters (published as @w2agent/core)
 packages/cli      CLI tool (published as w2agent)
 ```
 
@@ -32,8 +32,8 @@ pnpm test           # Unit tests (all packages)
 
 ```bash
 pnpm test                                  # All unit tests
-pnpm --filter w2agent-core test           # Core package only
-pnpm --filter w2agent-core test -- -t "discovery"  # Single test file/pattern
+pnpm --filter @w2agent/core test           # Core package only
+pnpm --filter @w2agent/core test -- -t "discovery"  # Single test file/pattern
 ```
 
 ### Integration Tests
@@ -48,10 +48,10 @@ pnpm --filter w2agent-core test -- -t "discovery"  # Single test file/pattern
 6. Assert that audit checks pass (llms.txt exists, agent-card valid, etc.)
 
 ```bash
-pnpm --filter w2agent-core test:integration                    # All integration tests
-pnpm --filter w2agent-core test:integration -- -t "nextjs"     # Single platform
-pnpm --filter w2agent-core test:integration -- -t "negative"   # Negative tests only
-pnpm --filter w2agent-core test:integration -- -t "conformance" # Conformance suite
+pnpm --filter @w2agent/core test:integration                    # All integration tests
+pnpm --filter @w2agent/core test:integration -- -t "nextjs"     # Single platform
+pnpm --filter @w2agent/core test:integration -- -t "negative"   # Negative tests only
+pnpm --filter @w2agent/core test:integration -- -t "conformance" # Conformance suite
 ```
 
 Integration tests take ~75s locally. They're separated from unit tests via `vitest.integration.config.ts` so `pnpm test` stays fast.

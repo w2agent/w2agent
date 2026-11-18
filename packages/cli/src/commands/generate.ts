@@ -1,8 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import chalk from "chalk";
-import type { Command } from "commander";
-import ora from "ora";
 import {
   type AuditOptions,
   allChecks,
@@ -13,7 +10,10 @@ import {
   registerChecks,
   runAudit,
   runGenerate,
-} from "w2agent-core";
+} from "@w2agent/core";
+import chalk from "chalk";
+import type { Command } from "commander";
+import ora from "ora";
 
 export function registerGenerateCommand(program: Command): void {
   program

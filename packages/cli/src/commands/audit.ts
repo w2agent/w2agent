@@ -1,6 +1,4 @@
 import { writeFileSync } from "node:fs";
-import type { Command } from "commander";
-import ora from "ora";
 import {
   AuditError,
   type AuditOptions,
@@ -15,7 +13,9 @@ import {
   mergeConfigWithOptions,
   registerChecks,
   runAudit,
-} from "w2agent-core";
+} from "@w2agent/core";
+import type { Command } from "commander";
+import ora from "ora";
 import {
   currentArgv,
   enterJsonMode,

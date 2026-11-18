@@ -1,5 +1,5 @@
+import type { AuditReport, CheckResult } from "@w2agent/core";
 import { describe, expect, it } from "vitest";
-import type { AuditReport, CheckResult } from "w2agent-core";
 import { formatReport, formatVerboseReport } from "../src/output/terminal.js";
 
 function makeReport(overrides: Partial<AuditReport> = {}): AuditReport {

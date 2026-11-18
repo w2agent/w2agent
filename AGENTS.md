@@ -13,7 +13,7 @@ Everything below is for people changing w2agent itself.
 
 pnpm workspace with Turborepo. Node 18+ and pnpm 9.
 
-- `packages/core/`: audit engine, generators, platform adapters. Published as `w2agent-core`.
+- `packages/core/`: audit engine, generators, platform adapters. Published as `@w2agent/core`.
 - `packages/cli/`: the CLI. Published as `w2agent`. Depends on core through `workspace:*`.
 - `packages/astro`, `packages/docusaurus`, `packages/nuxt`: installable framework integrations.
 - `packages/wordpress`: PHP plugin (no build step).
@@ -30,11 +30,11 @@ Run from the repo root.
 | `pnpm install` | Install dependencies. |
 | `pnpm build` | Build core and cli (and every other package that has a build). |
 | `pnpm test` | All unit tests. Builds first. |
-| `pnpm --filter w2agent-core test -- -t "pattern"` | One core test or a group of tests by name. |
-| `pnpm --filter w2agent-core test:integration` | Integration tests. They build real platform projects and audit them. |
+| `pnpm --filter @w2agent/core test -- -t "pattern"` | One core test or a group of tests by name. |
+| `pnpm --filter @w2agent/core test:integration` | Integration tests. They build real platform projects and audit them. |
 | `pnpm test:agent-surfaces` | Validates `SKILL.md`, the plugin manifests and the version pins. Needs a built CLI (`pnpm build` first). |
 | `pnpm dev` | Watch mode. |
-| `pnpm --filter w2agent-core gen:guides` | Regenerate `guides.generated.ts` after editing `skills/w2agent/references/checks/*.md`. The build fails when it is stale. |
+| `pnpm --filter @w2agent/core gen:guides` | Regenerate `guides.generated.ts` after editing `skills/w2agent/references/checks/*.md`. The build fails when it is stale. |
 | `pnpm lint` | Biome check (what CI runs). |
 
 `pnpm lint:fix` and `pnpm format` run Biome with `--write` over everything Biome sees, including untracked directories. Prefer `pnpm exec biome check --write <paths>` on the files you changed.
@@ -62,10 +62,12 @@ CI runs `pnpm lint`, `pnpm test` and `pnpm test:agent-surfaces` on Node 22.
 
 ## Release
 
-Packages: `w2agent-core` and `w2agent`. A GitHub release triggers `.github/workflows/publish.yml`. It runs build and test, then publishes both packages to npm.
+Packages: `@w2agent/core` and `w2agent`. A GitHub release triggers `.github/workflows/publish.yml`. It runs build and test, packs both packages with `pnpm pack`, then publishes the tarballs to npm through npm trusted publishing (OIDC). No npm token is stored.
+
+Never run `npm publish` from a package directory: npm does not rewrite the `workspace:*` dependency on `@w2agent/core`. `pnpm pack` does.
 
 1. Bump `version` in `packages/cli/package.json` (and in `packages/core/package.json` when core changed).
-2. Update the pinned `w2agent@<version>` in `README.md`, `README_CN.md`, `docs/AGENT-PLAYBOOK.md` and `skills/w2agent/SKILL.md`. Also update the install pin in `packages/github-action/action.yml` and the `@vX.Y.Z` action ref in `packages/github-action/README.md`. `pnpm test` (the github-action package tests) fails until they match.
+2. Update the pinned `w2agent@<version>` in `README.md`, `README_CN.md`, `docs/AGENT-PLAYBOOK.md`, `skills/w2agent/SKILL.md` and `packages/cli/README.md`. Also update the install pin in `packages/github-action/action.yml` and the `@vX.Y.Z` action ref in `packages/github-action/README.md`. `pnpm test` (the github-action package tests) fails until they match.
 3. Update `version` in `.claude-plugin/plugin.json` and the root `plugin.json`.
 4. Run `pnpm test:agent-surfaces`. It fails until every pin matches the CLI version.
 5. Merge, then `gh release create vX.Y.Z`.

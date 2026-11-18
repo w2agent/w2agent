@@ -1,6 +1,6 @@
 # Rubric Changelog
 
-`RUBRIC_VERSION` is exported from `w2agent-core` and stamped on every `AuditReport.rubricVersion`. Check ids, categories and weights below are read from `allChecks`; per-check detail lives in [CHECKS.md](CHECKS.md).
+`RUBRIC_VERSION` is exported from `@w2agent/core` and stamped on every `AuditReport.rubricVersion`. Check ids, categories and weights below are read from `allChecks`; per-check detail lives in [CHECKS.md](CHECKS.md).
 
 ## Versioning rules
 
