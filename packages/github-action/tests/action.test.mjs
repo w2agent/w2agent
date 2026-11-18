@@ -339,6 +339,38 @@ describe("Action test workflow runs the checked-out CLI", () => {
     });
   }
 
+  describe("a pull request reaches the action from exactly one job", () => {
+    const admits = (expr, ev) => {
+      const model = {
+        "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository":
+          (e) => e.name !== "pull_request" || e.headRepo === e.repo,
+        "github.event_name != 'pull_request'": (e) => e.name !== "pull_request",
+      };
+      assert.ok(model[expr], `unmodelled job if: ${expr}`);
+      return model[expr](ev);
+    };
+    const reaches = (ev) =>
+      Object.entries(wf.jobs)
+        .filter(([, job]) => job.steps.some((x) => x.uses === "./packages/github-action"))
+        .filter(([, job]) => admits(job.if, ev))
+        .map(([name]) => name);
+
+    it("runs one job on a same-repo pull_request", () => {
+      assert.equal(reaches({ name: "pull_request", headRepo: "o/r", repo: "o/r" }).length, 1);
+    });
+
+    it("runs no job on a fork pull_request", () => {
+      assert.deepEqual(reaches({ name: "pull_request", headRepo: "f/r", repo: "o/r" }), []);
+    });
+
+    it("runs both jobs on workflow_dispatch", () => {
+      assert.deepEqual(reaches({ name: "workflow_dispatch", repo: "o/r" }).sort(), [
+        "audit-only",
+        "full",
+      ]);
+    });
+  });
+
   it("keeps the pin equal to the CLI version the workflow asserts", () => {
     assert.match(step("Install w2agent").run, new RegExp(`"${version.replaceAll(".", "\\.")}"`));
   });

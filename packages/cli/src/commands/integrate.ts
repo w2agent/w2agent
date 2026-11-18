@@ -397,9 +397,14 @@ export function registerIntegrateCommand(program: Command): void {
           console.log(chalk.gray(`  ${"─".repeat(40)}`));
           console.log("");
           console.log(`  URL: ${chalk.cyan(url)}`);
-          console.log(
-            `  Platform: ${chalk.magenta(platformName)}${result.platform ? ` (${Math.round(result.platform.confidence * 100)}% confidence)` : " (manual)"}`,
-          );
+          const detected = result.platform;
+          let platformNote: string;
+          if (!detected) platformNote = " (forced)";
+          else if (detected.platform === platformId)
+            platformNote = ` (${Math.round(detected.confidence * 100)}% confidence)`;
+          else
+            platformNote = ` (forced; detected ${PLATFORM_NAMES[detected.platform as PlatformId] || detected.platform})`;
+          console.log(`  Platform: ${chalk.magenta(platformName)}${platformNote}`);
           console.log(`  Time: ${(result.duration / 1000).toFixed(1)}s`);
           console.log("");
           console.log("  Integration files:");

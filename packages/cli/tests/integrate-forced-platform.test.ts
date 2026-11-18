@@ -116,6 +116,53 @@ describe("built CLI: integrate --platform shopify uses the crawled pages", () =>
     expect(existsSync(join(out, "nextjs"))).toBe(false);
   });
 
+  function platformLine(stdout: string): string {
+    return stdout.split("\n").find((l) => l.includes("Platform:")) ?? "";
+  }
+
+  it("a forced platform equal to the detected one keeps the confidence", async () => {
+    const r = await run([
+      "integrate",
+      origin(nextSite),
+      "--platform",
+      "nextjs",
+      "--output",
+      outDir(),
+    ]);
+    expect(r.code).toBe(0);
+    expect(platformLine(r.stdout)).toMatch(/Platform: Next\.js \(\d+% confidence\)/);
+  });
+
+  it("a forced platform that differs from the detected one shows no confidence and names the detected one", async () => {
+    const r = await run([
+      "integrate",
+      origin(nextSite),
+      "--platform",
+      "astro",
+      "--output",
+      outDir(),
+    ]);
+    expect(r.code).toBe(0);
+    const line = platformLine(r.stdout);
+    expect(line).toContain("Platform: Astro (forced; detected Next.js)");
+    expect(line).not.toContain("confidence");
+  });
+
+  it("a forced platform with nothing detected says forced", async () => {
+    const r = await run([
+      "integrate",
+      origin(dead),
+      "--platform",
+      "shopify",
+      "--output",
+      outDir(),
+      "--timeout",
+      "3000",
+    ]);
+    expect(r.code).toBe(0);
+    expect(platformLine(r.stdout)).toMatch(/Platform: Shopify \(forced\)\s*$/);
+  });
+
   it("a zero-page crawl with a forced platform still writes the scaffolding", async () => {
     const out = outDir();
     const r = await run([

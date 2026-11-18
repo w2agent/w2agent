@@ -153,28 +153,28 @@ The template and robots manual actions name `w2agent integrate <url> --platform 
 
 ## Testing
 
-### Unit tests (352 tests across 19 test files)
+### Unit tests
 
-- `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths (24 tests)
-- `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall (20 tests)
-- `tests/install-nextjs.test.ts` — project check, src/app, pages-router, middleware merge, existing files, public/ conflicts (24 tests)
-- `tests/install-nextjs-conventions.test.ts` — proxy vs middleware by Next version, existing proxy, JS-only projects (installed files parsed by Node), `cacheComponents` (41 tests)
-- `tests/install-nextjs-placement.test.ts` — `src/` placement of middleware/proxy/component and merge copies, `output: "export"`, staged robots.txt and its manual action, planner dedupe (24 tests)
-- `tests/install-nextjs-gate-fix1.test.ts` — root edge file in a `src/app` project, `tsx`/`jsx` edge files, static export with `cacheComponents`, the whole-value `: false` rule, `app/robots.txt`, upper-bound-only ranges, conditional static export (42 tests)
-- `tests/nextjs-prebuild-docs.test.ts` — `prebuild` step, script header and INSTALL.md wording (3 tests)
-- `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall` (13 tests)
-- `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware (10 tests)
-- `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`) (18 tests)
-- `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording (16 tests)
-- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection, integration step wording for a written or kept seed (13 tests)
-- `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), emitted `w2agent-integration.mjs` run with a fake `npx` (keeps `public/llms.txt`, `overwrite`, `publicDir`), INSTALL.md wording (16 tests)
-- `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases (22 tests)
-- `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note (14 tests)
-- `tests/install-wordpress.test.ts` — WP root, existing plugin, older generated plugin, standalone beside it, `WP_PLUGIN_DIR` forms (24 tests)
-- `tests/install-wordpress-reader.test.ts` — wp-config reader: heredoc labels with high bytes, single-quoted escapes, drive and UNC paths (win32 branch via `path.win32`), interpolation blocks, inline HTML, text before the first open tag (44 tests)
-- `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro prebuild step (12 tests)
-- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus plugin and clientModules steps, executor `failed`, physical `..` resolution, interpolated-string refusal (19 tests)
-- `tests/install-shopify.test.ts` — snippet-only writes, manual actions, render/push steps, re-run skips (11 tests)
+- `tests/install-guard.test.ts` — guard, executor safety (no overwrite, containment, symlinks, races), plan/dry-run parity, broken parent paths
+- `tests/install-planner.test.ts` — framework: fallback planner, custom resolveInstall
+- `tests/install-nextjs.test.ts` — project check, src/app, pages-router, middleware merge, existing files, public/ conflicts
+- `tests/install-nextjs-conventions.test.ts` — proxy vs middleware by Next version, existing proxy, JS-only projects (installed files parsed by Node), `cacheComponents`
+- `tests/install-nextjs-placement.test.ts` — `src/` placement of middleware/proxy/component and merge copies, `output: "export"`, staged robots.txt and its manual action, planner dedupe
+- `tests/install-nextjs-gate-fix1.test.ts` — root edge file in a `src/app` project, `tsx`/`jsx` edge files, static export with `cacheComponents`, the whole-value `: false` rule, `app/robots.txt`, upper-bound-only ranges, conditional static export
+- `tests/nextjs-prebuild-docs.test.ts` — `prebuild` step, script header and INSTALL.md wording
+- `tests/install-resolver-guard.test.ts` — post-install steps and merge text follow the guarded actions in every resolver; public/ route conflicts through `planInstall`
+- `tests/install-nuxt.test.ts` — Nuxt 2/3, server routes, middleware
+- `tests/install-nuxt-placement.test.ts` — local module install, WebMCP plugin `srcDir` placement (Nuxt 3/4, `app/`, `compatibilityVersion`, explicit `srcDir`)
+- `tests/nuxt-emitted-files.test.ts` — emitted routes and module executed in real h3 (build-time content, 404 when absent) and the INSTALL.md/build-script wording
+- `tests/install-astro.test.ts` — static/SSR/hybrid, config detection, integration step wording for a written or kept seed
+- `tests/astro-emitted-files.test.ts` — every emitted `.mjs` parsed, MCP webhook integration run with a failing fetch, emitted `llms.txt.ts` endpoint evaluated (404 without the file, no embedded site URL), emitted `w2agent-integration.mjs` run with a fake `npx` (keeps `public/llms.txt`, `overwrite`, `publicDir`), INSTALL.md wording
+- `tests/docusaurus-emitted-files.test.ts` — emitted plugin run against a loaded-content fixture (URLs, unlisted/old versions, kept static `llms.txt`, `overwrite`), WebMCP module evaluated with and without a DOM, every emitted `.js` parsed, trailingSlash and `overwrite` cases
+- `tests/install-docusaurus.test.ts` — plugin config, clientModules step, seed-file note
+- `tests/install-wordpress.test.ts` — WP root, existing plugin, older generated plugin, standalone beside it, `WP_PLUGIN_DIR` forms
+- `tests/install-wordpress-reader.test.ts` — wp-config reader: heredoc labels with high bytes, single-quoted escapes, drive and UNC paths (win32 branch via `path.win32`), interpolation blocks, inline HTML, text before the first open tag
+- `tests/install-wiring.test.ts` — robots.txt manual action, Astro component placement and mount step, Astro prebuild step
+- `tests/install-gate-fix1.test.ts` — WordPress robots/symlink/string/`.` handling, Docusaurus plugin and clientModules steps, executor `failed`, physical `..` resolution, interpolated-string refusal
+- `tests/install-shopify.test.ts` — snippet-only writes, manual actions, render/push steps, re-run skips
 
 All tests use temp directories with fixture files — fast, no network.
 
