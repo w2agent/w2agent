@@ -147,6 +147,15 @@ describe("local-business-hours-jsonld", () => {
     expect(result).toMatchObject({ status: "pass", score: 100 });
   });
 
+  it("passes when openingHoursSpecification is a single object", () => {
+    const html = `<html><head><script type="application/ld+json">
+      {"@context":"https://schema.org","@type":"LocalBusiness","name":"Test Business",
+       "openingHoursSpecification":{"@type":"OpeningHoursSpecification","dayOfWeek":"Monday","opens":"09:00","closes":"17:00"}}
+    </script></head><body></body></html>`;
+    const result = localBusinessHoursJsonLd.run([makePage(html)], baseMeta);
+    expect(result).toMatchObject({ status: "pass", score: 100 });
+  });
+
   it("fails when JSON-LD LocalBusiness found but no hours", () => {
     const html = makeLocalBusinessHtml({});
     const result = localBusinessHoursJsonLd.run([makePage(html)], baseMeta);

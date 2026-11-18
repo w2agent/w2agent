@@ -344,6 +344,14 @@ Options:
 ```
 
 ```
+w2agent guide <guide-id> [options]
+
+Options:
+  -p, --platform <platform>  Add the framework section: wordpress, nextjs, shopify, docusaurus, nuxt, astro
+  --json                     One JSON document on stdout (the guide, or an error envelope)
+```
+
+```
 w2agent login [options]
 
 Options:
@@ -356,7 +364,7 @@ Options:
 w2agent schema      Print all commands and options as JSON
 ```
 
-Exit codes for `audit`, `integrate`, `login` and `schema`: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
+Exit codes for `audit`, `integrate`, `guide`, `login` and `schema`: 0 success, 1 operational error (including `--ci` below threshold), 2 usage error. See [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md) for the `--json` contract.
 
 ```
 w2agent agent deploy <url> [options]
@@ -374,7 +382,7 @@ See [docs/GENERATE.md](docs/GENERATE.md) for detailed generation reference.
 ```
 packages/core     Audit engine, generators, MCP server builder, platform adapters
                   (published as w2agent-core)
-packages/cli      CLI tool — audit, generate, integrate, agentize, mcp
+packages/cli      CLI tool — audit, generate, integrate, guide, agentize, mcp
                   (published as w2agent)
 packages/nuxt      Installable Nuxt module — auto-serves llms.txt, agent-card.json, webhook
                    (published as @w2agent/nuxt)

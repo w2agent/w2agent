@@ -39,7 +39,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "gen:guides": "node scripts/gen-guides.mjs",
+    "build": "node scripts/gen-guides.mjs --check && tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",

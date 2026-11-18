@@ -349,3 +349,97 @@ test(".claude-plugin manifests have the expected field types", () => {
     assert.ok(isStr(entry.source), "marketplace entry source");
   }
 });
+
+const CORE = path.resolve(
+  process.env.AGENT_SURFACES_CORE ?? path.join(ROOT, "packages/core/dist/index.js"),
+);
+const GUIDE_DIR = "skills/w2agent/references/checks";
+const GUIDE_SECTIONS = [
+  "Passes when",
+  "Who fixes it",
+  "Fix (any framework)",
+  "Next.js (App Router)",
+  "Pitfalls",
+  "Verify",
+];
+
+function readGuides() {
+  return readdirSync(path.join(ROOT, GUIDE_DIR))
+    .filter((f) => f.endsWith(".md"))
+    .sort()
+    .map((file) => {
+      const text = read(`${GUIDE_DIR}/${file}`);
+      const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+      assert.ok(m, `${file}: missing front matter`);
+      const checks = [
+        ...(m[1].match(/^checks:\s*\r?\n((?:\s+-\s+\S+\r?\n?)+)/m)?.[1] ?? "").matchAll(
+          /-\s+(\S+)/g,
+        ),
+      ].map((x) => x[1]);
+      const headings = [];
+      let fenced = false;
+      for (const line of text.split(/\r?\n/)) {
+        if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+        else if (!fenced && line.startsWith("## ")) headings.push(line.slice(3).trim());
+      }
+      return {
+        file,
+        id: m[1].match(/^id:\s*(\S+)\s*$/m)?.[1],
+        fixBy: m[1].match(/^fixBy:\s*(\S+)\s*$/m)?.[1],
+        checks,
+        headings,
+      };
+    });
+}
+
+test("fix guides follow the guide file contract", () => {
+  const guides = readGuides();
+  assert.ok(guides.length > 0, "no guides found");
+  for (const g of guides) {
+    assert.equal(g.id, g.file.slice(0, -3), `${g.file}: id must equal the file name`);
+    assert.ok(["agent", "owner", "integrate"].includes(g.fixBy), `${g.file}: fixBy ${g.fixBy}`);
+    assert.ok(g.checks.length > 0, `${g.file}: checks is empty`);
+    const expected = GUIDE_SECTIONS.filter(
+      (s) => s !== "Next.js (App Router)" || g.headings.includes(s),
+    );
+    assert.deepEqual(g.headings, expected, `${g.file}: sections out of contract order`);
+  }
+});
+
+test("guide map, guide files and the audit registry agree", async () => {
+  const { CHECK_GUIDES, GUIDES, allChecks, allAdapters, getSiteTypeChecks } = await import(CORE);
+  const siteTypes = ["ecommerce", "local-business"];
+  const registry = new Set(
+    [
+      ...allChecks,
+      ...allAdapters().flatMap((a) => a.checks),
+      ...siteTypes.flatMap((t) => getSiteTypeChecks(t)),
+    ].map((c) => c.id),
+  );
+  for (const id of ["nextjs-well-known-served", "local-business-nap-structured"]) {
+    assert.ok(registry.has(id), `registry is missing ${id}`);
+  }
+  const guides = readGuides();
+  const byId = new Map(guides.map((g) => [g.id, g]));
+
+  for (const [checkId, guideId] of Object.entries(CHECK_GUIDES)) {
+    const g = byId.get(guideId);
+    assert.ok(g, `map sends ${checkId} to missing guide ${guideId}`);
+    assert.ok(g.checks.includes(checkId), `guide ${guideId} does not list ${checkId}`);
+  }
+  for (const g of guides) {
+    for (const checkId of g.checks) {
+      assert.ok(registry.has(checkId), `guide ${g.id} lists unknown check ${checkId}`);
+      assert.equal(
+        CHECK_GUIDES[checkId],
+        g.id,
+        `check ${checkId} of guide ${g.id} is not in the map`,
+      );
+    }
+  }
+  assert.deepEqual(
+    GUIDES.map((g) => ({ id: g.id, checks: g.checks, fixBy: g.fixBy })),
+    guides.map((g) => ({ id: g.id, checks: g.checks, fixBy: g.fixBy })),
+    "built core bundles guides that differ from the files; run pnpm build",
+  );
+});

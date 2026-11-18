@@ -132,7 +132,7 @@ describe("generated build scripts refresh llms.txt (NX-5, GEN-5)", () => {
 
   for (const { platform, target } of scriptCases) {
     it.skipIf(skip)(
-      `${platform} w2agent-build.mjs writes llms.txt and llms-full.txt into ${target}/ and nothing else`,
+      `${platform} w2agent-build.mjs writes llms.txt and llms-full.txt (and the Next.js home index.md) into ${target}/ and nothing else`,
       async () => {
         const marker = `Marker ${platform} Refresh`;
         const emitted = await emit(platform, marker);
@@ -161,7 +161,15 @@ describe("generated build scripts refresh llms.txt (NX-5, GEN-5)", () => {
         expect(
           readFileSync(join(project, target, "llms-full.txt"), "utf-8").length,
         ).toBeGreaterThan(0);
-        expect(listFiles(project)).toEqual([...before, `${target}/llms-full.txt`].sort());
+        const written = [`${target}/llms-full.txt`];
+        if (platform === "nextjs") {
+          const home = readFileSync(join(project, target, "index.md"), "utf-8");
+          expect(home).toMatch(new RegExp(`^# ${marker}\\n`));
+          expect(home).toContain("Hello");
+          expect(home).not.toContain("---");
+          written.push(`${target}/index.md`);
+        }
+        expect(listFiles(project)).toEqual([...before, ...written].sort());
       },
       120000,
     );

@@ -11,6 +11,7 @@ export type Reason =
   | "unknown_failure"
   | "invalid_url"
   | "invalid_argument"
+  | "unknown_guide"
   | "no_platform_detected"
   | "not_a_project"
   | "auth_required"
@@ -31,6 +32,7 @@ export const REASONS: Record<Reason, ReasonInfo> = {
   unknown_failure: { userActionRequired: false, retryable: false, exitCode: EXIT.operational },
   invalid_url: { userActionRequired: false, retryable: false, exitCode: EXIT.usage },
   invalid_argument: { userActionRequired: false, retryable: false, exitCode: EXIT.usage },
+  unknown_guide: { userActionRequired: false, retryable: false, exitCode: EXIT.usage },
   no_platform_detected: { userActionRequired: true, retryable: false, exitCode: EXIT.operational },
   not_a_project: { userActionRequired: true, retryable: false, exitCode: EXIT.operational },
   auth_required: { userActionRequired: true, retryable: false, exitCode: EXIT.operational },

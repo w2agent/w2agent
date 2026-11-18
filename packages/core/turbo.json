@@ -2,11 +2,15 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/skills/w2agent/references/checks/*.md"]
+    },
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/nuxt/src/runtime/server/middleware/content-negotiation.ts",
-        "$TURBO_ROOT$/.github/workflows/integration-tests.yml"
+        "$TURBO_ROOT$/.github/workflows/integration-tests.yml",
+        "$TURBO_ROOT$/skills/w2agent/references/checks/*.md"
       ]
     }
   }

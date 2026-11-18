@@ -14,6 +14,7 @@ import {
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAgentizeCommand, registerDeployCommand } from "./commands/deploy.js";
 import { registerGenerateCommand } from "./commands/generate.js";
+import { registerGuideCommand } from "./commands/guide.js";
 import { registerIntegrateCommand } from "./commands/integrate.js";
 import {
   registerLoginCommand,
@@ -76,6 +77,7 @@ registerAuditCommand(program);
 registerAgentizeCommand(program);
 registerDeployCommand(program);
 registerGenerateCommand(program);
+registerGuideCommand(program);
 registerIntegrateCommand(program);
 registerMcpCommand(program);
 registerLoginCommand(program);

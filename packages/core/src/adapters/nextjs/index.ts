@@ -15,6 +15,24 @@ import {
   WEBHOOK_ROUTE_PATH,
 } from "./templates.js";
 
+function normalizedPath(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    return undefined;
+  }
+}
+
+function homeMarkdown(ctx: GenerateContext): string | undefined {
+  const start = normalizedPath(ctx.startUrl ?? ctx.baseUrl) ?? "/";
+  const home = ctx.pages.find((p) => normalizedPath(p.url) === start);
+  if (!home) return undefined;
+  const body = home.markdown.trim();
+  if (!body) return undefined;
+  const heading = home.title && !/^# /.test(body) ? `# ${home.title}\n\n` : "";
+  return `${heading}${body}\n`;
+}
+
 export const nextjsAdapter: PlatformAdapter = {
   id: "nextjs",
   name: "Next.js",
@@ -70,7 +88,13 @@ export const nextjsAdapter: PlatformAdapter = {
     const llmsFullTxt = coreFiles.find((f) => f.filename === "llms-full.txt")?.content || "";
     const agentCard = coreFiles.find((f) => f.filename === "agent-card.json")?.content;
 
-    const files = generateNextjsIntegration(llmsTxt, llmsFullTxt, agentCard, ctx.baseUrl);
+    const files = generateNextjsIntegration(
+      llmsTxt,
+      llmsFullTxt,
+      agentCard,
+      ctx.baseUrl,
+      homeMarkdown(ctx),
+    );
 
     if (coreFiles.some((f) => f.filename.startsWith("mcp-server/"))) {
       const webhookRoute = nextjsWebhookRouteSource("ts");

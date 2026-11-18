@@ -1,6 +1,6 @@
 # CLI Agent Mode
 
-Contract reference for scripts and AI agents that run `w2agent`. Add `--json` to `audit`, `integrate` and `login` to get one machine-readable document on stdout and a stable exit code.
+Contract reference for scripts and AI agents that run `w2agent`. Add `--json` to `audit`, `integrate`, `guide` and `login` to get one machine-readable document on stdout and a stable exit code.
 
 ## When to use `--json`
 
@@ -17,7 +17,7 @@ One exception: `--help` and `--version` print plain text even with `--json`, and
 
 ## Exit codes
 
-These codes apply to `audit`, `integrate`, `login` and `schema`, with or without `--json`.
+These codes apply to `audit`, `integrate`, `guide`, `login` and `schema`, with or without `--json`.
 
 | Code | Meaning |
 |------|---------|
@@ -49,6 +49,34 @@ w2agent audit http://127.0.0.1:<port> --json
 ```
 
 With `--ci --json` and a score under the threshold, the output is the `below_threshold` error envelope instead of the report.
+
+A check result whose status is not `pass`, and a `topIssues` entry for it, may carry two more fields when a fix guide covers the check:
+
+| Field | Meaning |
+|-------|---------|
+| `guide` | Guide id. Run `w2agent guide <guide>` to read it. |
+| `fixBy` | `agent`, `owner` or `integrate`: who should act. It is a platform-blind default copied from the guide. The guide's framework section takes precedence. |
+
+Checks that no guide covers have neither field.
+
+### `guide <guide-id> --json`
+
+```bash
+w2agent guide sitemap --platform nextjs --json
+```
+
+```json
+{
+  "ok": true,
+  "id": "sitemap",
+  "checks": ["sitemap-exists"],
+  "fixBy": "agent",
+  "platform": "nextjs",
+  "markdown": "…"
+}
+```
+
+`platform` is `null` when `--platform` is not given. `markdown` is exactly what the text mode prints, including the YAML front matter. Without `--json` the command prints the Markdown. Without `--platform` that is the whole file. With `--platform <id>` it is the framework-independent sections plus only that framework's section (today only `nextjs` has one). When the guide has no section for that platform, the output ends with a one-line note saying so, and no other framework's section is shown. Valid guide ids are in `w2agent schema` (`choices` on the `guide` argument). `--platform` takes the same ids as `integrate`.
 
 ### `integrate <url> --json`
 
@@ -137,6 +165,7 @@ On failure, with `--json`, stdout holds:
 | `unknown_failure` | 1 | no | no | Read `message`. Includes a page that returned nothing readable. |
 | `invalid_url` | 2 | no | no | Fix the URL (also raised for a bad `--site-url`). |
 | `invalid_argument` | 2 | no | no | Fix the option. Run `w2agent schema` for valid flags and values. |
+| `unknown_guide` | 2 | no | no | `guide` got an id it does not have. Take a valid id from `w2agent schema` (`next` points there) or from the `guide` field of an audit result. |
 | `no_platform_detected` | 1 | yes | no | `integrate` could not detect the platform. Ask which one, then pick an entry in `next` (one per platform, with `--platform`). Human mode with `--install` or `--dry-run` also exits 1 and writes nothing. Without them it writes the core files to `--output` and exits 0. |
 | `not_a_project` | 1 | yes | no | `--project-dir` is missing, is not a project root for this platform, or the platform refused it (for example a Pages Router app). `--install` and `--dry-run` write nothing. Pass the right `--project-dir`. |
 | `auth_required` | 1 | yes | no | Login needs an API key (see [login in agent environments](#login-in-agent-environments)), or the server rejected the key you passed to `login --api-key`. Create a new key and retry. |
@@ -180,7 +209,7 @@ Every other mention of the crawl host is reported in `warnings` (on stderr in hu
 
 ## `w2agent schema`
 
-`w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). Read it instead of parsing `--help`. It exits 0, or 2 on a usage error.
+`w2agent schema` prints every command, argument and option as JSON (names, flags, defaults, whether a value is taken, whether it is required). An argument with a fixed set of values lists them as `choices`; for example the `guide` command lists every guide id. Read it instead of parsing `--help`. It exits 0, or 2 on a usage error.
 
 ## Secret values in output
 

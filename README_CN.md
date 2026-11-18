@@ -340,6 +340,14 @@ w2agent agentize <url> [options]
 ```
 
 ```
+w2agent guide <guide-id> [options]
+
+选项:
+  -p, --platform <platform>  追加框架章节：wordpress、nextjs、shopify、docusaurus、nuxt、astro
+  --json                     在 stdout 输出单个 JSON 文档（指南或错误信封）
+```
+
+```
 w2agent login [options]
 
 选项:
@@ -352,7 +360,7 @@ w2agent login [options]
 w2agent schema      以 JSON 输出所有命令和选项
 ```
 
-`audit`、`integrate`、`login` 和 `schema` 的退出码：0 成功，1 运行错误（包括 `--ci` 低于阈值），2 用法错误。`--json` 约定见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
+`audit`、`integrate`、`guide`、`login` 和 `schema` 的退出码：0 成功，1 运行错误（包括 `--ci` 低于阈值），2 用法错误。`--json` 约定见 [docs/CLI-AGENT-MODE.md](docs/CLI-AGENT-MODE.md)。
 
 ```
 w2agent agent deploy <url> [options]
@@ -370,7 +378,7 @@ w2agent agent deploy <url> [options]
 ```
 packages/core     审计引擎、生成器、MCP 服务器构建器、平台适配器
                   （发布为 w2agent-core）
-packages/cli      CLI 工具——audit、generate、integrate、agentize、mcp
+packages/cli      CLI 工具——audit、generate、integrate、guide、agentize、mcp
                   （发布为 w2agent）
 ```
 

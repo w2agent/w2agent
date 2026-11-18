@@ -46,6 +46,10 @@
     }
   },
   "files": {
-    "includes": ["**", "!packages/core/tests/fixtures/platforms"]
+    "includes": [
+      "**",
+      "!packages/core/tests/fixtures/platforms",
+      "!packages/core/src/audit/guides.generated.ts"
+    ]
   }
 }

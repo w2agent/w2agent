@@ -102,6 +102,7 @@ export function generateNextjsIntegration(
   llmsFullTxtContent: string,
   agentCardContent: string | undefined,
   siteUrl: string,
+  homeMarkdownContent?: string,
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
@@ -149,20 +150,24 @@ function generateLlmsTxtFromPages() {
 }
 `;
 
-  // Markdown twin of the homepage: the llms.txt content served as text/markdown
+  // Markdown twin of the homepage: .w2agent/index.md (the home page's own content), else the llms.txt content
   const indexMdRoute = `/* eslint-disable */
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 
 ${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
-  // Same content as /llms.txt: the generated file, or a minimal fallback
-  const filePath = path.join(process.cwd(), ".w2agent", "llms.txt");
+  // The home page as markdown, else the same content as /llms.txt, else a minimal fallback
+  const dir = path.join(process.cwd(), ".w2agent");
+  const homePath = path.join(dir, "index.md");
+  const llmsPath = path.join(dir, "llms.txt");
   const host = "${siteUrl}".replace(/^https?:\\/\\//, "");
-  const content = fs.existsSync(filePath)
-    ? fs.readFileSync(filePath, "utf-8")
-    : "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
-      "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
+  const content = fs.existsSync(homePath)
+    ? fs.readFileSync(homePath, "utf-8")
+    : fs.existsSync(llmsPath)
+      ? fs.readFileSync(llmsPath, "utf-8")
+      : "# " + host + "\\n\\n> AI-ready content index\\n\\n" +
+        "## Pages\\n\\n- [Home](${siteUrl}): Main page\\n";
   return new NextResponse(content, {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
@@ -233,8 +238,9 @@ ${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
  * It must run before the build: the routes are prerendered during next build,
  * so a postbuild refresh would not be served.
  *
- * This crawls your live site and refreshes llms.txt and llms-full.txt, so the
- * next build serves what the live site showed (the previous deploy).
+ * This crawls your live site and refreshes llms.txt, llms-full.txt and index.md
+ * (the home page as markdown), so the next build serves what the live site showed
+ * (the previous deploy).
  *
  * Requires the w2agent CLI installed in this project. It is not published on npm
  * yet: build it from the w2agent repo, then run
@@ -242,6 +248,7 @@ ${ROUTE_REVALIDATE_SEGMENT}export async function GET() {
  * (npx runs with --no, so it never downloads a package.)
  */
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 
 const SITE_URL = process.env.SITE_URL || ${JSON.stringify(siteUrl)};
 
@@ -250,9 +257,41 @@ console.log("[w2agent] Regenerating AI content for " + SITE_URL + "...");
 try {
   execFileSync(
     "npx",
-    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full", "--no-platform", "--output", "./.w2agent/"],
+    ["--no", "--", "w2agent", "generate", SITE_URL, "--format", "llms-txt,full,markdown", "--no-platform", "--output", "./.w2agent/"],
     { stdio: "inherit" }
   );
+  // The markdown format writes one file per page with front matter. Keep only the start page (the home page, also under a base path), without front matter.
+  const pagesDir = "./.w2agent/markdown";
+  const pathOf = (u) => {
+    try {
+      return new URL(u).pathname.replace(/\\/+$/, "") || "/";
+    } catch {
+      return "";
+    }
+  };
+  // generate adds https:// to a scheme-less URL; match the start page the same way.
+  const startPath = pathOf(SITE_URL.startsWith("http://") || SITE_URL.startsWith("https://") ? SITE_URL : "https://" + SITE_URL);
+  const files = fs.existsSync(pagesDir) ? fs.readdirSync(pagesDir) : [];
+  for (const name of files) {
+    const raw = fs.readFileSync(pagesDir + "/" + name, "utf-8");
+    const match = raw.match(/^---\\n([\\s\\S]*?)\\n---\\n+/);
+    const field = (key) => {
+      const line = match && match[1].match(new RegExp("^" + key + ": (.*)$", "m"));
+      try {
+        return line ? JSON.parse(line[1]) : "";
+      } catch {
+        return "";
+      }
+    };
+    if (!startPath || pathOf(field("url")) !== startPath) continue;
+    const title = field("title");
+    let body = (match ? raw.slice(match[0].length) : raw).trim();
+    if (!body) break;
+    if (title && !/^# /.test(body)) body = "# " + title + "\\n\\n" + body;
+    fs.writeFileSync("./.w2agent/index.md", body + "\\n");
+    break;
+  }
+  fs.rmSync(pagesDir, { recursive: true, force: true });
   console.log("[w2agent] Done. Files written to .w2agent/");
 } catch (err) {
   // Non-fatal: the route handlers have fallback logic
@@ -269,7 +308,7 @@ try {
 
 ## Architecture
 
-This integration uses **dynamic route handlers** that read \`.w2agent/llms.txt\` and \`.w2agent/llms-full.txt\`.
+This integration uses **dynamic route handlers** that read \`.w2agent/llms.txt\`, \`.w2agent/llms-full.txt\` and \`.w2agent/index.md\` (the home page as markdown).
 Content freshness depends on the build script (step 3), not on the routes alone.
 
 \`\`\`
@@ -336,20 +375,21 @@ your-nextjs-app/
   .w2agent/
     llms.txt                                <- Generated content (read by route handler)
     llms-full.txt                           <- Generated content (read by route handler)
+    index.md                                <- Home page as markdown (read by the /index.md route handler)
     agent-card.json                         <- A2A agent card data (only with --a2a-endpoint)
   app/
     llms.txt/route.ts                       <- Dynamic route handler (ISR)
     llms-full.txt/route.ts                  <- Dynamic route handler (ISR)
-    index.md/route.ts                       <- llms.txt as text/markdown (homepage markdown twin)
+    index.md/route.ts                       <- .w2agent/index.md as text/markdown (homepage markdown twin; llms.txt if the file is missing)
     .well-known/agent-card.json/route.ts    <- Agent card route (only with --a2a-endpoint)
 \`\`\`
 
 ## How It Works
 
 1. **Route handlers** serve content with ISR (revalidates every hour, but re-reads the same deployed file, so new content arrives with the next build; no revalidation under \`cacheComponents\`)
-2. **Build script** refreshes \`.w2agent/llms.txt\` before each build via \`npx --no -- w2agent generate\` from the live site (the CLI must be installed in your project)
+2. **Build script** refreshes \`.w2agent/llms.txt\`, \`llms-full.txt\` and \`index.md\` before each build via \`npx --no -- w2agent generate\` from the live site (the CLI must be installed in your project)
 3. **Middleware** (or \`proxy\` on Next.js 16) rewrites \`/\` (also under \`basePath\`) to \`/index.md\` when the request lists \`text/markdown\` at equal or higher q than \`text/html\`, and to \`/llms.txt\` when it lists \`text/plain\` at strictly higher q; browsers, \`*/*\` and \`application/json, text/plain, */*\` keep the HTML page. The rewritten \`/index.md\` and \`/llms.txt\` responses carry \`Vary: Accept\`, but Next.js overwrites \`Vary\` on the HTML page (neither middleware nor \`next.config\` \`headers()\` can add it), so a cache in front of Next must key \`/\` on \`Accept\` itself
-4. **Fallback** — if \`.w2agent/llms.txt\` is missing, the route handler generates minimal content
+4. **Fallback** — if \`.w2agent/index.md\` is missing, \`/index.md\` serves \`.w2agent/llms.txt\`; if that is missing too, the route handler generates minimal content
 
 ## Customization
 
@@ -360,7 +400,8 @@ For example, read from your CMS, scan your \`app/\` directory, or query a databa
 
 \`\`\`bash
 # Manual regeneration (needs the w2agent CLI installed in this project)
-npx --no -- w2agent generate ${siteUrl} --format llms-txt,full --no-platform --output ./.w2agent/
+npx --no -- w2agent generate ${siteUrl} --format llms-txt,full,markdown --no-platform --output ./.w2agent/
+# then copy ./.w2agent/markdown/index.md to ./.w2agent/index.md without its front matter, and delete ./.w2agent/markdown/
 
 # Or just build — the prebuild script handles it (the crawl sees the live site, so the previous deploy)
 \`\`\`
@@ -378,6 +419,9 @@ The CLI is not published on npm yet. Build it from the w2agent repo, then run
   }
   files.push(makeFile("nextjs/.w2agent/llms.txt", llmsTxtContent));
   files.push(makeFile("nextjs/.w2agent/llms-full.txt", llmsFullTxtContent));
+  if (homeMarkdownContent) {
+    files.push(makeFile("nextjs/.w2agent/index.md", homeMarkdownContent));
+  }
   if (agentCardContent) {
     files.push(makeFile("nextjs/.w2agent/agent-card.json", agentCardContent));
   }

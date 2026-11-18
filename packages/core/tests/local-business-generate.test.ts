@@ -171,6 +171,25 @@ describe("extractLocalBusinessFromJsonLd", () => {
     expect(result?.type).toBe("Restaurant");
   });
 
+  it("accepts a single openingHoursSpecification object", () => {
+    const result = extractLocalBusinessFromJsonLd(
+      [
+        {
+          "@type": "Restaurant",
+          name: "Solo Hours Diner",
+          openingHoursSpecification: {
+            "@type": "OpeningHoursSpecification",
+            dayOfWeek: "https://schema.org/Monday",
+            opens: "09:00",
+            closes: "17:00",
+          },
+        },
+      ],
+      "https://joesdiner.com",
+    );
+    expect(result?.hours).toEqual([{ days: ["Monday"], opens: "09:00", closes: "17:00" }]);
+  });
+
   it("returns null when no LocalBusiness type in JSON-LD", () => {
     const result = extractLocalBusinessFromJsonLd(
       [{ "@type": "WebPage", name: "Home" }],

@@ -5,6 +5,8 @@ export type Severity = "error" | "warning" | "info";
 
 export type CheckStatus = "pass" | "fail" | "partial" | "skip" | "error";
 
+export type FixBy = "agent" | "owner" | "integrate";
+
 export interface CheckResult {
   id: string;
   name: string;
@@ -18,6 +20,8 @@ export interface CheckResult {
   fixSnippet?: string;
   severity: Severity;
   tracked?: boolean; // reported but excluded from scoring, top issues, and warnings
+  guide?: string; // fix guide id; set only when status !== "pass"
+  fixBy?: FixBy; // who should act, copied from the guide; a platform-blind default
 }
 
 export type CategoryId =
@@ -44,6 +48,8 @@ export interface TopIssue {
   message: string;
   pointsIfFixed: number;
   fixSnippet?: string;
+  guide?: string;
+  fixBy?: FixBy;
 }
 
 export interface AuditWarning {

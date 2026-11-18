@@ -7,6 +7,8 @@ export interface GenerateContext {
   rawPages: FetchedPage[];
   metadata: SiteMetadata;
   baseUrl: string;
+  /** The URL the crawl started from (may carry a base path). */
+  startUrl?: string;
   siteType?: {
     siteType: string;
     confidence: number;
