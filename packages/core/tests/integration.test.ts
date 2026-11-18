@@ -111,6 +111,32 @@ const INSTALL_TIMEOUT_MS = 420_000;
 const BUILD_TIMEOUT_MS = 240_000;
 const SETUP_TIMEOUT_MS = 720_000;
 
+const liveNpmGroups = new Set<number>();
+let npmCleanupInstalled = false;
+
+function killLiveNpmGroups() {
+  for (const pid of liveNpmGroups) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {}
+  }
+  liveNpmGroups.clear();
+}
+
+function installNpmCleanup() {
+  if (npmCleanupInstalled) return;
+  npmCleanupInstalled = true;
+  process.on("exit", killLiveNpmGroups);
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    const onSignal = () => {
+      killLiveNpmGroups();
+      process.removeListener(sig, onSignal);
+      if (process.listenerCount(sig) === 0) process.kill(process.pid, sig);
+    };
+    process.on(sig, onSignal);
+  }
+}
+
 function runNpm(
   dir: string,
   args: string[],
@@ -123,6 +149,8 @@ function runNpm(
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     });
+    installNpmCleanup();
+    if (proc.pid) liveNpmGroups.add(proc.pid);
     let output = "";
     let timedOut = false;
     let settled = false;
@@ -143,6 +171,7 @@ function runNpm(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (proc.pid) liveNpmGroups.delete(proc.pid);
       resolvePromise({ ok, output: output + extra });
     };
     proc.on("error", (err) => finish(false, `\n${err.message}`));
