@@ -621,6 +621,16 @@ function pairText(name: string, value: string): string {
   return new URLSearchParams([[name, value]]).toString();
 }
 
+function wellFormedKey(key: string): string {
+  return decodeURIComponent(pairText(key, "").slice(0, -1).replace(/\+/g, " "));
+}
+
+function declaredKey(key: string): string {
+  const wf = wellFormedKey(key);
+  const open = wf.indexOf("[");
+  return (open > 0 ? wf.slice(0, open) : wf).toLowerCase();
+}
+
 function appendQueryParam(query: string[], name: string, value: unknown, collection: string | undefined, declared: string[], objectKeys: Set<string>): void {
   if (Array.isArray(value)) {
     const delimiter = collection ? COLLECTION_DELIMITERS[collection] : undefined;
@@ -632,10 +642,18 @@ function appendQueryParam(query: string[], name: string, value: unknown, collect
       query.push(pairText(name, "") + parts.join(literal));
     }
   } else if (typeof value === "object" && value !== null) {
+    const declaredKeys = declared.map(declaredKey);
+    const seen = new Map<string, string>();
     for (const [k, v] of Object.entries(value)) {
-      if (k !== name && declared.includes(k)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that collides with the query parameter " + JSON.stringify(k));
-      if (objectKeys.has(k)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that another object query parameter also sets");
-      objectKeys.add(k);
+      const dk = declaredKey(k);
+      const di = declaredKeys.indexOf(dk);
+      if (di >= 0) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that collides with the query parameter " + JSON.stringify(declared[di]));
+      const wk = wellFormedKey(k).toLowerCase();
+      const prior = seen.get(wk);
+      if (prior !== undefined) throw new Error("Query parameter " + JSON.stringify(name) + " has the properties " + JSON.stringify(prior) + " and " + JSON.stringify(k) + " that differ only by letter case or encode to the same query key");
+      if (objectKeys.has(wk)) throw new Error("Query parameter " + JSON.stringify(name) + " has a property " + JSON.stringify(k) + " that another object query parameter also sets");
+      seen.set(wk, k);
+      objectKeys.add(wk);
       query.push(pairText(k, scalarText(v)));
     }
   } else {

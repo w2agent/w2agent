@@ -75,6 +75,68 @@ const spec = {
         ],
       },
     },
+    "/case-own": {
+      get: {
+        operationId: "caseOwn",
+        summary: "case-own",
+        parameters: [
+          { name: "filter", in: "query", ...obj },
+          { name: "FILTER", in: "query", ...str },
+        ],
+      },
+    },
+    "/bracket-own": {
+      get: {
+        operationId: "bracketOwn",
+        summary: "bracket-own",
+        parameters: [
+          { name: "page", in: "query", ...obj },
+          { name: "page[size]", in: "query", ...str },
+        ],
+      },
+    },
+    "/page-keys": {
+      get: {
+        operationId: "pageKeys",
+        summary: "page-keys",
+        parameters: [{ name: "page", in: "query", ...obj }],
+      },
+    },
+    "/literal-brackets": {
+      get: {
+        operationId: "literalBrackets",
+        summary: "literal-brackets",
+        parameters: [
+          { name: "ids[]", in: "query", ...str },
+          { name: "filter", in: "query", ...obj },
+        ],
+      },
+    },
+    "/case-scalars": {
+      get: {
+        operationId: "caseScalars",
+        summary: "case-scalars",
+        parameters: [
+          { name: "flag", in: "query", ...str },
+          { name: "Flag", in: "query", ...str },
+        ],
+      },
+    },
+    "/path-level-flag": {
+      parameters: [{ name: "flag", in: "query", ...bool }],
+      get: {
+        operationId: "pathLevelFlag",
+        summary: "path-level-flag",
+        parameters: [{ name: "filter", in: "query", ...obj }],
+      },
+    },
+    "/things/{id}": {
+      parameters: [
+        { name: "id", in: "path", required: true, ...str },
+        { name: "lang", in: "query", ...str },
+      ],
+      get: { operationId: "getThing", summary: "get-thing" },
+    },
     "/path-{flag}": {
       get: {
         operationId: "pathAndQuery",
@@ -209,5 +271,112 @@ describe.each(VARIANTS)("generated query key collisions: %s", (variant: Variant)
     const { r, sent } = await call("path-and-query", { flag: "p", filter: { flag: "q" } });
     expect(r.isError, r.text).toBe(false);
     expect(sent).toEqual(["/path-p?flag=q"]);
+  });
+
+  for (const key of ["flag[]", "flag[a]", "FLAG", "Flag[a]"]) {
+    it(`an object property ${JSON.stringify(key)} reaches the declared flag on the upstream, so it is refused`, async () => {
+      const { r, sent } = await call("scalar-first", { flag: true, filter: { [key]: "evil" } });
+      expect(r.isError, r.text).toBe(true);
+      expect(r.text).toContain(JSON.stringify(key));
+      expect(r.text).toContain('"flag"');
+      expect(sent).toEqual([]);
+    });
+  }
+
+  it("a property of a declared scalar that is itself bracketed or cased still collides", async () => {
+    const { r, sent } = await call("literal-brackets", { filter: { ids: "x" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"ids[]"');
+    expect(sent).toEqual([]);
+  });
+
+  it("two object parameters whose keys differ only by case are refused", async () => {
+    const { r, sent } = await call("two-objects", { a: { Sort: 1 }, b: { sort: 2 } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain("another object query parameter");
+    expect(sent).toEqual([]);
+  });
+
+  it("two distinct lone-surrogate keys in two object parameters are refused", async () => {
+    const { r, sent } = await call("two-objects", { a: { "\uD800": "a" }, b: { "\uDC00": "b" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain("another object query parameter");
+    expect(sent).toEqual([]);
+  });
+
+  it("two lone-surrogate keys in one object are refused with a same-object message", async () => {
+    const { r, sent } = await call("two-objects", { a: { "\uD800": "a", "\uDC00": "b" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain("differ only by letter case or encode to the same query key");
+    expect(r.text).not.toContain("another object query parameter");
+    expect(sent).toEqual([]);
+  });
+
+  it("keys that differ only by case in one object are refused with a same-object message", async () => {
+    const { r, sent } = await call("two-objects", { a: { "Page[size]": 1, "page[size]": 2 } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain("differ only by letter case or encode to the same query key");
+    expect(sent).toEqual([]);
+  });
+
+  it("one lone-surrogate key is sent as the replacement character", async () => {
+    const { r, sent } = await call("two-objects", { a: { "\uD800": "a" } });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/two-objects?%EF%BF%BD=a"]);
+  });
+
+  it("an object with page[size] and page[number] and no declared page is sent", async () => {
+    const { r, sent } = await call("page-keys", { page: { "page[size]": 10, "page[number]": 2 } });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/page-keys?page%5Bsize%5D=10&page%5Bnumber%5D=2"]);
+  });
+
+  it("a declared scalar named ids[] beside an unrelated object is sent", async () => {
+    const { r, sent } = await call("literal-brackets", { "ids[]": "1", filter: { color: "red" } });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/literal-brackets?ids%5B%5D=1&color=red"]);
+  });
+
+  it("declared scalars flag and Flag are both sent", async () => {
+    const { r, sent } = await call("case-scalars", { flag: "a", Flag: "b" });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/case-scalars?flag=a&Flag=b"]);
+  });
+
+  it("a path-level query parameter collides with an operation-level object property", async () => {
+    const { r, sent } = await call("path-level-flag", { flag: true, filter: { flag: "evil" } });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"flag"');
+    expect(r.text).toContain('"filter"');
+    expect(sent).toEqual([]);
+  });
+
+  it("a path-level query parameter and a non-colliding object are sent", async () => {
+    const { r, sent } = await call("path-level-flag", { flag: true, filter: { color: "red" } });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/path-level-flag?flag=true&color=red"]);
+  });
+
+  it("an object property named like a case-variant declared scalar is refused, even equal to its own object name by case", async () => {
+    const { r, sent } = await call("case-own", { filter: { FILTER: "x" }, FILTER: "a" });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"FILTER"');
+    expect(sent).toEqual([]);
+  });
+
+  it("an object property equal to a bracketed declared scalar is refused", async () => {
+    const { r, sent } = await call("bracket-own", {
+      page: { "page[size]": "x" },
+      "page[size]": "a",
+    });
+    expect(r.isError, r.text).toBe(true);
+    expect(r.text).toContain('"page[size]"');
+    expect(sent).toEqual([]);
+  });
+
+  it("a path-level path parameter is substituted into the URL", async () => {
+    const { r, sent } = await call("get-thing", { id: "7", lang: "fr" });
+    expect(r.isError, r.text).toBe(false);
+    expect(sent).toEqual(["/things/7?lang=fr"]);
   });
 });

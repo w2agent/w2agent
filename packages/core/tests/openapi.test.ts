@@ -575,3 +575,128 @@ describe("parseOpenAPISpec array serialization", () => {
     ]);
   });
 });
+
+describe("parseOpenAPISpec path-item parameters", () => {
+  const str = { type: "string" };
+  const oas3 = (pathItem: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    openapi: "3.0.3",
+    servers: [{ url: "https://api.example.com" }],
+    paths: { "/items/{id}": pathItem },
+    ...extra,
+  });
+  const swagger = (pathItem: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    swagger: "2.0",
+    host: "api.example.com",
+    paths: { "/items/{id}": pathItem },
+    ...extra,
+  });
+  const endpoint = (spec: Record<string, unknown>) =>
+    parseOpenAPISpec(spec, "https://example.com/openapi.json")?.endpoints[0];
+
+  it("merges path-level parameters into every operation", () => {
+    const spec = oas3({
+      parameters: [
+        { name: "id", in: "path", required: true, schema: str },
+        { name: "lang", in: "query", schema: str },
+      ],
+      get: { operationId: "a", parameters: [{ name: "q", in: "query", schema: str }] },
+      delete: { operationId: "b" },
+    });
+    const eps = parseOpenAPISpec(spec, "https://example.com/openapi.json")?.endpoints;
+    expect(eps?.map((e) => e.parameters.map((p) => `${p.in}:${p.name}`).sort())).toEqual([
+      ["path:id", "query:lang", "query:q"],
+      ["path:id", "query:lang"],
+    ]);
+  });
+
+  it("lets an operation parameter override a path-level one with the same name and location", () => {
+    const ep = endpoint(
+      oas3({
+        parameters: [
+          { name: "lang", in: "query", description: "path-level" },
+          { name: "lang", in: "header", description: "path-header" },
+        ],
+        get: { parameters: [{ name: "lang", in: "query", description: "op-level" }] },
+      }),
+    );
+    expect(ep?.parameters.map((p) => `${p.in}:${p.name}:${p.description}`).sort()).toEqual([
+      "header:lang:path-header",
+      "query:lang:op-level",
+    ]);
+  });
+
+  it("resolves a $ref before keying, so a referenced path-level parameter is overridden", () => {
+    const ep = endpoint(
+      oas3(
+        {
+          parameters: [{ $ref: "#/components/parameters/Lang" }],
+          get: { parameters: [{ name: "lang", in: "query", description: "op-level" }] },
+        },
+        {
+          components: {
+            parameters: { Lang: { name: "lang", in: "query", description: "from-ref" } },
+          },
+        },
+      ),
+    );
+    expect(ep?.parameters).toHaveLength(1);
+    expect(ep?.parameters[0].description).toBe("op-level");
+  });
+
+  it("keeps a $ref path-level parameter the operation does not redeclare", () => {
+    const ep = endpoint(
+      oas3(
+        { parameters: [{ $ref: "#/components/parameters/Id" }], get: { operationId: "a" } },
+        {
+          components: {
+            parameters: { Id: { name: "id", in: "path", required: true, schema: str } },
+          },
+        },
+      ),
+    );
+    expect(ep?.parameters.map((p) => p.name)).toEqual(["id"]);
+  });
+
+  it("ignores a non-array path-level parameters value", () => {
+    for (const bad of ["x", { name: "id", in: "path" }, 7, null]) {
+      const ep = endpoint(
+        oas3({
+          parameters: bad,
+          get: { parameters: [{ name: "q", in: "query", schema: str }] },
+        }),
+      );
+      expect(ep?.parameters.map((p) => p.name)).toEqual(["q"]);
+    }
+  });
+
+  it("reads a Swagger 2 path-level body parameter", () => {
+    const ep = endpoint(
+      swagger({
+        parameters: [
+          {
+            name: "payload",
+            in: "body",
+            required: true,
+            schema: { properties: { title: { type: "string" } } },
+          },
+        ],
+        post: { operationId: "a" },
+      }),
+    );
+    expect(ep?.requestBody?.required).toBe(true);
+    expect(Object.keys(ep?.requestBody?.properties ?? {})).toEqual(["title"]);
+    expect(ep?.parameters).toEqual([]);
+  });
+
+  it("lets an operation body parameter override a path-level body parameter", () => {
+    const body = (prop: string) => ({
+      name: "payload",
+      in: "body",
+      schema: { properties: { [prop]: { type: "string" } } },
+    });
+    const ep = endpoint(
+      swagger({ parameters: [body("pathProp")], post: { parameters: [body("opProp")] } }),
+    );
+    expect(Object.keys(ep?.requestBody?.properties ?? {})).toEqual(["opProp"]);
+  });
+});

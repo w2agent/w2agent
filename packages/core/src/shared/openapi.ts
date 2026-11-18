@@ -196,14 +196,24 @@ export function parseOpenAPISpec(
       if (!operation) continue;
       if (endpoints.length >= MAX_ENDPOINTS) break;
 
+      const mergedParams = mergeParameters(
+        (pathItem as Record<string, unknown>).parameters,
+        (operation as Record<string, unknown>).parameters,
+        obj,
+      );
       endpoints.push({
         path,
         method: method.toUpperCase(),
         operationId: stringOrUndefined((operation as Record<string, unknown>).operationId),
         summary: stringOrUndefined((operation as Record<string, unknown>).summary),
         description: stringOrUndefined((operation as Record<string, unknown>).description),
-        parameters: extractParameters(operation as Record<string, unknown>, isV2, obj),
-        requestBody: extractRequestBody(operation as Record<string, unknown>, isV2, obj),
+        parameters: extractParameters(mergedParams, isV2),
+        requestBody: extractRequestBody(
+          operation as Record<string, unknown>,
+          mergedParams,
+          isV2,
+          obj,
+        ),
       });
     }
     if (endpoints.length >= MAX_ENDPOINTS) break;
@@ -246,14 +256,32 @@ function maybeResolve(obj: unknown, root: Record<string, unknown>): Record<strin
   return (obj as Record<string, unknown>) ?? {};
 }
 
-function extractParameters(
-  operation: Record<string, unknown>,
-  _isV2: boolean,
+function mergeParameters(
+  pathLevel: unknown,
+  operationLevel: unknown,
   root: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const merged = new Map<string, Record<string, unknown>>();
+  const unkeyed: Record<string, unknown>[] = [];
+  for (const list of [pathLevel, operationLevel]) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      const p = maybeResolve(raw, root);
+      if (typeof p.name === "string" && typeof p.in === "string") {
+        merged.set(`${p.in}\0${p.name}`, p);
+      } else {
+        unkeyed.push(p);
+      }
+    }
+  }
+  return [...merged.values(), ...unkeyed];
+}
+
+function extractParameters(
+  resolved: Record<string, unknown>[],
+  _isV2: boolean,
 ): OpenAPIParameter[] {
-  const rawParams = (operation.parameters as unknown[]) || [];
-  return rawParams
-    .map((p) => maybeResolve(p, root))
+  return resolved
     .filter((p) => p.in && p.in !== "body")
     .map((p) => {
       const type = (p.type || (p.schema as Record<string, unknown> | undefined)?.type) as
@@ -299,13 +327,12 @@ function arrayCollection(
 
 function extractRequestBody(
   operation: Record<string, unknown>,
+  resolvedParams: Record<string, unknown>[],
   isV2: boolean,
   root: Record<string, unknown>,
 ): OpenAPIRequestBody | undefined {
   if (isV2) {
-    const bodyParam = ((operation.parameters as unknown[]) || [])
-      .map((p) => maybeResolve(p, root))
-      .find((p) => p.in === "body");
+    const bodyParam = resolvedParams.find((p) => p.in === "body");
     if (!bodyParam) return undefined;
     const schema = maybeResolve(bodyParam.schema || {}, root);
     return {
