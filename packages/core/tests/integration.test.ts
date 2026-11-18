@@ -105,32 +105,73 @@ function writeGeneratedFiles(dir: string, files: GeneratedFile[], prefix: string
   return written;
 }
 
-// NOTE: All exec/spawn calls use hardcoded commands only (no user input).
-function npmInstallAndBuild(dir: string): { success: boolean; output: string } {
-  try {
-    // Run install and build as separate steps so failures are distinguishable
-    execSync("npm install --ignore-scripts --include=dev 2>&1", {
+const LOOPBACK = "127.0.0.1";
+
+const INSTALL_TIMEOUT_MS = 420_000;
+const BUILD_TIMEOUT_MS = 240_000;
+const SETUP_TIMEOUT_MS = 720_000;
+
+function runNpm(
+  dir: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolvePromise) => {
+    const proc = spawn("npm", args, {
       cwd: dir,
-      timeout: 60_000,
-      encoding: "utf-8",
       env: { ...process.env, NODE_ENV: "production" },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
-    const output = execSync("npm run build 2>&1", {
-      cwd: dir,
-      timeout: 120_000,
-      encoding: "utf-8",
-      env: { ...process.env, NODE_ENV: "production" },
-    });
-    return { success: true, output };
-  } catch (err: any) {
-    return { success: false, output: err.stdout || err.stderr || err.message };
-  }
+    let output = "";
+    let timedOut = false;
+    let settled = false;
+    const append = (chunk: Buffer) => {
+      output += chunk.toString("utf-8");
+    };
+    proc.stdout?.on("data", append);
+    proc.stderr?.on("data", append);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        process.kill(-(proc.pid as number), "SIGKILL");
+      } catch {
+        proc.kill("SIGKILL");
+      }
+    }, timeoutMs);
+    const finish = (ok: boolean, extra = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise({ ok, output: output + extra });
+    };
+    proc.on("error", (err) => finish(false, `\n${err.message}`));
+    proc.on("close", (code) =>
+      finish(
+        code === 0 && !timedOut,
+        timedOut ? `\nnpm ${args.join(" ")} timed out after ${timeoutMs}ms` : "",
+      ),
+    );
+  });
+}
+
+// NOTE: All spawn calls use hardcoded commands only (no user input).
+async function npmInstallAndBuild(dir: string): Promise<{ success: boolean; output: string }> {
+  // Run install and build as separate steps so failures are distinguishable
+  const install = await runNpm(
+    dir,
+    ["install", "--ignore-scripts", "--include=dev"],
+    INSTALL_TIMEOUT_MS,
+  );
+  if (!install.ok) return { success: false, output: install.output };
+  const build = await runNpm(dir, ["run", "build"], BUILD_TIMEOUT_MS);
+  return { success: build.ok, output: build.output };
 }
 
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
-    srv.listen(0, () => {
+    srv.listen(0, LOOPBACK, () => {
       const addr = srv.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
       srv.close(() => resolve(port));
@@ -175,7 +216,7 @@ function startServer(
     env: { ...process.env, ...env },
     stdio: "pipe",
   });
-  const url = `http://localhost:${port}`;
+  const url = `http://${LOOPBACK}:${port}`;
   return {
     proc,
     port,
@@ -211,7 +252,7 @@ async function auditServer(url: string): Promise<AuditReport> {
 
 // ─── Astro: Audit Live Server ─────────────────────────────────
 
-describe("integration: Astro", { timeout: 180_000 }, () => {
+describe("integration: Astro", { timeout: SETUP_TIMEOUT_MS }, () => {
   let fixtureDir: string;
   let files: GeneratedFile[];
   let server: ServerHandle | undefined;
@@ -224,14 +265,19 @@ describe("integration: Astro", { timeout: 180_000 }, () => {
 
     writeGeneratedFiles(fixtureDir, files, "astro");
 
-    const { success, output } = npmInstallAndBuild(fixtureDir);
+    const { success, output } = await npmInstallAndBuild(fixtureDir);
     if (!success) throw new Error(`Astro build failed: ${output}`);
 
     const port = await getFreePort();
-    server = startServer(fixtureDir, "npx", ["astro", "preview", "--port", String(port)], port);
-    await waitForServer(`http://localhost:${port}`);
+    server = startServer(
+      fixtureDir,
+      "npx",
+      ["astro", "preview", "--host", LOOPBACK, "--port", String(port)],
+      port,
+    );
+    await waitForServer(`http://${LOOPBACK}:${port}`);
 
-    report = await auditServer(`http://localhost:${port}`);
+    report = await auditServer(`http://${LOOPBACK}:${port}`);
   });
 
   afterAll(() => server?.kill());
@@ -287,7 +333,7 @@ describe("integration: Astro", { timeout: 180_000 }, () => {
 
 // ─── Next.js: Audit Live Server ───────────────────────────────
 
-describe("integration: Next.js", { timeout: 180_000 }, () => {
+describe("integration: Next.js", { timeout: SETUP_TIMEOUT_MS }, () => {
   let fixtureDir: string;
   let files: GeneratedFile[];
   let server: ServerHandle | undefined;
@@ -300,14 +346,19 @@ describe("integration: Next.js", { timeout: 180_000 }, () => {
 
     writeGeneratedFiles(fixtureDir, files, "nextjs");
 
-    const { success, output } = npmInstallAndBuild(fixtureDir);
+    const { success, output } = await npmInstallAndBuild(fixtureDir);
     if (!success) throw new Error(`Next.js build failed: ${output}`);
 
     const port = await getFreePort();
-    server = startServer(fixtureDir, "npx", ["next", "start", "-p", String(port)], port);
-    await waitForServer(`http://localhost:${port}`);
+    server = startServer(
+      fixtureDir,
+      "npx",
+      ["next", "start", "-H", LOOPBACK, "-p", String(port)],
+      port,
+    );
+    await waitForServer(`http://${LOOPBACK}:${port}`);
 
-    report = await auditServer(`http://localhost:${port}`);
+    report = await auditServer(`http://${LOOPBACK}:${port}`);
   });
 
   afterAll(() => server?.kill());
@@ -358,7 +409,8 @@ function startNuxtOutputServer(projectDir: string, port: number): ServerHandle {
   const emptyCwd = mkdtempSync(join(tmpdir(), "w2agent-integration-nuxt-cwd-"));
   return startServer(emptyCwd, "node", [join(outputRoot, ".output/server/index.mjs")], port, {
     PORT: String(port),
-    HOST: "localhost",
+    HOST: LOOPBACK,
+    NITRO_HOST: LOOPBACK,
   });
 }
 
@@ -376,7 +428,7 @@ async function expectNuxtServesContent(server: ServerHandle, expected: string) {
 function describeNuxtEmitted(label: string, fixtureName: string) {
   // "nuxt" stays in the name: the CI matrix selects this job's tests with `-t nuxt`
   describe(`integration: Nuxt ${label} (emitted files, platform nuxt)`, {
-    timeout: 180_000,
+    timeout: SETUP_TIMEOUT_MS,
   }, () => {
     let fixtureDir: string;
     let files: GeneratedFile[];
@@ -390,14 +442,14 @@ function describeNuxtEmitted(label: string, fixtureName: string) {
 
       writeGeneratedFiles(fixtureDir, files, "nuxt");
 
-      const { success, output } = npmInstallAndBuild(fixtureDir);
+      const { success, output } = await npmInstallAndBuild(fixtureDir);
       if (!success) throw new Error(`Nuxt build failed: ${output}`);
 
       const port = await getFreePort();
       server = startNuxtOutputServer(fixtureDir, port);
-      await waitForServer(`http://localhost:${port}`);
+      await waitForServer(`http://${LOOPBACK}:${port}`);
 
-      report = await auditServer(`http://localhost:${port}`);
+      report = await auditServer(`http://${LOOPBACK}:${port}`);
     });
 
     afterAll(() => server?.kill());
@@ -442,7 +494,7 @@ describeNuxtEmitted("4", "nuxt4-app");
 
 // The published module, packed from packages/nuxt (built first) and installed by file: into a
 // Nuxt 4 project with a plain npm install (no --legacy-peer-deps).
-describe("integration: Nuxt 4 module (@w2agent/nuxt)", { timeout: 180_000 }, () => {
+describe("integration: Nuxt 4 module (@w2agent/nuxt)", { timeout: SETUP_TIMEOUT_MS }, () => {
   const SEEDED = "# Module Seed\n\n> Seeded in public/llms.txt before the build\n";
   let server: ServerHandle | undefined;
   let buildOutput: string;
@@ -473,13 +525,13 @@ describe("integration: Nuxt 4 module (@w2agent/nuxt)", { timeout: 180_000 }, () 
     mkdirSync(join(dir, "public"), { recursive: true });
     writeFileSync(join(dir, "public/llms.txt"), SEEDED);
 
-    const { success, output } = npmInstallAndBuild(dir);
+    const { success, output } = await npmInstallAndBuild(dir);
     if (!success) throw new Error(`Nuxt module build failed: ${output}`);
     buildOutput = output;
 
     const port = await getFreePort();
     server = startNuxtOutputServer(dir, port);
-    await waitForServer(`http://localhost:${port}`);
+    await waitForServer(`http://${LOOPBACK}:${port}`);
   });
 
   afterAll(() => server?.kill());
@@ -495,7 +547,7 @@ describe("integration: Nuxt 4 module (@w2agent/nuxt)", { timeout: 180_000 }, () 
 
 // ─── Docusaurus: Audit Live Server ────────────────────────────
 
-describe("integration: Docusaurus", { timeout: 240_000 }, () => {
+describe("integration: Docusaurus", { timeout: SETUP_TIMEOUT_MS }, () => {
   let fixtureDir: string;
   let files: GeneratedFile[];
   let server: ServerHandle | undefined;
@@ -521,19 +573,19 @@ describe("integration: Docusaurus", { timeout: 240_000 }, () => {
     expect(existsSync(join(fixtureDir, "static/llms.txt"))).toBe(true);
     expect(existsSync(join(fixtureDir, "static/.well-known/agent-card.json"))).toBe(true);
 
-    const { success, output } = npmInstallAndBuild(fixtureDir);
+    const { success, output } = await npmInstallAndBuild(fixtureDir);
     if (!success) throw new Error(`Docusaurus build failed: ${output}`);
 
     const port = await getFreePort();
     server = startServer(
       fixtureDir,
       "npx",
-      ["docusaurus", "serve", "--port", String(port), "--no-open"],
+      ["docusaurus", "serve", "--host", LOOPBACK, "--port", String(port), "--no-open"],
       port,
     );
-    await waitForServer(`http://localhost:${port}`);
+    await waitForServer(`http://${LOOPBACK}:${port}`);
 
-    report = await auditServer(`http://localhost:${port}`);
+    report = await auditServer(`http://${LOOPBACK}:${port}`);
   });
 
   afterAll(() => server?.kill());
@@ -730,25 +782,25 @@ describe("integration: Shopify", () => {
 
 // ─── Negative Tests: Prove Audit Catches Missing Features ─────
 
-describe("integration: negative tests", { timeout: 180_000 }, () => {
+describe("integration: negative tests", { timeout: SETUP_TIMEOUT_MS }, () => {
   it("audit detects missing llms.txt when not generated", async () => {
     // Build Astro fixture WITHOUT writing any generated files
     const fixtureDir = mkdtempSync(join(tmpdir(), "w2agent-negative-llms-"));
     cpSync(join(FIXTURES_DIR, "astro-app"), fixtureDir, { recursive: true });
 
-    const { success } = npmInstallAndBuild(fixtureDir);
+    const { success } = await npmInstallAndBuild(fixtureDir);
     expect(success).toBe(true);
 
     const port = await getFreePort();
     const server = startServer(
       fixtureDir,
       "npx",
-      ["astro", "preview", "--port", String(port)],
+      ["astro", "preview", "--host", LOOPBACK, "--port", String(port)],
       port,
     );
     try {
-      await waitForServer(`http://localhost:${port}`);
-      const report = await auditServer(`http://localhost:${port}`);
+      await waitForServer(`http://${LOOPBACK}:${port}`);
+      const report = await auditServer(`http://${LOOPBACK}:${port}`);
 
       expect(totalChecksRan(report)).toBeGreaterThan(0);
 
@@ -777,19 +829,19 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
       "utf-8",
     );
 
-    const { success } = npmInstallAndBuild(fixtureDir);
+    const { success } = await npmInstallAndBuild(fixtureDir);
     expect(success).toBe(true);
 
     const port = await getFreePort();
     const server = startServer(
       fixtureDir,
       "npx",
-      ["astro", "preview", "--port", String(port)],
+      ["astro", "preview", "--host", LOOPBACK, "--port", String(port)],
       port,
     );
     try {
-      await waitForServer(`http://localhost:${port}`);
-      const report = await auditServer(`http://localhost:${port}`);
+      await waitForServer(`http://${LOOPBACK}:${port}`);
+      const report = await auditServer(`http://${LOOPBACK}:${port}`);
 
       expect(totalChecksRan(report)).toBeGreaterThan(0);
 
@@ -815,19 +867,19 @@ describe("integration: negative tests", { timeout: 180_000 }, () => {
     writeFileSync(join(fixtureDir, "public/llms.txt"), "# Valid\n\n> desc\n", "utf-8");
     writeFileSync(join(fixtureDir, "public/.well-known/agent-card.json"), "not json {{{", "utf-8");
 
-    const { success } = npmInstallAndBuild(fixtureDir);
+    const { success } = await npmInstallAndBuild(fixtureDir);
     expect(success).toBe(true);
 
     const port = await getFreePort();
     const server = startServer(
       fixtureDir,
       "npx",
-      ["astro", "preview", "--port", String(port)],
+      ["astro", "preview", "--host", LOOPBACK, "--port", String(port)],
       port,
     );
     try {
-      await waitForServer(`http://localhost:${port}`);
-      const report = await auditServer(`http://localhost:${port}`);
+      await waitForServer(`http://${LOOPBACK}:${port}`);
+      const report = await auditServer(`http://${LOOPBACK}:${port}`);
 
       expect(totalChecksRan(report)).toBeGreaterThan(0);
 
