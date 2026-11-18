@@ -27,7 +27,7 @@ Check that the version is on npm before you run it. Run `npm view w2agent@0.1.0 
 
 If `npm view` answers 404 for `w2agent@0.1.0`:
 
-- If a w2agent checkout exists locally (the owner may have cloned it next to the site, not in your cwd), build the CLI from source and run `node <checkout>/packages/cli/dist/index.js <command>`. Narrowest build that works (needs Node 18+ and pnpm):
+- If a w2agent checkout exists locally (the owner may have cloned it next to the site, not in your cwd), build the CLI from source and run `node <checkout>/packages/cli/dist/index.js <command>`. Narrowest build that works (needs Node 20.18.1+ and pnpm):
   ```bash
   cd <checkout> && pnpm install && pnpm --filter w2agent... build
   ```

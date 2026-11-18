@@ -11,7 +11,7 @@ Everything below is for people changing w2agent itself.
 
 ## Architecture
 
-pnpm workspace with Turborepo. Node 18+ and pnpm 9.
+pnpm workspace with Turborepo. Node 20.18.1+ and pnpm 9.
 
 - `packages/core/`: audit engine, generators, platform adapters. Published as `@w2agent/core`.
 - `packages/cli/`: the CLI. Published as `w2agent`. Depends on core through `workspace:*`.
@@ -62,7 +62,7 @@ CI runs `pnpm lint`, `pnpm test` and `pnpm test:agent-surfaces` on Node 22.
 
 ## Release
 
-Packages: `@w2agent/core` and `w2agent`. A GitHub release triggers `.github/workflows/publish.yml`. It runs build and test, packs both packages with `pnpm pack`, then publishes the tarballs to npm through npm trusted publishing (OIDC). No npm token is stored.
+Packages: `@w2agent/core` and `w2agent`. A GitHub release triggers `.github/workflows/publish.yml`. It runs build and test, packs both packages with `pnpm pack`, then publishes each tarball whose version is not on npm yet, through npm trusted publishing (OIDC). No npm token is stored. Each package's trusted publisher on npmjs.com names repo `w2agent/w2agent` and workflow `publish.yml`.
 
 Never run `npm publish` from a package directory: npm does not rewrite the `workspace:*` dependency on `@w2agent/core`. `pnpm pack` does.
 

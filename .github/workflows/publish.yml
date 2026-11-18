@@ -31,15 +31,20 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm test
+        run: pnpm test && pnpm test:agent-surfaces
 
       - name: Pack
         run: |
           cd packages/core && pnpm pack --pack-destination "$RUNNER_TEMP/core"
           cd ../cli && pnpm pack --pack-destination "$RUNNER_TEMP/cli"
 
-      - name: Publish @w2agent/core
-        run: npm publish "$RUNNER_TEMP"/core/*.tgz --provenance --access public
-
-      - name: Publish w2agent
-        run: npm publish "$RUNNER_TEMP"/cli/*.tgz --provenance --access public
+      - name: Publish new versions
+        run: |
+          for tgz in "$RUNNER_TEMP"/core/*.tgz "$RUNNER_TEMP"/cli/*.tgz; do
+            spec=$(tar -xzOf "$tgz" package/package.json | node -p 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); `${p.name}@${p.version}`')
+            if [ -n "$(npm view "$spec" version 2>/dev/null)" ]; then
+              echo "$spec is already on npm, skipping"
+            else
+              npm publish "$tgz" --provenance --access public
+            fi
+          done

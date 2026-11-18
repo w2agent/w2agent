@@ -16,6 +16,7 @@ npx w2agent@0.1.0 integrate <local url> --dry-run --json \
   --project-dir . --site-url <production origin>            # plan, writes nothing
 npx w2agent@0.1.0 integrate <local url> --install --json \
   --project-dir . --site-url <production origin>            # apply
+# then: do the postInstallSteps, rebuild and restart the local server
 npx w2agent@0.1.0 guide <guide-id>                         # fix guide for a failing check
 npx w2agent@0.1.0 audit <local url> --json                 # re-audit
 ```
