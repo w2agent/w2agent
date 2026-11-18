@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: interskh/w2agent/packages/github-action@v0.1.0
+      - uses: w2agent/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           threshold: 80
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: interskh/w2agent/packages/github-action@v0.1.0
+      - uses: w2agent/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           output-dir: .w2agent/
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: interskh/w2agent/packages/github-action@v0.1.0
+      - uses: w2agent/w2agent/packages/github-action@v0.1.0
         with:
           url: https://example.com
           threshold: 80
@@ -121,7 +121,7 @@ jobs:
 Generate only specific agent file formats instead of all of them:
 
 ```yaml
-- uses: interskh/w2agent/packages/github-action@v0.1.0
+- uses: w2agent/w2agent/packages/github-action@v0.1.0
   with:
     url: https://example.com
     formats: 'llms-txt,robots-txt'
@@ -147,7 +147,7 @@ your workflow does both.
 Reference `score`, `grade`, and `badge-url` in downstream steps by giving the action an `id`:
 
 ```yaml
-- uses: interskh/w2agent/packages/github-action@v0.1.0
+- uses: w2agent/w2agent/packages/github-action@v0.1.0
   id: audit
   with:
     url: https://example.com

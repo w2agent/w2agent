@@ -56,7 +56,7 @@ CI runs `pnpm lint`, `pnpm test` and `pnpm test:agent-surfaces` on Node 22.
 
 - This file is the single source of contributor instructions. `CLAUDE.md` only imports it (`@AGENTS.md`). Do not copy content into other agent files.
 - Everything in this repository is public. No machine paths, internal hostnames, private repo names or business strategy.
-- Repo URL: `https://github.com/interskh/w2agent`.
+- Repo URL: `https://github.com/w2agent/w2agent`.
 - Use `npx w2agent@<version>` with an explicit version in user-facing docs.
 - Other contributor details (adding platforms, test architecture): [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -9,8 +9,8 @@
 | Status | Published 2026-09-17 (v1.0) · revised 2026-10-16 (v1.1, rubric 3.1) · revised 2026-11-17 (v1.2, rubric 3.2) |
 | Created | 2026-05-07 (v0.1) · rationale layer 2026-05-08 (v0.2) · rubric 3.0 update 2026-09-14 (v1.0-draft) · published 2026-09-17 (v1.0) · rubric 3.1 revision 2026-10-16 (v1.1) · rubric 3.2 revision 2026-11-17 (v1.2) |
 | Implements | `w2agent-core` 0.2.0 audit engine, rubric 3.2 |
-| Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo ([github.com/interskh/w2agent](https://github.com/interskh/w2agent/blob/main/docs/spec/agent-readiness-spec-v1.0.md)); the w2agent platform renders a copy at `/methodology`, kept byte-identical by the platform's `scripts/sync-spec.ts` (`--check` exits non-zero when the copies differ) |
-| License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see [`docs/spec/LICENSE`](https://github.com/interskh/w2agent/blob/main/docs/spec/LICENSE). Engine code keeps the repo's own license |
+| Canonical copy | `docs/spec/agent-readiness-spec-v1.0.md` in the w2agent OSS repo ([github.com/w2agent/w2agent](https://github.com/w2agent/w2agent/blob/main/docs/spec/agent-readiness-spec-v1.0.md)); the w2agent platform renders a copy at `/methodology`, kept byte-identical by the platform's `scripts/sync-spec.ts` (`--check` exits non-zero when the copies differ) |
+| License | Spec text: Creative Commons Attribution 4.0 International (CC BY 4.0), see [`docs/spec/LICENSE`](https://github.com/w2agent/w2agent/blob/main/docs/spec/LICENSE). Engine code keeps the repo's own license |
 | Rubric changelog | `docs/RUBRIC-CHANGELOG.md` in the OSS repo: every check, weight and detection change per rubric version |
 | Calibration | **Pending.** Weights and grade thresholds are set by the rationale recorded per check, not by measured agent task success. Outcome calibration (improvement plan item P4-2) has not reported. When it does, weights may change, but only through a rubric version bump logged in `RUBRIC-CHANGELOG.md` (§2) |
 

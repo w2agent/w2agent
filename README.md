@@ -29,8 +29,8 @@ The agent checks `npm view w2agent@0.1.0 version` before the first `npx`. If npm
 Install the playbook for your agent:
 
 ```bash
-npx skills add interskh/w2agent                       # any agent that supports skills
-claude plugin marketplace add interskh/w2agent        # Claude Code
+npx skills add w2agent/w2agent                       # any agent that supports skills
+claude plugin marketplace add w2agent/w2agent        # Claude Code
 claude plugin install w2agent@w2agent
 ```
 

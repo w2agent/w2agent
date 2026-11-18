@@ -49,7 +49,7 @@ Add `--json` to `audit`, `integrate` and `login`. Stdout is then one JSON docume
 - `audit <url> --json` has no `ok` field. It prints the report (`overallScore`, `grade`, `categories` with `checks`). Success is exit code 0.
 - `integrate --json` success has `ok: true`, `outcome` (`planned` for `--dry-run`, `installed` for `--install`), `changes` (each `{action, path, reason}`, `path` relative to `--project-dir`; actions `create`, `skip`, `manual`), `warnings`, `postInstallSteps` and `next`. For `skip` and `manual`, read `reason` and act by hand.
 
-Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE.md
+Full contract: https://github.com/w2agent/w2agent/blob/main/docs/CLI-AGENT-MODE.md
 
 ## Local flow
 
@@ -74,7 +74,7 @@ Full contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE
 
 ### Production origin
 
-`--site-url` makes generated files name the production site instead of the local server. After generation it rewrites the crawl origin and its host and loopback forms. Any crawl host still left is reported in `warnings`. Check those by hand before the owner publishes. Details: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE.md
+`--site-url` makes generated files name the production site instead of the local server. After generation it rewrites the crawl origin and its host and loopback forms. Any crawl host still left is reported in `warnings`. Check those by hand before the owner publishes. Details: https://github.com/w2agent/w2agent/blob/main/docs/CLI-AGENT-MODE.md
 
 Find the origin in the project first. Places to look:
 
@@ -149,10 +149,10 @@ For a deployed public site when you will not run code. Before the first call, te
 
 You write the fixes yourself from the report's fix hints. The same rules apply: additive edits, real content only, nothing advertised that the site lacks, and a final report.
 
-Optional and separate: `agentize` runs a hosted agent server. It needs a login or API key. See https://github.com/interskh/w2agent/blob/main/docs/AGENTIZE.md
+Optional and separate: `agentize` runs a hosted agent server. It needs a login or API key. See https://github.com/w2agent/w2agent/blob/main/docs/AGENTIZE.md
 
 ## More docs
 
-- Playbook: https://github.com/interskh/w2agent/blob/main/docs/AGENT-PLAYBOOK.md
-- CLI contract: https://github.com/interskh/w2agent/blob/main/docs/CLI-AGENT-MODE.md
-- Install details: https://github.com/interskh/w2agent/blob/main/docs/INTEGRATE-INSTALL.md
+- Playbook: https://github.com/w2agent/w2agent/blob/main/docs/AGENT-PLAYBOOK.md
+- CLI contract: https://github.com/w2agent/w2agent/blob/main/docs/CLI-AGENT-MODE.md
+- Install details: https://github.com/w2agent/w2agent/blob/main/docs/INTEGRATE-INSTALL.md

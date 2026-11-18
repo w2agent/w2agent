@@ -29,8 +29,8 @@ npx w2agent@0.1.0 audit <local url> --json                 # 复审
 为你的 Agent 安装该 playbook：
 
 ```bash
-npx skills add interskh/w2agent                       # 任何支持 skills 的 Agent
-claude plugin marketplace add interskh/w2agent        # Claude Code
+npx skills add w2agent/w2agent                       # 任何支持 skills 的 Agent
+claude plugin marketplace add w2agent/w2agent        # Claude Code
 claude plugin install w2agent@w2agent
 ```
 

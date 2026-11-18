@@ -27,7 +27,7 @@ Full legal code: https://creativecommons.org/licenses/by/4.0/legalcode
 
 Suggested attribution:
   "Agent-Readiness Score Methodology Specification" by w2agent contributors,
-  https://github.com/interskh/w2agent, licensed under CC BY 4.0.
+  https://github.com/w2agent/w2agent, licensed under CC BY 4.0.
 
 Scope: this license covers the specification text only. Source code in this
 repository, including the reference implementation the specification
